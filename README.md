@@ -2,7 +2,7 @@
 
 ![Totale Tecnologia](https://img.shields.io/badge/TOTALE-TECNOLOGIA-F37C04?style=for-the-badge&labelColor=012869)
 
-# 📊 Totale KPI
+# 📊 Painel TOTALE
 
 ### Plataforma Corporativa de Gestão de Ativos e Indicadores
 
@@ -12,9 +12,9 @@
 [![Plotly](https://img.shields.io/badge/Plotly-3F4F75?style=flat&logo=plotly&logoColor=white)](https://plotly.com/)
 [![License](https://img.shields.io/badge/License-Proprietary-red?style=flat)](LICENSE)
 
-[🌐 Demo ao Vivo](https://totale-kpi.streamlit.app) · 
-[🐛 Reportar Bug](https://github.com/denisvick-dev/totale-kpi/issues) · 
-[✨ Solicitar Feature](https://github.com/denisvick-dev/totale-kpi/issues)
+[🌐 Demo ao Vivo](https://painel-totale.streamlit.app) · 
+[🐛 Reportar Bug](https://github.com/denisvick-dev/painel-totale/issues) · 
+[✨ Solicitar Feature](https://github.com/denisvick-dev/painel-totale/issues)
 
 </div>
 
@@ -22,7 +22,7 @@
 
 ## 📖 Sobre o Projeto
 
-O **Totale KPI** é uma plataforma corporativa completa desenvolvida em **Streamlit** para gestão de ativos, técnicos de campo e indicadores operacionais da Totale Tecnologia. Integra-se diretamente ao Google Sheets como backend, oferecendo dashboards interativos, controle de acesso por perfis e ferramentas de produtividade.
+O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Streamlit](https://streamlit.io/) para gestão de ativos, técnicos de campo e indicadores operacionais da Totale Tecnologia. Integra-se diretamente ao [Google Sheets](https://sheets.google.com/) como backend, oferecendo dashboards interativos, controle de acesso por perfis e ferramentas de produtividade.
 
 ### 🎯 Objetivos
 
@@ -39,7 +39,7 @@ O **Totale KPI** é uma plataforma corporativa completa desenvolvida em **Stream
 ### 📊 Dashboard Operacional
 - Panorama em tempo real com KPIs essenciais
 - Filtros dinâmicos por Base, Monitor e Situação
-- Gráficos interativos (pizza, barras, heatmap)
+- Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
 
 ### 👥 Gestão de Técnicos
@@ -127,13 +127,13 @@ O **Totale KPI** é uma plataforma corporativa completa desenvolvida em **Stream
 ## ⚙️ Instalação Local
 
 ### 1. Clone o Repositório
-\```bash
-git clone https://github.com/denisvick-dev/totale-kpi.git
-cd totale-kpi
-\```
+```bash
+git clone https://github.com/denisvick-dev/painel-totale.git
+cd painel-totale
+```
 
 ### 2. Crie o Ambiente Virtual
-\```bash
+```bash
 python -m venv .venv
 
 # Windows
@@ -141,19 +141,19 @@ python -m venv .venv
 
 # Linux/Mac
 source .venv/bin/activate
-\```
+```
 
 ### 3. Instale as Dependências
-\```bash
+```bash
 pip install -r requirements.txt
-\```
+```
 
 ### 4. Configure as Credenciais
 
 Copie o arquivo de exemplo:
-\```bash
+```bash
 cp .streamlit/secrets.example.toml .streamlit/secrets.toml
-\```
+```
 
 Edite o `.streamlit/secrets.toml` com suas credenciais reais do Google Cloud e usuários.
 
@@ -170,9 +170,9 @@ Edite o `.streamlit/secrets.toml` com suas credenciais reais do Google Cloud e u
 7. Preencha os dados no `secrets.toml`
 
 ### 6. Execute o Aplicativo
-\```bash
+```bash
 streamlit run streamlit_app.py
-\```
+```
 
 Acesse: **http://localhost:8501**
 
@@ -183,7 +183,7 @@ Acesse: **http://localhost:8501**
 ### Deploy Automático
 
 1. Fork este repositório
-2. Acesse [share.streamlit.io](https://share.streamlit.io)
+2. Acesse o [Streamlit Community Cloud](https://share.streamlit.io)
 3. Conecte sua conta GitHub
 4. Clique em **"New app"**
 5. Selecione o repositório e branch
@@ -199,8 +199,8 @@ Acesse: **http://localhost:8501**
 
 ## 📁 Estrutura do Projeto
 
-\```
-totale-kpi/
+```
+painel-totale/
 ├── 📄 streamlit_app.py           # Aplicação principal
 ├── 📄 componentes.py             # Componentes reutilizáveis
 ├── 📄 requirements.txt           # Dependências Python
@@ -222,7 +222,7 @@ totale-kpi/
 │   └── Oscine-Bold.ttf
 └── 📁 docs/
     └── screenshots/              # Documentação visual
-\```
+```
 
 ---
 
@@ -292,7 +292,7 @@ Utilizamos [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## 🐛 Reportar Bugs
 
-Encontrou um bug? Abra uma [issue](https://github.com/denisvick-dev/totale-kpi/issues) com:
+Encontrou um bug? Abra uma [issue](https://github.com/denisvick-dev/painel-totale/issues) com:
 
 - Descrição clara do problema
 - Passos para reproduzir
