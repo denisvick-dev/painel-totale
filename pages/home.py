@@ -13,7 +13,7 @@ from datetime import datetime
 # 🔧 BLOCO 1: CONFIGURAÇÕES GERAIS
 # =====================================
 
-VERSAO_SISTEMA = "2.1.0"
+VERSAO_SISTEMA = "3.0.0"
 AMBIENTE = "Produção"
 FUSO_HORARIO = ZoneInfo("America/Sao_Paulo")
 INTERVALO_REFRESH = 60  # segundos (60s é mais leve que 1s)
@@ -349,7 +349,7 @@ def render_footer():
     st.markdown(
         f"""
     <div class="footer">
-        🏢 <b>Portal TOTALE</b>
+        🏢 <b>Painel TOTALE</b>
         <span>|</span>
         🌐 {AMBIENTE}
         <span>|</span>
@@ -370,13 +370,6 @@ def render_footer():
 
 def main():
     """Função principal que orquestra toda a página."""
-
-    # Configuração da página
-    st.set_page_config(
-        page_title="Portal TOTALE",
-        page_icon="📊",
-        layout="wide",
-    )
 
     # Aplica estilos globais
     st.markdown(get_css_global(), unsafe_allow_html=True)

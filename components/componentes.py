@@ -8,12 +8,13 @@ Uso em qualquer página:
     from componentes import aplicar_estilo, render_kpi, render_insight
     aplicar_estilo()
 
-Características:
+Características unificadas:
 - Fonte corporativa global (Inter + Manrope)
-- Preservação de ícones Material Icons do Streamlit
 - Tema Plotly global corporativo
-- Componentes reutilizáveis (KPIs, insights, seções, hero, dataframes)
-- Hero com identidade AZUL + LARANJA corporativos
+- Sidebar TOTALE: Laranja metálico limpo (sem reflexo) + borda no sombreamento
+- Selecionador creme/pêssego com borda laranja (estilo pill)
+- Heros TOTALE (Gradiente Imagem + Azul com faixa laranja)
+- Componentes: KPIs, Insights, Dataframes, Nav Headers
 """
 
 from __future__ import annotations
@@ -59,10 +60,10 @@ _GOOGLE_FONTS_URLS = (
 )
 
 # ====================================================
-# PALETA CORPORATIVA
+# PALETA CORPORATIVA TOTALE
 # ====================================================
-COR_PRIMARIA = "#012869"  # Azul institucional
-COR_SECUNDARIA = "#F37C04"  # Laranja corporativo
+COR_PRIMARIA = "#012869"      # Azul institucional Totale
+COR_SECUNDARIA = "#F37C04"    # Laranja corporativo Totale
 COR_SUCESSO = "#059669"
 COR_ALERTA = "#DC2626"
 COR_NEUTRO = "#64748B"
@@ -71,8 +72,14 @@ COR_TEXTO_2 = "#374151"
 COR_TEXTO_3 = "#6B7280"
 COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
-COR_LARANJA_SUAVE = "#FDE68A" # Laranja suave para destaques
-COR_AZUL_SUAVE = "#DBEAFE" # Azul suave para destaques
+
+# Laranja metálico
+COR_LARANJA_METAL_1 = "#7A2E00"
+COR_LARANJA_METAL_2 = "#C24A00"
+COR_LARANJA_METAL_3 = "#E85D04"
+COR_LARANJA_METAL_4 = "#F37C04"
+COR_LARANJA_METAL_5 = "#FF9838"
+COR_LARANJA_METAL_6 = "#FFB86B"
 
 _TEMA_CORES: dict[str, str] = {
     "azul": COR_PRIMARIA,
@@ -192,7 +199,8 @@ def _build_links_html() -> str:
     )
     return (
         '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
-        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' + tags
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+        + tags
     )
 
 
@@ -323,108 +331,367 @@ def _injetar_css_global() -> None:
         ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 5px; }}
         ::-webkit-scrollbar-thumb:hover {{ background: #94A3B8; }}
 
-        /* ═════════════════════════════════════════════════
-        🎨 HERO CORPORATIVO — AZUL + LARANJA
-        ═════════════════════════════════════════════════ */
-        .hero-corp {{
+        """ + """
+
+        /* ═══════════════════════════════════════════════════
+        SIDEBAR — LARANJA METÁLICO + TEXTO ESCURO
+        ═══════════════════════════════════════════════════ */
+
+        section[data-testid="stSidebar"] {{
             background: linear-gradient(
-                120deg,
-                #012869 0%,
-                #023A9E 35%,
-                #1E5FCC 55%,
-                #E85D04 82%,
-                #F37C04 100%
-            );
-            padding: 34px 44px;
-            border-radius: var(--radius-lg);
-            color: white;
+                180deg,
+                #F6A158 0%,
+                #F37C04 20%,
+                #E86B03 48%,
+                #D85B00 76%,
+                #B94700 100%
+            ) !important;
+
+            /* Borda metálica e profundidade lateral */
+            border-right: 2px solid #943800 !important;
             box-shadow:
-                0 10px 40px rgba(1, 40, 105, 0.30),
-                inset 0 1px 0 rgba(255,255,255,0.15);
-            margin-bottom: 24px;
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.10);
-            min-height: 120px;
+                inset 1px 0 0 rgba(255, 235, 210, 0.52),
+                inset -1px 0 0 rgba(105, 37, 0, 0.35),
+                2px 0 0 rgba(114, 43, 0, 0.52),
+                6px 0 18px rgba(87, 31, 0, 0.22),
+                12px 0 32px rgba(87, 31, 0, 0.12) !important;
         }}
-        .hero-corp::before {{
-            content: '';
-            position: absolute;
-            top: 50%; right: -100px;
-            transform: translateY(-50%);
-            width: 420px; height: 420px;
-            background: radial-gradient(
-                circle at center,
-                rgba(255,180,90,0.35) 0%,
-                rgba(243,124,4,0.20) 35%,
-                rgba(232,93,4,0.08) 60%,
-                transparent 78%
-            );
-            border-radius: 50%;
-            pointer-events: none;
-            filter: blur(2px);
+
+        /* Remove qualquer reflexo/overlay antigo do sidebar */
+        section[data-testid="stSidebar"]::before,
+        section[data-testid="stSidebar"]::after {{
+            content: none !important;
+            display: none !important;
         }}
-        .hero-corp::after {{
-            content: '';
-            position: absolute;
-            top: 0; left: 30%;
-            width: 35%; height: 100%;
+
+        /* ───────────────────────────────────────────────────
+        TEXTOS GERAIS
+        ─────────────────────────────────────────────────── */
+
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] .stMarkdown,
+        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] span {
+            color: #3C1A08 !important;
+            font-weight: 600;
+            text-shadow: 0 1px 0 rgba(255, 235, 210, 0.20);
+        }
+
+        /* Títulos e cabeçalhos do sidebar */
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2,
+        section[data-testid="stSidebar"] h3,
+        section[data-testid="stSidebar"] h4 {
+            color: #2A1004 !important;
+            font-family: var(--font-titulo) !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.3px;
+            border-bottom: 2px solid rgba(126, 47, 0, 0.65) !important;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
+
+        /* Linhas divisórias */
+        section[data-testid="stSidebar"] hr {
+            border: none !important;
+            height: 1px !important;
             background: linear-gradient(
                 90deg,
                 transparent 0%,
-                rgba(255,255,255,0.06) 40%,
-                rgba(255,255,255,0.14) 50%,
-                rgba(255,255,255,0.06) 60%,
+                rgba(109, 40, 0, 0.42) 20%,
+                rgba(255, 238, 215, 0.55) 50%,
+                rgba(109, 40, 0, 0.42) 80%,
                 transparent 100%
+            ) !important;
+            margin: 12px 0 !important;
+        }
+
+        /* ───────────────────────────────────────────────────
+        NAVEGAÇÃO DE PÁGINAS
+        ─────────────────────────────────────────────────── */
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+            background: transparent !important;
+            padding: 6px 0 !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {
+            padding: 0 !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {
+            margin: 3px 12px !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a,
+        section[data-testid="stSidebar"] li a {
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-left: 3px solid transparent !important;
+            border-radius: 8px !important;
+            padding: 9px 12px !important;
+            transition: all 0.18s ease !important;
+        }
+
+        /* Texto dos itens não selecionados */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a span,
+        section[data-testid="stSidebar"] li a span,
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a p,
+        section[data-testid="stSidebar"] li a p {
+            color: #3C1A08 !important;
+            font-weight: 700 !important;
+            text-shadow: 0 1px 0 rgba(255, 235, 210, 0.22);
+        }
+
+        /* Hover */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover,
+        section[data-testid="stSidebar"] li a:hover {
+            background: rgba(255, 247, 237, 0.30) !important;
+            border-color: rgba(124, 48, 0, 0.18) !important;
+            border-left-color: #8E3500 !important;
+            transform: translateX(2px);
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover span,
+        section[data-testid="stSidebar"] li a:hover span {
+            color: #261003 !important;
+        }
+
+        /* ── Item ativo: creme/pêssego com borda laranja ── */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+        section[data-testid="stSidebar"] li a[aria-current="page"] {
+            background: linear-gradient(
+                90deg,
+                #FFF8F0 0%,
+                #FFE9D0 55%,
+                #FADBB9 100%
+            ) !important;
+            border: 1px solid rgba(153, 57, 0, 0.20) !important;
+            border-left: 4px solid #E85D04 !important;
+            border-radius: 8px !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.85),
+                0 2px 6px rgba(88, 31, 0, 0.20) !important;
+        }
+
+        /* Texto ativo */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] span,
+        section[data-testid="stSidebar"] li a[aria-current="page"] span,
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] p,
+        section[data-testid="stSidebar"] li a[aria-current="page"] p {
+            color: #722B00 !important;
+            font-weight: 800 !important;
+            text-shadow: none !important;
+        }
+
+        /* Ícones: inativo e ativo */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [data-testid*="Icon"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [class*="material"] {
+            color: #4A1D08 !important;
+        }
+
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [data-testid*="Icon"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [class*="material"],
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] svg {
+            color: #E85D04 !important;
+            fill: #E85D04 !important;
+        }
+
+        /* ───────────────────────────────────────────────────
+        BOTÕES DO SIDEBAR
+        ─────────────────────────────────────────────────── */
+
+        section[data-testid="stSidebar"] .stButton button,
+        section[data-testid="stSidebar"] .stDownloadButton button,
+        section[data-testid="stSidebar"] .stFormSubmitButton button {
+            background: linear-gradient(
+                180deg,
+                #FFF8F0 0%,
+                #FDE6CB 100%
+            ) !important;
+            color: #4A1D08 !important;
+            border: 1px solid rgba(125, 47, 0, 0.38) !important;
+            border-radius: 8px !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.90),
+                0 2px 4px rgba(82, 29, 0, 0.16) !important;
+            font-weight: 700 !important;
+        }
+
+        section[data-testid="stSidebar"] .stButton button:hover,
+        section[data-testid="stSidebar"] .stDownloadButton button:hover,
+        section[data-testid="stSidebar"] .stFormSubmitButton button:hover {
+            background: linear-gradient(
+                180deg,
+                #F58B24 0%,
+                #D95A00 100%
+            ) !important;
+            color: #FFFFFF !important;
+            border-color: #923700 !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 220, 180, 0.35),
+                0 3px 8px rgba(81, 29, 0, 0.25) !important;
+        }
+
+        /* ───────────────────────────────────────────────────
+        SELECTBOX E INPUTS
+        ─────────────────────────────────────────────────── */
+
+        section[data-testid="stSidebar"] [data-baseweb="select"] > div,
+        section[data-testid="stSidebar"] [data-baseweb="input"],
+        section[data-testid="stSidebar"] input,
+        section[data-testid="stSidebar"] textarea {
+            background: #FFF9F3 !important;
+            color: #3C1A08 !important;
+            border: 1px solid rgba(125, 47, 0, 0.36) !important;
+            border-radius: 8px !important;
+            box-shadow:
+                inset 0 1px 2px rgba(92, 32, 0, 0.10),
+                0 1px 2px rgba(255, 235, 210, 0.20) !important;
+        }
+
+        section[data-testid="stSidebar"] [data-baseweb="select"] * {
+            color: #3C1A08 !important;
+            text-shadow: none !important;
+        }
+
+        section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within,
+        section[data-testid="stSidebar"] [data-baseweb="input"]:focus-within {
+            border-color: #FFF0DD !important;
+            box-shadow:
+                0 0 0 3px rgba(255, 237, 214, 0.35),
+                0 0 0 5px rgba(139, 53, 0, 0.22) !important;
+        }
+
+        """ + f"""
+
+        /* ═════════════════════════════════════════════════
+        🎨 HERO 1 — Estilo Imagem TOTALE (azul → laranja)
+        ═════════════════════════════════════════════════ */
+        .hero-totale-1 {{
+            background: linear-gradient(90deg,
+                #012869 0%,
+                #1e40a6 35%,
+                #4c4c8a 55%,
+                #b86a2e 85%,
+                #d3751f 100%
             );
-            transform: skewX(-18deg);
-            pointer-events: none;
-        }}
-        .hero-content {{ position: relative; z-index: 2; }}
-        .hero-title {{
-            font-size: 36px;
-            font-weight: 800;
-            margin: 0;
-            letter-spacing: -0.8px;
-            font-family: var(--font-titulo) !important;
-            color: #FFFFFF;
-            text-shadow:
-                0 2px 4px rgba(0,0,0,0.45),
-                0 1px 2px rgba(0,0,0,0.30),
-                0 0 24px rgba(255,255,255,0.15);
+            border-radius: var(--radius-lg);
+            padding: 24px 32px;
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 16px;
+            min-height: 100px;
         }}
-        .hero-subtitle {{
-            font-size: 14px;
-            opacity: 0.95;
-            margin: 8px 0 0 0;
-            font-weight: 400;
-            color: #F8FAFC;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.40);
-            letter-spacing: 0.3px;
-        }}
-        .hero-badge {{
-            display: inline-block;
+        .hero-totale-1::after {{
+            content: '';
+            position: absolute;
+            top: -50%; bottom: -50%;
+            left: 45%; width: 60px;
             background: linear-gradient(
-                135deg,
-                rgba(255,255,255,0.25) 0%,
-                rgba(255,255,255,0.10) 100%
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.15),
+                transparent
             );
-            padding: 5px 16px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-            margin-top: 12px;
-            letter-spacing: 0.6px;
-            text-transform: uppercase;
+            transform: rotate(25deg);
+            pointer-events: none;
+        }}
+        .hero-t1-icon-box {{
+            background: white;
+            padding: 6px 8px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.35);
+            font-size: 28px;
+            line-height: 1;
+            position: relative;
+            z-index: 2;
+        }}
+        .hero-t1-content {{
+            position: relative;
+            z-index: 2;
+            color: white;
+        }}
+        .hero-t1-title {{
+            font-family: var(--font-titulo) !important;
+            font-size: 32px;
+            font-weight: 800;
+            margin: 0;
+            text-shadow: 1px 2px 4px rgba(0, 0, 0, 0.40);
+            line-height: 1.1;
             color: #FFFFFF;
-            border: 1px solid rgba(255,255,255,0.30);
-            backdrop-filter: blur(10px);
-            box-shadow:
-                0 2px 8px rgba(0,0,0,0.20),
-                inset 0 1px 0 rgba(255,255,255,0.25);
+        }}
+        .hero-t1-sub {{
+            font-family: var(--font-texto) !important;
+            font-size: 14px;
+            margin: 6px 0 0 0;
+            opacity: 0.95;
+            font-weight: 500;
+            color: #F8FAFC;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
+        }}
+
+        /* ═════════════════════════════════════════════════
+        🎨 HERO 2 — Azul Totale + faixa laranja
+        ═════════════════════════════════════════════════ */
+        .hero-totale-2 {{
+            background: var(--cor-primaria);
+            border-radius: var(--radius-lg);
+            padding: 28px 32px;
+            margin-bottom: 24px;
+            position: relative;
+            box-shadow: var(--shadow-md);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 100px;
+        }}
+        .hero-totale-2::after {{
+            content: '';
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 4px;
+            background: var(--cor-secundaria);
+        }}
+        .hero-totale-2::before {{
+            content: '';
+            position: absolute;
+            top: -20px; right: -20px;
+            width: 150px; height: 150px;
+            border-radius: 50%;
+            background: radial-gradient(
+                circle,
+                rgba(243, 124, 4, 0.18) 0%,
+                transparent 70%
+            );
+        }}
+        .hero-t2-title {{
+            font-family: var(--font-titulo) !important;
+            color: #FFFFFF;
+            font-size: 28px;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.5px;
+            position: relative;
+            z-index: 2;
+        }}
+        .hero-t2-sub {{
+            font-family: var(--font-texto) !important;
+            color: #CBD5E1;
+            font-size: 15px;
+            margin: 0;
+            position: relative;
+            z-index: 2;
         }}
 
         /* ═════════ KPI CARDS ═════════ */
@@ -494,7 +761,7 @@ def _injetar_css_global() -> None:
             border: 1px solid #D1D5DB;
         }}
 
-        /* ═════════ MATERIAL ICONS OVERRIDE ═════════ */
+        /* ═════════ MATERIAL ICONS ═════════ */
         .material-icons, .material-icons-outlined, .material-icons-round,
         .material-symbols-outlined, .material-symbols-rounded,
         [data-testid="stIconMaterial"],
@@ -519,9 +786,9 @@ def _injetar_css_global() -> None:
 
         section[data-testid="stSidebar"] [data-testid*="Icon"],
         section[data-testid="stSidebar"] [class*="material"] {{
-            font-size: 16px !important;
-            width: 16px !important;
-            height: 16px !important;
+            font-size: 18px !important;
+            width: 18px !important;
+            height: 18px !important;
         }}
         </style>
         """
@@ -533,12 +800,7 @@ def _injetar_css_global() -> None:
 # API PÚBLICA
 # ====================================================
 def aplicar_estilo() -> None:
-    """
-    Aplica fonte corporativa, tema Plotly e CSS global.
-
-    Reinjeta a cada rerun/página — não usa cache de sessão porque
-    o Streamlit descarta CSS entre navegações de páginas.
-    """
+    """Aplica fonte corporativa, tema Plotly e CSS global."""
     _configurar_plotly_global()
     _injetar_fontes_no_head_pai()
     _injetar_css_global()
@@ -556,10 +818,6 @@ def _resolver_cor_tema(tema: str) -> str:
 
 
 def _markdown_inline_para_html(texto: str) -> str:
-    """
-    Converte marcadores markdown inline básicos para HTML.
-    Suporta **negrito**, *itálico*, `código`.
-    """
     texto = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", texto)
     texto = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", texto)
     texto = re.sub(r"`([^`]+)`", r"<code>\1</code>", texto)
@@ -567,28 +825,106 @@ def _markdown_inline_para_html(texto: str) -> str:
 
 
 # ====================================================
-# COMPONENTES
+# HEROS
 # ====================================================
-def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
-    """Hero corporativo com gradiente azul → laranja."""
+def render_hero_totale_1(
+    titulo: str = "Portal TOTALE",
+    subtitulo: str = "Painéis de Produção, Indicadores e Gestão Estratégica",
+    icone: str = "📊",
+) -> None:
+    """Hero estilo imagem: gradiente azul → laranja com feixe de luz e ícone."""
     if not titulo:
-        raise ValueError("render_hero: 'titulo' não pode ser vazio.")
-
-    subtitulo_html = f'<p class="hero-subtitle">{subtitulo}</p>' if subtitulo else ""
-    badge_html = f'<span class="hero-badge">{badge}</span>' if badge else ""
-
-    html = (
-        f'<div class="hero-corp">'
-        f'<div class="hero-content">'
-        f'<h1 class="hero-title">{titulo}</h1>'
-        f'{subtitulo_html}'
-        f'{badge_html}'
-        f'</div>'
-        f'</div>'
+        raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
+    st.markdown(
+        f"""
+        <div class="hero-totale-1">
+            <div class="hero-t1-icon-box">{icone}</div>
+            <div class="hero-t1-content">
+                <h1 class="hero-t1-title">{titulo}</h1>
+                <p class="hero-t1-sub">{subtitulo}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown(html, unsafe_allow_html=True)
 
 
+def render_hero_totale_2(titulo: str, subtitulo: str = "") -> None:
+    """Hero azul Totale com faixa inferior laranja."""
+    if not titulo:
+        raise ValueError("render_hero_totale_2: 'titulo' não pode ser vazio.")
+    sub_html = f'<p class="hero-t2-sub">{subtitulo}</p>' if subtitulo else ""
+    st.markdown(
+        f"""
+        <div class="hero-totale-2">
+            <h1 class="hero-t2-title">{titulo}</h1>
+            {sub_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
+    """Alias legado → redireciona para hero_totale_1."""
+    extra = f" · {badge}" if badge else ""
+    render_hero_totale_1(titulo=titulo, subtitulo=f"{subtitulo}{extra}".strip(" ·"))
+
+
+# ====================================================
+# SIDEBAR
+# ====================================================
+def render_sidebar_nav_header(titulo: str) -> None:
+    """
+    Título divisor do menu (ex: MENU PRINCIPAL, CENTRAL DE PERFORMANCE).
+
+    Exemplo:
+        with st.sidebar:
+            render_sidebar_nav_header("MENU PRINCIPAL")
+    """
+    if not titulo:
+        return
+    st.sidebar.markdown(
+        f'<div class="sidebar-menu-header">{titulo}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_brand(
+    titulo: str,
+    subtitulo: str = "",
+    icone: str = "🏢",
+) -> None:
+    """Cabeçalho de marca no topo do sidebar."""
+    if not titulo:
+        raise ValueError("render_sidebar_brand: 'titulo' não pode ser vazio.")
+    sub_html = (
+        f'<p class="sidebar-brand-subtitle">{subtitulo}</p>' if subtitulo else ""
+    )
+    st.sidebar.markdown(
+        f"""
+        <div class="sidebar-brand">
+            <h1 class="sidebar-brand-title">{icone} {titulo}</h1>
+            {sub_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_section(label: str) -> None:
+    """Label de seção para agrupar filtros no sidebar."""
+    if not label:
+        return
+    st.sidebar.markdown(
+        f'<div class="sidebar-section-label">{label}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ====================================================
+# COMPONENTES DE CONTEÚDO
+# ====================================================
 def render_section(titulo: str, divider: str = "gray") -> None:
     st.subheader(titulo, divider=divider)  # type: ignore[arg-type]
 
@@ -657,20 +993,14 @@ def render_kpi_sm(
 
 
 def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
-    """
-    Caixa de insight/alerta. Aceita markdown inline: **negrito**, *itálico*, `código`.
-    """
     if not msg:
         return
-
     config = _INSIGHT_CONFIG.get(tipo)
     if config is None:
         logger.warning("Tipo desconhecido: '%s'. Usando 'info'.", tipo)
         config = _INSIGHT_CONFIG["info"]
-
     bg, texto, borda, icone = config
     msg_html = _markdown_inline_para_html(msg)
-
     st.markdown(
         f"""
         <div style="background:{bg};color:{texto};
@@ -694,14 +1024,11 @@ def render_dataframe(
 ) -> None:
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"Esperado pd.DataFrame, recebido {type(df).__name__}.")
-
     if df.empty:
         st.info("Nenhum dado disponível para exibição.")
         return
-
     if titulo:
         st.markdown(f"**{icone} {titulo}**")
-
     if fmt:
         fmt_valido: FmtDict = {c: f for c, f in fmt.items() if c in df.columns}
         if fmt_valido:
@@ -716,5 +1043,4 @@ def render_dataframe(
                 return
             except Exception:
                 logger.exception("Falha ao formatar. Exibindo sem formatação.")
-
     st.dataframe(df, height=height, use_container_width=True, hide_index=True, **kwargs)
