@@ -155,8 +155,6 @@ def main():
     qtde_os = st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="📊")
     consultivo = st.Page("pages/consultivo.py", title="Consultivos", icon="📋")
     gestao_ativos = st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷")
-    visao_tec_prod = st.Page("pages/visao_tecnico_prod.py", title="Produção", icon="🛠️")
-    visao_tec_cons = st.Page("pages/visao_tecnico_cons.py", title="Consultivo", icon="🗣️")
     rota_inicial = st.Page("pages/rota_inicial.py", title="Rota Inicial", icon="🗺️")
     rota_geral = st.Page("pages/rota_geral.py", title="Rota Geral", icon="🗺️")
     volumetria = st.Page("pages/volumetria.py", title="Volumetria", icon="📊")
@@ -175,12 +173,13 @@ def main():
     quebra_resumo = st.Page("old/quebra_resumo.py", title="Resumo", icon="📉")
     teste = st.Page("old/diagnostico_abas.py", title="Teste")
     toml = st.Page("old/convert_toml.py", title="TOML")
+    visao_tec_prod = st.Page("pages/visao_tecnico_prod.py", title="Produção", icon="🛠️")
+    visao_tec_cons = st.Page("pages/visao_tecnico_cons.py", title="Consultivo", icon="🗣️")
 
     # Agrupamento das seções
     paginas_agrupadas = {
         "MENU PRINCIPAL": [home_page, envio_excel],
         "CENTRAL DE PERFORMANCE": [ranking_pontos, qtde_os, consultivo],
-        "VISÃO POR TÉCNICO": [visao_tec_prod, visao_tec_cons],
         "COMPILADO": [gestao_ativos],
         "DISPAROS DIÁRIOS": [rota_inicial, rota_geral, volumetria, retorno, p_atendimento],
         "QUEBRA": [quebra_geral, quebra_unif],
