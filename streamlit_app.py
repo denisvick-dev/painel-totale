@@ -385,21 +385,6 @@ def main():
     retorno = st.Page("pages/retorno.py", title="Retornos", icon="📜")
     p_atendimento = st.Page("pages/p_atendimento.py", title="1º Atendimento", icon="🚙")
     quebra_geral = st.Page("pages/quebra_geral.py", title="Geral", icon="📉")
-<<<<<<< HEAD
-=======
-    
-    # ═══════════════════════════════════════════════════════
-    # PÁGINAS ANTIGAS
-    # ═══════════════════════════════════════════════════════
-    quebra = st.Page("old/quebra.py", title="Geral", icon="📉")
-    quebra_pme = st.Page("old/quebra_pme.py", title="Visão PME", icon="📉")
-    quebra_mig = st.Page("old/quebra_migracao.py", title="Visão Migração", icon="📉")
-    quebra_resumo = st.Page("old/quebra_resumo.py", title="Resumo", icon="📉")
-    teste = st.Page("old/diagnostico_abas.py", title="Teste")
-    toml = st.Page("old/convert_toml.py", title="TOML")
-    visao_tec_prod = st.Page("old/visao_tecnico_prod.py", title="Produção", icon="🛠️")
-    visao_tec_cons = st.Page("old/visao_tecnico_cons.py", title="Consultivo", icon="🗣️")
->>>>>>> ef54824a58152b8b036f3db87bef2b8437f3d71d
 
     paginas_agrupadas = {
         "MENU PRINCIPAL": [home_page, envio_excel],
