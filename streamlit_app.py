@@ -173,8 +173,8 @@ def main():
     quebra_resumo = st.Page("old/quebra_resumo.py", title="Resumo", icon="📉")
     teste = st.Page("old/diagnostico_abas.py", title="Teste")
     toml = st.Page("old/convert_toml.py", title="TOML")
-    visao_tec_prod = st.Page("pages/visao_tecnico_prod.py", title="Produção", icon="🛠️")
-    visao_tec_cons = st.Page("pages/visao_tecnico_cons.py", title="Consultivo", icon="🗣️")
+    visao_tec_prod = st.Page("old/visao_tecnico_prod.py", title="Produção", icon="🛠️")
+    visao_tec_cons = st.Page("old/visao_tecnico_cons.py", title="Consultivo", icon="🗣️")
 
     # Agrupamento das seções
     paginas_agrupadas = {
