@@ -1,215 +1,90 @@
-# VERSÃO CLEAN: PROJEÇÕES ORDENADAS (REAIS PRIMEIRO, PROJEÇÕES DEPOIS)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from plotly.graph_objects import Figure
 from io import BytesIO
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from streamlit_gsheets import GSheetsConnection
 
+from components.componentes import (
+    aplicar_estilo,
+    render_hero_totale_2,
+    render_kpi,
+    render_insight,
+    render_section_header,
+    FONTE_TEXTO,
+    FONTE_TITULO,
+    COR_PRIMARIA,
+    COR_TEXTO_3,
+)
+
 # ====================================================
-# BLOCO 1: CONFIGURAÇÕES E UTILITÁRIOS
+# BLOCO 1: CONFIGURAÇÕES E INICIALIZAÇÃO
 # ====================================================
-st.set_page_config(page_title="Total de Consultivos", page_icon="📋", layout="wide")
+try:
+    st.set_page_config(page_title="Total de Consultivos", page_icon="📋", layout="wide")
+except Exception:
+    pass
+
+aplicar_estilo()
+
+# ── CSS LOCAL DA PÁGINA (Cores da tabela e colunas específicas) ──
+st.markdown(
+    f"""
+    <style>
+    /* Estilo do SideBar Filtros Específicos */
+    [data-testid="stSidebar"] [data-testid="stDateInput"] input {{
+        border-radius: 8px !important;
+        border: 1.5px solid #CBD5E1 !important;
+        font-weight: 600 !important;
+        color: #012869 !important;
+        font-size: 13px !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stDateInput"] input:focus {{
+        border-color: #F37C04 !important;
+        box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.15) !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+        font-size: 13px !important;
+        padding: 4px 0 !important;
+    }}
+
+    /* Estilo Tabela HTML DOM */
+    .corp-table thead th {{
+        background: linear-gradient(180deg, #012869 0%, #1E40AF 100%) !important;
+        color: #FFFFFF !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.04em !important;
+        font-size: 11px !important;
+        border-right: 1px solid rgba(255,255,255,0.12) !important;
+    }}
+    .corp-table td.col-real {{
+        background: #F8FAFC !important;
+        font-weight: 700 !important;
+    }}
+    .corp-table td.col-proj {{
+        background: #FEF9C3 !important;
+        color: #854D0E !important;
+        font-weight: 700 !important;
+    }}
+    .corp-table td.meta-batida {{
+        background: #DCFCE7 !important;
+        color: #166534 !important;
+        font-weight: 700 !important;
+    }}
+    .corp-table td.num {{
+        text-align: right !important;
+        font-variant-numeric: tabular-nums !important;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 class Configuracoes:
     url_ativos = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-    cores_grafico = ["#0EA5E9", "#22C55E", "#A855F7", "#F97316", "#EF4444", "#3B82F6"]
-    temas_card = {
-        "amarelo": {
-            "fundo": "#FEF9C3",
-            "texto": "#854D0E",
-            "borda": "#EAB308",
-            "titulo": "#A16207",
-        },
-        "azul": {
-            "fundo": "#F0F9FF",
-            "texto": "#0369A1",
-            "borda": "#0EA5E9",
-            "titulo": "#075985",
-        },
-        "verde": {
-            "fundo": "#F0FDF4",
-            "texto": "#15803D",
-            "borda": "#22C55E",
-            "titulo": "#166534",
-        },
-        "roxo": {
-            "fundo": "#FAF5FF",
-            "texto": "#7E22CE",
-            "borda": "#A855F7",
-            "titulo": "#6B21A8",
-        },
-        "cinza": {
-            "fundo": "#F8FAFC",
-            "texto": "#334155",
-            "borda": "#94A3B8",
-            "titulo": "#64748B",
-        },
-        "escuro": {
-            "fundo": "#1E293B",
-            "texto": "#FFFFFF",
-            "borda": "#475569",
-            "titulo": "#E2E8F0",
-        },
-        "vermelho": {
-            "fundo": "#FEF2F2",
-            "texto": "#B91C1C",
-            "borda": "#EF4444",
-            "titulo": "#991B1B",
-        },
-    }
 
-
-class ComponenteVisual:
-    @staticmethod
-    def criar_card(
-        titulo: str, valor: str, tema: str = "azul", delta: Optional[str] = None
-    ) -> str:
-        cores = Configuracoes.temas_card.get(tema, Configuracoes.temas_card["azul"])
-        delta_html = ""
-        if delta:
-            cor_delta = (
-                "#22c55e"
-                if delta.startswith(("+", "▲"))
-                else (
-                    "#ef4444"
-                    if delta.startswith(("-", "▼"))
-                    else "#0ea5e9" if "Total" in delta else "#94a3b8"
-                )
-            )
-            simbolo = (
-                "▲"
-                if delta.startswith("+")
-                else "▼" if delta.startswith("-") else "◴" if "Total" in delta else "■"
-            )
-            delta_html = f'<span style="font-size:13px; color:{cor_delta}; margin-left:10px;">{simbolo} {delta}</span>'
-
-        return f"""
-        <div style="background-color:{cores['fundo']}; padding:20px; border-radius:10px; border-left:6px solid {cores['borda']}; box-shadow:0 4px 6px rgba(0,0,0,0.1); margin-bottom:10px;">
-            <p style="margin:0; font-size:13px; color:{cores['titulo']};"><b>{titulo}</b></p>
-            <h2 style="margin:5px 0 0 0; color:{cores['texto']}; font-weight:900; font-size:28px;">{valor}{delta_html}</h2>
-        </div>"""
-        
-    @staticmethod        
-    def aplicar_capa():
-        st.markdown(
-            """
-        <style>
-    /* CRIAÇÃO DE ESTILOS PARA A HERO (barra de títulos) */
-            .hero-corp {
-            background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);
-            padding: 32px 40px;
-            border-radius: 16px;
-            color: white;
-            box-shadow: 0 10px 40px rgba(1, 40, 105, 0.25);
-            margin-bottom: 24px;
-            position: relative;
-            overflow: hidden;
-        }
-        .hero-corp::before {
-            content: '';
-            position: absolute;
-            top: -50%; right: -10%;
-            width: 400px; height: 400px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 50%;
-        }
-        .hero-title {
-            font-size: 34px;
-            font-weight: 800;
-            margin: 0;
-            letter-spacing: -0.5px;
-            font-family: 'Segoe UI', -apple-system, sans-serif;
-        }
-        .hero-subtitle {
-            font-size: 15px;
-            opacity: 0.92;
-            margin: 6px 0 0 0;
-            font-weight: 400;
-        }
-        .hero-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.18);
-            padding: 4px 14px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-top: 12px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-        
-            .kpi-card {
-                padding: 1.4rem 1.6rem; border-radius: 1rem; border-left: 5px solid;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-                min-height: 110px; display: flex; flex-direction: column; justify-content: center;
-            }
-            .kpi-val  { font-size: 1.85rem; font-weight: 800; line-height: 1.1; margin: 0.3rem 0; }
-            .kpi-lab  { font-size: 0.72rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-            .kpi-sub  { font-size: 0.78rem; margin-top: 0.2rem; }
-            .section-header {
-                display: flex; align-items: center; gap: 0.6rem;
-                margin: 1.5rem 0 0.8rem; padding-bottom: 0.4rem;
-                border-bottom: 2px solid #E2E8F0;
-            }
-            .section-header h3 { margin: 0; font-size: 1.1rem; color: #0F172A; }
-            
-            /* ═══════════════════════════════════════════
-            SIDEBAR — Estilo dos filtros
-            ═══════════════════════════════════════════ */
-            [data-testid="stSidebar"] {
-                background: linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%);
-            }
-            [data-testid="stSidebar"] h3 {
-                color: #012869;
-                font-weight: 700;
-                font-size: 14px;
-                margin-top: 0.5rem;
-            }
-            [data-testid="stSidebar"] [data-testid="stDateInput"] input {
-                border-radius: 8px !important;
-                border: 1.5px solid #CBD5E1 !important;
-                font-weight: 600 !important;
-                color: #012869 !important;
-                font-size: 13px !important;
-            }
-            [data-testid="stSidebar"] [data-testid="stDateInput"] input:focus {
-                border-color: #F37C04 !important;
-                box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.15) !important;
-            }
-            [data-testid="stSidebar"] [data-testid="stRadio"] label {
-                font-size: 13px !important;
-                padding: 4px 0 !important;
-            }
-            [data-testid="stSidebar"] .stSelectbox label {
-                color: #012869 !important;
-                font-weight: 600 !important;
-                font-size: 13px !important;
-            }
-        </style>
-        """,
-            unsafe_allow_html=True,
-        )
-        
-    @staticmethod
-    def colorir_metas(valor: Any) -> str:
-        """Destaca valores numéricos maiores que 350."""
-        try:
-            numero = pd.to_numeric(valor, errors="coerce")
-
-            if pd.notna(numero) and numero > 350:
-                return (
-                    "background-color: #BBF7D0; "
-                    "color: #166534; "
-                    "font-weight: bold;"
-                )
-        except (TypeError, ValueError):
-            pass
-
-        # Mantém a formatação original da coluna
-        return ""
 
 class Calculos:
     @staticmethod
@@ -226,7 +101,7 @@ class Calculos:
         return f"{(valor / geral) * 100:.1f}% do Total"
 
     @staticmethod
-    def fator_projecao(df: pd.DataFrame) -> tuple:
+    def fator_projecao(df: pd.DataFrame) -> tuple[float, int]:
         if df.empty or "DATA" not in df.columns or df["DATA"].isna().all():
             return 1.0, 0
         hoje = pd.Timestamp.today().normalize()
@@ -245,18 +120,19 @@ class Calculos:
         )
         faltantes = dias_uteis_total - dias_decorridos
 
-        return (
+        fator = (
             dias_uteis_total / dias_decorridos
             if dias_decorridos > 0 and faltantes > 0
             else 1.0
-        ), faltantes
+        )
+        return fator, faltantes
 
 
 # ====================================================
 # BLOCO 2: PREPARAÇÃO DE DADOS
 # ====================================================
 @st.cache_data(ttl=300)
-def carregar_hierarquia():
+def carregar_hierarquia() -> pd.DataFrame:
     conn = st.connection("gsheets", type=GSheetsConnection)
     df = conn.read(spreadsheet=Configuracoes.url_ativos, ttl=0)
     df.columns = df.columns.str.strip()
@@ -286,23 +162,22 @@ def preparar_ranking(
     }
     res = res.rename(columns=renomeios).fillna(0)
 
-    # Adiciona Posição
-    res = res.sort_values(
-        "Total Consultivos" if "Total Consultivos" in res.columns else "Total Produtos",
-        ascending=False,
+    # Ordena
+    col_sort = (
+        "Total Consultivos" if "Total Consultivos" in res.columns else "Total Produtos"
     )
+    if col_sort in res.columns:
+        res = res.sort_values(col_sort, ascending=False)
     res.insert(0, "Posição", range(1, len(res) + 1))
 
-    # Lógica de Ordenação: 1º Reais, 2º Projeções, 3º Demais Produtos
+    # Lógica de Ordenação das Colunas: 1º Reais, 2º Projeções, 3º Demais
     nova_ordem = ["Posição"] + colunas_grupo
 
-    # Adiciona os Reais
     if "Total Consultivos" in res.columns:
         nova_ordem.append("Total Consultivos")
     if "Total Produtos" in res.columns:
         nova_ordem.append("Total Produtos")
 
-    # Adiciona as Projeções
     if "Total Consultivos" in res.columns and fator_proj > 1.0:
         res["Proj. Consultivos"] = (res["Total Consultivos"] * fator_proj).astype(int)
         nova_ordem.append("Proj. Consultivos")
@@ -311,45 +186,125 @@ def preparar_ranking(
         res["Proj. Produtos"] = (res["Total Produtos"] * fator_proj).astype(int)
         nova_ordem.append("Proj. Produtos")
 
-    # Adiciona os demais produtos (Mesh, TV, Virtua)
     for col in ["Mesh", "TV Box", "Virtua"]:
         if col in res.columns:
             nova_ordem.append(col)
 
-    # Converte métricas para int e aplica nova ordem
     metricas = [c for c in nova_ordem if c not in ["Posição"] + colunas_grupo]
     res[metricas] = res[metricas].astype(int)
     return res[nova_ordem]
 
 
+def render_tabela_cons(
+    df: pd.DataFrame,
+    height: int = 450,
+    max_rows: int = 300,
+    limite_destaque: float = 350,
+    colunas_destaque: list[str] | None = None,
+) -> None:
+    """Tabela HTML corporativa customizada para os Consultivos."""
+    if df.empty:
+        render_insight("Nenhum dado disponível.", "info")
+        return
+
+    df_show = df.head(max_rows).copy()
+    cols = list(df_show.columns)
+
+    if colunas_destaque is None:
+        colunas_destaque = ["Total Produtos"]
+
+    def _fmt(val: Any, col: str) -> str:
+        if pd.isna(val):
+            return "—"
+        if (
+            "Total" in col
+            or "Proj" in col
+            or col in ("Mesh", "TV Box", "Virtua", "Posição")
+        ):
+            try:
+                return f"{float(val):,.0f}".replace(",", ".")
+            except (ValueError, TypeError):
+                return str(val)
+        return str(val)
+
+    def _cls(val: Any, col: str) -> str:
+        classes: list[str] = []
+
+        if (
+            "Total" in col
+            or "Proj" in col
+            or col in ("Mesh", "TV Box", "Virtua", "Posição")
+        ):
+            classes.append("num")
+
+        if col in ("Total Consultivos", "Total Produtos"):
+            classes.append("col-real")
+
+        if "Proj." in col:
+            classes.append("col-proj")
+
+        if col in colunas_destaque:
+            try:
+                if float(val) > limite_destaque:
+                    classes.append("meta-batida")
+            except (ValueError, TypeError):
+                pass
+
+        return " ".join(classes)
+
+    # ── Montagem do HTML (estava faltando) ──
+    header = "".join(f"<th>{c}</th>" for c in cols)
+    body_rows: list[str] = []
+
+    for _, row in df_show.iterrows():
+        tds: list[str] = []
+        for c in cols:
+            v = row[c]
+            display = (
+                _fmt(v, c)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            cls = _cls(v, c)
+            attr = f' class="{cls}"' if cls else ""
+            tds.append(f"<td{attr}>{display}</td>")
+        body_rows.append(f"<tr>{''.join(tds)}</tr>")
+
+    html = f"""
+    <div class="corp-table-wrap" style="max-height:{int(height)}px;">
+      <table class="corp-table">
+        <thead><tr>{header}</tr></thead>
+        <tbody>{''.join(body_rows)}</tbody>
+      </table>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+    if len(df) > max_rows:
+        st.caption(f"Exibindo {max_rows} de {len(df)} registros.")
+
+
 # ====================================================
 # BLOCO 3: CARREGAMENTO PRINCIPAL E TRATAMENTO
 # ====================================================
-ComponenteVisual.aplicar_capa()
-st.markdown(
-        f"""
-        <div class="hero-corp">
-            <div style="position:relative;z-index:2;">
-                <h1 class="hero-title">📋 Central de Performance | Painel de Consultivos e Produtos</h1>
-                <p class="hero-subtitle">
-                    Análise de mix de produtos, consultivos realizados e oportunidades comerciais
-                </p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+render_hero_totale_2(
+    titulo="📋 Painel de Consultivos e Produtos",
+    subtitulo="Análise de mix de produtos, consultivos realizados e oportunidades comerciais",
+    badge_texto="Atualização em tempo real",
+    badge_tipo="info",
+)
 
 if (
     "dados_cons" not in st.session_state
     or "Consultivo" not in st.session_state["dados_cons"]
 ):
-    st.warning("⚠️ Carregue os dados na aba principal primeiro.")
+    render_insight("Carregue os dados na aba principal primeiro.", "alerta")
     st.stop()
 
 df = st.session_state["dados_cons"]["Consultivo"].copy()
 
-# Tratamento de Colunas Numéricas Iniciais
+# Tratamento Numérico
 mapa = {
     "QTDE_CONSULTIVO": "Qtde. Cons.",
     "QTDE_PRODUTOS": "Qtde. Prod.",
@@ -368,123 +323,68 @@ try:
     df_ativos = carregar_hierarquia()
     df["LOGIN NETSALES"] = df.get("LOGIN NETSALES", "").astype(str).str.strip()
     df = df.drop(columns=["Monitor", "Base"], errors="ignore")
-    # Outer merge: traz todos da base + todos da planilha do google (mesmo zerados)
+    # Outer merge
     df = pd.merge(
         df, df_ativos, left_on="LOGIN NETSALES", right_on="Login", how="outer"
     )
 except Exception as e:
     st.error(f"Erro ao carregar hierarquia: {e}")
 
-# 1. Arruma os Logins (Se não tem Netsales, pega o Login do GSheets)
 df["LOGIN NETSALES"] = df["LOGIN NETSALES"].fillna(df["Login"]).fillna("SEM LOGIN")
 
-# 2. Arruma os Nomes (Se não tem Vendedor na base, pega Técnico do GSheets, senão pega Login)
 if "VENDEDOR" not in df.columns:
     df["VENDEDOR"] = np.nan
-
 df["VENDEDOR"] = (
     df["VENDEDOR"]
     .fillna(df["Técnico"])
     .fillna(df["LOGIN NETSALES"])
     .fillna("Nome Não Cadastrado")
 )
-
-# 3. Arruma a Hierarquia
 df["Monitor"] = df["Monitor"].fillna("Não Identificado")
 df["Base"] = df["Base"].fillna("Não Identificada")
 
-# 4. Preenche com ZERO as métricas dos técnicos zerados puxados do GSheets
-colunas_metricas = [
-    "Qtde. Cons.",
-    "Qtde. Prod.",
-    "Qtde. Mesh",
-    "Qtde. TV",
-    "Qtde. Virtua",
-]
-for col in colunas_metricas:
+for col in ["Qtde. Cons.", "Qtde. Prod.", "Qtde. Mesh", "Qtde. TV", "Qtde. Virtua"]:
     if col in df.columns:
         df[col] = df[col].fillna(0).astype(int)
+
 
 # ====================================================
 # BLOCO 4: FILTROS E CÁLCULOS GLOBAIS
 # ====================================================
-# Memória dos Totais (Sem Filtro) para % de Share
 t_cons, t_prod = df["Qtde. Cons."].sum(), df["Qtde. Prod."].sum()
-t_mesh, t_tv, t_vir = (
-    df["Qtde. Mesh"].sum(),
-    df["Qtde. TV"].sum(),
-    df["Qtde. Virtua"].sum(),
-)
 
 st.sidebar.header("🎯 Filtros Avançados")
 
-# ═══════════════════════════════════════════════════
-# 📅 FILTRO DE CALENDÁRIO INTELIGENTE
-# ═══════════════════════════════════════════════════
+# ── FILTRO DE CALENDÁRIO ──
 st.sidebar.markdown("### 📅 Período")
-
 if "DATA" in df.columns and df["DATA"].notna().any():
-
-    # Garante que a coluna esteja em formato datetime
-    df["DATA"] = pd.to_datetime(
-        df["DATA"],
-        errors="coerce",
-        dayfirst=True,
-    )
-
+    df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
     datas_validas = df["DATA"].dropna()
-
     data_min = datas_validas.min().date()
     data_max = datas_validas.max().date()
     hoje = pd.Timestamp.today().normalize().date()
 
-    # Não permite que a referência ultrapasse a última data disponível.
     data_referencia = min(hoje, data_max)
 
     def limitar_data(data):
-        """Mantém a data dentro dos limites disponíveis."""
         return max(data_min, min(data, data_max))
 
     def obter_periodo(nome_preset: str):
-        """
-        Calcula automaticamente o intervalo conforme o atalho.
-
-        Se não houver dados no mês atual, o preset 'Mês atual'
-        utiliza o mês da última data disponível.
-        """
         if nome_preset == "Mês atual":
             inicio = data_referencia.replace(day=1)
             fim = data_referencia
-
         elif nome_preset == "Última semana":
-            # Intervalo móvel de 7 dias, incluindo a data de referência
-            inicio = (
-                pd.Timestamp(data_referencia) - pd.Timedelta(days=6)
-            ).date()
+            inicio = (pd.Timestamp(data_referencia) - pd.Timedelta(days=6)).date()
             fim = data_referencia
-
         elif nome_preset == "Últimos 15 dias":
-            # Intervalo móvel de 15 dias, incluindo a data de referência
-            inicio = (
-                pd.Timestamp(data_referencia) - pd.Timedelta(days=14)
-            ).date()
+            inicio = (pd.Timestamp(data_referencia) - pd.Timedelta(days=14)).date()
             fim = data_referencia
-
         elif nome_preset == "Todo período":
             inicio = data_min
             fim = data_max
-
         else:
-            # Personalizado: mantém o período selecionado pelo usuário
-            periodo_atual = st.session_state.get(
-                "filtro_periodo",
-                (data_min, data_max),
-            )
-
-            if (
-                isinstance(periodo_atual, (tuple, list))
-                and len(periodo_atual) == 2
-            ):
+            periodo_atual = st.session_state.get("filtro_periodo", (data_min, data_max))
+            if isinstance(periodo_atual, (tuple, list)) and len(periodo_atual) == 2:
                 inicio = pd.Timestamp(periodo_atual[0]).date()
                 fim = pd.Timestamp(periodo_atual[1]).date()
             else:
@@ -493,15 +393,10 @@ if "DATA" in df.columns and df["DATA"].notna().any():
 
         inicio = limitar_data(inicio)
         fim = limitar_data(fim)
-
         if inicio > fim:
             inicio = fim
-
         return inicio, fim
 
-    # ------------------------------------------------
-    # Atalhos
-    # ------------------------------------------------
     preset = st.sidebar.radio(
         "Atalho:",
         [
@@ -515,51 +410,23 @@ if "DATA" in df.columns and df["DATA"].notna().any():
         key="calendario_preset",
     )
 
-    # Detecta mudança de dados, de dia ou de preset
-    assinatura_datas = (
-        data_min.isoformat(),
-        data_max.isoformat(),
-        hoje.isoformat(),
-    )
-
-    assinatura_anterior = st.session_state.get(
-        "_assinatura_datas_calendario"
-    )
-    preset_anterior = st.session_state.get(
-        "_preset_calendario_aplicado"
-    )
+    assinatura_datas = (data_min.isoformat(), data_max.isoformat(), hoje.isoformat())
+    assinatura_anterior = st.session_state.get("_assinatura_datas_calendario")
+    preset_anterior = st.session_state.get("_preset_calendario_aplicado")
 
     dados_mudaram = assinatura_anterior != assinatura_datas
     preset_mudou = preset_anterior != preset
 
-    # Atualiza automaticamente o date_input quando:
-    # 1. O usuário muda o atalho;
-    # 2. As datas disponíveis mudam;
-    # 3. O dia atual muda.
-    if (
-        "filtro_periodo" not in st.session_state
-        or preset_mudou
-        or dados_mudaram
-    ):
+    if "filtro_periodo" not in st.session_state or preset_mudou or dados_mudaram:
         st.session_state["filtro_periodo"] = obter_periodo(preset)
 
     st.session_state["_assinatura_datas_calendario"] = assinatura_datas
     st.session_state["_preset_calendario_aplicado"] = preset
 
     def marcar_como_personalizado():
-        """
-        Quando o usuário altera manualmente o calendário,
-        muda o atalho automaticamente para Personalizado.
-        """
-        if (
-            st.session_state.get("calendario_preset")
-            != "Personalizado"
-        ):
+        if st.session_state.get("calendario_preset") != "Personalizado":
             st.session_state["calendario_preset"] = "Personalizado"
 
-    # ------------------------------------------------
-    # Calendário
-    # ------------------------------------------------
     periodo = st.sidebar.date_input(
         "Selecione o intervalo:",
         min_value=data_min,
@@ -569,88 +436,48 @@ if "DATA" in df.columns and df["DATA"].notna().any():
         on_change=marcar_como_personalizado,
     )
 
-    # Preserva técnicos vindos da hierarquia que não possuem DATA.
-    # Isso é importante porque seu merge é outer.
     manter_sem_data = st.sidebar.checkbox(
         "Manter técnicos sem movimentação",
         value=True,
-        help=(
-            "Mantém no ranking os técnicos da hierarquia que não possuem "
-            "registros no período selecionado."
-        ),
+        help="Mantém no ranking os técnicos da hierarquia que não possuem registros no período selecionado.",
         key="manter_tecnicos_sem_data",
     )
 
-    # ------------------------------------------------
-    # Aplicação do filtro
-    # ------------------------------------------------
-    if (
-        isinstance(periodo, (tuple, list))
-        and len(periodo) == 2
-    ):
+    if isinstance(periodo, (tuple, list)) and len(periodo) == 2:
         data_ini = pd.Timestamp(periodo[0]).date()
         data_fim = pd.Timestamp(periodo[1]).date()
-
         if data_ini > data_fim:
             data_ini, data_fim = data_fim, data_ini
 
         inicio_timestamp = pd.Timestamp(data_ini)
+        fim_exclusivo = pd.Timestamp(data_fim) + pd.Timedelta(days=1)
 
-        # Limite exclusivo para incluir todo o último dia,
-        # inclusive quando DATA possui horário.
-        fim_exclusivo = (
-            pd.Timestamp(data_fim) + pd.Timedelta(days=1)
-        )
-
-        mascara_periodo = (
-            df["DATA"].ge(inicio_timestamp)
-            & df["DATA"].lt(fim_exclusivo)
-        )
-
+        mascara_periodo = df["DATA"].ge(inicio_timestamp) & df["DATA"].lt(fim_exclusivo)
         if manter_sem_data:
-            mascara_periodo = (
-                mascara_periodo | df["DATA"].isna()
-            )
+            mascara_periodo = mascara_periodo | df["DATA"].isna()
 
         df = df.loc[mascara_periodo].copy()
 
         st.sidebar.caption(
-            f"📆 {data_ini.strftime('%d/%m/%Y')} "
-            f"→ {data_fim.strftime('%d/%m/%Y')}"
+            f"📆 {data_ini.strftime('%d/%m/%Y')} → {data_fim.strftime('%d/%m/%Y')}"
         )
+        st.sidebar.caption(f"📊 {len(df):,.0f} registros".replace(",", "."))
 
-        st.sidebar.caption(
-            f"📊 {len(df):,.0f} registros após o filtro".replace(",", ".")
-        )
-
-        # Informa quando o mês da última carga é diferente do mês atual
-        mes_atual = (hoje.year, hoje.month)
-        mes_referencia = (
-            data_referencia.year,
-            data_referencia.month,
-        )
-
-        if preset == "Mês atual" and mes_referencia != mes_atual:
+        if preset == "Mês atual" and (data_referencia.year, data_referencia.month) != (
+            hoje.year,
+            hoje.month,
+        ):
             st.sidebar.info(
-                "Não há dados no mês corrente. "
-                "Exibindo automaticamente o último mês disponível."
+                "Não há dados no mês corrente. Exibindo último mês disponível."
             )
-
     else:
-        st.sidebar.warning(
-            "⚠️ Selecione a data inicial e a data final."
-        )
-
+        st.sidebar.warning("⚠️ Selecione a data inicial e a data final.")
 else:
-    st.sidebar.info(
-        "ℹ️ Não existem datas válidas para aplicar o filtro."
-    )
+    st.sidebar.info("ℹ️ Não existem datas válidas para aplicar o filtro.")
 
 st.sidebar.divider()
 
-# ═══════════════════════════════════════════════════
-# 🏢 FILTROS DE HIERARQUIA
-# ═══════════════════════════════════════════════════
+# ── FILTROS DE HIERARQUIA ──
 base_sel = st.sidebar.selectbox(
     "Base:", ["Todas"] + sorted(df["Base"].dropna().unique().tolist())
 )
@@ -666,90 +493,57 @@ if base_sel != "Todas":
 if monitor_sel != "Todos":
     df = df[df["Monitor"] == monitor_sel]
 
-# ═══════════════════════════════════════════════════
-# 📊 RESUMO DOS FILTROS APLICADOS
-# ═══════════════════════════════════════════════════
-st.sidebar.divider()
-with st.sidebar.expander("📋 Resumo dos filtros", expanded=False):
-    st.markdown(f"**Base:** {base_sel}")
-    st.markdown(f"**Monitor:** {monitor_sel}")
-    st.markdown(f"**Registros filtrados:** {len(df):,}".replace(",", "."))
 
-# Variáveis Filtradas
+# ====================================================
+# BLOCO 5: UI - CARDS E PROJEÇÕES
+# ====================================================
+# Calculando Variaveis
 f_cons, f_prod = df["Qtde. Cons."].sum(), df["Qtde. Prod."].sum()
 f_mesh, f_tv, f_vir = (
     df["Qtde. Mesh"].sum(),
     df["Qtde. TV"].sum(),
     df["Qtde. Virtua"].sum(),
 )
+
 eq_ativas = df.groupby("LOGIN NETSALES")["Qtde. Cons."].sum()
 eq_total, eq_produtivas = len(eq_ativas), len(eq_ativas[eq_ativas > 0])
 eficiencia = (eq_produtivas / eq_total) if eq_total > 0 else 0
 
 fator_proj, falt_dias = Calculos.fator_projecao(df)
 
-# ====================================================
-# BLOCO 5: UI - CARDS E PROJEÇÕES
-# ====================================================
+# Linha 1 de KPIs
 c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.markdown(
-        ComponenteVisual.criar_card("Total Equipes", f"{eq_total:,.0f}", "azul"),
-        unsafe_allow_html=True,
-    )
-with c2:
-    st.markdown(
-        ComponenteVisual.criar_card(
-            "Equipes Produtivas", f"{eq_produtivas:,.0f}", "verde"
-        ),
-        unsafe_allow_html=True,
-    )
-with c3:
-    st.markdown(
-        ComponenteVisual.criar_card(
-            "Técnicos Zerados", f"{eq_total - eq_produtivas:,.0f}", "vermelho"
-        ),
-        unsafe_allow_html=True,
-    )
-with c4:
-    st.markdown(
-        ComponenteVisual.criar_card(
-            "Eficiência (Conversão)", f"{eficiencia:.2%}", "roxo"
-        ),
-        unsafe_allow_html=True,
-    )
+render_kpi(c1, "Total Equipes", f"{eq_total:,.0f}".replace(",", "."), tema="azul")
+render_kpi(
+    c2, "Equipes Produtivas", f"{eq_produtivas:,.0f}".replace(",", "."), tema="verde"
+)
+render_kpi(
+    c3,
+    "Técnicos Zerados",
+    f"{eq_total - eq_produtivas:,.0f}".replace(",", "."),
+    tema="vermelho",
+)
+render_kpi(c4, "Eficiência (Conversão)", f"{eficiencia:.2%}", tema="cinza")
 
 st.markdown("#### 📊 Resultado Realizado (Até o momento)")
 c5, c6, c7, c8, c9 = st.columns(5)
-with c5:
-    st.markdown(
-        ComponenteVisual.criar_card(
-            "Tot. Consultivos", f"{f_cons:,.0f}", "azul", Calculos.share(f_cons, t_cons)
-        ),
-        unsafe_allow_html=True,
-    )
-with c6:
-    st.markdown(
-        ComponenteVisual.criar_card(
-            "Tot. Produtos", f"{f_prod:,.0f}", "cinza", Calculos.share(f_prod, t_prod)
-        ),
-        unsafe_allow_html=True,
-    )
-with c7:
-    st.markdown(
-        ComponenteVisual.criar_card("Total Mesh", f"{f_mesh:,.0f}", "escuro"),
-        unsafe_allow_html=True,
-    )
-with c8:
-    st.markdown(
-        ComponenteVisual.criar_card("Total TV Box", f"{f_tv:,.0f}", "escuro"),
-        unsafe_allow_html=True,
-    )
-with c9:
-    st.markdown(
-        ComponenteVisual.criar_card("Total Virtua", f"{f_vir:,.0f}", "escuro"),
-        unsafe_allow_html=True,
-    )
+render_kpi(
+    c5,
+    "Tot. Consultivos",
+    f"{f_cons:,.0f}".replace(",", "."),
+    sub=Calculos.share(f_cons, t_cons),
+    tema="azul",
+)
+render_kpi(
+    c6,
+    "Tot. Produtos",
+    f"{f_prod:,.0f}".replace(",", "."),
+    sub=Calculos.share(f_prod, t_prod),
+    tema="cinza",
+)
+render_kpi(c7, "Total Mesh", f"{f_mesh:,.0f}".replace(",", "."), tema="cinza")
+render_kpi(c8, "Total TV Box", f"{f_tv:,.0f}".replace(",", "."), tema="cinza")
+render_kpi(c9, "Total Virtua", f"{f_vir:,.0f}".replace(",", "."), tema="cinza")
 
 if falt_dias > 0:
     st.markdown(
@@ -757,26 +551,20 @@ if falt_dias > 0:
         unsafe_allow_html=True,
     )
     p1, p2, _ = st.columns([1, 1, 3])
-    with p1:
-        st.markdown(
-            ComponenteVisual.criar_card(
-                "Proj. Consultivos",
-                f"{int(f_cons * fator_proj):,}",
-                "amarelo",
-                f"+ {int((f_cons * fator_proj) - f_cons)} est.",
-            ),
-            unsafe_allow_html=True,
-        )
-    with p2:
-        st.markdown(
-            ComponenteVisual.criar_card(
-                "Proj. Produtos",
-                f"{int(f_prod * fator_proj):,}",
-                "amarelo",
-                f"+ {int((f_prod * fator_proj) - f_prod)} est.",
-            ),
-            unsafe_allow_html=True,
-        )
+    render_kpi(
+        p1,
+        "Proj. Consultivos",
+        f"{int(f_cons * fator_proj):,.0f}".replace(",", "."),
+        sub=f"+ {int((f_cons * fator_proj) - f_cons)} est.",
+        tema="laranja",
+    )
+    render_kpi(
+        p2,
+        "Proj. Produtos",
+        f"{int(f_prod * fator_proj):,.0f}".replace(",", "."),
+        sub=f"+ {int((f_prod * fator_proj) - f_prod)} est.",
+        tema="laranja",
+    )
 
 st.divider()
 
@@ -785,8 +573,9 @@ st.divider()
 # ====================================================
 col_tit, col_tog, _ = st.columns([3, 1, 1])
 with col_tit:
-    st.subheader("👷 Visão Consolidada")
+    render_section_header("👷", "Visão Consolidada")
 with col_tog:
+    st.write("")
     detalhar_tec = st.toggle("Detalhar por Técnico")
 
 grupo = (
@@ -794,54 +583,44 @@ grupo = (
 )
 df_exibir = preparar_ranking(df, grupo, fator_proj)
 
-colunas_proj = [c for c in df_exibir.columns if "Proj." in str(c)]
-colunas_reais = [
-    c for c in ["Total Consultivos", "Total Produtos"] if c in df_exibir.columns
-]
-todas_num = [c for c in df_exibir.columns if c not in ["Posição"] + grupo]
+# Destaque: técnico → 30 produtos | monitor → 350
+if detalhar_tec:
+    limite = 30
+    cols_destaque = ["Total Produtos"]  # só produtos
+    legenda_destaque = "🌟 Destaque Produtos (> 30)"
+else:
+    limite = 350
+    cols_destaque = ["Total Consultivos", "Total Produtos"]
+    legenda_destaque = "🌟 Destaque (> 350)"
 
-style_df = df_exibir.style.format(
-    formatter=cast(Any, {c: "{:,}" for c in todas_num})
-)
-
-# Formatação das colunas realizadas
-if colunas_reais:
-    style_df = style_df.set_properties(
-        **{
-            "background-color": "#F8FAFC",
-            "font-weight": "bold",
-        },
-        subset=cast(Any, colunas_reais),
-    )
-
-# Formatação das colunas projetadas
-if colunas_proj:
-    style_df = style_df.set_properties(
-        **{
-            "background-color": "#FEF9C3",
-            "color": "#854D0E",
-            "font-weight": "bold",
-        },
-        subset=cast(Any, colunas_proj),
-    )
-
-# Colunas nas quais a meta de 350 será verificada
-coluna_meta = colunas_reais
-
-if coluna_meta:
-    style_df = style_df.map(
-        ComponenteVisual.colorir_metas,
-        subset=cast(Any, coluna_meta),
-    )
-
-st.dataframe(
-    style_df,
-    use_container_width=True,
+render_tabela_cons(
+    df_exibir,
     height=450,
-    hide_index=True,
+    max_rows=300,
+    limite_destaque=limite,
+    colunas_destaque=cols_destaque,
 )
 
-# Abas de Gráficos Rápidos e Alertas
+st.markdown(
+    f"""
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:-8px;margin-bottom:16px;
+         padding:12px 16px;background:#F8FAFC;border-radius:8px;
+         border:1px solid #E2E8F0;font-size:0.78rem;
+         font-family:{FONTE_TEXTO};">
+        <span style="font-weight:700;color:#6B7280;text-transform:uppercase;
+             letter-spacing:0.05em;">🎨 Legenda:</span>
+        <span style="background:#F8FAFC;color:#0F172A;padding:3px 10px;
+             border-radius:6px;font-weight:700;border:1px solid #CBD5E1;">✅ Realizado</span>
+        <span style="background:#DCFCE7;color:#166534;padding:3px 10px;
+             border-radius:6px;font-weight:700;">{legenda_destaque}</span>
+        <span style="background:#FEF9C3;color:#854D0E;padding:3px 10px;
+             border-radius:6px;font-weight:700;">🎯 Projeção Calculada</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── ABAS INFERIORES ──
 aba1, aba2 = st.tabs(["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"])
 
 with aba1:
@@ -854,6 +633,7 @@ with aba1:
                     x=grupo[1] if detalhar_tec else "Monitor",
                     y="Total Consultivos",
                     title="Top 10 Consultivos (Real)",
+                    color_discrete_sequence=["#0EA5E9"],
                 ),
                 use_container_width=True,
             )
@@ -867,41 +647,45 @@ with aba1:
                     y="Total Produtos",
                     color="Monitor",
                     title="Matriz: Consultivos x Produtos",
+                    color_discrete_sequence=px.colors.qualitative.Prism,
                 ),
                 use_container_width=True,
             )
 
 with aba2:
-    st.subheader("🚫 Equipes que ainda não fizeram Consultivos")
-    # Filtra quem tem exatamente zero consultivos
+    render_section_header("🚫", "Equipes que ainda não fizeram Consultivos")
     df_zerados = df_exibir[df_exibir["Total Consultivos"] == 0]
 
     if not df_zerados.empty:
-        st.dataframe(df_zerados, use_container_width=True, hide_index=True)
+        render_tabela_cons(df_zerados, height=350)
     else:
-        st.success(
-            "✅ Excelente! 100% da operação possui pelo menos um consultivo registrado."
+        render_insight(
+            "Excelente! 100% da operação possui pelo menos um consultivo registrado.",
+            "ok",
         )
 
-# Exportação
+# ── EXPORTAÇÃO ──
 st.divider()
 st.subheader("📥 Exportar Dados (Inclui Projeções)")
 c_exp1, c_exp2 = st.columns([1, 4])
 tipo_exp = c_exp1.selectbox("Formato:", ["Excel", "CSV"], label_visibility="collapsed")
+
 if tipo_exp == "CSV":
     c_exp2.download_button(
-        "Baixar",
-        df_exibir.to_csv(index=False, encoding="utf-8-sig"),
-        "relatorio.csv",
+        "Baixar Arquivo CSV",
+        df_exibir.to_csv(index=False, encoding="utf-8-sig", decimal=","),
+        "relatorio_consultivos.csv",
         "text/csv",
+        use_container_width=True,
     )
 else:
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
         df_exibir.to_excel(w, index=False)
     c_exp2.download_button(
-        "Baixar",
+        "Baixar Planilha Excel",
         out.getvalue(),
-        "relatorio.xlsx",
+        "relatorio_consultivos.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
     )

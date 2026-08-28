@@ -82,6 +82,7 @@ COR_TEXTO_2 = "#374151"
 COR_TEXTO_3 = "#6B7280"
 COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
+COR_LARANJA_SUAVE = "#FDE6CB"
 
 COR_LARANJA_METAL_1 = "#7A2E00"
 COR_LARANJA_METAL_2 = "#C24A00"
@@ -389,6 +390,45 @@ def _injetar_css_global() -> None:
         }}
         [data-testid="stTable"] tbody tr:hover {{
             background-color: #F8FAFC !important;
+        }}
+        
+        .corp-table td.meta-alta {{
+            background: #1E3A8A !important;
+            color: #FFFFFF !important;
+            font-weight: 800 !important;
+            text-align: center !important;
+            border-left: 3px solid #0F172A !important;
+        }}
+        .corp-table td.meta-ok {{
+            background: #DCFCE7 !important;
+            color: #166534 !important;
+            font-weight: 700 !important;
+            text-align: center !important;
+            border-left: 3px solid #22C55E !important;
+        }}
+        .corp-table td.meta-prox {{
+            background: #FEF9C3 !important;
+            color: #854D0E !important;
+            font-weight: 700 !important;
+            text-align: center !important;
+            border-left: 3px solid #EAB308 !important;
+        }}
+        .corp-table td.meta-baixa {{
+            font-weight: 700 !important;
+            text-align: center !important;
+            border-left: 3px solid #EF4444 !important;
+        }}
+        .corp-table td.proj {{
+            background: #0F172A !important;
+            color: #FFFFFF !important;
+            font-weight: 800 !important;
+            text-align: center !important;
+            border-left: 3px solid #64748B !important;
+        }}
+        .corp-table thead th.th-corp {{
+            background: linear-gradient(180deg, #012869 0%, #1E3A8A 100%) !important;
+            color: #FFFFFF !important;
+            text-transform: uppercase !important;
         }}
 
         /* ═══ CÓDIGO ═══ */
@@ -926,15 +966,73 @@ def _aplicar_coloracao_condicional(
 def render_hero_totale_1(
     titulo: str = "Portal TOTALE",
     subtitulo: str = "Painéis de Produção, Indicadores e Gestão Estratégica",
-    icone: str = "📊",
 ) -> None:
-    """Hero estilo imagem: gradiente azul → laranja com feixe de luz e ícone."""
+    """Hero estilo imagem: gradiente azul → laranja com feixe de luz animado sem ícone."""
     if not titulo:
         raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
+        
     st.markdown(
         f"""
+        <style>
+            .hero-totale-1 {{
+                /* Gradiente horizontal com as cores exatas: Azul rgb(1,40,105) para Laranja rgb(243,124,4) */
+                background: linear-gradient(to right, rgb(1,40,105) 0%, rgb(243,124,4) 100%);
+                padding: 3rem 2.5rem;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: sans-serif;
+                position: relative;
+                overflow: hidden; /* Garante que o feixe de luz não escape do container */
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            }}
+            
+            /* Efeito de Feixe de Luz Diagonal */
+            .hero-totale-1::after {{
+                content: '';
+                position: absolute;
+                top: -50%;
+                left: -60%;
+                width: 30%;
+                height: 200%;
+                background: linear-gradient(
+                    to right, 
+                    rgba(255,255,255,0) 0%, 
+                    rgba(255,255,255,0.25) 50%, 
+                    rgba(255,255,255,0) 100%
+                );
+                transform: rotate(25deg);
+                animation: feixeLuz 6s infinite ease-in-out;
+            }}
+            
+            @keyframes feixeLuz {{
+                0% {{ left: -60%; }}
+                30% {{ left: 130%; }}
+                100% {{ left: 130%; }}
+            }}
+            
+            .hero-t1-content {{
+                position: relative;
+                z-index: 1; /* Mantém o texto acima do efeito de luz */
+            }}
+            
+            .hero-t1-title {{
+                margin: 0;
+                font-size: 2.8rem;
+                font-weight: 700;
+                letter-spacing: -0.5px;
+                text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            }}
+            
+            .hero-t1-sub {{
+                margin: 0.75rem 0 0 0;
+                font-size: 1.25rem;
+                opacity: 0.95;
+                font-weight: 400;
+                text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            }}
+        </style>
+
         <div class="hero-totale-1">
-            <div class="hero-t1-icon-box">{icone}</div>
             <div class="hero-t1-content">
                 <h1 class="hero-t1-title">{titulo}</h1>
                 <p class="hero-t1-sub">{subtitulo}</p>
@@ -945,20 +1043,112 @@ def render_hero_totale_1(
     )
 
 
-def render_hero_totale_2(titulo: str, subtitulo: str = "") -> None:
-    """Hero azul Totale com faixa inferior laranja."""
+def render_hero_totale_2(
+    titulo: str, 
+    subtitulo: str = "", 
+    badge_texto: str = "", 
+    badge_tipo: str = "laranja",
+    FONTE_TEXTO: str = "sans-serif"
+) -> None:
+    """Hero Totale com fundo em gradiente horizontal e feixe de luz sutil e mais leve."""
     if not titulo:
         raise ValueError("render_hero_totale_2: 'titulo' não pode ser vazio.")
+        
+    # Valida e define a classe de cor do badge
+    classe_cor_badge = "badge-laranja" if badge_tipo.lower() == "laranja" else "badge-azul"
+        
+    badge_html = f'<span class="hero-t2-badge {classe_cor_badge}">{badge_texto}</span>' if badge_texto else ""
     sub_html = f'<p class="hero-t2-sub">{subtitulo}</p>' if subtitulo else ""
+    
     st.markdown(
         f"""
+        <style>
+            .hero-totale-2 {{
+                background: linear-gradient(to right, rgb(243,124,4) 0%, rgb(1,40,105) 100%);
+                padding: 2.5rem 2rem;
+                border-radius: 8px;
+                color: #FFFFFF;
+                font-family: sans-serif;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                position: relative;
+                overflow: hidden;
+            }}
+            
+            /* Efeito de Feixe de Luz Suavizado (Mais Leve) */
+            .hero-totale-2::after {{
+                content: '';
+                position: absolute;
+                top: -50%;
+                left: -60%;
+                width: 25%;
+                height: 200%;
+                background: linear-gradient(
+                    to right, 
+                    rgba(255,255,255,0) 0%, 
+                    rgba(255,255,255,0.08) 50%, /* Opacidade reduzida para um efeito discreto */
+                    rgba(255,255,255,0) 100%
+                );
+                transform: rotate(25deg);
+                animation: feixeLuzT2Leve 8s infinite ease-in-out; /* Tempo aumentado para movimento suave */
+            }}
+            
+            @keyframes feixeLuzT2Leve {{
+                0% {{ left: -60%; }}
+                25% {{ left: 130%; }}
+                100% {{ left: 130%; }}
+            }}
+            
+            .hero-t2-container {{
+                position: relative;
+                z-index: 1;
+            }}
+            
+            .hero-t2-title {{
+                margin: 0;
+                font-size: 2.5rem;
+                font-weight: 700;
+                text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+            }}
+            .hero-t2-sub {{
+                margin: 0.5rem 0 0 0;
+                font-size: 1.2rem;
+                opacity: 0.95;
+                text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+            }}
+            .hero-t2-badge {{
+                display: inline-block;
+                padding: 5px 14px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: bold;
+                text-transform: uppercase;
+                margin-top: 16px;
+                letter-spacing: 0.8px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                font-family: {FONTE_CODIGO};
+            }}
+            .badge-laranja {{
+                background-color: #FFFFFF;
+                color: rgb(243,124,4);
+            }}
+            .badge-azul {{
+                background-color: rgb(1,40,105);
+                color: #FFFFFF;
+                border: 1px solid rgba(255, 255, 255, 0.4);
+            }}
+        </style>
+
         <div class="hero-totale-2">
-            <h1 class="hero-t2-title">{titulo}</h1>
-            {sub_html}
+            <div class="hero-t2-container">
+                <h1 class="hero-t2-title">{titulo}</h1>
+                {sub_html}
+                {badge_html}
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
 
 
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:

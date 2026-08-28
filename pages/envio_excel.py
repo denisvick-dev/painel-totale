@@ -213,9 +213,8 @@ with st.sidebar:
     )
 
 render_hero_totale_1(
-    titulo="Central de Atualização",
+    titulo="🔁 Central de Atualização",
     subtitulo="Sincronização de bases de Produção, Consultivos e Lista de Ativos",
-    icone="🔁",
 )
 
 ultima = st.session_state.get("ultima_atualizacao")
