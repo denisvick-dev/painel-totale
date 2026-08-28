@@ -9,12 +9,16 @@ Uso em qualquer página:
     aplicar_estilo()
 
 Características unificadas:
-- Fonte corporativa global (Inter + Manrope)
+- Fonte corporativa global (Plus Jakarta Sans + IBM Plex Sans)
 - Tema Plotly global corporativo
-- Sidebar TOTALE: Laranja metálico limpo (sem reflexo) + borda no sombreamento
+- Sidebar TOTALE: Laranja metálico limpo + borda no sombreamento
 - Selecionador creme/pêssego com borda laranja (estilo pill)
 - Heros TOTALE (Gradiente Imagem + Azul com faixa laranja)
-- Componentes: KPIs, Insights, Dataframes, Nav Headers
+- Componentes: KPIs, Insights, Dataframes, Tabelas HTML, Nav Headers
+
+IMPORTANTE:
+- st.dataframe usa Canvas (Glide Data Grid) e NÃO aceita font-family via CSS.
+- Para fonte corporativa garantida em tabelas, use render_table_html().
 """
 
 from __future__ import annotations
@@ -37,33 +41,39 @@ logger = logging.getLogger(__name__)
 TemaKPI = Literal["azul", "verde", "vermelho", "laranja", "cinza"]
 TipoInsight = Literal["ok", "info", "alerta", "critico", "acao"]
 
-BaseFormatter = Union[str, Callable[[object], str]]
-FmtDict = dict[str, BaseFormatter | None]
+CellFormatter = Union[str, Callable[[Any], str]]
+FmtDict = dict[str, CellFormatter | None]
+
+ColorRule = tuple[Callable[[Any], bool], str]
+ColorMapDict = dict[str, list[ColorRule]]
 
 
 # ====================================================
-# TIPOGRAFIA
+# TIPOGRAFIA CORPORATIVA TOTALE
 # ====================================================
-FONTE_TITULO = "'Manrope', 'Segoe UI', Arial, sans-serif"
-FONTE_TEXTO = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-FONTE_CODIGO = "'JetBrains Mono', Consolas, 'Courier New', monospace"
+FONTE_TITULO = "'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
+FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+FONTE_CODIGO = "'IBM Plex Mono', Consolas, 'Courier New', monospace"
 
 _GOOGLE_FONTS_URLS = (
     "https://fonts.googleapis.com/icon?family=Material+Icons",
     "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded"
-    ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block",
+    ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap",
     "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined"
-    ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block",
-    "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800"
-    "&family=Manrope:wght@400;500;600;700;800;900"
-    "&family=JetBrains+Mono:wght@400;500&display=swap",
+    ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap",
+    "https://fonts.googleapis.com/css2?"
+    "family=Plus+Jakarta+Sans:wght@400;500;600;700;800&"
+    "family=IBM+Plex+Sans:wght@400;500;600;700&"
+    "family=IBM+Plex+Mono:wght@400;500&"
+    "display=swap",
 )
+
 
 # ====================================================
 # PALETA CORPORATIVA TOTALE
 # ====================================================
-COR_PRIMARIA = "#012869"      # Azul institucional Totale
-COR_SECUNDARIA = "#F37C04"    # Laranja corporativo Totale
+COR_PRIMARIA = "#012869"
+COR_SECUNDARIA = "#F37C04"
 COR_SUCESSO = "#059669"
 COR_ALERTA = "#DC2626"
 COR_NEUTRO = "#64748B"
@@ -73,7 +83,6 @@ COR_TEXTO_3 = "#6B7280"
 COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
 
-# Laranja metálico
 COR_LARANJA_METAL_1 = "#7A2E00"
 COR_LARANJA_METAL_2 = "#C24A00"
 COR_LARANJA_METAL_3 = "#E85D04"
@@ -156,39 +165,30 @@ def _configurar_plotly_global() -> None:
 def _injetar_fontes_no_head_pai() -> None:
     urls_js = ", ".join(f'"{u}"' for u in _GOOGLE_FONTS_URLS)
     components.html(
-        f"""
-        <script>
+        f"""<script>
         (function () {{
             const urls = [{urls_js}];
-            const preconnects = [
-                'https://fonts.googleapis.com',
-                'https://fonts.gstatic.com'
-            ];
+            const preconnects = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
             let parentDoc;
-            try {{ parentDoc = window.parent.document; }}
-            catch (e) {{ return; }}
+            try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
             const head = parentDoc.head;
             preconnects.forEach(function (href) {{
                 if (head.querySelector('link[href="' + href + '"]')) return;
                 const link = parentDoc.createElement('link');
-                link.rel = 'preconnect';
-                link.href = href;
+                link.rel = 'preconnect'; link.href = href;
                 if (href.includes('gstatic')) link.crossOrigin = 'anonymous';
                 head.appendChild(link);
             }});
-            const existentes = Array.from(
-                head.querySelectorAll('link[rel="stylesheet"]')
-            ).map(function (l) {{ return l.href; }});
+            const existentes = Array.from(head.querySelectorAll('link[rel="stylesheet"]'))
+                .map(function (l) {{ return l.href; }});
             urls.forEach(function (href) {{
                 if (existentes.includes(href)) return;
                 const link = parentDoc.createElement('link');
-                link.rel  = 'stylesheet';
-                link.href = href;
+                link.rel = 'stylesheet'; link.href = href;
                 head.appendChild(link);
             }});
         }})();
-        </script>
-        """,
+        </script>""",
         height=0,
     )
 
@@ -199,8 +199,7 @@ def _build_links_html() -> str:
     )
     return (
         '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
-        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
-        + tags
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' + tags
     )
 
 
@@ -210,9 +209,10 @@ def _build_links_html() -> str:
 def _injetar_css_global() -> None:
     links_html = _build_links_html()
 
-    css = f"""{links_html}
+    css = (
+        f"""{links_html}
         <style>
-        /* ═════════ FONT-FACE FALLBACK ═════════ */
+        /* ═══ FONT-FACE FALLBACK ═══ */
         @font-face {{
             font-family: 'Material Icons';
             font-style: normal; font-weight: 400; font-display: block;
@@ -229,21 +229,21 @@ def _injetar_css_global() -> None:
             src: url(https://fonts.gstatic.com/s/materialsymbolsoutlined/v206/kJEhBvYX7BgnkSrUwT8OhrdQw4oELdPIeeII9v6oDMzByHX9rA6RzaxHMPdY43zj-jCxv3fzvRNU22ZXGJpEpjC_1v-p_4MrImHCIJIZrDCvHOej.woff2) format('woff2');
         }}
 
-        /* ═════════ VARIÁVEIS ═════════ */
+        /* ═══ VARIÁVEIS ═══ */
         :root {{
-            --font-titulo:    {FONTE_TITULO};
-            --font-texto:     {FONTE_TEXTO};
-            --font-codigo:    {FONTE_CODIGO};
-            --cor-primaria:   {COR_PRIMARIA};
+            --font-titulo: {FONTE_TITULO};
+            --font-texto: {FONTE_TEXTO};
+            --font-codigo: {FONTE_CODIGO};
+            --cor-primaria: {COR_PRIMARIA};
             --cor-secundaria: {COR_SECUNDARIA};
-            --cor-sucesso:    {COR_SUCESSO};
-            --cor-alerta:     {COR_ALERTA};
-            --cor-neutro:     {COR_NEUTRO};
-            --cor-texto:      {COR_TEXTO};
-            --cor-texto-2:    {COR_TEXTO_2};
-            --cor-texto-3:    {COR_TEXTO_3};
-            --cor-borda:      {COR_BORDA};
-            --cor-fundo:      {COR_FUNDO};
+            --cor-sucesso: {COR_SUCESSO};
+            --cor-alerta: {COR_ALERTA};
+            --cor-neutro: {COR_NEUTRO};
+            --cor-texto: {COR_TEXTO};
+            --cor-texto-2: {COR_TEXTO_2};
+            --cor-texto-3: {COR_TEXTO_3};
+            --cor-borda: {COR_BORDA};
+            --cor-fundo: {COR_FUNDO};
             --radius-sm: 6px;
             --radius-md: 10px;
             --radius-lg: 14px;
@@ -252,7 +252,7 @@ def _injetar_css_global() -> None:
             --shadow-lg: 0 10px 28px rgba(0,0,0,0.12);
         }}
 
-        /* ═════════ BASE — FONTE ═════════ */
+        /* ═══ BASE — FONTE ═══ */
         html, body, .stApp,
         [data-testid="stAppViewContainer"],
         [data-testid="stMain"],
@@ -262,15 +262,11 @@ def _injetar_css_global() -> None:
         section[data-testid="stSidebar"] {{
             font-family: var(--font-texto) !important;
         }}
-        p, label, div, li, a, button, input, select, textarea {{
-            font-family: var(--font-texto) !important;
-        }}
-        span:not([class*="material"]):not([class*="Icon"]):not([class*="icon"])
-            :not([data-testid*="Icon"]):not([data-testid*="icon"]) {{
+        p, label, li, a, button, input, select, textarea {{
             font-family: var(--font-texto) !important;
         }}
 
-        /* ═════════ TÍTULOS ═════════ */
+        /* ═══ TÍTULOS ═══ */
         h1, h2, h3, h4, h5, h6,
         .hero-title, .section-title, .kpi-value {{
             font-family: var(--font-titulo) !important;
@@ -282,7 +278,7 @@ def _injetar_css_global() -> None:
             letter-spacing: -0.6px;
         }}
 
-        /* ═════════ WIDGETS STREAMLIT ═════════ */
+        /* ═══ WIDGETS STREAMLIT ═══ */
         [data-testid="stWidgetLabel"],
         [data-testid="stMarkdownContainer"],
         [data-testid="stMetric"],
@@ -297,8 +293,6 @@ def _injetar_css_global() -> None:
             font-weight: 700;
             font-variant-numeric: tabular-nums;
         }}
-
-        /* ═════════ BOTÕES ═════════ */
         .stButton button, .stDownloadButton button,
         .stFormSubmitButton button, button[kind] {{
             font-family: var(--font-texto) !important;
@@ -306,38 +300,122 @@ def _injetar_css_global() -> None:
             letter-spacing: 0.2px;
         }}
 
-        /* ═════════ TABELAS ═════════ */
-        .stDataFrame, .stTable,
-        table, thead, tbody, tr, th, td {{
+        /* ═══════════════════════════════════════════════════════
+           TABELA HTML CORPORATIVA (fontes 100% garantidas via DOM)
+           Use render_table_html() para tabelas críticas.
+           ═══════════════════════════════════════════════════════ */
+
+        .corp-table-wrap {{
+            width: 100%;
+            overflow: auto;
+            border: 1px solid var(--cor-borda);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            background: #FFFFFF;
+            margin-bottom: 12px;
+        }}
+        table.corp-table {{
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
             font-family: var(--font-texto) !important;
         }}
-        th {{ font-weight: 700; letter-spacing: 0.4px; }}
-        td {{ font-variant-numeric: tabular-nums; }}
+        .corp-table thead th {{
+            font-family: var(--font-titulo) !important;
+            font-weight: 700 !important;
+            font-size: 11px !important;
+            letter-spacing: 0.4px !important;
+            text-transform: uppercase !important;
+            color: var(--cor-texto) !important;
+            background: #F8FAFC !important;
+            padding: 10px 14px !important;
+            border-bottom: 2px solid var(--cor-borda) !important;
+            text-align: left !important;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            white-space: nowrap;
+        }}
+        .corp-table tbody td {{
+            font-family: var(--font-texto) !important;
+            font-weight: 500 !important;
+            font-size: 10.5px !important;
+            font-variant-numeric: tabular-nums !important;
+            color: var(--cor-texto-2) !important;
+            padding: 8px 14px !important;
+            border-bottom: 1px solid #F3F4F6 !important;
+            white-space: nowrap;
+        }}
+        .corp-table tbody tr:hover td {{
+            background: #F8FAFC !important;
+        }}
+        .corp-table td.num {{
+            text-align: right !important;
+            font-variant-numeric: tabular-nums !important;
+        }}
+        .corp-table td.neg {{
+            color: var(--cor-alerta) !important;
+            font-weight: 700 !important;
+        }}
+        .corp-table td.pos {{
+            color: var(--cor-sucesso) !important;
+            font-weight: 700 !important;
+        }}
 
-        /* ═════════ CÓDIGO ═════════ */
+        /* ═══ st.dataframe / st.table — melhor esforço (Canvas ignora) ═══ */
+        [data-testid="stDataFrame"], .stDataFrame {{
+            font-family: var(--font-texto) !important;
+        }}
+        [data-testid="stTable"], [data-testid="stTable"] * {{
+            font-family: var(--font-texto) !important;
+        }}
+        [data-testid="stTable"] thead th {{
+            font-family: var(--font-titulo) !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.3px !important;
+            font-size: 12px !important;
+            color: var(--cor-texto) !important;
+            background: #F8FAFC !important;
+            border-bottom: 2px solid var(--cor-borda) !important;
+        }}
+        [data-testid="stTable"] tbody td {{
+            font-family: var(--font-texto) !important;
+            font-weight: 500 !important;
+            font-size: 13px !important;
+            font-variant-numeric: tabular-nums !important;
+            color: var(--cor-texto-2) !important;
+            padding: 8px 12px !important;
+            border-bottom: 1px solid #F3F4F6 !important;
+        }}
+        [data-testid="stTable"] tbody tr:hover {{
+            background-color: #F8FAFC !important;
+        }}
+
+        /* ═══ CÓDIGO ═══ */
         code, pre, kbd, samp {{
             font-family: var(--font-codigo) !important;
         }}
 
-        /* ═════════ LAYOUT ═════════ */
+        /* ═══ LAYOUT ═══ */
         .main .block-container {{
             padding-top: 1rem;
             max-width: 1400px;
         }}
 
-        /* ═════════ SCROLLBAR ═════════ */
-        ::-webkit-scrollbar       {{ width: 10px; height: 10px; }}
+        /* ═══ SCROLLBAR ═══ */
+        ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
         ::-webkit-scrollbar-track {{ background: #F1F5F9; }}
         ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 5px; }}
         ::-webkit-scrollbar-thumb:hover {{ background: #94A3B8; }}
 
-        """ + """
+        """
+        + """
 
         /* ═══════════════════════════════════════════════════
-        SIDEBAR — LARANJA METÁLICO + TEXTO ESCURO
-        ═══════════════════════════════════════════════════ */
+           SIDEBAR — LARANJA METÁLICO + TEXTO ESCURO
+           ═══════════════════════════════════════════════════ */
 
-        section[data-testid="stSidebar"] {{
+        section[data-testid="stSidebar"] {
             background: linear-gradient(
                 180deg,
                 #F6A158 0%,
@@ -346,8 +424,6 @@ def _injetar_css_global() -> None:
                 #D85B00 76%,
                 #B94700 100%
             ) !important;
-
-            /* Borda metálica e profundidade lateral */
             border-right: 2px solid #943800 !important;
             box-shadow:
                 inset 1px 0 0 rgba(255, 235, 210, 0.52),
@@ -355,18 +431,12 @@ def _injetar_css_global() -> None:
                 2px 0 0 rgba(114, 43, 0, 0.52),
                 6px 0 18px rgba(87, 31, 0, 0.22),
                 12px 0 32px rgba(87, 31, 0, 0.12) !important;
-        }}
-
-        /* Remove qualquer reflexo/overlay antigo do sidebar */
+        }
         section[data-testid="stSidebar"]::before,
-        section[data-testid="stSidebar"]::after {{
+        section[data-testid="stSidebar"]::after {
             content: none !important;
             display: none !important;
-        }}
-
-        /* ───────────────────────────────────────────────────
-        TEXTOS GERAIS
-        ─────────────────────────────────────────────────── */
+        }
 
         section[data-testid="stSidebar"] p,
         section[data-testid="stSidebar"] label,
@@ -379,7 +449,6 @@ def _injetar_css_global() -> None:
             text-shadow: 0 1px 0 rgba(255, 235, 210, 0.20);
         }
 
-        /* Títulos e cabeçalhos do sidebar */
         section[data-testid="stSidebar"] h1,
         section[data-testid="stSidebar"] h2,
         section[data-testid="stSidebar"] h3,
@@ -393,7 +462,6 @@ def _injetar_css_global() -> None:
             margin-bottom: 12px;
         }
 
-        /* Linhas divisórias */
         section[data-testid="stSidebar"] hr {
             border: none !important;
             height: 1px !important;
@@ -408,23 +476,16 @@ def _injetar_css_global() -> None:
             margin: 12px 0 !important;
         }
 
-        /* ───────────────────────────────────────────────────
-        NAVEGAÇÃO DE PÁGINAS
-        ─────────────────────────────────────────────────── */
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
             background: transparent !important;
             padding: 6px 0 !important;
         }
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {
             padding: 0 !important;
         }
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {
             margin: 3px 12px !important;
         }
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a,
         section[data-testid="stSidebar"] li a {
             background: transparent !important;
@@ -434,8 +495,6 @@ def _injetar_css_global() -> None:
             padding: 9px 12px !important;
             transition: all 0.18s ease !important;
         }
-
-        /* Texto dos itens não selecionados */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a span,
         section[data-testid="stSidebar"] li a span,
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a p,
@@ -444,8 +503,6 @@ def _injetar_css_global() -> None:
             font-weight: 700 !important;
             text-shadow: 0 1px 0 rgba(255, 235, 210, 0.22);
         }
-
-        /* Hover */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover,
         section[data-testid="stSidebar"] li a:hover {
             background: rgba(255, 247, 237, 0.30) !important;
@@ -453,13 +510,10 @@ def _injetar_css_global() -> None:
             border-left-color: #8E3500 !important;
             transform: translateX(2px);
         }
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover span,
         section[data-testid="stSidebar"] li a:hover span {
             color: #261003 !important;
         }
-
-        /* ── Item ativo: creme/pêssego com borda laranja ── */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
         section[data-testid="stSidebar"] li a[aria-current="page"] {
             background: linear-gradient(
@@ -475,8 +529,6 @@ def _injetar_css_global() -> None:
                 inset 0 1px 0 rgba(255, 255, 255, 0.85),
                 0 2px 6px rgba(88, 31, 0, 0.20) !important;
         }
-
-        /* Texto ativo */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] span,
         section[data-testid="stSidebar"] li a[aria-current="page"] span,
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] p,
@@ -485,23 +537,16 @@ def _injetar_css_global() -> None:
             font-weight: 800 !important;
             text-shadow: none !important;
         }
-
-        /* Ícones: inativo e ativo */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [data-testid*="Icon"],
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [class*="material"] {
             color: #4A1D08 !important;
         }
-
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [data-testid*="Icon"],
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [class*="material"],
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] svg {
             color: #E85D04 !important;
             fill: #E85D04 !important;
         }
-
-        /* ───────────────────────────────────────────────────
-        BOTÕES DO SIDEBAR
-        ─────────────────────────────────────────────────── */
 
         section[data-testid="stSidebar"] .stButton button,
         section[data-testid="stSidebar"] .stDownloadButton button,
@@ -519,7 +564,6 @@ def _injetar_css_global() -> None:
                 0 2px 4px rgba(82, 29, 0, 0.16) !important;
             font-weight: 700 !important;
         }
-
         section[data-testid="stSidebar"] .stButton button:hover,
         section[data-testid="stSidebar"] .stDownloadButton button:hover,
         section[data-testid="stSidebar"] .stFormSubmitButton button:hover {
@@ -535,10 +579,6 @@ def _injetar_css_global() -> None:
                 0 3px 8px rgba(81, 29, 0, 0.25) !important;
         }
 
-        /* ───────────────────────────────────────────────────
-        SELECTBOX E INPUTS
-        ─────────────────────────────────────────────────── */
-
         section[data-testid="stSidebar"] [data-baseweb="select"] > div,
         section[data-testid="stSidebar"] [data-baseweb="input"],
         section[data-testid="stSidebar"] input,
@@ -551,12 +591,10 @@ def _injetar_css_global() -> None:
                 inset 0 1px 2px rgba(92, 32, 0, 0.10),
                 0 1px 2px rgba(255, 235, 210, 0.20) !important;
         }
-
         section[data-testid="stSidebar"] [data-baseweb="select"] * {
             color: #3C1A08 !important;
             text-shadow: none !important;
         }
-
         section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within,
         section[data-testid="stSidebar"] [data-baseweb="input"]:focus-within {
             border-color: #FFF0DD !important;
@@ -565,11 +603,12 @@ def _injetar_css_global() -> None:
                 0 0 0 5px rgba(139, 53, 0, 0.22) !important;
         }
 
-        """ + f"""
+        """
+        + f"""
 
-        /* ═════════════════════════════════════════════════
-        🎨 HERO 1 — Estilo Imagem TOTALE (azul → laranja)
-        ═════════════════════════════════════════════════ */
+        /* ═══════════════════════════════════════════════════
+           🎨 HERO 1 — Gradiente Imagem TOTALE (azul → laranja)
+           ═══════════════════════════════════════════════════ */
         .hero-totale-1 {{
             background: linear-gradient(90deg,
                 #012869 0%,
@@ -615,6 +654,7 @@ def _injetar_css_global() -> None:
             line-height: 1;
             position: relative;
             z-index: 2;
+            color: #333333;
         }}
         .hero-t1-content {{
             position: relative;
@@ -640,9 +680,9 @@ def _injetar_css_global() -> None:
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.30);
         }}
 
-        /* ═════════════════════════════════════════════════
-        🎨 HERO 2 — Azul Totale + faixa laranja
-        ═════════════════════════════════════════════════ */
+        /* ═══════════════════════════════════════════════════
+           🎨 HERO 2 — Azul Totale + faixa laranja
+           ═══════════════════════════════════════════════════ */
         .hero-totale-2 {{
             background: var(--cor-primaria);
             border-radius: var(--radius-lg);
@@ -694,7 +734,7 @@ def _injetar_css_global() -> None:
             z-index: 2;
         }}
 
-        /* ═════════ KPI CARDS ═════════ */
+        /* ═══ KPI CARDS ═══ */
         .kpi-card {{
             background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
             border-radius: var(--radius-md);
@@ -733,7 +773,7 @@ def _injetar_css_global() -> None:
             font-weight: 500;
         }}
 
-        /* ═════════ SEÇÕES ═════════ */
+        /* ═══ SEÇÕES ═══ */
         .section-header {{
             display: flex;
             align-items: center;
@@ -761,7 +801,7 @@ def _injetar_css_global() -> None:
             border: 1px solid #D1D5DB;
         }}
 
-        /* ═════════ MATERIAL ICONS ═════════ */
+        /* ═══ MATERIAL ICONS ═══ */
         .material-icons, .material-icons-outlined, .material-icons-round,
         .material-symbols-outlined, .material-symbols-rounded,
         [data-testid="stIconMaterial"],
@@ -783,7 +823,6 @@ def _injetar_css_global() -> None:
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24 !important;
         }}
         svg, svg * {{ font-family: inherit !important; }}
-
         section[data-testid="stSidebar"] [data-testid*="Icon"],
         section[data-testid="stSidebar"] [class*="material"] {{
             font-size: 18px !important;
@@ -792,6 +831,7 @@ def _injetar_css_global() -> None:
         }}
         </style>
         """
+    )
 
     st.markdown(css, unsafe_allow_html=True)
 
@@ -800,9 +840,12 @@ def _injetar_css_global() -> None:
 # API PÚBLICA
 # ====================================================
 def aplicar_estilo() -> None:
-    """Aplica fonte corporativa, tema Plotly e CSS global."""
     _configurar_plotly_global()
-    _injetar_fontes_no_head_pai()
+    # Fontes: só 1x por sessão
+    if not st.session_state.get("_fontes_ok"):
+        _injetar_fontes_no_head_pai()
+        st.session_state["_fontes_ok"] = True
+    # CSS: barato e garante persistência entre pages
     _injetar_css_global()
 
 
@@ -822,6 +865,59 @@ def _markdown_inline_para_html(texto: str) -> str:
     texto = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", texto)
     texto = re.sub(r"`([^`]+)`", r"<code>\1</code>", texto)
     return texto
+
+
+def _resolver_fmt_para_style(
+    fmt: FmtDict, df: pd.DataFrame
+) -> dict[str, str | Callable | None]:
+    resultado: dict[str, str | Callable | None] = {}
+    for col, formatter in fmt.items():
+        if col not in df.columns:
+            continue
+        if formatter is None:
+            resultado[col] = None
+        elif isinstance(formatter, str) or callable(formatter):
+            resultado[col] = formatter
+        else:
+            logger.warning(
+                "Formatador inválido para coluna '%s': %s. Ignorado.",
+                col,
+                type(formatter).__name__,
+            )
+    return resultado
+
+
+def _detectar_colunas_numericas(df: pd.DataFrame) -> list[str]:
+    return df.select_dtypes(include=["number"]).columns.tolist()
+
+
+def _aplicar_coloracao_condicional(
+    styled: pd.io.formats.style.Styler,
+    df: pd.DataFrame,
+    rules: ColorMapDict,
+) -> pd.io.formats.style.Styler:
+    for col, regras in rules.items():
+        if col not in df.columns:
+            continue
+
+        def _make_color_func(col_rules: list[ColorRule]):
+            def _colorir(val: Any) -> str:
+                for pred, cor in col_rules:
+                    try:
+                        if pred(val):
+                            return f"color: {cor}; font-weight: 700;"
+                    except (TypeError, ValueError):
+                        continue
+                return ""
+
+            return _colorir
+
+        func = _make_color_func(regras)
+        try:
+            styled = styled.map(func, subset=[col])  # Pandas >=2.1
+        except AttributeError:
+            styled = styled.map(func, subset=[col])  # Pandas <2.1
+    return styled
 
 
 # ====================================================
@@ -875,13 +971,7 @@ def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
 # SIDEBAR
 # ====================================================
 def render_sidebar_nav_header(titulo: str) -> None:
-    """
-    Título divisor do menu (ex: MENU PRINCIPAL, CENTRAL DE PERFORMANCE).
-
-    Exemplo:
-        with st.sidebar:
-            render_sidebar_nav_header("MENU PRINCIPAL")
-    """
+    """Título divisor do menu (ex: MENU PRINCIPAL, CENTRAL DE PERFORMANCE)."""
     if not titulo:
         return
     st.sidebar.markdown(
@@ -898,9 +988,7 @@ def render_sidebar_brand(
     """Cabeçalho de marca no topo do sidebar."""
     if not titulo:
         raise ValueError("render_sidebar_brand: 'titulo' não pode ser vazio.")
-    sub_html = (
-        f'<p class="sidebar-brand-subtitle">{subtitulo}</p>' if subtitulo else ""
-    )
+    sub_html = f'<p class="sidebar-brand-subtitle">{subtitulo}</p>' if subtitulo else ""
     st.sidebar.markdown(
         f"""
         <div class="sidebar-brand">
@@ -926,7 +1014,7 @@ def render_sidebar_section(label: str) -> None:
 # COMPONENTES DE CONTEÚDO
 # ====================================================
 def render_section(titulo: str, divider: str = "gray") -> None:
-    st.subheader(titulo, divider=divider)  # type: ignore[arg-type]
+    st.subheader(titulo, divider=divider)
 
 
 def render_section_header(icon: str, title: str, badge: str = "") -> None:
@@ -1014,33 +1102,188 @@ def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
     )
 
 
+# ====================================================
+# DATAFRAMES / TABELAS
+# ====================================================
 def render_dataframe(
     df: pd.DataFrame,
     titulo: str = "",
     icone: str = "📊",
     height: int = 400,
     fmt: FmtDict | None = None,
+    color_rules: ColorMapDict | None = None,
+    highlight_index: bool = False,
     **kwargs: Any,
 ) -> None:
+    """
+    Renderiza st.dataframe (Canvas/Glide Data Grid).
+
+    ⚠️ ATENÇÃO: st.dataframe pinta o texto em Canvas e IGNORA font-family
+    do CSS. Para tabelas com fonte corporativa garantida, use
+    render_table_html() em vez desta função.
+
+    Use render_dataframe quando precisar de:
+    - Sorting/filtering interativo
+    - Grandes volumes de dados (>200 linhas)
+    - Column config avançado
+    """
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"Esperado pd.DataFrame, recebido {type(df).__name__}.")
     if df.empty:
         st.info("Nenhum dado disponível para exibição.")
         return
+
     if titulo:
-        st.markdown(f"**{icone} {titulo}**")
+        st.markdown(
+            f'<div style="font-family:{FONTE_TITULO};font-weight:700;'
+            f'font-size:16px;color:{COR_PRIMARIA};margin-bottom:8px;">'
+            f"{icone} {titulo}</div>",
+            unsafe_allow_html=True,
+        )
+
+    styled = df.style
     if fmt:
-        fmt_valido: FmtDict = {c: f for c, f in fmt.items() if c in df.columns}
-        if fmt_valido:
+        fmt_resolvido = _resolver_fmt_para_style(fmt, df)
+        if fmt_resolvido:
             try:
-                st.dataframe(
-                    df.style.format(fmt_valido),  # type: ignore[arg-type]
-                    height=height,
-                    use_container_width=True,
-                    hide_index=True,
-                    **kwargs,
-                )
-                return
+                styled = styled.format(fmt_resolvido)
             except Exception:
-                logger.exception("Falha ao formatar. Exibindo sem formatação.")
-    st.dataframe(df, height=height, use_container_width=True, hide_index=True, **kwargs)
+                logger.exception("Falha ao aplicar formatação. Exibindo sem fmt.")
+
+    if color_rules:
+        styled = _aplicar_coloracao_condicional(styled, df, color_rules)
+
+    # Mescla kwargs evitando duplicatas
+    kwargs.setdefault("use_container_width", True)
+    kwargs.setdefault("hide_index", not highlight_index)
+    kwargs.setdefault("height", height)
+
+    try:
+        st.dataframe(styled, **kwargs)
+    except Exception:
+        logger.exception("Falha ao renderizar Styler. Fallback para df cru.")
+        kwargs["hide_index"] = True
+        st.dataframe(df, **kwargs)
+
+
+def render_table_html(
+    df: pd.DataFrame,
+    titulo: str = "",
+    icone: str = "📊",
+    max_rows: int = 100,
+    height: int = 420,
+    fmt: FmtDict | None = None,
+    color_rules: ColorMapDict | None = None,
+    num_cols: list[str] | None = None,
+    max_cols: int = 20,
+) -> None:
+    """
+    Tabela HTML corporativa — versão performática.
+    - Sem iterrows()
+    - Limita colunas no preview
+    - HTML montado de forma vetorizada
+    """
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Esperado pd.DataFrame, recebido {type(df).__name__}.")
+    if df.empty:
+        st.info("Nenhum dado disponível.")
+        return
+
+    # Limita colunas no preview (evita DOM monstro)
+    cols = list(df.columns[:max_cols])
+    df_show = df.loc[:, cols].head(max_rows).copy()
+
+    if titulo:
+        st.markdown(
+            f'<div style="font-family:{FONTE_TITULO};font-weight:700;'
+            f'font-size:16px;color:{COR_PRIMARIA};margin-bottom:8px;">'
+            f"{icone} {titulo}</div>",
+            unsafe_allow_html=True,
+        )
+
+    if num_cols is None:
+        num_cols = [c for c in _detectar_colunas_numericas(df_show) if c in cols]
+    num_set = set(num_cols)
+
+    # Preenche NaN uma vez
+    df_show = df_show.fillna("—")
+
+    # Aplica formatação vetorizada por coluna (sem iterrows)
+    display = pd.DataFrame(index=df_show.index)
+    for c in cols:
+        s = df_show[c]
+        if fmt and c in fmt and fmt[c] is not None:
+            f = fmt[c]
+            try:
+                if callable(f):
+                    display[c] = s.map(lambda v, _f=f: _f(v) if v != "—" else "—")
+                elif isinstance(f, str):
+                    display[c] = s.map(
+                        lambda v, _f=f: _f.format(v) if v != "—" else "—"
+                    )
+                else:
+                    display[c] = s.astype(str)
+            except Exception:
+                display[c] = s.astype(str)
+        else:
+            display[c] = s.astype(str)
+
+    # Color rules (opcional, só se passado)
+    style_maps: dict[str, pd.Series] = {}
+    if color_rules:
+        for c, regras in color_rules.items():
+            if c not in df_show.columns:
+                continue
+            styles = pd.Series("", index=df_show.index, dtype=str)
+            raw = df.loc[df_show.index, c] if c in df.columns else df_show[c]
+            for pred, cor in regras:
+                try:
+                    mask = raw.map(
+                        lambda v, _p=pred: bool(_p(v)) if v != "—" else False
+                    )
+                    styles = styles.where(~mask, f"color:{cor};font-weight:700;")
+                except Exception:
+                    continue
+            style_maps[c] = styles
+
+    # Monta HTML em chunks (muito mais rápido que concatenar célula a célula em loop Python puro com f-string aninhada por linha)
+    header = "".join(f"<th>{c}</th>" for c in cols)
+    rows_html: list[str] = []
+    values = display.to_numpy()
+    n_rows, n_cols = values.shape
+
+    for i in range(n_rows):
+        tds: list[str] = []
+        for j, c in enumerate(cols):
+            cls = ' class="num"' if c in num_set else ""
+            style = ""
+            if c in style_maps:
+                stl = style_maps[c].iloc[i]
+                if stl:
+                    style = f' style="{stl}"'
+            # Escape mínimo
+            val = (
+                str(values[i, j])
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            tds.append(f"<td{cls}{style}>{val}</td>")
+        rows_html.append(f"<tr>{''.join(tds)}</tr>")
+
+    html = (
+        f'<div class="corp-table-wrap" style="max-height:{int(height)}px;">'
+        f'<table class="corp-table">'
+        f"<thead><tr>{header}</tr></thead>"
+        f"<tbody>{''.join(rows_html)}</tbody>"
+        f"</table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+    extras = []
+    if len(df) > max_rows:
+        extras.append(f"{max_rows} de {len(df):,} linhas".replace(",", "."))
+    if len(df.columns) > max_cols:
+        extras.append(f"{max_cols} de {len(df.columns)} colunas")
+    if extras:
+        st.caption("Exibindo " + " · ".join(extras))
