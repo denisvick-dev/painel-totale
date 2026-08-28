@@ -4,8 +4,9 @@ import numpy as np
 import time
 import requests
 from io import BytesIO, StringIO
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
+from typing import Tuple, Dict, Any
 from components.componentes import aplicar_estilo
 
 # ====================================================
@@ -23,10 +24,11 @@ st.set_page_config(
 # ⚙️ BLOCO 2: CONSTANTES E CONFIGURAÇÕES GLOBAIS
 # ====================================================
 class Configuracoes:
-    VERSAO_SISTEMA = "3.0.0"
+    VERSAO_SISTEMA = "3.1.0"
     AMBIENTE = "Produção"
     FUSO_HORARIO = ZoneInfo("America/Sao_Paulo")
     INTERVALO_REFRESH = 60  # segundos
+    TIMEOUT_REQUISICAO = 15  # segundos
 
     TEMAS_CARD = {
         "azul": {
@@ -53,13 +55,7 @@ class Configuracoes:
     URL_CONS = "https://drive.google.com/uc?id=1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs&export=download"
     URL_ATIVOS = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/export?format=csv"
 
-    VAZIOS = {"-", "nan", "None", "", "NaN"}
-
-    IMGS_CARROSSEL = [
-        "assets/images/informe_vagas.jpeg",
-        "assets/images/consultivo_copa.jpg",
-        "assets/images/indicacao_totale.png",
-    ]
+    VAZIOS = {"-", "nan", "None", "", "NaN", "nat", "NAT", "<NA>"}
 
 
 # ====================================================
@@ -68,11 +64,12 @@ class Configuracoes:
 class ProcessadorDeDados:
     @staticmethod
     def _normalizar_serie(serie: pd.Series) -> pd.Series:
+        # Corrige o problema de converter nulos em string literal "nan"
         return (
-            serie.astype(str)
+            serie.fillna("")
+            .astype(str)
             .str.strip()
             .replace(list(Configuracoes.VAZIOS), "")
-            .fillna("")
         )
 
     @staticmethod
@@ -122,56 +119,64 @@ class ProcessadorDeDados:
 
     @staticmethod
     @st.cache_data(show_spinner=False, ttl=600)
-    def baixar_e_processar():
+    def baixar_e_processar() -> (
+        Tuple[Dict[str, pd.DataFrame], Dict[str, pd.DataFrame], pd.DataFrame]
+    ):
+        # Download Produção
         try:
             prod_raw = pd.read_excel(
                 Configuracoes.URL_PROD, sheet_name=None, engine="openpyxl"
             )
         except Exception as e:
-            st.error(f"Erro ao baixar Produção: {e}")
+            st.error(f"Erro ao baixar planilha de Produção: {e}")
             prod_raw = {}
 
+        # Download Consultivo
         cons_raw = {}
         try:
-            resposta = requests.get(Configuracoes.URL_CONS)
+            resposta = requests.get(
+                Configuracoes.URL_CONS, timeout=Configuracoes.TIMEOUT_REQUISICAO
+            )
             resposta.raise_for_status()
-            if "text/html" in resposta.headers.get("Content-Type", ""):
-                st.error("❌ O Google Drive bloqueou o download automático do CSV.")
+            if "text/html" in resposta.headers.get("Content-Type", "").lower():
+                st.error(
+                    "❌ Download do Consultivo bloqueado pelas diretrizes do Google Drive."
+                )
             else:
                 try:
-                    df_csv = pd.read_csv(StringIO(resposta.text), sep=",")
+                    df_csv = pd.read_csv(StringIO(resposta.text), sep=",", dtype=str)
                 except Exception:
                     df_csv = pd.read_csv(
                         BytesIO(resposta.content),
                         sep=";",
                         encoding="utf-8",
                         engine="python",
+                        dtype=str,
                     )
                 cons_raw = {"Aba_Dinamica": df_csv}
         except Exception as e:
-            st.error(f"❌ Erro ao baixar ou ler o arquivo CSV: {e}")
+            st.error(f"❌ Erro na integração da base de Consultivos: {e}")
 
+        # Download Ativos
         try:
-            ativos = pd.read_csv(Configuracoes.URL_ATIVOS)
+            ativos = pd.read_csv(Configuracoes.URL_ATIVOS, dtype=str)
             ativos.columns = ativos.columns.str.strip()
         except Exception as e:
-            st.error(f"Erro ao baixar ATIVOS: {e}")
+            st.error(f"Erro ao baixar planilha de Ativos: {e}")
             ativos = pd.DataFrame()
 
-        if cons_raw and isinstance(cons_raw, dict):
-            cons = cons_raw[list(cons_raw.keys())[0]]
-        else:
-            cons = pd.DataFrame()
-
+        # Extração
+        cons = (
+            cons_raw.get("Aba_Dinamica", pd.DataFrame()) if cons_raw else pd.DataFrame()
+        )
         if cons.empty:
             return prod_raw, {"Consultivo": pd.DataFrame()}, ativos
 
         cons.columns = cons.columns.str.strip()
 
         if "OBSERVACAO" in cons.columns:
-            cons["LISTA_PRODUTOS"] = (
-                cons["OBSERVACAO"].fillna("").astype(str).str.findall(r"\b\d{9,12}\b")
-            )
+            obs_limpo = cons["OBSERVACAO"].fillna("").astype(str)
+            cons["LISTA_PRODUTOS"] = obs_limpo.str.findall(r"\b\d{9,12}\b")
             cons["QTDE_PRODUTOS"] = cons["LISTA_PRODUTOS"].apply(len)
         else:
             cons["LISTA_PRODUTOS"] = [[] for _ in range(len(cons))]
@@ -200,21 +205,32 @@ class ProcessadorDeDados:
             lower=0
         )
 
+        # Merge de Ativos
         if (
             not ativos.empty
             and "Login" in ativos.columns
             and "LOGIN NETSALES" in cons.columns
         ):
-            ativos_limpo = ativos[["Login", "Monitor", "U.N.", "Base"]].drop_duplicates(
-                subset=["Login"]
+            ativos_limpo = (
+                ativos[["Login", "Monitor", "U.N.", "Base"]]
+                .dropna(subset=["Login"])
+                .drop_duplicates(subset=["Login"])
+                .copy()
             )
+            # Normaliza chaves de cruzamento
+            ativos_limpo["Login_JOIN"] = (
+                ativos_limpo["Login"].astype(str).str.strip().str.upper()
+            )
+            cons["Login_JOIN"] = (
+                cons["LOGIN NETSALES"].astype(str).str.strip().str.upper()
+            )
+
             cons = pd.merge(
                 cons,
-                ativos_limpo,
-                left_on="LOGIN NETSALES",
-                right_on="Login",
+                ativos_limpo.drop(columns=["Login"]),
+                on="Login_JOIN",
                 how="left",
-            ).drop(columns=["Login"])
+            ).drop(columns=["Login_JOIN"])
             cons["Monitor"] = cons["Monitor"].fillna("Não Identificado")
 
         return prod_raw, {"Consultivo": cons}, ativos
@@ -228,37 +244,57 @@ class Visual:
     def injetar_css_global():
         st.html("""
         <style>
-        /* CSS DA SIDEBAR E INPUTS */
-        .stSidebar h2 { color: #012869 !important; font-size: 26px !important; font-weight: 700 !important; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
-        .stSidebar [data-testid="stWidgetLabel"] p { color: #000047 !important; font-size: 16px !important; font-weight: 600 !important; }
+        /* CONFIGURAÇÃO DA SIDEBAR */
+        .stSidebar h2 { color: #012869 !important; font-size: 24px !important; font-weight: 700 !important; }
+        .stSidebar [data-testid="stWidgetLabel"] p { color: #000047 !important; font-size: 15px !important; font-weight: 600 !important; }
         .stSidebar [data-baseweb="tag"] { background-color: #012869 !important; color: #FFFFFF !important; border-radius: 4px !important; }
         .stSidebar [data-baseweb="tag"] svg { fill: #FFFFFF !important; }
-        [data-testid="stSidebar"] { background: linear-gradient(180deg, rgb(255, 190, 100) 0%, rgb(243, 124, 4) 100%) !important; }
+        [data-testid="stSidebar"] { background: linear-gradient(180deg, #FFBE64 0%, #F37C04 100%) !important; }
         [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label, [data-testid="stSidebar"] a {
-            color: white !important; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+            color: white !important;
         }
-        [data-testid="stSidebar"] .stButton button { background-color: #012869 !important; color: white !important; border-radius: 4px !important; border: none !important; }
-        [data-testid="stSidebar"] .stButton button:hover { background-color: #FFC48A !important; border-color: #FFC48A !important; }
+        [data-testid="stSidebar"] .stButton button { background-color: #012869 !important; color: white !important; border-radius: 6px !important; border: none !important; }
+        [data-testid="stSidebar"] .stButton button:hover { background-color: #FFC48A !important; color: #012869 !important; }
         
+        /* SELECTBOXES E ENTRADAS */
         [data-testid="stSelectbox"] label p { color: #012869 !important; font-weight: bold !important; }
-        [data-testid="stSelectbox"] div[data-baseweb="select"] > div { border: 2px solid #012869 !important; border-radius: 6px !important; background-color: white !important; }
-        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover, [data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within { border-color: #F37C04 !important; box-shadow: 0 0 0 1px #F37C04 !important; }
-        [data-testid="stSelectbox"] div[data-baseweb="select"] div { color: #012869 !important; font-weight: 500 !important; }
-        [data-testid="stSelectbox"] div[data-baseweb="select"] svg { fill: #F37C04 !important; }
-        ul[role="listbox"] { background-color: white !important; border: 2px solid #012869 !important; border-radius: 6px !important; }
-        ul[role="listbox"] li { color: #012869 !important; }
-        ul[role="listbox"] li:hover, ul[role="listbox"] li[aria-selected="true"] { background-color: #F37C04 !important; color: white !important; font-weight: bold !important; }
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div { border: 2px solid #E2E8F0 !important; border-radius: 8px !important; background-color: white !important; }
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover { border-color: #F37C04 !important; }
         
-        [data-testid="stDateInput"] label p { color: #012869 !important; font-weight: bold !important; }
-        [data-testid="stDateInput"] div[data-baseweb="input"] > div { background-color: white !important; border: 2px solid #012869 !important; border-radius: 6px !important; }
-        [data-testid="stDateInput"] div[data-baseweb="input"] > div:hover, [data-testid="stDateInput"] div[data-baseweb="input"] > div:focus-within { border-color: #F37C04 !important; box-shadow: 0 0 0 1px #F37C04 !important; }
-        [data-testid="stDateInput"] input { color: #012869 !important; font-weight: 500 !important; }
-        [data-testid="stDateInput"] svg { fill: #F37C04 !important; color: #F37C04 !important; }
-
-        /* UTILITARIOS GERAIS */
-        .card { background-color: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #E0E0E0; }
-        .status-ok { background-color: #E6F4EA; border-left: 6px solid #2E7D32; }
-        .status-warning { background-color: #FFF4E5; border-left: 6px solid #F37C04; }
+        /* CARDS E GRIDS */
+        .card { background-color: #FFFFFF; padding: 24px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); border: 1px solid #F1F5F9; transition: all 0.2s ease-in-out; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
+        .status-ok { background-color: #F0FDF4; border-left: 5px solid #22C55E; }
+        .status-warning { background-color: #FFF7ED; border-left: 5px solid #F37C04; }
+        
+        /* LAYOUT ATUALIZAÇÕES (EXCEL) */
+        .hero-banner {
+            background: linear-gradient(135deg, #012869 0%, #1E40AF 60%, #F37C04 100%);
+            padding: 32px 40px; border-radius: 16px; color: white; box-shadow: 0 10px 25px rgba(1, 40, 105, 0.15); margin-bottom: 24px;
+        }
+        .toolbar-container {
+            background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px;
+        }
+        .status-pill {
+            display: inline-flex; align-items: center; justify-content: center; border-radius: 9999px; padding: 6px 16px; font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid transparent; min-height: 38px; width: 100%;
+        }
+        .status-pill.ok { background-color: #DCFCE7; color: #15803D; border-color: #86EFAC; }
+        .status-pill.warn { background-color: #FEF3C7; color: #D97706; border-color: #FCD34D; }
+        .status-pill.alert { background-color: #FEE2E2; color: #B91C1C; border-color: #FCA5A5; }
+        
+        .upload-dashed {
+            background-color: #F8FAFC; border: 2px dashed #CBD5E1; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px;
+        }
+        .kpi-metric-card {
+            background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); height: 100%;
+        }
+        .kpi-metric-card .label { font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .kpi-metric-card .value { font-size: 24px; font-weight: 800; color: #0F172A; margin: 0; }
+        .kpi-metric-card .meta { font-size: 12px; color: #94A3B8; margin-top: 4px; }
+        
+        /* RODAPÉ E GERAIS */
+        .footer { position: fixed; left: 0; bottom: 0; width: 100%; background-color: #012869; color: white; padding: 12px 20px; font-size: 13px; text-align: center; z-index: 999; }
+        .block-container { padding-bottom: 5rem; }
         </style>
         """)
 
@@ -266,9 +302,9 @@ class Visual:
     def criar_card(titulo: str, valor: str, tema: str = "azul") -> str:
         cores = Configuracoes.TEMAS_CARD.get(tema, Configuracoes.TEMAS_CARD["azul"])
         return f"""
-        <div style="background-color: {cores['fundo']}; padding: 20px; border-radius: 10px; border-left: 6px solid {cores['borda']}; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 15px; font-family: 'Segoe UI', Arial, sans-serif;">
-            <p style="margin: 0; font-size: 14px; color: {cores['titulo']};"><b>{titulo}</b></p>
-            <h2 style="margin: 0; padding-top: 5px; color: {cores['texto']}; font-weight: 900;">{valor}</h2>
+        <div style="background-color: {cores['fundo']}; padding: 18px; border-radius: 10px; border-left: 5px solid {cores['borda']}; margin-bottom: 12px; font-family: sans-serif;">
+            <p style="margin: 0; font-size: 13px; color: {cores['titulo']}; font-weight: 600;">{titulo}</p>
+            <h3 style="margin: 5px 0 0 0; color: {cores['texto']}; font-weight: 800; font-size: 22px;">{valor}</h3>
         </div>
         """
 
@@ -279,27 +315,15 @@ class Visual:
 def pagina_home():
     st.markdown(
         """
-        <style>
-        .hero-home {
-            background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);
-            padding: 32px 40px; border-radius: 16px; color: white; box-shadow: 0 10px 40px rgba(1, 40, 105, 0.25);
-            margin-bottom: 24px; position: relative; overflow: hidden;
-        }
-        .hero-home::before {
-            content: ''; position: absolute; top: -50%; right: -10%; width: 400px; height: 400px; background: rgba(255,255,255,0.05); border-radius: 50%;
-        }
-        .footer { position: fixed; left: 0; bottom: 0; width: 100%; background-color: #012869; color: white; padding: 12px 20px; font-size: 14px; text-align: center; z-index: 999; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); }
-        .block-container { padding-bottom: 4.5rem; }
-        </style>
-        <div class="hero-home">
-            <div style="position:relative;z-index:2;">
-                <h1 style="font-size:34px; font-weight:800; margin:0;">📊 Portal TOTALE</h1>
-                <p style="font-size:15px; opacity:0.92; margin:6px 0 0 0;">Painéis de Produção, Indicadores e Gestão Estratégica</p>
-            </div>
+        <div class="hero-banner">
+            <h1 style="font-size:32px; font-weight:800; margin:0; color: #FFFFFF !important;">📊 Portal TOTALE</h1>
+            <p style="font-size:14px; opacity:0.9; margin:4px 0 0 0; color: #FFFFFF !important;">Painéis de Produção, Indicadores e Gestão Estratégica</p>
         </div>
         <div class="card">
-            <b>Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br><br>
-            Este portal fornece uma visão clara e estratégica dos processos produtivos e indicadores de performance, apoiando decisões com base em dados confiáveis.
+            <p style="margin:0; font-size:14px; color:#334155; line-height:1.6;">
+                <b>Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br>
+                Este portal fornece uma visão clara e estratégica dos processos produtivos e indicadores de performance, apoiando decisões com base em dados confiáveis.
+            </p>
         </div><br>
     """,
         unsafe_allow_html=True,
@@ -311,65 +335,53 @@ def pagina_home():
         st.markdown(
             """
         <div class="card status-warning">
-            <b>⚠️ Sistema aguardando atualização de dados</b><br><br>
-            1️⃣ Acesse <b>🔁 Atualização de Dados</b> no menu lateral<br>
-            2️⃣ Clique em <b>Atualizar Agora</b>
+            <b style="color:#C2410C;">⚠️ Sistema aguardando atualização de dados</b><br>
+            <p style="margin: 8px 0 0 0; font-size:13px; color:#7C2D12;">
+                1️⃣ Acesse <b>🔁 Atualização de Dados</b> no menu lateral<br>
+                2️⃣ Clique em <b>Atualizar Agora</b> para puxar as bases operacionais.
+            </p>
         </div><br>
         """,
             unsafe_allow_html=True,
         )
     else:
         ultima = st.session_state.get("ultima_atualizacao")
-        hora = ultima.strftime("%d/%m/%Y às %H:%M:%S") if ultima else "Recente"
+        hora = ultima.strftime("%d/%m/%Y às %H:%M:%S") if ultima else "Sincronizado"
         st.markdown(
             f"""
         <div class="card status-ok">
-            ✅ <b>Sistema atualizado e pronto para uso</b><br>Última sincronização: {hora}
+            <b style="color:#15803D;">✅ Sistema operacional e atualizado</b><br>
+            <span style="font-size:13px; color:#166534;">Última sincronização validada em {hora}</span>
         </div><br>
         """,
             unsafe_allow_html=True,
         )
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="medium")
     with col1:
         st.markdown(
-            '<div class="card"><h4>⚙️ Produção</h4>Monitore eficiência operacional, volume produzido e desempenho.</div>',
+            """
+            <div class="card">
+                <h4 style="margin:0 0 8px 0; color:#012869;">⚙️ Produção Operacional</h4>
+                <p style="margin:0; font-size:13px; color:#64748B;">Monitore a eficiência e volume produzido por técnicos e equipes em tempo real.</p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
     with col2:
         st.markdown(
-            '<div class="card"><h4>📈 Indicadores Estratégicos</h4>Acompanhe metas, resultados financeiros e KPIs.</div>',
+            """
+            <div class="card">
+                <h4 style="margin:0 0 8px 0; color:#012869;">📈 Indicadores de Performance</h4>
+                <p style="margin:0; font-size:13px; color:#64748B;">Acompanhe a evolução de metas operacionais e KPIs estratégicos.</p>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
     st.divider()
 
-    # Carrossel
-    st.subheader("📢 Comunicados Internos")
-    if "slide_index" not in st.session_state:
-        st.session_state.slide_index = 0
-    total = len(Configuracoes.IMGS_CARROSSEL)
-
-    col_c1, col_c2, col_c3 = st.columns([1, 2, 1])
-    with col_c2:
-        st.markdown('<div class="card" style="padding:10px;">', unsafe_allow_html=True)
-        st.image(
-            Configuracoes.IMGS_CARROSSEL[st.session_state.slide_index],
-            use_container_width=True,
-        )
-        st.markdown(
-            f"<div style='text-align:center; font-size:14px; color:#666;'>Slide {st.session_state.slide_index + 1} de {total}</div>",
-            unsafe_allow_html=True,
-        )
-
-        btn1, btn2 = st.columns(2)
-        if btn1.button("⬅ Anterior", use_container_width=True):
-            st.session_state.slide_index = (st.session_state.slide_index - 1) % total
-        if btn2.button("Próximo ➡", use_container_width=True):
-            st.session_state.slide_index = (st.session_state.slide_index + 1) % total
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # Footer
+    # Rodapé fixo
     agora = datetime.now(Configuracoes.FUSO_HORARIO)
     st.markdown(
         f"""
@@ -380,7 +392,7 @@ def pagina_home():
         unsafe_allow_html=True,
     )
 
-    # Auto Refresh
+    # Autorefresh Inteligente
     if "_last_refresh_time" not in st.session_state:
         st.session_state["_last_refresh_time"] = time.time()
     if (
@@ -397,29 +409,24 @@ def pagina_home():
 def pagina_envio_excel():
     st.markdown(
         """
-        <style>
-        .hero-excel {
-            background: linear-gradient(90deg, #1E293B 0%, #334155 25%, #64748B 55%, #94A3B8 75%, #CBD5E1 92%, #94A3B8 100%);
-            padding: 32px 48px; border-radius: 12px; color: white; margin-bottom: 24px; position: relative; overflow: hidden;
-        }
-        </style>
-        <div class="hero-excel">
-            <h1 style="font-size:36px; font-weight:800; margin:0;">🔁 Central de Atualização de Dados</h1>
-            <p style="font-size:14px; margin:8px 0 0 0; opacity:0.9;">Sincronização e gestão de bases operacionais</p>
+        <div class="hero-banner">
+            <h1 style="font-size:32px; font-weight:800; margin:0; color: #FFFFFF !important;">🔁 Central de Atualização de Dados</h1>
+            <p style="font-size:14px; opacity:0.9; margin:4px 0 0 0; color: #FFFFFF !important;">Controle central de sincronização de bases e uploads manuais</p>
         </div>
-        """,
+    """,
         unsafe_allow_html=True,
     )
 
-    def executar_atualizacao():
+    def executar_atualizacao() -> bool:
         status = st.empty()
         barra = st.progress(0)
+        st.session_state["sync_status"] = {"label": "Sincronizando...", "tone": "warn"}
         try:
             status.info("⏳ Fazendo download e processando dados em nuvem. Aguarde...")
             barra.progress(20)
             ProcessadorDeDados.baixar_e_processar.clear()
             p_raw, c_raw, a_raw = ProcessadorDeDados.baixar_e_processar()
-            barra.progress(90)
+            barra.progress(85)
 
             st.session_state["dados_prod"] = p_raw
             st.session_state["dados_cons"] = c_raw
@@ -427,86 +434,130 @@ def pagina_envio_excel():
             st.session_state["ultima_atualizacao"] = datetime.now(
                 Configuracoes.FUSO_HORARIO
             )
+            st.session_state["sync_status"] = {"label": "Sincronizado", "tone": "ok"}
 
             barra.progress(100)
-            time.sleep(0.5)
+            time.sleep(0.4)
             status.empty()
             barra.empty()
             return True
         except Exception as e:
+            st.session_state["sync_status"] = {
+                "label": "Falha na Rede",
+                "tone": "alert",
+            }
             status.empty()
             barra.empty()
-            st.error(f"❌ Erro na atualização: {e}")
+            st.error(f"❌ Erro durante o processamento remoto: {e}")
             return False
 
     if "dados_cons" not in st.session_state:
         executar_atualizacao()
 
-    col_btn, _ = st.columns([1, 4])
-    if col_btn.button("🔄 Atualizar Agora", use_container_width=True, type="primary"):
-        if executar_atualizacao():
-            st.success("✅ Dados atualizados com sucesso!")
+    # Barra de ferramentas limpa
+    st.markdown('<div class="toolbar-container">', unsafe_allow_html=True)
+    tb_col1, tb_col2 = st.columns([3, 1])
+    with tb_col1:
+        if st.button(
+            "🔄 Executar Sincronização em Nuvem",
+            use_container_width=True,
+            type="primary",
+        ):
+            if executar_atualizacao():
+                st.success("✅ Bases atualizadas!")
+                st.rerun()
+    with tb_col2:
+        st_cfg = st.session_state.get("sync_status", {"label": "Pronto", "tone": "ok"})
+        st.markdown(
+            f'<div class="status-pill {st_cfg["tone"]}">{st_cfg["label"]}</div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
+    # Upload manual de revisão rápida
+    st.markdown('<div class="upload-dashed">', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "📤 Arraste ou anexe um arquivo local para validação temporária",
+        type=["xlsx", "csv"],
+        label_visibility="collapsed",
+    )
+    if uploaded_file:
+        try:
+            df_upload = (
+                pd.read_csv(uploaded_file)
+                if uploaded_file.name.lower().endswith(".csv")
+                else pd.read_excel(uploaded_file)
+            )
+            st.session_state["arquivo_upload"] = uploaded_file.name
+            st.session_state["dados_upload"] = df_upload
+            st.success(
+                f"Arquivo local carregado: {uploaded_file.name} ({len(df_upload):,} registros)"
+            )
+        except Exception as e:
+            st.error(f"Falha ao ler o arquivo importado: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
+    # Métricas Operacionais
     df_prod = st.session_state.get("dados_prod", {}).get("Prod", pd.DataFrame())
     df_cons = st.session_state.get("dados_cons", {}).get("Consultivo", pd.DataFrame())
     ultima_data = st.session_state.get("ultima_atualizacao")
     hora_str = (
-        ultima_data.strftime("%d/%m/%Y às %H:%M:%S")
-        if ultima_data
-        else "Nunca atualizado"
+        ultima_data.strftime("%d/%m/%Y às %H:%M:%S") if ultima_data else "Pendente"
     )
 
-    aba1, aba2 = st.tabs(
-        ["📊 Pré-visualização: Produção", "📋 Pré-visualização: Consultivos"]
-    )
+    kpi1, kpi2, kpi3 = st.columns(3)
+    with kpi1:
+        st.markdown(
+            f"""
+            <div class="kpi-metric-card">
+                <div class="label">Última Sincronização</div>
+                <div class="value">{hora_str}</div>
+                <div class="meta">Origem: Google Sheets & Drive</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with kpi2:
+        st.markdown(
+            f"""
+            <div class="kpi-metric-card">
+                <div class="label">Volume Produção</div>
+                <div class="value">{len(df_prod):,}</div>
+                <div class="meta">Registros de Ordens Operacionais</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with kpi3:
+        st.markdown(
+            f"""
+            <div class="kpi-metric-card">
+                <div class="label">Volume Consultivos</div>
+                <div class="value">{len(df_cons):,}</div>
+                <div class="meta">Registros de Vendas Processadas</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
+    st.write("")
+
+    aba1, aba2 = st.tabs(["📊 Base de Produção (Aba: Prod)", "📋 Base de Consultivos"])
     with aba1:
-        c1, c2, c3 = st.columns(3)
-        c1.markdown(
-            Visual.criar_card(
-                "Total Registros", f"{len(df_prod):,}".replace(",", "."), "azul"
-            ),
-            unsafe_allow_html=True,
-        )
-        c2.markdown(
-            Visual.criar_card("Total Colunas", str(len(df_prod.columns)), "cinza"),
-            unsafe_allow_html=True,
-        )
-        c3.markdown(
-            Visual.criar_card("Última Sincronização", hora_str, "verde"),
-            unsafe_allow_html=True,
-        )
         if not df_prod.empty:
             st.dataframe(
-                df_prod.head(100), use_container_width=True, height=400, hide_index=True
+                df_prod.head(100), use_container_width=True, height=350, hide_index=True
             )
         else:
-            st.warning("⚠️ Nenhuma aba chamada 'Prod' encontrada.")
+            st.warning("⚠️ Nenhuma base operacional detectada na aba 'Prod'.")
 
     with aba2:
-        c4, c5, c6 = st.columns(3)
-        c4.markdown(
-            Visual.criar_card(
-                "Total Registros", f"{len(df_cons):,}".replace(",", "."), "azul"
-            ),
-            unsafe_allow_html=True,
-        )
-        c5.markdown(
-            Visual.criar_card("Total Colunas", str(len(df_cons.columns)), "cinza"),
-            unsafe_allow_html=True,
-        )
-        c6.markdown(
-            Visual.criar_card("Última Sincronização", hora_str, "verde"),
-            unsafe_allow_html=True,
-        )
         if not df_cons.empty:
             st.dataframe(
-                df_cons.head(100), use_container_width=True, height=400, hide_index=True
+                df_cons.head(100), use_container_width=True, height=350, hide_index=True
             )
         else:
-            st.warning("⚠️ Nenhuma aba encontrada ou o arquivo CSV está vazio.")
+            st.warning("⚠️ Sem registros ou arquivo CSV consultivo vazio.")
 
 
 # ====================================================
@@ -521,7 +572,7 @@ def main() -> None:
     home_page = st.Page(pagina_home, title="Home", icon="🏠", default=True)
     envio_excel = st.Page(pagina_envio_excel, title="Atualização de Dados", icon="🔁")
 
-    # Outras Páginas Físicas (Essas podem continuar como arquivos)
+    # Demais Páginas Operacionais
     ranking_pontos = st.Page("pages/pontos.py", title="Ranking de Pontos", icon="📈")
     qtde_os = st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="📊")
     consultivo = st.Page("pages/consultivo.py", title="Consultivos", icon="📋")
