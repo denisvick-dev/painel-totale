@@ -11,7 +11,7 @@ Uso em qualquer página:
 Características unificadas:
 - Fonte corporativa global (Plus Jakarta Sans + IBM Plex Sans)
 - Tema Plotly global corporativo
-- Sidebar TOTALE: Laranja metálico limpo + borda no sombreamento
+- Sidebar TOTALE: Deep Midnight Navy com detalhes metálicos Laranja Solar (Executivo)
 - Selecionador creme/pêssego com borda laranja (estilo pill)
 - Heros TOTALE (Gradiente Imagem + Azul com faixa laranja)
 - Componentes: KPIs, Insights, Dataframes, Tabelas HTML, Nav Headers
@@ -449,199 +449,208 @@ def _injetar_css_global() -> None:
         ::-webkit-scrollbar-thumb:hover {{ background: #94A3B8; }}
 
         """
-        + """
+        + f"""
 
         /* ═══════════════════════════════════════════════════
-           SIDEBAR — LARANJA METÁLICO + TEXTO ESCURO
+           SIDEBAR — DEEP MIDNIGHT NAVY + ACCENTS LARANJA SOLAR
            ═══════════════════════════════════════════════════ */
 
-        section[data-testid="stSidebar"] {
+        section[data-testid="stSidebar"] {{
             background: linear-gradient(
                 180deg,
-                #F6A158 0%,
-                #F37C04 20%,
-                #E86B03 48%,
-                #D85B00 76%,
-                #B94700 100%
+                #001135 0%,
+                {COR_PRIMARIA} 40%,
+                #000B21 100%
             ) !important;
-            border-right: 2px solid #943800 !important;
-            box-shadow:
-                inset 1px 0 0 rgba(255, 235, 210, 0.52),
-                inset -1px 0 0 rgba(105, 37, 0, 0.35),
-                2px 0 0 rgba(114, 43, 0, 0.52),
-                6px 0 18px rgba(87, 31, 0, 0.22),
-                12px 0 32px rgba(87, 31, 0, 0.12) !important;
-        }
+            border-right: 1px solid rgba(243, 124, 4, 0.3) !important;
+            box-shadow: 
+                inset -1px 0 0 rgba(255,255,255,0.05),
+                4px 0 24px rgba(0, 0, 0, 0.4) !important;
+        }}
         section[data-testid="stSidebar"]::before,
-        section[data-testid="stSidebar"]::after {
+        section[data-testid="stSidebar"]::after {{
             content: none !important;
             display: none !important;
-        }
+        }}
 
+        /* Textos Generais no Sidebar */
         section[data-testid="stSidebar"] p,
         section[data-testid="stSidebar"] label,
         section[data-testid="stSidebar"] .stMarkdown,
         section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
         section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] span {
-            color: #3C1A08 !important;
-            font-weight: 600;
-            text-shadow: 0 1px 0 rgba(255, 235, 210, 0.20);
-        }
+        section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] span {{
+            color: #E2E8F0 !important;
+            font-weight: 500;
+            text-shadow: none !important;
+        }}
 
+        /* Títulos de Seção / Headers do Sidebar */
         section[data-testid="stSidebar"] h1,
         section[data-testid="stSidebar"] h2,
         section[data-testid="stSidebar"] h3,
-        section[data-testid="stSidebar"] h4 {
-            color: #2A1004 !important;
+        section[data-testid="stSidebar"] h4 {{
+            color: #FFFFFF !important;
             font-family: var(--font-titulo) !important;
-            font-weight: 800 !important;
-            letter-spacing: -0.3px;
-            border-bottom: 2px solid rgba(126, 47, 0, 0.65) !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.2px;
+            border-bottom: 1px solid rgba(243, 124, 4, 0.4) !important;
             padding-bottom: 8px;
-            margin-bottom: 12px;
-        }
+            margin-bottom: 14px;
+        }}
 
-        section[data-testid="stSidebar"] hr {
+        /* Divisor elegante com degradê de laranja a transparente */
+        section[data-testid="stSidebar"] hr {{
             border: none !important;
             height: 1px !important;
             background: linear-gradient(
                 90deg,
                 transparent 0%,
-                rgba(109, 40, 0, 0.42) 20%,
-                rgba(255, 238, 215, 0.55) 50%,
-                rgba(109, 40, 0, 0.42) 80%,
+                rgba(243, 124, 4, 0.5) 50%,
                 transparent 100%
             ) !important;
-            margin: 12px 0 !important;
-        }
+            margin: 16px 0 !important;
+        }}
 
-        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {
+        /* Menu de Navegação do Sidebar */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
             background: transparent !important;
             padding: 6px 0 !important;
-        }
-        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {
+        }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul {{
             padding: 0 !important;
-        }
-        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {
-            margin: 3px 12px !important;
-        }
+        }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] li {{
+            margin: 4px 12px !important;
+        }}
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a,
-        section[data-testid="stSidebar"] li a {
+        section[data-testid="stSidebar"] li a {{
             background: transparent !important;
             border: 1px solid transparent !important;
             border-left: 3px solid transparent !important;
-            border-radius: 8px !important;
-            padding: 9px 12px !important;
-            transition: all 0.18s ease !important;
-        }
+            border-radius: 6px !important;
+            padding: 8px 12px !important;
+            transition: all 0.2s ease !important;
+        }}
+        
+        /* Links em repouso */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a span,
         section[data-testid="stSidebar"] li a span,
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a p,
-        section[data-testid="stSidebar"] li a p {
-            color: #3C1A08 !important;
-            font-weight: 700 !important;
-            text-shadow: 0 1px 0 rgba(255, 235, 210, 0.22);
-        }
+        section[data-testid="stSidebar"] li a p {{
+            color: #CBD5E1 !important;
+            font-weight: 600 !important;
+            text-shadow: none !important;
+            transition: color 0.2s ease !important;
+        }}
+        
+        /* Hover nos links: Brilha com laranja sutil */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover,
-        section[data-testid="stSidebar"] li a:hover {
-            background: rgba(255, 247, 237, 0.30) !important;
-            border-color: rgba(124, 48, 0, 0.18) !important;
-            border-left-color: #8E3500 !important;
-            transform: translateX(2px);
-        }
+        section[data-testid="stSidebar"] li a:hover {{
+            background: rgba(243, 124, 4, 0.08) !important;
+            border-color: rgba(243, 124, 4, 0.15) !important;
+            border-left-color: {COR_SECUNDARIA} !important;
+            transform: translateX(3px);
+        }}
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover span,
-        section[data-testid="stSidebar"] li a:hover span {
-            color: #261003 !important;
-        }
+        section[data-testid="stSidebar"] li a:hover span {{
+            color: #FFFFFF !important;
+        }}
+        
+        /* Página Ativa: Vidro Acrílico com Laranja Totale */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
-        section[data-testid="stSidebar"] li a[aria-current="page"] {
+        section[data-testid="stSidebar"] li a[aria-current="page"] {{
             background: linear-gradient(
                 90deg,
-                #FFF8F0 0%,
-                #FFE9D0 55%,
-                #FADBB9 100%
+                rgba(243, 124, 4, 0.15) 0%,
+                rgba(243, 124, 4, 0.04) 100%
             ) !important;
-            border: 1px solid rgba(153, 57, 0, 0.20) !important;
-            border-left: 4px solid #E85D04 !important;
-            border-radius: 8px !important;
-            box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.85),
-                0 2px 6px rgba(88, 31, 0, 0.20) !important;
-        }
+            border: 1px solid rgba(243, 124, 4, 0.3) !important;
+            border-left: 4px solid {COR_SECUNDARIA} !important;
+            border-radius: 6px !important;
+            box-shadow: 
+                0 4px 12px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        }}
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] span,
         section[data-testid="stSidebar"] li a[aria-current="page"] span,
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] p,
-        section[data-testid="stSidebar"] li a[aria-current="page"] p {
-            color: #722B00 !important;
-            font-weight: 800 !important;
-            text-shadow: none !important;
-        }
+        section[data-testid="stSidebar"] li a[aria-current="page"] p {{
+            color: #FFFFFF !important;
+            font-weight: 700 !important;
+            text-shadow: 0 0 8px rgba(243, 124, 4, 0.3) !important;
+        }}
+        
+        /* Ícones no Menu */
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [data-testid*="Icon"],
-        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [class*="material"] {
-            color: #4A1D08 !important;
-        }
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a [class*="material"] {{
+            color: #94A3B8 !important;
+            transition: color 0.2s ease !important;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover [data-testid*="Icon"] {{
+            color: {COR_SECUNDARIA} !important;
+        }}
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [data-testid*="Icon"],
         section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] [class*="material"],
-        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] svg {
-            color: #E85D04 !important;
-            fill: #E85D04 !important;
-        }
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] svg {{
+            color: {COR_SECUNDARIA} !important;
+            fill: {COR_SECUNDARIA} !important;
+        }}
 
+        /* Botões no Sidebar: Premium Laranja Solar */
         section[data-testid="stSidebar"] .stButton button,
         section[data-testid="stSidebar"] .stDownloadButton button,
-        section[data-testid="stSidebar"] .stFormSubmitButton button {
+        section[data-testid="stSidebar"] .stFormSubmitButton button {{
             background: linear-gradient(
                 180deg,
-                #FFF8F0 0%,
-                #FDE6CB 100%
-            ) !important;
-            color: #4A1D08 !important;
-            border: 1px solid rgba(125, 47, 0, 0.38) !important;
-            border-radius: 8px !important;
-            box-shadow:
-                inset 0 1px 0 rgba(255, 255, 255, 0.90),
-                0 2px 4px rgba(82, 29, 0, 0.16) !important;
-            font-weight: 700 !important;
-        }
-        section[data-testid="stSidebar"] .stButton button:hover,
-        section[data-testid="stSidebar"] .stDownloadButton button:hover,
-        section[data-testid="stSidebar"] .stFormSubmitButton button:hover {
-            background: linear-gradient(
-                180deg,
-                #F58B24 0%,
-                #D95A00 100%
+                #FF9029 0%,
+                {COR_SECUNDARIA} 100%
             ) !important;
             color: #FFFFFF !important;
-            border-color: #923700 !important;
+            border: 1px solid rgba(0, 0, 0, 0.2) !important;
+            border-radius: 6px !important;
             box-shadow:
-                inset 0 1px 0 rgba(255, 220, 180, 0.35),
-                0 3px 8px rgba(81, 29, 0, 0.25) !important;
-        }
+                inset 0 1px 0 rgba(255, 255, 255, 0.25),
+                0 2px 4px rgba(0, 0, 0, 0.2) !important;
+            font-weight: 700 !important;
+            transition: all 0.2s ease !important;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
+        }}
+        section[data-testid="stSidebar"] .stButton button:hover,
+        section[data-testid="stSidebar"] .stDownloadButton button:hover,
+        section[data-testid="stSidebar"] .stFormSubmitButton button:hover {{
+            background: linear-gradient(
+                180deg,
+                #FFAB5C 0%,
+                #E26E00 100%
+            ) !important;
+            border-color: rgba(0, 0, 0, 0.3) !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, 0.3),
+                0 4px 10px rgba(243, 124, 4, 0.25) !important;
+            transform: translateY(-1px);
+        }}
 
+        /* Inputs, Seletores e Campos de Texto no Sidebar (Premium Slate Dark) */
         section[data-testid="stSidebar"] [data-baseweb="select"] > div,
         section[data-testid="stSidebar"] [data-baseweb="input"],
         section[data-testid="stSidebar"] input,
-        section[data-testid="stSidebar"] textarea {
-            background: #FFF9F3 !important;
-            color: #3C1A08 !important;
-            border: 1px solid rgba(125, 47, 0, 0.36) !important;
-            border-radius: 8px !important;
-            box-shadow:
-                inset 0 1px 2px rgba(92, 32, 0, 0.10),
-                0 1px 2px rgba(255, 235, 210, 0.20) !important;
-        }
-        section[data-testid="stSidebar"] [data-baseweb="select"] * {
-            color: #3C1A08 !important;
+        section[data-testid="stSidebar"] textarea {{
+            background: #06152F !important;
+            color: #F1F5F9 !important;
+            border: 1px solid rgba(243, 124, 4, 0.3) !important;
+            border-radius: 6px !important;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+        }}
+        section[data-testid="stSidebar"] [data-baseweb="select"] * {{
+            color: #E2E8F0 !important;
             text-shadow: none !important;
-        }
+        }}
         section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within,
-        section[data-testid="stSidebar"] [data-baseweb="input"]:focus-within {
-            border-color: #FFF0DD !important;
-            box-shadow:
-                0 0 0 3px rgba(255, 237, 214, 0.35),
-                0 0 0 5px rgba(139, 53, 0, 0.22) !important;
-        }
+        section[data-testid="stSidebar"] [data-baseweb="input"]:focus-within {{
+            border-color: {COR_SECUNDARIA} !important;
+            box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.2) !important;
+        }}
 
         """
         + f"""
@@ -965,12 +974,12 @@ def _aplicar_coloracao_condicional(
 # ====================================================
 def render_hero_totale_1(
     titulo: str = "Portal TOTALE",
-    subtitulo: str = "Painéis de Produção, Indicadores e Gestão Estratégica",
+    subtitulo: str = "Painéis de Production, Indicadores e Gestão Estratégica",
 ) -> None:
     """Hero estilo imagem: gradiente azul → laranja com feixe de luz animado sem ícone."""
     if not titulo:
         raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
-        
+
     st.markdown(
         f"""
         <style>
@@ -1044,22 +1053,28 @@ def render_hero_totale_1(
 
 
 def render_hero_totale_2(
-    titulo: str, 
-    subtitulo: str = "", 
-    badge_texto: str = "", 
+    titulo: str,
+    subtitulo: str = "",
+    badge_texto: str = "",
     badge_tipo: str = "laranja",
-    FONTE_TEXTO: str = "sans-serif"
+    FONTE_TEXTO: str = "sans-serif",
 ) -> None:
     """Hero Totale com fundo em gradiente horizontal e feixe de luz sutil e mais leve."""
     if not titulo:
         raise ValueError("render_hero_totale_2: 'titulo' não pode ser vazio.")
-        
+
     # Valida e define a classe de cor do badge
-    classe_cor_badge = "badge-laranja" if badge_tipo.lower() == "laranja" else "badge-azul"
-        
-    badge_html = f'<span class="hero-t2-badge {classe_cor_badge}">{badge_texto}</span>' if badge_texto else ""
+    classe_cor_badge = (
+        "badge-laranja" if badge_tipo.lower() == "laranja" else "badge-azul"
+    )
+
+    badge_html = (
+        f'<span class="hero-t2-badge {classe_cor_badge}">{badge_texto}</span>'
+        if badge_texto
+        else ""
+    )
     sub_html = f'<p class="hero-t2-sub">{subtitulo}</p>' if subtitulo else ""
-    
+
     st.markdown(
         f"""
         <style>
@@ -1148,7 +1163,6 @@ def render_hero_totale_2(
         """,
         unsafe_allow_html=True,
     )
-
 
 
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
@@ -1275,7 +1289,7 @@ def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
         return
     config = _INSIGHT_CONFIG.get(tipo)
     if config is None:
-        logger.warning("Tipo desconhecido: '%s'. Usando 'info'.", tipo)
+        logger.warning("Tema desconhecido: '%s'. Usando 'info'.", tipo)
         config = _INSIGHT_CONFIG["info"]
     bg, texto, borda, icone = config
     msg_html = _markdown_inline_para_html(msg)
@@ -1431,12 +1445,14 @@ def render_table_html(
                     mask = raw.map(
                         lambda v, _p=pred: bool(_p(v)) if v != "—" else False
                     )
-                    styles = styles.where(~mask, f"color:{cor};font-weight:700;")
+                    styles = styles.where(
+                        ~mask, cor
+                    )  # Pega o valor exato de style injetado na regra
                 except Exception:
                     continue
             style_maps[c] = styles
 
-    # Monta HTML em chunks (muito mais rápido que concatenar célula a célula em loop Python puro com f-string aninhada por linha)
+    # Monta HTML em chunks
     header = "".join(f"<th>{c}</th>" for c in cols)
     rows_html: list[str] = []
     values = display.to_numpy()

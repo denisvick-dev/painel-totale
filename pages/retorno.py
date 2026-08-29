@@ -1,18 +1,16 @@
 """
 pages/retornos.py
 ================================
-Página Corporativa — Retornos do Dia.
+Auditoria e Identificação de Dono do Retorno (TOA ↔ Sinapse).
 
-Fluxo visível ao usuário:
-    1. Upload do arquivo
-    2. Painel com indicadores
-    3. Download do relatório
-
-Nos bastidores (automático):
-    - Limpeza (contratos vazios + suspensos)
-    - Filtro por Tipo de Atividade = Retorno Credenciada
-    - Enriquecimento via Google Sheets
-    - Agrupamento por credenciada no Excel
+Regras de Negócio:
+    1. Base TOA: Filtrar 'Tipo de Atividade.1' == 'Retorno Credenciada'
+    2. Remoção de registros suspensos (em ambas as bases)
+    3. Base Sinapse: Cruzar por Contrato e extrair:
+       - CódAuxEquipe
+       - Técnico Dono (Nome Equipe)
+       - Monitor (Supervisor)
+    4. Exibição via render_table_html na ordem oficial com coloração condicional garantida.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ import unicodedata
 import logging
 from io import BytesIO
 from datetime import date
-from typing import cast
+from typing import cast, Any
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -36,23 +34,24 @@ from components.componentes import (
     render_hero,
     render_kpi,
     render_insight,
-    render_dataframe,
+    render_table_html,
     COR_PRIMARIA,
     COR_SECUNDARIA,
     COR_SUCESSO,
     COR_ALERTA,
     COR_NEUTRO,
     TemaKPI,
+    ColorMapDict,
 )
 
 logger = logging.getLogger(__name__)
 
 # ==========================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DA PÁGINA
 # ==========================================================
 st.set_page_config(
-    page_title="Retornos | Operação",
-    page_icon="📜",
+    page_title="Dono do Retorno | Auditoria TOA ↔ Sinapse",
+    page_icon="🔍",
     layout="wide",
 )
 
@@ -71,74 +70,272 @@ st.markdown(
 )
 
 # ==========================================================
-# CONSTANTES
+# ORDEM OFICIAL DAS COLUNAS SOLICITADAS
 # ==========================================================
-STATUS_RETORNO: list[str] = [
-    "Concluída", "Concluído", "Executada", "Finalizada",
-    "Cancelada", "Cancelado", "Improdutiva", "Improdutivo",
+COLUNAS_ORDEM_OFICIAL: list[str] = [
+    "Contrato",
+    "Login do Técnico",
+    "Recurso",
+    "DONO_CÓD_AUX_EQUIPE",
+    "DONO_TÉCNICO_NOME",
+    "DONO_MONITOR_SUPERVISOR",
+    "STATUS_AUDITORIA",
+    "Status da Atividade",
+    "Intervalo de Tempo",
+    "Endereço",
+    "Cidade",
+    "Número da O.S 1",
+    "SINAPSE_DATA_ORIGINAL",
 ]
-
-NOMES_DATA: list[str] = [
-    "Data", "DATA", "DATA AGENDA", "Data Agenda",
-    "Data Início", "Data Inicio", "Data Atividade", "Data Agendamento",
-]
-
-NOMES_CRED: list[str] = [
-    "Credenciada", "Credenciada/Empresa", "Empresa",
-    "Nome Credenciada", "Razão Social",
-]
-
-NOMES_STATUS: list[str] = [
-    "Status da Atividade", "SITUAÇÃO APP", "Situação App",
-    "Status", "Situação", "RESULTADO DA ATIVIDADE",
-]
-
-NOMES_LOGIN: list[str] = [
-    "Login do Técnico", "Login", "Login Técnico", "Usuário",
-]
-
-NOMES_CONTRATO: list[str] = [
-    "Contrato", "Nº Contrato", "Numero do Contrato",
-    "Número do Contrato", "Cod Contrato", "Código do Contrato",
-]
-
-NOMES_TIPO_ATIV: list[str] = ["Tipo de Atividade.1"]
-
-VALOR_RETORNO_CREDENCIADA: str = "Retorno Credenciada"
-
-URL_ATIVOS: str = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit?gid=0#gid=0"
-)
-
-MESES_PT: dict[str, str] = {
-    "January": "Janeiro", "February": "Fevereiro", "March": "Março",
-    "April": "Abril", "May": "Maio", "June": "Junho",
-    "July": "Julho", "August": "Agosto", "September": "Setembro",
-    "October": "Outubro", "November": "Novembro", "December": "Dezembro",
-}
-
 
 # ==========================================================
-# LEITURA ROBUSTA DE CSV / EXCEL
+# CONSTANTES DE MAPEAMENTO — TOA
 # ==========================================================
+TOA_TIPO_ATIVIDADE: list[str] = [
+    "Tipo de Atividade.1",
+    "Tipo de Atividade",
+    "Tipo Atividade",
+    "Tipo de OS",
+    "Tipo OS",
+    "Tipo de Ordem",
+    "Tipo",
+    "Serviço",
+]
+
+TOA_CONTRATO: list[str] = [
+    "Contrato",
+    "Nº Contrato",
+    "Numero do Contrato",
+    "Número do Contrato",
+    "Cod Contrato",
+    "Código do Contrato",
+    "Num Contrato",
+    "Nro Contrato",
+    "CONTRATO",
+]
+
+TOA_LOGIN_TECNICO: list[str] = [
+    "Login do Técnico",
+    "Login do Tecnico",
+    "Login Técnico",
+    "Login Tecnico",
+    "Login",
+    "Usuário",
+    "Usuario",
+    "Login do Recurso",
+]
+
+TOA_RECURSO: list[str] = [
+    "Recurso",
+    "Nome do Recurso",
+    "Nome Recurso",
+    "Resource",
+    "Responsável",
+    "Responsavel",
+    "Técnico",
+    "Tecnico",
+]
+
+TOA_STATUS_ATIVIDADE: list[str] = [
+    "Status da Atividade",
+    "Status",
+    "Situação",
+    "Situacao",
+    "Status OS",
+    "Status da OS",
+    "Resultado",
+    "Resultado da Atividade",
+]
+
+TOA_INTERVALO_TEMPO: list[str] = [
+    "Intervalo de Tempo",
+    "Intervalo",
+    "Janela",
+    "Janela de Atendimento",
+    "Time Slot",
+    "Slot",
+    "SLA",
+    "Horário",
+    "Horario",
+]
+
+TOA_ENDERECO: list[str] = [
+    "Endereço",
+    "Endereco",
+    "Logradouro",
+    "Endereço do Cliente",
+    "Endereco do Cliente",
+    "Rua",
+    "Endereço Completo",
+]
+
+TOA_CIDADE: list[str] = [
+    "Cidade",
+    "Município",
+    "Municipio",
+    "CIDADE",
+    "Localidade",
+]
+
+TOA_NUMERO_OS: list[str] = [
+    "Número da O.S 1",
+    "Numero da O.S 1",
+    "Número da OS 1",
+    "Numero da OS 1",
+    "Número da O.S. 1",
+    "Número da O.S",
+    "Numero da OS",
+    "Nº OS",
+    "Numero OS",
+    "OS",
+]
+
+TOA_DATA: list[str] = [
+    "Data",
+    "DATA",
+    "Data Agendamento",
+    "Data Agenda",
+    "DATA AGENDA",
+    "Data Criação",
+    "Data Criacao",
+    "Data Abertura",
+    "Dt Criação",
+    "Data Execução",
+    "Data Execucao",
+    "Data Atividade",
+]
+
+# ==========================================================
+# CONSTANTES DE MAPEAMENTO — SINAPSE
+# ==========================================================
+SINAPSE_CONTRATO: list[str] = [
+    "Contrato",
+    "Nº Contrato",
+    "Numero do Contrato",
+    "Número do Contrato",
+    "Cod Contrato",
+    "Código do Contrato",
+    "Num Contrato",
+    "Nro Contrato",
+    "Contrato Cliente",
+    "CONTRATO",
+]
+
+SINAPSE_COD_AUX_EQUIPE: list[str] = [
+    "CódAuxEquipe",
+    "CódAuxEquipe]",
+    "CodAuxEquipe",
+    "Cod Aux Equipe",
+    "Cód Aux Equipe",
+    "Cod_Aux_Equipe",
+    "COD_AUX_EQUIPE",
+    "Código Auxiliar Equipe",
+    "CodAux",
+    "Cod Aux",
+    "CódAux",
+    "CodEquipe",
+    "Equipe",
+]
+
+SINAPSE_NOME_EQUIPE: list[str] = [
+    "Nome Equipe",
+    "Nome da Equipe",
+    "Nome Técnico",
+    "Nome Tecnico",
+    "Nome do Técnico",
+    "Técnico Dono",
+    "Tecnico Dono",
+    "Técnico",
+    "Tecnico",
+    "Executor",
+    "NOME_EQUIPE",
+    "Nome da Equipe/Técnico",
+]
+
+SINAPSE_SUPERVISOR_MONITOR: list[str] = [
+    "Monitor",
+    "Supervisor",
+    "Monitor/Supervisor",
+    "Supervisor/Monitor",
+    "Nome Monitor",
+    "Nome Supervisor",
+    "Coordenador",
+    "Gestor",
+    "SUPERVISOR",
+    "MONITOR",
+    "Líder",
+    "Lider",
+]
+
+SINAPSE_DATA: list[str] = [
+    "Data",
+    "DATA",
+    "DATA AGENDA",
+    "Data Agenda",
+    "Data Agendamento",
+    "Data Início",
+    "Data Inicio",
+    "Data Atividade",
+    "Data Atendimento",
+    "Data de Execução",
+    "Data Execucao",
+    "DT_AGENDA",
+    "DATA_EXECUCAO",
+]
+
+SINAPSE_STATUS: list[str] = [
+    "Status da Atividade",
+    "SITUAÇÃO APP",
+    "Situação App",
+    "Situacao App",
+    "Status",
+    "Situação",
+    "Situacao",
+    "RESULTADO DA ATIVIDADE",
+]
+
+VALOR_FILTRO_ATIVIDADE: str = "Retorno Credenciada"
+
+
+# ==========================================================
+# UTILITÁRIOS DE TRATAMENTO
+# ==========================================================
+def _normalizar_texto(texto: Any) -> str:
+    t = str(texto).lower().strip()
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"[^\w\s]", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _normalizar_contrato(valor: Any) -> str:
+    if pd.isna(valor):
+        return ""
+    txt = str(valor).strip().upper()
+    txt = re.sub(r"\.0$", "", txt)
+    txt = re.sub(r"[^\w]", "", txt)
+    return txt.lstrip("0") if txt.lstrip("0") else txt
+
+
 def _normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     novos: list[str] = []
     contador: dict[str, int] = {}
-
     for col in df.columns:
-        nome = str(col).strip()
-        nome = nome.replace("\ufeff", "").replace("\u200b", "").replace("\xa0", " ")
+        nome = (
+            str(col)
+            .strip()
+            .replace("\ufeff", "")
+            .replace("\u200b", "")
+            .replace("\xa0", " ")
+        )
         nome = re.sub(r"\s+", " ", nome).strip()
-
         if nome in contador:
             contador[nome] += 1
             nome = f"{nome}_{contador[nome]}"
         else:
             contador[nome] = 0
         novos.append(nome)
-
     df.columns = pd.Index(novos)
     return df
 
@@ -146,56 +343,60 @@ def _normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
 def _limpar_valores_string(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     nulos_padrao: set[str] = {
-        "", "nan", "none", "null", "na", "n/a",
-        "#n/a", "#na", "-", "--", "?",
+        "",
+        "nan",
+        "none",
+        "null",
+        "na",
+        "n/a",
+        "#n/a",
+        "#na",
+        "-",
+        "--",
+        "?",
     }
-
     for col in df.select_dtypes(include=["object", "string"]).columns:
         mask_original_na = df[col].isna()
         serie = (
-            df[col].astype("string")
+            df[col]
+            .astype("string")
             .str.replace("\xa0", " ", regex=False)
             .str.replace("\u200b", "", regex=False)
             .str.replace("\ufeff", "", regex=False)
-            .str.replace("\r", " ", regex=False)
-            .str.replace("\n", " ", regex=False)
-            .str.replace("\t", " ", regex=False)
             .str.replace(r"\s+", " ", regex=True)
             .str.strip()
         )
         mask_nulos = serie.str.lower().isin(nulos_padrao) | mask_original_na
         df[col] = serie.mask(mask_nulos, pd.NA)
-
     return df
 
 
 @st.cache_data(show_spinner="Processando arquivo...")
 def carregar_arquivo(
-    arquivo_bytes: bytes, nome_arquivo: str,
+    arquivo_bytes: bytes, nome_arquivo: str
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     nome = nome_arquivo.lower()
     stats: dict[str, str] = {"metodo": "", "separador": "", "encoding": ""}
 
     if nome.endswith((".xlsx", ".xls")):
         try:
-            df = pd.read_excel(BytesIO(arquivo_bytes))
+            df = pd.read_excel(BytesIO(arquivo_bytes), dtype=str)
             df = _normalizar_nomes_colunas(df)
             df = _limpar_valores_string(df)
             df = df.dropna(how="all").reset_index(drop=True)
             stats["metodo"] = "Excel"
             return df, stats
         except Exception as e:
-            raise ValueError(f"Erro ao ler Excel: {e}") from e
+            raise ValueError(f"Erro ao processar Excel: {e}") from e
 
     tentativas = [
         {"sep": ";", "encoding": "utf-8-sig"},
+        {"sep": ";", "encoding": "latin-1"},
+        {"sep": ";", "encoding": "cp1252"},
         {"sep": ",", "encoding": "utf-8-sig"},
+        {"sep": ",", "encoding": "latin-1"},
         {"sep": "\t", "encoding": "utf-8-sig"},
         {"sep": "|", "encoding": "utf-8-sig"},
-        {"sep": ";", "encoding": "latin-1"},
-        {"sep": ",", "encoding": "latin-1"},
-        {"sep": ";", "encoding": "cp1252"},
-        {"sep": ",", "encoding": "cp1252"},
     ]
 
     melhor_df: pd.DataFrame | None = None
@@ -206,19 +407,22 @@ def carregar_arquivo(
         try:
             df = pd.read_csv(
                 BytesIO(arquivo_bytes),
-                dtype=str, low_memory=False, on_bad_lines="skip",
-                sep=cfg["sep"], encoding=cfg["encoding"],
+                dtype=str,
+                low_memory=False,
+                on_bad_lines="skip",
+                sep=cfg["sep"],
+                encoding=cfg["encoding"],
             )
             score = len(df.columns) if len(df.columns) > 1 else 0
             if score > melhor_score:
                 melhor_score = score
                 melhor_df = df
                 melhor_cfg = cfg
-        except Exception as e:
-            logger.debug(f"Falha {cfg}: {e}")
+        except Exception:
+            continue
 
     if melhor_df is None or melhor_score == 0:
-        raise ValueError("Não foi possível identificar o formato do CSV.")
+        raise ValueError("Não foi possível identificar o formato do arquivo CSV.")
 
     df_final = _normalizar_nomes_colunas(melhor_df)
     df_final = _limpar_valores_string(df_final)
@@ -228,17 +432,6 @@ def carregar_arquivo(
     stats["separador"] = repr(melhor_cfg["sep"])
     stats["encoding"] = melhor_cfg["encoding"]
     return df_final, stats
-
-
-# ==========================================================
-# IDENTIFICAÇÃO / TRATAMENTOS
-# ==========================================================
-def _normalizar_texto(texto: str) -> str:
-    t = str(texto).lower().strip()
-    t = unicodedata.normalize("NFKD", t)
-    t = "".join(c for c in t if not unicodedata.combining(c))
-    t = re.sub(r"[^\w\s]", "", t)
-    return re.sub(r"\s+", " ", t).strip()
 
 
 def identificar_coluna(df: pd.DataFrame, nomes_possiveis: list[str]) -> str | None:
@@ -264,8 +457,12 @@ def converter_data_robusto(serie: pd.Series) -> pd.Series:
     resultado = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if resultado.isna().sum() > len(s) * 0.3:
         formatos = [
-            "%d/%m/%Y", "%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S",
-            "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y", "%d.%m.%Y",
+            "%d/%m/%Y",
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y %H:%M:%S",
+            "%Y-%m-%d",
+            "%Y-%m-%d %H:%M:%S",
+            "%d-%m-%Y",
         ]
         for fmt in formatos:
             tentativa = pd.to_datetime(s, errors="coerce", format=fmt)
@@ -274,465 +471,619 @@ def converter_data_robusto(serie: pd.Series) -> pd.Series:
     return resultado
 
 
-def aplicar_limpeza_padrao(
-    df: pd.DataFrame, col_contrato: str | None, col_status: str | None,
+# ==========================================================
+# 1️⃣ REFINAR TOA (FILTRO TIPO ATIVIDADE + REMOÇÃO DE SUSPENSOS)
+# ==========================================================
+def refinar_base_toa(
+    df_toa: pd.DataFrame,
+    col_tipo: str | None,
+    col_contrato: str | None,
+    col_status: str | None,
+    valor_filtro: str = VALOR_FILTRO_ATIVIDADE,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    stats = {"total_inicial": len(df), "contratos_vazios": 0, "suspensos": 0, "total_removidas": 0}
-    df_clean = df.copy()
+    stats = {
+        "linhas_originais": len(df_toa),
+        "retornos_encontrados": 0,
+        "suspensos_removidos": 0,
+        "sem_contrato": 0,
+        "linhas_finais": 0,
+    }
 
-    if col_contrato and col_contrato in df_clean.columns:
-        contrato_valido = df_clean[col_contrato].notna() & (
-            df_clean[col_contrato].astype(str).str.strip() != ""
+    df_filt = df_toa.copy()
+
+    # 1. Filtro Tipo de Atividade
+    if col_tipo and col_tipo in df_filt.columns:
+        serie_norm = df_filt[col_tipo].astype(str).apply(_normalizar_texto)
+        alvo_norm = _normalizar_texto(valor_filtro)
+        mask_tipo = (serie_norm == alvo_norm) | (
+            serie_norm.str.contains("retorno", na=False)
+            & serie_norm.str.contains("credenciad", na=False)
         )
-        stats["contratos_vazios"] = int((~contrato_valido).sum())
-        df_clean = df_clean[contrato_valido]
+        df_filt = df_filt[mask_tipo].copy()
 
-    if col_status and col_status in df_clean.columns:
-        nao_suspenso = ~df_clean[col_status].astype(str).str.contains(
-            "suspen", case=False, na=False
-        )
-        stats["suspensos"] = int((~nao_suspenso).sum())
-        df_clean = df_clean[nao_suspenso]
-
-    stats["total_removidas"] = stats["total_inicial"] - len(df_clean)
-    return df_clean.reset_index(drop=True), stats
-
-
-def filtrar_retorno_credenciada(
-    df: pd.DataFrame, col_tipo: str | None,
-    valor_alvo: str = VALOR_RETORNO_CREDENCIADA,
-) -> tuple[pd.DataFrame, dict[str, int]]:
-    stats = {"total_inicial": len(df), "retornos_encontrados": 0, "removidas": 0}
-    if not col_tipo or col_tipo not in df.columns:
-        return df.copy(), stats
-    valor_norm = valor_alvo.strip().lower()
-    mask = df[col_tipo].astype(str).str.strip().str.lower() == valor_norm
-    df_filt = df[mask].reset_index(drop=True)
     stats["retornos_encontrados"] = len(df_filt)
-    stats["removidas"] = stats["total_inicial"] - len(df_filt)
-    return df_filt, stats
+
+    # 2. Remoção de Suspensos
+    if col_status and col_status in df_filt.columns:
+        mask_nao_suspenso = (
+            ~df_filt[col_status]
+            .astype(str)
+            .str.contains("suspen", case=False, na=False)
+        )
+        stats["suspensos_removidos"] = int((~mask_nao_suspenso).sum())
+        df_filt = df_filt[mask_nao_suspenso].copy()
+
+    # 3. Validação de Contrato
+    if col_contrato and col_contrato in df_filt.columns:
+        chaves = df_filt[col_contrato].apply(_normalizar_contrato)
+        mask_valido = chaves != ""
+        stats["sem_contrato"] = int((~mask_valido).sum())
+        df_filt = df_filt[mask_valido].copy()
+
+    stats["linhas_finais"] = len(df_filt)
+    return df_filt.reset_index(drop=True), stats
 
 
 # ==========================================================
-# GOOGLE SHEETS
+# 2️⃣ CRUZAR COM SINAPSE E MAPEAR COLUNAS OFICIAIS
 # ==========================================================
-def montar_url_csv(url_planilha: str) -> str:
-    match = re.search(r"/d/([a-zA-Z0-9-_]+)", url_planilha)
-    if not match:
-        raise ValueError("URL do Google Sheets inválida.")
-    sheet_id = match.group(1)
-    gid_match = re.search(r"[?&#]gid=(\d+)", url_planilha)
-    gid = gid_match.group(1) if gid_match else "0"
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+def cruzar_com_sinapse(
+    df_toa_retornos: pd.DataFrame,
+    df_sinapse: pd.DataFrame,
+    col_contrato_toa: str,
+    col_contrato_sin: str,
+    col_cod_aux_sin: str | None,
+    col_nome_equipe_sin: str | None,
+    col_supervisor_sin: str | None,
+    col_data_sin: str | None,
+    col_status_sin: str | None,
+    # Colunas TOA adicionais
+    col_login_toa: str | None,
+    col_recurso_toa: str | None,
+    col_status_toa: str | None,
+    col_intervalo_toa: str | None,
+    col_endereco_toa: str | None,
+    col_cidade_toa: str | None,
+    col_numero_os_toa: str | None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    stats: dict[str, Any] = {
+        "total_retornos": len(df_toa_retornos),
+        "com_cod_equipe": 0,
+        "sem_dono": 0,
+        "taxa_identificacao": 0.0,
+    }
 
+    df_t = df_toa_retornos.copy()
+    df_s = df_sinapse.copy()
 
-@st.cache_data(show_spinner="Sincronizando lista de ativos...", ttl=600)
-def carregar_ativos_google_sheets(url: str) -> pd.DataFrame:
-    df = pd.read_csv(montar_url_csv(url), dtype=str)
-    df = _normalizar_nomes_colunas(df)
-    df = _limpar_valores_string(df)
-    return df.dropna(how="all").reset_index(drop=True)
+    # Limpeza de suspensos no Sinapse
+    if col_status_sin and col_status_sin in df_s.columns:
+        df_s = df_s[
+            ~df_s[col_status_sin]
+            .astype(str)
+            .str.contains("suspen", case=False, na=False)
+        ]
 
+    df_t["_chave_contrato_"] = df_t[col_contrato_toa].apply(_normalizar_contrato)
+    df_s["_chave_contrato_"] = df_s[col_contrato_sin].apply(_normalizar_contrato)
+    df_s = df_s[df_s["_chave_contrato_"] != ""].copy()
 
-def fazer_merge_ativos(
-    df_principal: pd.DataFrame, df_ativos: pd.DataFrame,
-    chave_principal: str, chave_ativos: str,
-    cols_trazer: list[str] | None = None,
-) -> pd.DataFrame:
-    df_principal = df_principal.copy()
-    df_ativos = df_ativos.copy()
+    # Ordena para pegar a execução mais recente
+    if col_data_sin and col_data_sin in df_s.columns:
+        df_s["_dt_temp_"] = converter_data_robusto(df_s[col_data_sin])
+        df_s = df_s.sort_values(by="_dt_temp_", ascending=False)
+        df_s = df_s.drop(columns=["_dt_temp_"])
 
-    df_principal["_chave_"] = df_principal[chave_principal].astype(str).str.strip().str.upper()
-    df_ativos["_chave_"] = df_ativos[chave_ativos].astype(str).str.strip().str.upper()
+    # Extrações do Sinapse
+    cols_sin_export: dict[str, str] = {}
+    if col_cod_aux_sin and col_cod_aux_sin in df_s.columns:
+        cols_sin_export[col_cod_aux_sin] = "DONO_CÓD_AUX_EQUIPE"
+    if col_nome_equipe_sin and col_nome_equipe_sin in df_s.columns:
+        cols_sin_export[col_nome_equipe_sin] = "DONO_TÉCNICO_NOME"
+    if col_supervisor_sin and col_supervisor_sin in df_s.columns:
+        cols_sin_export[col_supervisor_sin] = "DONO_MONITOR_SUPERVISOR"
+    if col_data_sin and col_data_sin in df_s.columns:
+        cols_sin_export[col_data_sin] = "SINAPSE_DATA_ORIGINAL"
 
-    if cols_trazer:
-        cols = ["_chave_"] + [c for c in cols_trazer if c in df_ativos.columns]
-        df_ativos = df_ativos[cols]
+    df_s_resumo = df_s[["_chave_contrato_"] + list(cols_sin_export.keys())].copy()
+    df_s_resumo = df_s_resumo.rename(columns=cols_sin_export)
+    df_s_resumo = df_s_resumo.drop_duplicates(subset=["_chave_contrato_"], keep="first")
+
+    df_resultado = df_t.merge(df_s_resumo, on="_chave_contrato_", how="left")
+    df_resultado = df_resultado.drop(columns=["_chave_contrato_"])
+
+    # Tratamento das colunas do Dono
+    if "DONO_CÓD_AUX_EQUIPE" in df_resultado.columns:
+        df_resultado["DONO_CÓD_AUX_EQUIPE"] = df_resultado[
+            "DONO_CÓD_AUX_EQUIPE"
+        ].fillna("SEM_EQUIPE")
+        mask_identificado = df_resultado["DONO_CÓD_AUX_EQUIPE"] != "SEM_EQUIPE"
     else:
-        df_ativos = df_ativos.drop(columns=[chave_ativos], errors="ignore")
+        df_resultado["DONO_CÓD_AUX_EQUIPE"] = "SEM_EQUIPE"
+        mask_identificado = pd.Series(False, index=df_resultado.index)
 
-    df_ativos = df_ativos.drop_duplicates(subset=["_chave_"], keep="first")
-    df_merge = df_principal.merge(df_ativos, on="_chave_", how="left", suffixes=("", "_ativo"))
-    return df_merge.drop(columns=["_chave_"], errors="ignore")
+    if "DONO_TÉCNICO_NOME" in df_resultado.columns:
+        df_resultado["DONO_TÉCNICO_NOME"] = df_resultado["DONO_TÉCNICO_NOME"].fillna(
+            "NÃO INFORMADO"
+        )
+    else:
+        df_resultado["DONO_TÉCNICO_NOME"] = "NÃO INFORMADO"
 
+    if "DONO_MONITOR_SUPERVISOR" in df_resultado.columns:
+        df_resultado["DONO_MONITOR_SUPERVISOR"] = df_resultado[
+            "DONO_MONITOR_SUPERVISOR"
+        ].fillna("SEM MONITOR")
+    else:
+        df_resultado["DONO_MONITOR_SUPERVISOR"] = "SEM MONITOR"
 
-def enriquecer_automatico(
-    df: pd.DataFrame, col_login: str | None,
-) -> tuple[pd.DataFrame, dict[str, int | float | str]]:
-    """
-    Aplica o enriquecimento automaticamente.
-    Detecta a chave mais provável na lista de ativos e faz o merge com todas as colunas.
-    """
-    stats: dict[str, int | float | str] = {
-        "aplicado": "não",
-        "matches": 0,
-        "total": len(df),
-        "perc": 0.0,
-    }
+    if "SINAPSE_DATA_ORIGINAL" not in df_resultado.columns:
+        df_resultado["SINAPSE_DATA_ORIGINAL"] = "-"
+    else:
+        df_resultado["SINAPSE_DATA_ORIGINAL"] = df_resultado[
+            "SINAPSE_DATA_ORIGINAL"
+        ].fillna("-")
 
-    if not col_login or col_login not in df.columns:
-        return df, stats
+    df_resultado["STATUS_AUDITORIA"] = mask_identificado.map(
+        {
+            True: "Identificado",
+            False: "Sem Dono no Sinapse",
+        }
+    )
 
-    try:
-        df_ativos = carregar_ativos_google_sheets(URL_ATIVOS)
-    except Exception as e:
-        logger.debug(f"Falha ao carregar ativos: {e}")
-        return df, stats
+    # Padronização e estruturação na ordem exata solicitada
+    df_padronizado = pd.DataFrame(index=df_resultado.index)
 
-    cols_ativos = [str(c) for c in df_ativos.columns]
+    df_padronizado["Contrato"] = (
+        df_resultado[col_contrato_toa]
+        if col_contrato_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Login do Técnico"] = (
+        df_resultado[col_login_toa]
+        if col_login_toa and col_login_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Recurso"] = (
+        df_resultado[col_recurso_toa]
+        if col_recurso_toa and col_recurso_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["DONO_CÓD_AUX_EQUIPE"] = df_resultado["DONO_CÓD_AUX_EQUIPE"]
+    df_padronizado["DONO_TÉCNICO_NOME"] = df_resultado["DONO_TÉCNICO_NOME"]
+    df_padronizado["DONO_MONITOR_SUPERVISOR"] = df_resultado["DONO_MONITOR_SUPERVISOR"]
+    df_padronizado["STATUS_AUDITORIA"] = df_resultado["STATUS_AUDITORIA"]
+    df_padronizado["Status da Atividade"] = (
+        df_resultado[col_status_toa]
+        if col_status_toa and col_status_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Intervalo de Tempo"] = (
+        df_resultado[col_intervalo_toa]
+        if col_intervalo_toa and col_intervalo_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Endereço"] = (
+        df_resultado[col_endereco_toa]
+        if col_endereco_toa and col_endereco_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Cidade"] = (
+        df_resultado[col_cidade_toa]
+        if col_cidade_toa and col_cidade_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["Número da O.S 1"] = (
+        df_resultado[col_numero_os_toa]
+        if col_numero_os_toa and col_numero_os_toa in df_resultado.columns
+        else "-"
+    )
+    df_padronizado["SINAPSE_DATA_ORIGINAL"] = df_resultado["SINAPSE_DATA_ORIGINAL"]
 
-    # Detecta a chave mais provável na lista de ativos
-    candidatos = ["Login", "Login do Técnico", "Usuário", "Usuario", "Matrícula", "Matricula", "CPF"]
-    chave_at: str | None = None
-    for c in candidatos:
-        for col in cols_ativos:
-            if _normalizar_texto(c) == _normalizar_texto(col):
-                chave_at = col
-                break
-        if chave_at:
-            break
+    df_padronizado = df_padronizado.fillna("-")
 
-    if not chave_at:
-        return df, stats
+    total = len(df_padronizado)
+    com_equipe = int(mask_identificado.sum())
+    stats["com_cod_equipe"] = com_equipe
+    stats["sem_dono"] = total - com_equipe
+    stats["taxa_identificacao"] = (
+        round((com_equipe / total * 100), 1) if total > 0 else 0.0
+    )
 
-    df_merged = fazer_merge_ativos(df, df_ativos, col_login, chave_at, cols_trazer=None)
-
-    # Detecta % de match (usa a primeira coluna trazida)
-    cols_novas = [c for c in df_merged.columns if c not in df.columns]
-    if cols_novas:
-        matches = int(df_merged[cols_novas[0]].notna().sum())
-        stats["matches"] = matches
-        stats["perc"] = round((matches / len(df_merged) * 100), 1) if len(df_merged) else 0.0
-        stats["aplicado"] = "sim"
-
-    return df_merged, stats
+    return df_padronizado[COLUNAS_ORDEM_OFICIAL], stats
 
 
 # ==========================================================
-# MÉTRICAS
+# EXPORTAÇÃO EXCEL MULTI-ABAS
 # ==========================================================
-def gerar_metricas(
-    df: pd.DataFrame, col_status: str | None,
-) -> dict[str, int | float]:
-    m: dict[str, int | float] = {
-        "total": len(df),
-        "concluidas": 0,
-        "canceladas": 0,
-        "pendentes": 0,
-        "taxa_conclusao": 0.0,
-    }
-    if col_status and not df.empty:
-        s = df[col_status].astype(str)
-        m["concluidas"] = int(s.str.contains("conclu|execut|finaliz", case=False, na=False).sum())
-        m["canceladas"] = int(s.str.contains("cancel|improdut", case=False, na=False).sum())
-        m["pendentes"] = int(m["total"] - m["concluidas"] - m["canceladas"])
-        if m["total"] > 0:
-            m["taxa_conclusao"] = round((m["concluidas"] / m["total"]) * 100, 1)
-    return m
-
-
-def gerar_excel_multi_abas(
-    dfs_por_grupo: dict[str, pd.DataFrame], resumo_geral: pd.DataFrame,
-    nome_aba_padrao: str = "Sem_Grupo",
+def gerar_excel_por_equipe(
+    df_consolidado: pd.DataFrame,
+    coluna_agrupamento: str = "DONO_CÓD_AUX_EQUIPE",
 ) -> BytesIO:
     output = BytesIO()
     try:
         import xlsxwriter  # noqa: F401
+
         engine = "xlsxwriter"
     except ImportError:
         engine = "openpyxl"
 
     with pd.ExcelWriter(output, engine=engine) as writer:
-        resumo_geral.to_excel(writer, sheet_name="Consolidado", index=False)
+        df_consolidado.to_excel(writer, sheet_name="Consolidado_Geral", index=False)
 
-        for grupo, df_g in dfs_por_grupo.items():
-            aba = str(grupo)[:31] if grupo else nome_aba_padrao
-            aba = (
-                aba.replace("/", "-").replace("\\", "-")
-                   .replace("*", "").replace("?", "")
-                   .replace("[", "").replace("]", "").replace(":", "-")
-            )
-            df_g.to_excel(writer, sheet_name=aba, index=False)
+        if coluna_agrupamento in df_consolidado.columns:
+            grupos = df_consolidado.groupby(coluna_agrupamento)
+            for grupo_nome, df_g in grupos:
+                nome_limpo = str(grupo_nome)[:30]
+                nome_limpo = re.sub(r"[\\/*?:\[\]]", "-", nome_limpo).strip()
+                if not nome_limpo:
+                    nome_limpo = "Sem_Equipe"
+                df_g.to_excel(writer, sheet_name=nome_limpo, index=False)
 
         if engine == "xlsxwriter":
-            wb = writer.book
-            header_fmt = wb.add_format({  # type: ignore[attr-defined]
-                "bold": True, "bg_color": "#012869", "font_color": "white",
-                "border": 1, "align": "center", "valign": "vcenter",
-            })
+            wb: Any = writer.book
+            header_fmt = wb.add_format(
+                {
+                    "bold": True,
+                    "bg_color": "#012869",
+                    "font_color": "white",
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                }
+            )
             for sheet_name, ws in writer.sheets.items():
-                df_ref = resumo_geral if sheet_name == "Consolidado" else dfs_por_grupo.get(sheet_name)
-                if df_ref is not None:
-                    for i, v in enumerate(df_ref.columns):
-                        ws.write(0, i, v, header_fmt)
-                        ws.set_column(i, i, 20)
+                ws_any: Any = ws
+                ws_any.set_column(0, 20, 20)
 
     output.seek(0)
     return output
 
 
-# ==========================================================
-# HELPERS DE UI
-# ==========================================================
-def stat_pill(label: str, valor: str, cor: str = COR_PRIMARIA) -> str:
-    label_html = f'<span style="font-size:11px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">{label}</span>'
-    valor_html = f'<span style="font-size:14px;color:{cor};font-weight:700;font-variant-numeric:tabular-nums;">{valor}</span>'
-    return f'<div style="display:inline-flex;align-items:baseline;gap:8px;padding:6px 14px;background:#F8FAFC;border-radius:20px;border:1px solid #E2E8F0;margin-right:8px;margin-bottom:6px;">{label_html}{valor_html}</div>'
-
-
 def secao(titulo: str, sub: str = "") -> None:
-    subhtml = f'<span style="font-size:12px;color:#9CA3AF;font-weight:500;margin-left:12px;">{sub}</span>' if sub else ""
-    titulo_html = f'<span style="font-family:\'Manrope\',sans-serif;font-size:16px;font-weight:700;color:#012869;letter-spacing:-0.2px;">{titulo}</span>'
+    subhtml = (
+        f'<span style="font-size:12px;color:#9CA3AF;margin-left:12px;">{sub}</span>'
+        if sub
+        else ""
+    )
     st.markdown(
-        f'<div style="margin:32px 0 12px 0;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">{titulo_html}{subhtml}</div>',
+        f'<div style="margin:28px 0 12px 0;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">'
+        f"<span style=\"font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#012869;\">{titulo}</span>"
+        f"{subhtml}</div>",
         unsafe_allow_html=True,
     )
 
 
-def data_por_extenso(d: date) -> str:
-    txt = d.strftime("%d de %B de %Y")
-    for en, pt in MESES_PT.items():
-        txt = txt.replace(en, pt)
-    return txt
-
-
 # ==========================================================
-# 🎨 CABEÇALHO
+# 🎨 CABEÇALHO HERO
 # ==========================================================
 render_hero(
-    titulo="📜 Gestão de Retornos",
-    subtitulo="Importe o arquivo e obtenha o relatório executivo automaticamente.",
-    badge="Relatório Executivo",
+    titulo="🔍 Donos do Retorno — Equipe & Monitor",
+    subtitulo="Auditoria precisa dos retornos do TOA cruzados com o Sinapse, excluindo suspensos e destacando a cadeia de supervisão.",
+    badge="Auditoria TOA ↔ Sinapse",
 )
 
 # ==========================================================
-# 📁 UPLOAD
+# 📁 UPLOAD DOS ARQUIVOS
 # ==========================================================
-secao("Fonte de Dados", "importe o arquivo para iniciar")
+secao("Fontes de Dados", "importe os arquivos do TOA e do Sinapse")
 
-up_c1, up_c2 = st.columns([3, 2])
-with up_c1:
-    arquivo_principal = st.file_uploader(
-        "Arquivo de atividades (XLSX, XLS ou CSV)",
-        type=["xlsx", "xls", "csv"],
-        label_visibility="visible",
-    )
-with up_c2:
-    st.markdown(
-        '<div style="padding:16px 20px;background:#F8FAFC;border-left:3px solid #012869;border-radius:6px;margin-top:28px;">'
-        '<div style="font-size:12px;color:#6B7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Processamento automático</div>'
-        '<div style="font-size:13px;color:#374151;line-height:1.5;">O sistema aplica limpeza, filtros, enriquecimento e gera o Excel pronto para envio.</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+c_up1, c_up2 = st.columns(2)
 
-if not arquivo_principal:
+with c_up1:
+    st.markdown("### 1️⃣ Base TOA (Retornos)")
+    st.caption("Origem dos retornos a serem auditados (Tipo = Retorno Credenciada).")
+    arquivo_toa = st.file_uploader(
+        "Importar arquivo TOA",
+        type=["csv", "xlsx", "xls"],
+        key="up_toa",
+    )
+    if arquivo_toa:
+        st.success(f"Carregado: {arquivo_toa.name}", icon="✅")
+
+with c_up2:
+    st.markdown("### 2️⃣ Base Sinapse (Histórico)")
+    st.caption(
+        "Origem dos contratos para identificar CódAuxEquipe, Nome Equipe e Monitor."
+    )
+    arquivo_sinapse = st.file_uploader(
+        "Importar arquivo Sinapse",
+        type=["csv", "xlsx", "xls"],
+        key="up_sinapse",
+    )
+    if arquivo_sinapse:
+        st.success(f"Carregado: {arquivo_sinapse.name}", icon="✅")
+
+if not arquivo_toa or not arquivo_sinapse:
     st.markdown("<br>", unsafe_allow_html=True)
     render_insight(
-        "Aguardando upload do **arquivo de atividades** para iniciar o processamento.",
+        "Para iniciar a auditoria, envie **ambos os arquivos**: a base de retornos (**TOA**) e o histórico (**Sinapse**).",
         tipo="info",
     )
     st.stop()
 
 # ==========================================================
-# 📥 PIPELINE AUTOMÁTICO — TUDO NOS BASTIDORES
+# 📥 PROCESSAMENTO DOS ARQUIVOS
 # ==========================================================
 try:
-    bytes_arquivo = arquivo_principal.read()
-    df, stats_leitura = carregar_arquivo(bytes_arquivo, arquivo_principal.name)
+    df_toa_raw, _ = carregar_arquivo(arquivo_toa.read(), arquivo_toa.name)
+    df_sin_raw, _ = carregar_arquivo(arquivo_sinapse.read(), arquivo_sinapse.name)
 except Exception as e:
-    render_insight(f"Falha no processamento: `{e}`", tipo="critico")
+    render_insight(f"Erro ao ler os arquivos enviados: `{e}`", tipo="critico")
     st.stop()
 
-linhas_originais = len(df)
+# Identificação das colunas — TOA
+col_tipo_toa = identificar_coluna(df_toa_raw, TOA_TIPO_ATIVIDADE)
+col_contrato_toa = identificar_coluna(df_toa_raw, TOA_CONTRATO)
+col_login_toa = identificar_coluna(df_toa_raw, TOA_LOGIN_TECNICO)
+col_recurso_toa = identificar_coluna(df_toa_raw, TOA_RECURSO)
+col_status_toa = identificar_coluna(df_toa_raw, TOA_STATUS_ATIVIDADE)
+col_intervalo_toa = identificar_coluna(df_toa_raw, TOA_INTERVALO_TEMPO)
+col_endereco_toa = identificar_coluna(df_toa_raw, TOA_ENDERECO)
+col_cidade_toa = identificar_coluna(df_toa_raw, TOA_CIDADE)
+col_numero_os_toa = identificar_coluna(df_toa_raw, TOA_NUMERO_OS)
 
-# Identifica colunas
-col_data = identificar_coluna(df, NOMES_DATA)
-col_cred = identificar_coluna(df, NOMES_CRED)
-col_status = identificar_coluna(df, NOMES_STATUS)
-col_login = identificar_coluna(df, NOMES_LOGIN)
-col_contrato = identificar_coluna(df, NOMES_CONTRATO)
-col_tipo = identificar_coluna(df, NOMES_TIPO_ATIV)
+# Identificação das colunas — Sinapse
+col_contrato_sin = identificar_coluna(df_sin_raw, SINAPSE_CONTRATO)
+col_cod_aux_sin = identificar_coluna(df_sin_raw, SINAPSE_COD_AUX_EQUIPE)
+col_nome_equipe_sin = identificar_coluna(df_sin_raw, SINAPSE_NOME_EQUIPE)
+col_supervisor_sin = identificar_coluna(df_sin_raw, SINAPSE_SUPERVISOR_MONITOR)
+col_data_sin = identificar_coluna(df_sin_raw, SINAPSE_DATA)
+col_status_sin = identificar_coluna(df_sin_raw, SINAPSE_STATUS)
 
-if not col_data:
+if not col_contrato_toa:
     render_insight(
-        "❌ Não foi possível identificar a coluna de **Data** no arquivo. "
-        "Verifique o layout do arquivo importado.",
+        "❌ Coluna de **Contrato** não localizada no arquivo TOA.", tipo="critico"
+    )
+    st.stop()
+
+if not col_contrato_sin:
+    render_insight(
+        "❌ Coluna de **Contrato** não localizada no arquivo Sinapse.", tipo="critico"
+    )
+    st.stop()
+
+# ── 1. Refina TOA (Retorno Credenciada + Sem Suspensos) ──
+df_toa_refinado, stats_toa_filt = refinar_base_toa(
+    df_toa=df_toa_raw,
+    col_tipo=col_tipo_toa,
+    col_contrato=col_contrato_toa,
+    col_status=col_status_toa,
+    valor_filtro=VALOR_FILTRO_ATIVIDADE,
+)
+
+if df_toa_refinado.empty:
+    render_insight(
+        f"Nenhum registro ativo (não suspenso) do tipo **'{VALOR_FILTRO_ATIVIDADE}'** foi localizado no TOA.",
         tipo="critico",
     )
     st.stop()
 
-# Converte data
-df[col_data] = converter_data_robusto(df[col_data])
-
-if int(df[col_data].notna().sum()) == 0:
-    render_insight(f"Não foi possível converter **{col_data}** para data.", tipo="critico")
-    st.stop()
-
-# ── AUTOMÁTICO: Limpeza ──
-df, stats_limpeza = aplicar_limpeza_padrao(df, col_contrato, col_status)
-
-# ── AUTOMÁTICO: Filtro por Tipo = Retorno Credenciada ──
-stats_retorno = {"retornos_encontrados": len(df), "removidas": 0}
-if col_tipo:
-    df, stats_retorno = filtrar_retorno_credenciada(df, col_tipo)
-    if stats_retorno["retornos_encontrados"] == 0:
-        render_insight(
-            f"Nenhum registro do tipo **'{VALOR_RETORNO_CREDENCIADA}'** foi encontrado no arquivo.",
-            tipo="critico",
-        )
-        st.stop()
-
-if df.empty:
-    render_insight("Nenhum registro restou após o processamento automático.", tipo="critico")
-    st.stop()
-
-# ── AUTOMÁTICO: Enriquecimento com Google Sheets ──
-df, stats_enriq = enriquecer_automatico(df, col_login)
+# ── 2. Cruzamento TOA ↔ Sinapse e Padronização Oficial ──
+df_auditado, stats_cruzamento = cruzar_com_sinapse(
+    df_toa_retornos=df_toa_refinado,
+    df_sinapse=df_sin_raw,
+    col_contrato_toa=col_contrato_toa,
+    col_contrato_sin=col_contrato_sin,
+    col_cod_aux_sin=col_cod_aux_sin,
+    col_nome_equipe_sin=col_nome_equipe_sin,
+    col_supervisor_sin=col_supervisor_sin,
+    col_data_sin=col_data_sin,
+    col_status_sin=col_status_sin,
+    col_login_toa=col_login_toa,
+    col_recurso_toa=col_recurso_toa,
+    col_status_toa=col_status_toa,
+    col_intervalo_toa=col_intervalo_toa,
+    col_endereco_toa=col_endereco_toa,
+    col_cidade_toa=col_cidade_toa,
+    col_numero_os_toa=col_numero_os_toa,
+)
 
 # ==========================================================
-# 🔎 FILTROS (apenas Data e Status)
+# 🔎 FILTROS DINÂMICOS
 # ==========================================================
-secao("Filtros", "seleção do período e status")
+secao("Filtros do Relatório", "refine a visualização por equipe ou supervisor")
 
-data_min = df[col_data].min()
-data_max = df[col_data].max()
+f_col1, f_col2, f_col3 = st.columns(3)
 
-if pd.isna(data_min) or pd.isna(data_max):
-    render_insight("Sem datas válidas no arquivo.", tipo="alerta")
-    st.stop()
-
-data_min_dt: date = pd.Timestamp(data_min).date()
-data_max_dt: date = pd.Timestamp(data_max).date()
-hoje: date = date.today()
-default_date: date = hoje if data_min_dt <= hoje <= data_max_dt else data_max_dt
-
-filt_c1, filt_c2 = st.columns([1, 2])
-
-with filt_c1:
-    data_sel_raw = st.date_input(
-        "📅 Data de referência",
-        value=default_date,
-        min_value=data_min_dt,
-        max_value=data_max_dt,
+with f_col1:
+    monitores_disponiveis = sorted(
+        df_auditado["DONO_MONITOR_SUPERVISOR"].unique().tolist()
     )
-    data_sel: date = data_sel_raw[0] if isinstance(data_sel_raw, tuple) else cast(date, data_sel_raw)
+    monitor_sel = st.multiselect(
+        "👔 Monitor (Supervisor)", monitores_disponiveis, default=[]
+    )
 
-with filt_c2:
-    status_sel: list[str] = []
-    if col_status:
-        todos_status = sorted(str(x) for x in df[col_status].dropna().unique().tolist())
-        status_sel = st.multiselect(
-            "📌 Status (vazio = todos)",
-            todos_status,
-            default=[],
-        )
+with f_col2:
+    equipes_disponiveis = sorted(df_auditado["DONO_CÓD_AUX_EQUIPE"].unique().tolist())
+    equipe_sel = st.multiselect("🏷️ CódAuxEquipe", equipes_disponiveis, default=[])
 
-# Aplica filtros
-df_filt = df[df[col_data].dt.date == data_sel].copy()
-if status_sel and col_status:
-    df_filt = df_filt[df_filt[col_status].isin(status_sel)]
+with f_col3:
+    status_aud = sorted(df_auditado["STATUS_AUDITORIA"].unique().tolist())
+    status_aud_sel = st.multiselect("📌 Status da Auditoria", status_aud, default=[])
+
+df_view = df_auditado.copy()
+if monitor_sel:
+    df_view = df_view[df_view["DONO_MONITOR_SUPERVISOR"].isin(monitor_sel)]
+if equipe_sel:
+    df_view = df_view[df_view["DONO_CÓD_AUX_EQUIPE"].isin(equipe_sel)]
+if status_aud_sel:
+    df_view = df_view[df_view["STATUS_AUDITORIA"].isin(status_aud_sel)]
 
 # ==========================================================
 # 📊 PAINEL EXECUTIVO
 # ==========================================================
-secao(f"Painel Executivo — {data_por_extenso(data_sel)}", "indicadores do dia")
+secao("Indicadores da Auditoria", "resumo executivo do cruzamento")
 
-metricas = gerar_metricas(df_filt, col_status)
-
-if df_filt.empty:
-    render_insight(
-        "Nenhum retorno para o período selecionado. Ajuste os filtros acima.",
-        tipo="alerta",
-    )
-    st.stop()
-
-# ── KPIs principais ──
 k1, k2, k3, k4 = st.columns(4)
-render_kpi(k1, "Retornos", f"{int(metricas['total']):,}", "atividades no dia", tema="azul")
-render_kpi(k2, "Conclusão", f"{metricas['taxa_conclusao']:.1f}%", "taxa de efetividade", tema="verde")
-render_kpi(k3, "Não realizadas", f"{int(metricas['canceladas']):,}", "canceladas / improdutivas", tema="vermelho")
-render_kpi(k4, "Pendentes", f"{int(metricas['pendentes']):,}", "aguardando retorno", tema="cinza")
-
-# ── Concluídas em pill ──
-concluidas_pill = stat_pill("Concluídas", f"{int(metricas['concluidas']):,}", COR_SUCESSO)
-st.markdown(f'<div style="margin-top:16px;">{concluidas_pill}</div>', unsafe_allow_html=True)
-
-# ==========================================================
-# 📈 DISTRIBUIÇÃO POR STATUS
-# ==========================================================
-if col_status:
-    secao("Distribuição por Status", "composição percentual")
-
-    dist_status = df_filt[col_status].value_counts().reset_index()
-    dist_status.columns = ["Status", "Quantidade"]
-    total_dist = int(dist_status["Quantidade"].sum())
-    dist_status["% do Total"] = (dist_status["Quantidade"] / total_dist * 100).round(1)
-
-    for _, row in dist_status.head(8).iterrows():
-        pct = float(row["% do Total"])
-        status_lower = str(row["Status"]).lower()
-        cor = (
-            COR_SUCESSO if any(w in status_lower for w in ("conclu", "execut", "finaliz"))
-            else COR_ALERTA if any(w in status_lower for w in ("cancel", "improd"))
-            else COR_NEUTRO
-        )
-        linha_header = f'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px;"><span style="color:#374151;font-weight:600;">{row["Status"]}</span><span style="color:#6B7280;font-variant-numeric:tabular-nums;">{int(row["Quantidade"]):,} <span style="color:#9CA3AF;">·</span> {pct:.1f}%</span></div>'
-        linha_bar = f'<div style="background:#F1F5F9;border-radius:3px;height:6px;overflow:hidden;"><div style="background:{cor};width:{pct}%;height:100%;border-radius:3px;"></div></div>'
-        st.markdown(
-            f'<div style="margin-bottom:12px;">{linha_header}{linha_bar}</div>',
-            unsafe_allow_html=True,
-        )
+render_kpi(
+    k1,
+    "Retornos Auditados",
+    f"{stats_cruzamento['total_retornos']:,}",
+    f"{stats_toa_filt['suspensos_removidos']} suspensos removidos",
+    tema="azul",
+)
+render_kpi(
+    k2,
+    "Donos Localizados",
+    f"{stats_cruzamento['com_cod_equipe']:,}",
+    f"{stats_cruzamento['taxa_identificacao']}% com CódAuxEquipe",
+    tema="verde",
+)
+render_kpi(
+    k3,
+    "Sem Dono no Sinapse",
+    f"{stats_cruzamento['sem_dono']:,}",
+    "contrato ausente no histórico",
+    tema="vermelho",
+)
+total_monitores = df_auditado[df_auditado["DONO_MONITOR_SUPERVISOR"] != "SEM MONITOR"][
+    "DONO_MONITOR_SUPERVISOR"
+].nunique()
+render_kpi(
+    k4,
+    "Monitores Envolvidos",
+    f"{total_monitores:,}",
+    "supervisores distintos",
+    tema="cinza",
+)
 
 # ==========================================================
-# 🔍 BASE DETALHADA
+# 📈 LEGENDA DE CORES DOS MONITORES
 # ==========================================================
-secao("Base Detalhada", f"{len(df_filt):,} registros filtrados")
+secao("Legenda de Supervisores", "identificação visual por monitor")
 
-with st.expander("Visualizar registros"):
-    render_dataframe(df_filt, height=460)
+leg_cols = st.columns(4)
+with leg_cols[0]:
+    st.markdown(
+        '<div style="padding:10px;border-radius:6px;background:#DBEAFE;color:#1E40AF;font-weight:700;font-size:12px;border:1px solid #BFDBFE;">'
+        "🔵 EDSON MARCO PINHEIRO"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+with leg_cols[1]:
+    st.markdown(
+        '<div style="padding:10px;border-radius:6px;background:#DCFCE7;color:#166534;font-weight:700;font-size:12px;border:1px solid #BBF7D0;">'
+        "🟢 MARCOS ROBERTO DO NASCIMENTO"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+with leg_cols[2]:
+    st.markdown(
+        '<div style="padding:10px;border-radius:6px;background:#FCE7F3;color:#9D174D;font-weight:700;font-size:12px;border:1px solid #FBCFE8;">'
+        "🌸 MAICON APARECIDO FARIA"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+with leg_cols[3]:
+    st.markdown(
+        '<div style="padding:10px;border-radius:6px;background:#F3F4F6;color:#374151;font-weight:700;font-size:12px;border:1px solid #E5E7EB;">'
+        "⚪ NELSON ALVES OLIVEIRA JUNIOR"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+# ==========================================================
+# 🔍 BASE DE DADOS DESTACADA (CONFORME componentes.py)
+# ==========================================================
+secao(
+    "Base Detalhada de Retornos",
+    f"{len(df_view):,} registros exibidos na ordem oficial",
+)
+
+# Configuração de mapeamento cromático para render_table_html sem perder tipografia ou cores
+color_rules: ColorMapDict = {
+    "DONO_MONITOR_SUPERVISOR": [
+        (
+            lambda val: "edson marco pinheiro" in _normalizar_texto(val),
+            "#1E40AF; background-color: #DBEAFE; border-left: 3px solid #1E40AF",
+        ),
+        (
+            lambda val: "marcos roberto do nascimento" in _normalizar_texto(val),
+            "#166534; background-color: #DCFCE7; border-left: 3px solid #166534",
+        ),
+        (
+            lambda val: "maicon aparecido faria" in _normalizar_texto(val),
+            "#9D174D; background-color: #FCE7F3; border-left: 3px solid #9D174D",
+        ),
+        (
+            lambda val: any(
+                x in _normalizar_texto(val)
+                for x in ["nelson alves oliveira junior", "nelson alves"]
+            ),
+            "#374151; background-color: #F3F4F6; border-left: 3px solid #374151",
+        ),
+        (
+            lambda val: str(val) in ("SEM MONITOR", "-", ""),
+            "#B45309; background-color: #FFFBEB",
+        ),
+    ],
+    "DONO_CÓD_AUX_EQUIPE": [
+        (
+            lambda val: str(val) in ("SEM_EQUIPE", "-", ""),
+            "#991B1B; background-color: #FEF2F2",
+        ),
+        (
+            lambda val: True,
+            "#3730A3; background-color: #EEF2FF; font-family: var(--font-codigo)",
+        ),
+    ],
+    "DONO_TÉCNICO_NOME": [
+        (
+            lambda val: str(val) in ("NÃO INFORMADO", "-", ""),
+            "#9CA3AF; background-color: transparent",
+        ),
+        (lambda val: True, "#15803D; background-color: #F0FDF4"),
+    ],
+    "STATUS_AUDITORIA": [
+        (lambda val: str(val) == "Identificado", "#03543F; background-color: #DEF7EC"),
+        (lambda val: True, "#9B1C1C; background-color: #FDE8E8"),
+    ],
+}
+
+render_table_html(
+    df=df_view,
+    color_rules=color_rules,
+    height=480,
+    max_rows=100,
+)
 
 # ==========================================================
 # 📤 EXPORTAÇÃO
 # ==========================================================
-secao("Distribuição", "download do relatório")
+secao("Exportação", "download dos relatórios oficiais")
 
-if col_cred and col_cred in df_filt.columns:
-    dfs_por_grupo: dict[str, pd.DataFrame] = {
-        str(grupo): grp for grupo, grp in df_filt.groupby(col_cred)
-    }
-else:
-    dfs_por_grupo = {"Retornos": df_filt.copy()}
-
-excel_bytes = gerar_excel_multi_abas(dfs_por_grupo, df_filt.copy())
-nome_base = f"retornos_{data_sel.strftime('%Y%m%d')}"
+excel_bytes = gerar_excel_por_equipe(df_view, coluna_agrupamento="DONO_CÓD_AUX_EQUIPE")
+nome_arquivo = f"retornos_auditoria_{date.today().strftime('%Y%m%d')}.xlsx"
 
 exp_c1, exp_c2 = st.columns(2)
 with exp_c1:
     st.download_button(
-        f"📊 Baixar Excel · {len(dfs_por_grupo) + 1} abas",
+        "📊 Baixar Relatório Excel (Abas por CódAuxEquipe)",
         data=excel_bytes,
-        file_name=f"{nome_base}.xlsx",
+        file_name=nome_arquivo,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
         type="primary",
     )
 with exp_c2:
-    csv = df_filt.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
+    csv_bytes = df_view.to_csv(index=False, sep=";", encoding="utf-8-sig").encode(
+        "utf-8-sig"
+    )
     st.download_button(
-        "📄 Baixar CSV consolidado",
-        data=csv,
-        file_name=f"{nome_base}.csv",
+        "📄 Baixar Base Consolidada (CSV)",
+        data=csv_bytes,
+        file_name=f"retornos_auditoria_{date.today().strftime('%Y%m%d')}.csv",
         mime="text/csv",
         use_container_width=True,
     )
 
-st.caption(
-    f"Excel: aba **Consolidado** + **{len(dfs_por_grupo)}** aba(s) de detalhamento."
-)
-
 # ==========================================================
 # 🏁 RODAPÉ
 # ==========================================================
-rodape_html = f'<div style="text-align:center;color:#9CA3AF;font-size:11px;padding:24px 0 8px 0;margin-top:32px;border-top:1px solid #F1F5F9;">Gerado em {date.today().strftime("%d/%m/%Y")} <span style="color:#D1D5DB;margin:0 8px;">·</span> {arquivo_principal.name}</div>'
-st.markdown(rodape_html, unsafe_allow_html=True)
+st.markdown(
+    f'<div style="text-align:center;color:#9CA3AF;font-size:11px;padding:24px 0;'
+    f'margin-top:32px;border-top:1px solid #F1F5F9;">'
+    f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name}) "
+    f'· Gerado em {date.today().strftime("%d/%m/%Y")}</div>',
+    unsafe_allow_html=True,
+)
