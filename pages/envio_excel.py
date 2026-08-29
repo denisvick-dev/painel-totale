@@ -205,7 +205,7 @@ class ProcessadorDeDados:
 # INTERFACE
 # ====================================================
 with st.sidebar:
-    render_sidebar_brand("TOTALE", "Data Management", icone="🏢")
+    render_sidebar_brand("TOTALE", "Data Management")
     st.markdown("---")
     render_insight(
         "Use **Sincronizar Agora** para atualizar Produção, Consultivos e Ativos.",
