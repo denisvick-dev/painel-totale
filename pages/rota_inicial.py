@@ -22,7 +22,6 @@ from components.componentes import (
     render_hero,
     render_kpi,
     render_kpi_sm,
-    render_section,
     render_section_header,
     render_insight,
     FONTE_TEXTO,
@@ -846,7 +845,7 @@ def main() -> None:
 
     # ── Upload ───────────────────────────────────────
     if st.session_state["df_master"] is None:
-        render_section("📁 Importação de Dados")
+        render_section_header("📁 Importação de Dados")
         arq = st.file_uploader(
             "Selecione a base (Excel/CSV)",
             type=["xlsx", "csv"],
@@ -1094,7 +1093,7 @@ def main() -> None:
             )
             df_mapa = df_mapa.dropna(subset=["COORD_X", "COORD_Y"])
             if not df_mapa.empty:
-                fig_mapa = px.scatter_mapbox(
+                fig_mapa = px.scatter_map(
                     df_mapa, lat="COORD_Y", lon="COORD_X",
                     color="STATUS_ATIVIDADE",
                     zoom=9, height=550, hover_name="NOME_OFICIAL",

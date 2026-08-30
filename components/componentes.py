@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 # ====================================================
 TemaKPI = Literal["azul", "verde", "vermelho", "laranja", "cinza"]
 TipoInsight = Literal["ok", "info", "alerta", "critico", "acao"]
+TipoBadge = Literal["laranja", "azul", "verde", "vermelho", "cinza"]
 
 CellFormatter = Union[str, Callable[[Any], str]]
 FmtDict = dict[str, Union[CellFormatter, None]]
@@ -537,12 +538,12 @@ def render_hero_totale_1(
     """Hero Principal: Gradiente Azul para Laranja."""
     if not titulo:
         return
-    st.markdown(
-        f"""<div class="hero-totale-1"><div class="hero-t1-content">
-            <h1 class="hero-t1-title">{titulo}</h1><p class="hero-t1-sub">{subtitulo}</p>
-        </div></div>""",
-        unsafe_allow_html=True,
+    html = (
+        f'<div class="hero-totale-1"><div class="hero-t1-content">'
+        f'<h1 class="hero-t1-title">{titulo}</h1><p class="hero-t1-sub">{subtitulo}</p>'
+        f"</div></div>"
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero_totale_2(
@@ -557,12 +558,13 @@ def render_hero_totale_2(
         if badge_texto
         else ""
     )
-    st.markdown(
-        f"""<div class="hero-totale-2"><div class="hero-t2-container">
-            <h1 class="hero-t2-title">{titulo}</h1><p class="hero-t2-sub">{subtitulo}</p>{html_badge}
-        </div></div>""",
-        unsafe_allow_html=True,
+
+    html = (
+        f'<div class="hero-totale-2"><div class="hero-t2-container">'
+        f'<h1 class="hero-t2-title">{titulo}</h1><p class="hero-t2-sub">{subtitulo}</p>{html_badge}'
+        f"</div></div>"
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
@@ -577,14 +579,15 @@ def render_kpi(
     """Renderiza um cartão KPI em formato padrão (destaque visual amplo)."""
     cor = _resolver_cor_tema(tema)
     renderer = col.markdown if hasattr(col, "markdown") else st.markdown
-    renderer(
-        f"""<div class="kpi-card" style="border-left: 4px solid {cor};">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value" style="color:{cor};">{valor}</div>
-            <div class="kpi-sub">{sub}</div>
-        </div>""",
-        unsafe_allow_html=True,
+
+    html = (
+        f'<div class="kpi-card" style="border-left: 4px solid {cor};">'
+        f'<div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value" style="color:{cor};">{valor}</div>'
+        f'<div class="kpi-sub">{sub}</div>'
+        f"</div>"
     )
+    renderer(html, unsafe_allow_html=True)
 
 
 def render_kpi_sm(
@@ -601,6 +604,7 @@ def render_kpi_sm(
     """
     cor = _resolver_cor_tema(tema)
     renderer = col.markdown if hasattr(col, "markdown") else st.markdown
+
     html_icone = (
         f'<span style="font-size:13px; margin-left:4px;">{icone}</span>'
         if icone
@@ -608,17 +612,14 @@ def render_kpi_sm(
     )
     html_sub = f'<div class="kpi-sub">{sub}</div>' if sub else ""
 
-    renderer(
-        f"""<div class="kpi-card-sm" style="border-left: 3px solid {cor};">
-            <div class="kpi-label">
-                <span>{label}</span>
-                {html_icone}
-            </div>
-            <div class="kpi-value" style="color:{cor};">{valor}</div>
-            {html_sub}
-        </div>""",
-        unsafe_allow_html=True,
+    html = (
+        f'<div class="kpi-card-sm" style="border-left: 3px solid {cor};">'
+        f'<div class="kpi-label"><span>{label}</span>{html_icone}</div>'
+        f'<div class="kpi-value" style="color:{cor};">{valor}</div>'
+        f"{html_sub}"
+        f"</div>"
     )
+    renderer(html, unsafe_allow_html=True)
 
 
 def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
@@ -626,13 +627,14 @@ def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
         return
     bg, texto, borda, icone = _INSIGHT_CONFIG.get(tipo, _INSIGHT_CONFIG["info"])
     msg_html = _markdown_inline_para_html(msg)
-    st.markdown(
-        f"""<div style="background:{bg};color:{texto};border-left:4px solid {borda};
-             padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;">
-            <span style="margin-right:8px;">{icone}</span>{msg_html}
-        </div>""",
-        unsafe_allow_html=True,
+
+    html = (
+        f'<div style="background:{bg};color:{texto};border-left:4px solid {borda}; '
+        f'padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;">'
+        f'<span style="margin-right:8px;">{icone}</span>{msg_html}'
+        f"</div>"
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # ====================================================
@@ -642,37 +644,56 @@ def render_section_header(
     titulo: str,
     subtitulo: str = "",
     icone: str = "",
+    badge: str = "",
+    badge_tipo: TipoBadge = "laranja",
     cor_accent: str = COR_SECUNDARIA,
 ) -> None:
-    """Renderiza um cabeçalho de seção estruturado com linha de acento corporativa."""
     if not titulo:
         return
 
     html_icone = (
-        f'<span style="margin-right: 10px; font-size: 1.25em;">{icone}</span>'
+        f'<span style="margin-right: 10px; font-size: 1.2em; display: inline-flex; align-items: center;">{icone}</span>'
         if icone
         else ""
     )
+
+    html_badge = ""
+    if badge:
+        _cores_badge = {
+            "laranja": ("#FFF7ED", "#C2410C", "#FDBA74"),
+            "azul": ("#EFF6FF", "#1D4ED8", "#93C5FD"),
+            "verde": ("#ECFDF5", "#047857", "#6EE7B7"),
+            "vermelho": ("#FEF2F2", "#B91C1C", "#FCA5A5"),
+            "cinza": ("#F8FAFC", "#475569", "#CBD5E1"),
+        }
+        bg, texto, borda = _cores_badge.get(badge_tipo, _cores_badge["laranja"])
+        html_badge = (
+            f'<span style="background-color: {bg}; color: {texto}; border: 1px solid {borda}; '
+            f"padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; "
+            f"font-family: {FONTE_TEXTO}; text-transform: uppercase; letter-spacing: 0.5px; "
+            f"margin-left: 10px; display: inline-flex; align-items: center; align-self: center; "
+            f'line-height: 1.2;">{badge}</span>'
+        )
+
     html_sub = (
-        f'<div style="font-family: {FONTE_TEXTO}; font-size: 14px; color: {COR_TEXTO_3}; margin-top: 4px; font-weight: 400;">{subtitulo}</div>'
+        f'<div style="font-family: {FONTE_TEXTO}; font-size: 14px; color: {COR_TEXTO_3}; margin-top: 5px; font-weight: 400;">{subtitulo}</div>'
         if subtitulo
         else ""
     )
 
-    st.markdown(
-        f"""
-        <div style="margin-top: 2rem; margin-bottom: 1.5rem;">
-            <div style="display: flex; align-items: center;">
-                <h2 style="font-family: {FONTE_TITULO}; font-size: 22px; font-weight: 800; color: {COR_PRIMARIA}; margin: 0; padding: 0; line-height: 1.2;">
-                    {html_icone}{titulo}
-                </h2>
-            </div>
-            {html_sub}
-            <div style="height: 3px; width: 45px; background: {cor_accent}; border-radius: 2px; margin-top: 10px; margin-bottom: 5px;"></div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    html = (
+        f'<div style="margin-top: 2.2rem; margin-bottom: 1.6rem; width: 100%;">'
+        f'  <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0;">'
+        f'      <h2 style="font-family: {FONTE_TITULO}; font-size: 22px; font-weight: 800; color: {COR_PRIMARIA}; margin: 0; padding: 0; line-height: 1.25; display: flex; align-items: center;">'
+        f"          {html_icone}{titulo}"
+        f"      </h2>"
+        f"      {html_badge}"
+        f"  </div>"
+        f"  {html_sub}"
+        f'  <div style="height: 3px; width: 45px; background: {cor_accent}; border-radius: 2px; margin-top: 10px; margin-bottom: 5px;"></div>'
+        f"</div>"
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_sidebar_brand(
@@ -680,35 +701,25 @@ def render_sidebar_brand(
     segmento: str = "Sistemas & Energia",
     logo_svg: str | None = None,
 ) -> None:
-    """Renderiza a marca/logo corporativa com acabamento visual integrado ao gradiente da Sidebar."""
     if not logo_svg:
-        logo_svg = """
-        <svg width="34" height="34" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15));">
-            <circle cx="50" cy="50" r="44" stroke="rgba(255, 255, 255, 0.15)" stroke-width="6"/>
-            <path d="M50 12 A 38 38 0 0 1 88 50" stroke="#F37C04" stroke-width="10" stroke-linecap="round"/>
-            <path d="M50 88 A 38 38 0 0 1 12 50" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
-            <circle cx="50" cy="50" r="10" fill="#F37C04"/>
-        </svg>
-        """
+        logo_svg = (
+            '<svg width="34" height="34" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15));">'
+            '<circle cx="50" cy="50" r="44" stroke="rgba(255, 255, 255, 0.15)" stroke-width="6"/>'
+            '<path d="M50 12 A 38 38 0 0 1 88 50" stroke="#F37C04" stroke-width="10" stroke-linecap="round"/>'
+            '<path d="M50 88 A 38 38 0 0 1 12 50" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>'
+            '<circle cx="50" cy="50" r="10" fill="#F37C04"/>'
+            "</svg>"
+        )
 
-    st.sidebar.markdown(
-        f"""
-        <div style="display: flex; align-items: center; gap: 12px; padding: 8px 4px 16px 4px; margin-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
-            <div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
-                {logo_svg}
-            </div>
-            <div style="display: flex; flex-direction: column; justify-content: center;">
-                <span style="font-family: {FONTE_TITULO}; font-size: 20px; font-weight: 800; color: #FFFFFF; letter-spacing: 0.8px; line-height: 1;">
-                    {empresa}
-                </span>
-                <span style="font-family: {FONTE_TEXTO}; font-size: 10px; font-weight: 600; color: #FFB86B; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; opacity: 0.95;">
-                    {segmento}
-                </span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    html = (
+        f'<div style="display: flex; align-items: center; gap: 12px; padding: 8px 4px 16px 4px; margin-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.15);">'
+        f'<div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center;">{logo_svg}</div>'
+        f'<div style="display: flex; flex-direction: column; justify-content: center;">'
+        f'<span style="font-family: {FONTE_TITULO}; font-size: 20px; font-weight: 800; color: #FFFFFF; letter-spacing: 0.8px; line-height: 1;">{empresa}</span>'
+        f'<span style="font-family: {FONTE_TEXTO}; font-size: 10px; font-weight: 600; color: #FFB86B; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; opacity: 0.95;">{segmento}</span>'
+        f"</div></div>"
     )
+    st.sidebar.markdown(html, unsafe_allow_html=True)
 
 
 # ====================================================
@@ -725,7 +736,6 @@ def render_table_html(
     num_cols: list[str] | None = None,
     max_cols: int = 20,
 ) -> None:
-    """Renderiza um DataFrame como uma tabela HTML pura, respeitando fontes e regras de cor."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         st.info("Nenhum dado disponível.")
         return
@@ -795,11 +805,14 @@ def render_table_html(
             tds.append(f"<td{cls_str}{stl_str}>{val}</td>")
         rows_html.append(f"<tr>{''.join(tds)}</tr>")
 
-    st.markdown(
-        f'<div class="corp-table-wrap" style="max-height:{int(height)}px;"><table class="corp-table">'
-        f"<thead><tr>{header}</tr></thead><tbody>{''.join(rows_html)}</tbody></table></div>",
-        unsafe_allow_html=True,
+    html_tabela = (
+        f'<div class="corp-table-wrap" style="max-height:{int(height)}px;">'
+        f'<table class="corp-table">'
+        f"<thead><tr>{header}</tr></thead>"
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        f"</table></div>"
     )
+    st.markdown(html_tabela, unsafe_allow_html=True)
 
     if len(df) > max_rows or len(df.columns) > max_cols:
         st.caption(

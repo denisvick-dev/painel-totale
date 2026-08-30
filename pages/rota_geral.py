@@ -1,4 +1,10 @@
 # rota_geral.py
+"""
+Página Rota Geral — Portal TOTALE
+=================================
+Consolidação de bases operacionais (ABCDM, GUARULHOS, LESTE),
+cálculo de KPIs, visualizações comparativas e exportação Excel.
+"""
 
 from __future__ import annotations
 
@@ -21,14 +27,14 @@ from components.componentes import (
     FONTE_TEXTO,
     FONTE_TITULO,
     aplicar_estilo,
-    render_hero,
+    render_hero_totale_1,
     render_insight,
     render_kpi,
     render_kpi_sm,
     render_section_header,
 )
 
-# Fallback se COR_LARANJA_SUAVE não existir no componentes
+# Fallback caso a paleta não tenha essa cor exportada
 try:
     from components.componentes import COR_LARANJA_SUAVE  # type: ignore
 except ImportError:
@@ -41,8 +47,6 @@ if TYPE_CHECKING:
 # ============================================================
 # TIPOS
 # ============================================================
-
-
 class LinhaResultado(TypedDict, total=False):
     BASE: str
     WO: int
@@ -65,12 +69,10 @@ TipoInsight = Literal["ok", "alerta", "critico", "info"]
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-
-
 class Config:
-    """Configurações globais da página e das regras de negócio."""
+    """Configurações globais da página e regras de negócio."""
 
-    PAGE_TITLE: str = "Rota Geral | Totale"
+    PAGE_TITLE: str = "Rota Geral | TOTALE"
     PAGE_ICON: str = "📊"
     LAYOUT: Literal["centered", "wide"] = "wide"
 
@@ -115,14 +117,11 @@ class Config:
 # ============================================================
 # UTILITÁRIOS
 # ============================================================
-
-
 class Utils:
     """Ferramentas utilitárias para tratamento e formatação de dados."""
 
     @staticmethod
     def normalizar_texto(texto: Any) -> str:
-        """Remove acentos, espaços extras e converte para maiúsculas."""
         if pd.isna(texto) or texto is None:
             return ""
         txt = str(texto).strip().upper()
@@ -131,14 +130,12 @@ class Utils:
 
     @staticmethod
     def preparar_colunas(df: pd.DataFrame) -> pd.DataFrame:
-        """Remove espaços no início/fim dos nomes das colunas."""
         df = df.copy()
         df.columns = pd.Index([str(c).strip() for c in df.columns])
         return df
 
     @staticmethod
     def localizar_coluna(df: pd.DataFrame, nome: str) -> str | None:
-        """Busca uma coluna no DataFrame ignorando case e acentos."""
         procurado = Utils.normalizar_texto(nome)
         for coluna in df.columns:
             if Utils.normalizar_texto(coluna) == procurado:
@@ -147,7 +144,6 @@ class Utils:
 
     @staticmethod
     def localizar_colunas_tipo_os(df: pd.DataFrame) -> list[str]:
-        """Localiza dinamicamente as colunas de 'Tipo O.S 1' até 'Tipo O.S 10'."""
         encontradas: list[str] = []
         for i in range(1, 11):
             nomes_possiveis = (
@@ -165,7 +161,6 @@ class Utils:
 
     @staticmethod
     def to_float(v: Any, default: float = 0.0) -> float:
-        """Converte um valor genérico para float de forma segura."""
         if pd.isna(v) or v is None:
             return default
         if isinstance(v, (int, float, bool)):
@@ -177,27 +172,22 @@ class Utils:
 
     @staticmethod
     def to_int(v: Any, default: int = 0) -> int:
-        """Converte um valor genérico para inteiro de forma segura."""
         return int(Utils.to_float(v, float(default)))
 
     @staticmethod
     def fmt_int(v: Any) -> str:
-        """Formata um número inteiro com separador de milhar."""
         return f"{Utils.to_int(v):,}".replace(",", ".")
 
     @staticmethod
     def fmt_float(v: Any, casas: int = 2) -> str:
-        """Formata um número float com separador de decimal."""
         return f"{Utils.to_float(v):.{casas}f}".replace(".", ",")
 
 
 # ============================================================
 # PROCESSAMENTO DE DADOS
 # ============================================================
-
-
 class DataProcessor:
-    """Classe responsável pelas regras de negócio e cálculo dos KPIs."""
+    """Regras de negócio e cálculo dos KPIs."""
 
     @staticmethod
     def criar_flag_gpon(df: pd.DataFrame) -> pd.DataFrame:
@@ -206,7 +196,6 @@ class DataProcessor:
         if coluna is None:
             df["GPON_FLAG"] = 0
             return df
-
         serie = df[coluna].fillna("").astype(str).map(Utils.normalizar_texto)
         df["GPON_FLAG"] = serie.str.contains("PON", regex=False).astype(int)
         return df
@@ -215,7 +204,6 @@ class DataProcessor:
     def carregar_arquivo(arquivo: UploadedFile | None) -> pd.DataFrame | None:
         if arquivo is None:
             return None
-
         nome = arquivo.name.lower()
         try:
             if nome.endswith(".csv"):
@@ -224,7 +212,6 @@ class DataProcessor:
                 df = DataProcessor._ler_xlsx(arquivo)
             else:
                 raise ValueError("Formato não suportado.")
-
             df = Utils.preparar_colunas(df)
             return DataProcessor.criar_flag_gpon(df)
         except Exception as erro:
@@ -233,38 +220,30 @@ class DataProcessor:
 
     @staticmethod
     def _ler_csv(arquivo: UploadedFile) -> pd.DataFrame:
-        # Usamos uma lista de tuplas (separador, encoding) em vez de dicionários
         tentativas: list[tuple[str, str]] = [
             (";", "utf-8"),
             (";", "latin-1"),
             (",", "utf-8"),
             (",", "latin-1"),
         ]
-
         for sep, encoding in tentativas:
             try:
                 arquivo.seek(0)
-                # Passando explicitamente sep= e encoding= evita o erro do Pylance
                 df = pd.read_csv(arquivo, sep=sep, encoding=encoding, low_memory=False)
                 if len(df.columns) > 1:
                     return df
             except Exception:
                 continue
-
         raise ValueError("Não foi possível identificar o formato/encoding do CSV.")
 
     @staticmethod
     def _ler_xlsx(arquivo: UploadedFile) -> pd.DataFrame:
         arquivo.seek(0)
         conteudo_bytes = arquivo.read()
-
-        # Tenta ler como Excel real
         try:
             return pd.read_excel(BytesIO(conteudo_bytes), engine="openpyxl")
         except Exception:
             pass
-
-        # Fallback caso seja um arquivo HTML disfarçado de .xls
         try:
             texto = conteudo_bytes.decode("utf-8")
         except UnicodeDecodeError:
@@ -276,7 +255,6 @@ class DataProcessor:
         col = Utils.localizar_coluna(df, "Contrato")
         if col is None:
             return 0
-
         dados = df.loc[mascara] if mascara is not None else df
         s = dados[col].dropna().astype(str).str.strip()
         return int(s[~s.isin(["", "nan", "None", "0"])].nunique())
@@ -286,7 +264,6 @@ class DataProcessor:
         col = Utils.localizar_coluna(df, "Total de tarefas")
         if col is None:
             return 0
-
         dados = df.loc[mascara] if mascara is not None else df
         return int(pd.to_numeric(dados[col], errors="coerce").fillna(0).sum())
 
@@ -295,7 +272,6 @@ class DataProcessor:
         coluna = Utils.localizar_coluna(df, nome_coluna)
         if coluna is None:
             return pd.Series(False, index=df.index)
-
         procurado = Utils.normalizar_texto(texto)
         serie = df[coluna].fillna("").astype(str).map(Utils.normalizar_texto)
         return serie.str.contains(procurado, regex=False)
@@ -311,7 +287,6 @@ class DataProcessor:
 
     @staticmethod
     def calcular_indicadores(df: pd.DataFrame) -> dict[str, int]:
-        """Calcula todos os KPIs principais para uma base."""
         mask_adesao = DataProcessor._coluna_contem(df, "Tipo O.S 1", "ADESAO")
         mask_pme = DataProcessor._coluna_contem(df, "Habilidade de Trabalho", "PME")
         mask_gpon = df["GPON_FLAG"] == 1
@@ -348,7 +323,6 @@ class DataProcessor:
 
     @staticmethod
     def processar_base(nome: str, df: pd.DataFrame, montados: int) -> dict[str, Any]:
-        """Gera a linha de resultados consolidada para uma base específica."""
         ind = DataProcessor.calcular_indicadores(df)
         rotas = DataProcessor.calcular_rotas(df)
         os_qtd = int(ind["OS"])
@@ -362,7 +336,6 @@ class DataProcessor:
 
     @staticmethod
     def adicionar_linha_total(df: pd.DataFrame) -> pd.DataFrame:
-        """Adiciona a linha de TOTAL no final do DataFrame consolidado."""
         soma_os = df["OS"].sum()
         soma_rotas = df["Rotas"].sum()
         soma_montados = df["Montados"].sum()
@@ -375,34 +348,28 @@ class DataProcessor:
         total["Média Montados"] = (
             round(soma_os / soma_montados, 2) if soma_montados > 0 else 0.0
         )
-
         return pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
 
 # ============================================================
 # VISUALIZAÇÃO
 # ============================================================
-
-
 class Visualization:
-    """Renderização de Tabelas HTML corporativas e Gráficos Plotly."""
+    """Tabelas HTML corporativas e Gráficos Plotly."""
 
     COLS_NEGATIVAS = {"RC"}  # Menor é melhor
 
     @staticmethod
     def gerar_excel(df: pd.DataFrame) -> bytes:
-        """Gera arquivo Excel formatado para download."""
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Rota Geral", index=False)
             ws = writer.book["Rota Geral"]
 
-            # Estiliza o cabeçalho
             for cell in ws[1]:
                 cell.font = cell.font.copy(bold=True, color="FFFFFF")
                 cell.fill = cell.fill.copy(fill_type="solid", fgColor="012869")
 
-            # Ajusta largura das colunas
             for idx, coluna in enumerate(ws.columns, start=1):
                 letra = get_column_letter(idx)
                 maior = max(
@@ -418,7 +385,6 @@ class Visualization:
     def _classe_celula(
         valor: float, coluna: str, df_bases: pd.DataFrame | None = None
     ) -> str:
-        """Define o estilo (Mapa de Calor) da célula da tabela HTML baseada no ranking."""
         if coluna == "Média OS":
             return "cel-media-os"
         if coluna == "Média Montados":
@@ -445,7 +411,6 @@ class Visualization:
 
     @staticmethod
     def renderizar_tabela_html(df: pd.DataFrame) -> None:
-        """Renderiza a tabela de resultados com layout corporativo HTML/CSS."""
         if df.empty:
             render_insight("Nenhum dado disponível.", "info")
             return
@@ -501,7 +466,6 @@ class Visualization:
 
     @staticmethod
     def _layout_corp(fig: go.Figure, titulo: str = "", height: int = 380) -> go.Figure:
-        """Aplica o tema corporativo da Totale nos gráficos do Plotly."""
         fig.update_layout(
             title=(
                 dict(
@@ -635,7 +599,6 @@ class Visualization:
     def gerar_insights(
         df_bases: pd.DataFrame, total: dict[str, Any]
     ) -> list[tuple[str, TipoInsight]]:
-        """Gera análises textuais automáticas baseadas nos resultados."""
         insights: list[tuple[str, TipoInsight]] = []
 
         top_os = df_bases.loc[df_bases["Média OS"].idxmax()]
@@ -697,14 +660,14 @@ class Visualization:
 # ============================================================
 # INTERFACE (Streamlit UI)
 # ============================================================
-
-
 class UI:
-    """Responsável por toda a montagem visual da página no Streamlit."""
+    """Toda a montagem visual da página no Streamlit."""
 
+    # -----------------------------------------------------
+    # Controle de sessão / reset
+    # -----------------------------------------------------
     @staticmethod
     def reiniciar_painel() -> None:
-        """Limpa o cache da sessão e reseta a página."""
         for k in list(st.session_state.keys()):
             if str(k).startswith(("up_", "mont_", "btn_")):
                 del st.session_state[k]
@@ -715,7 +678,6 @@ class UI:
 
     @staticmethod
     def validar_colunas(nome_base: str, df: pd.DataFrame) -> None:
-        """Alerta o usuário caso faltem colunas obrigatóres na base enviada."""
         faltantes = [
             c for c in Config.COLUNAS_ESPERADAS if Utils.localizar_coluna(df, c) is None
         ]
@@ -726,58 +688,67 @@ class UI:
                 "alerta",
             )
 
+    # -----------------------------------------------------
+    # Entrada principal
+    # -----------------------------------------------------
     @staticmethod
     def mostrar_interface() -> None:
-        """Função principal que desenha a tela."""
         st.set_page_config(
             page_title=Config.PAGE_TITLE,
             page_icon=Config.PAGE_ICON,
             layout=Config.LAYOUT,
         )
         aplicar_estilo()
-        render_hero(
-            titulo="📊 Rota Geral | TOTALE",
-            subtitulo="Ponto de partida da roteirização, unificando os dados das bases operacionais",
-            badge="Operacional",
-        )
         UI._injetar_css()
 
+        render_hero_totale_1(
+            titulo="📊 Rota Geral | TOTALE",
+            subtitulo="Ponto de partida da roteirização, unificando os dados das bases operacionais",
+        )
+
+        # Importação das bases
         render_section_header(
-            icon="📁", title="Importação das bases", badge="CSV ou XLSX"
+            titulo="Importação das bases",
+            subtitulo="Envie os arquivos consolidados de cada operação.",
+            icone="📁",
+            badge="CSV ou XLSX",
+            badge_tipo="azul",
         )
         arquivos = UI._mostrar_uploaders()
 
+        # Digitação Manual dos Montados
         render_section_header(
-            icon="📝", title="Montados (digitação manual)", badge="Entrada"
+            titulo="Montados (digitação manual)",
+            subtitulo="Informe o quantitativo total de técnicos montados por base no dia.",
+            icone="📝",
+            badge="Entrada Manual",
+            badge_tipo="laranja",
         )
         montados_dict = UI._mostrar_inputs_montados()
 
         UI._mostrar_botoes_acao(arquivos, montados_dict)
 
+    # -----------------------------------------------------
+    # CSS específico da página
+    # -----------------------------------------------------
     @staticmethod
     def _injetar_css() -> None:
-        """Injeta a folha de estilos CSS personalizada no Streamlit com suporte a design tokens."""
         st.markdown(
             f"""
             <style>
-            /* ==========================================================================
-               01. DESIGN TOKENS / VARIÁVEIS CSS
-               ========================================================================== */
+            /* Design Tokens */
             :root {{
-                /* Tipografia */
                 --font-titulo: {FONTE_TITULO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 --font-texto: {FONTE_TEXTO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
-                /* Paleta Corporativa (Navy & Laranja) */
                 --brand-navy-dark: #012869;
                 --brand-navy-mid: #023A9E;
                 --brand-navy-light: #1E5FCC;
-                
+
                 --brand-orange-light: #F37C04;
                 --brand-orange-mid: #E85D04;
                 --brand-orange-dark: #C44100;
 
-                /* Gradientes Principais */
                 --grad-primary: linear-gradient(135deg, var(--brand-navy-dark) 0%, var(--brand-navy-mid) 40%, var(--brand-orange-light) 100%);
                 --grad-navy: linear-gradient(135deg, var(--brand-navy-dark) 0%, var(--brand-navy-mid) 55%, var(--brand-navy-light) 100%);
                 --grad-orange: linear-gradient(135deg, var(--brand-orange-light) 0%, var(--brand-orange-mid) 55%, var(--brand-orange-dark) 100%);
@@ -785,7 +756,6 @@ class UI:
                 --grad-neutral: linear-gradient(135deg, #F3F4F6 0%, #E5E7EB 100%);
                 --grad-total-row: linear-gradient(135deg, #1F2937 0%, #374151 45%, #4B5563 80%, #6B7280 100%);
 
-                /* Heatmap & Indicadores */
                 --heat-green-bg: linear-gradient(180deg, #D1FAE5 0%, #A7F3D0 100%);
                 --heat-green-text: #065F46;
                 --heat-green-border: #10B981;
@@ -798,7 +768,6 @@ class UI:
                 --heat-red-text: #991B1B;
                 --heat-red-border: #EF4444;
 
-                /* Bordas, Sombras e Transições */
                 --border-light: #E2E8F0;
                 --border-radius-card: 16px;
                 --border-radius-btn: 10px;
@@ -806,17 +775,12 @@ class UI:
                 --transition-base: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             }}
 
-            /* ==========================================================================
-               02. LAYOUT GERAL
-               ========================================================================== */
             .block-container {{
                 padding-top: 1.5rem !important;
                 padding-bottom: 3rem !important;
             }}
 
-            /* ==========================================================================
-               03. COMPONENTES STREAMLIT (Inputs & Uploaders)
-               ========================================================================== */
+            /* Uploaders */
             [data-testid="stFileUploader"] {{
                 background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
                 border: 2px dashed #CBD5E1;
@@ -860,7 +824,6 @@ class UI:
                 opacity: 0.95;
                 transform: translateY(-1px);
             }}
-
             .stDownloadButton > button {{
                 background: var(--grad-success) !important;
                 color: #FFFFFF !important;
@@ -870,7 +833,6 @@ class UI:
                 font-weight: 700 !important;
                 transition: var(--transition-base);
             }}
-
             .stButton > button[kind="secondary"] {{
                 background: var(--grad-neutral) !important;
                 color: #374151 !important;
@@ -880,33 +842,25 @@ class UI:
                 font-weight: 700 !important;
                 transition: var(--transition-base);
             }}
-            
-            /* ==========================================================================
-            04. TABELA DE ROTA  (centralizada + auto-ajuste)
-            ========================================================================== */
 
-            /* Wrapper: centraliza a tabela na página */
+            /* Tabela de Rota */
             .tabela-rota-wrapper {{
                 display: flex !important;
                 justify-content: center !important;
                 width: 100% !important;
                 margin: 20px 0 32px 0 !important;
                 padding: 0 !important;
-                overflow-x: auto !important;          /* scroll só se a tela for estreita */
+                overflow-x: auto !important;
                 -webkit-overflow-scrolling: touch;
                 background: transparent !important;
                 border: none !important;
                 box-shadow: none !important;
             }}
-
-            /* Card interno: abraça o conteúdo e centraliza */
             .tabela-rota-wrapper > .tabela-rota-card,
             .tabela-rota-wrapper table.tabela-rota {{
                 margin-left: auto !important;
                 margin-right: auto !important;
             }}
-
-            /* Card visual da tabela */
             .tabela-rota-card {{
                 display: inline-block !important;
                 width: fit-content !important;
@@ -915,37 +869,29 @@ class UI:
                 box-shadow: var(--shadow-card) !important;
                 border: 1px solid var(--border-light) !important;
                 background: #FFFFFF !important;
-                overflow: hidden !important;          /* cantos arredondados limpos */
+                overflow: hidden !important;
             }}
-
-            /* Tabela: largura pelo conteúdo, sem % rígidos */
             .tabela-rota {{
                 border-collapse: separate !important;
                 border-spacing: 0 !important;
-                width: max-content !important;        /* cresce conforme as colunas */
+                width: max-content !important;
                 max-width: 100% !important;
-                table-layout: auto !important;        /* auto-ajuste real */
+                table-layout: auto !important;
                 margin: 0 auto !important;
             }}
-
-            /* Colunas: padding fluido, sem min-width agressivo */
             .tabela-rota th,
             .tabela-rota td {{
                 width: auto !important;
                 min-width: 0 !important;
-                padding: 14px 12px !important;        /* um pouco mais de ar horizontal */
+                padding: 14px 12px !important;
                 box-sizing: border-box !important;
             }}
-
-            /* Primeira coluna (BASE) um pouco mais larga por legibilidade */
             .tabela-rota th:first-child,
             .tabela-rota td:first-child {{
                 padding-left: 18px !important;
                 padding-right: 18px !important;
                 white-space: nowrap !important;
             }}
-
-            /* Cabeçalho */
             .tabela-rota thead th {{
                 background: var(--grad-orange) !important;
                 color: #FFFFFF !important;
@@ -960,11 +906,8 @@ class UI:
                 text-shadow: 0 1px 2px rgba(0,0,0,0.25);
                 white-space: nowrap !important;
             }}
-
             .tabela-rota thead th:first-child {{ border-top-left-radius: 14px; }}
             .tabela-rota thead th:last-child  {{ border-top-right-radius: 14px; }}
-
-            /* Corpo */
             .tabela-rota tbody td {{
                 font-family: var(--font-texto) !important;
                 text-align: center !important;
@@ -975,12 +918,9 @@ class UI:
                 white-space: nowrap !important;
                 transition: filter 0.15s ease;
             }}
-
             .tabela-rota tbody tr:hover td {{
                 filter: brightness(1.04) saturate(1.06);
             }}
-
-            /* Coluna BASE */
             .tabela-rota td.col-base {{
                 background: var(--grad-navy) !important;
                 color: #FFFFFF !important;
@@ -991,8 +931,6 @@ class UI:
                 font-size: 12.5px !important;
                 text-shadow: 0 1px 2px rgba(0,0,0,0.30);
             }}
-
-            /* Linha TOTAL */
             .tabela-rota tbody tr.linha-total td {{
                 background: var(--grad-total-row) !important;
                 color: #FFFFFF !important;
@@ -1001,12 +939,11 @@ class UI:
                 border-bottom: none !important;
                 padding: 18px 12px !important;
             }}
-
             .tabela-rota tbody tr.linha-total td.col-base {{
                 background: linear-gradient(135deg, #0F172A 0%, #1F2937 55%, #334155 100%) !important;
             }}
 
-            /* Heatmap / indicadores (inalterados visualmente) */
+            /* Heatmap Cells */
             .cel-heat-verde {{
                 background: var(--heat-green-bg) !important;
                 color: var(--heat-green-text) !important;
@@ -1030,7 +967,6 @@ class UI:
                 color: #374151 !important;
                 font-weight: 600 !important;
             }}
-
             table.tabela-rota tbody td.cel-media-os {{
                 background: linear-gradient(180deg, var(--brand-navy-light) 0%, var(--brand-navy-mid) 100%) !important;
                 color: #FFFFFF !important;
@@ -1044,7 +980,6 @@ class UI:
                 text-shadow: 0 1px 2px rgba(0,0,0,0.4) !important;
             }}
 
-            /* Telas estreitas: permite scroll horizontal sem quebrar o centro */
             @media (max-width: 900px) {{
                 .tabela-rota-wrapper {{
                     justify-content: flex-start !important;
@@ -1060,6 +995,9 @@ class UI:
             unsafe_allow_html=True,
         )
 
+    # -----------------------------------------------------
+    # Componentes de entrada
+    # -----------------------------------------------------
     @staticmethod
     def _mostrar_uploaders() -> dict[str, UploadedFile | None]:
         reset = int(st.session_state.get("_reset_counter", 0))
@@ -1112,6 +1050,9 @@ class UI:
         if processar:
             UI._processar_bases(arquivos, montados_dict)
 
+    # -----------------------------------------------------
+    # Processamento e Renderização de Resultados
+    # -----------------------------------------------------
     @staticmethod
     def _processar_bases(
         arquivos: dict[str, UploadedFile | None], montados_dict: dict[str, int]
@@ -1128,8 +1069,7 @@ class UI:
             if any(df is None for df in bases_dfs.values()):
                 st.stop()
 
-            # Aqui garantimos ao MyPy/Typing que não há mais None nos DFs
-            bases_validas = {
+            bases_validas: dict[str, pd.DataFrame] = {
                 nome: df for nome, df in bases_dfs.items() if df is not None
             }
 
@@ -1151,11 +1091,39 @@ class UI:
         UI._mostrar_kpis_gerais(total)
         UI._mostrar_kpis_por_base(df_bases)
 
+        # Resultado Consolidado
         render_section_header(
-            icon="📋", title="Resultado consolidado", badge="Detalhamento"
+            titulo="Resultado consolidado",
+            subtitulo="Ranking visual por indicador — cores destacam melhor e pior desempenho.",
+            icone="📋",
+            badge="Detalhamento",
+            badge_tipo="azul",
         )
         Visualization.renderizar_tabela_html(df_final)
+        UI._mostrar_legenda_heatmap()
 
+        UI._mostrar_graficos(df_bases)
+        UI._mostrar_insights(df_bases, total)
+        UI._mostrar_diagnostico(bases_validas)
+
+        # Exportação Final
+        render_section_header(
+            titulo="Exportação",
+            subtitulo="Faça o download do consolidado em planilha Excel formatada.",
+            icone="⬇️",
+            badge="Excel",
+            badge_tipo="verde",
+        )
+        st.download_button(
+            "Baixar resultado em Excel",
+            data=Visualization.gerar_excel(df_final),
+            file_name="rota_geral.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    @staticmethod
+    def _mostrar_legenda_heatmap() -> None:
         st.markdown(
             f"""
             <div style="display:flex;gap:16px;justify-content:flex-end;align-items:center; padding:8px 4px;font-size:12px;font-family:{FONTE_TEXTO}; color:#4B5563;font-weight:600;">
@@ -1167,23 +1135,17 @@ class UI:
             unsafe_allow_html=True,
         )
 
-        UI._mostrar_graficos(df_bases)
-        UI._mostrar_insights(df_bases, total)
-        UI._mostrar_diagnostico(bases_validas)
-
-        render_section_header(icon="⬇️", title="Exportação", badge="Excel")
-        st.download_button(
-            "Baixar resultado em Excel",
-            data=Visualization.gerar_excel(df_final),
-            file_name="rota_geral.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
+    # -----------------------------------------------------
+    # Blocos de Visualização
+    # -----------------------------------------------------
     @staticmethod
     def _mostrar_kpis_gerais(total: dict[str, Any]) -> None:
         render_section_header(
-            icon="📈", title="Indicadores gerais", badge="Total consolidado"
+            titulo="Indicadores gerais",
+            subtitulo="Visão consolidada do resultado agregado das três bases.",
+            icone="📈",
+            badge="Total consolidado",
+            badge_tipo="azul",
         )
         k = st.columns(4)
         render_kpi(
@@ -1194,7 +1156,11 @@ class UI:
             "azul",
         )
         render_kpi(
-            k[1], "Rotas", Utils.fmt_int(total.get("Rotas")), "Logins únicos", "laranja"
+            k[1],
+            "Rotas",
+            Utils.fmt_int(total.get("Rotas")),
+            "Logins únicos",
+            "laranja",
         )
         render_kpi(
             k[2],
@@ -1214,10 +1180,13 @@ class UI:
     @staticmethod
     def _mostrar_kpis_por_base(df_bases: pd.DataFrame) -> None:
         render_section_header(
-            icon="🏢", title="Desempenho por base", badge="Comparativo rápido"
+            titulo="Desempenho por base",
+            subtitulo="Cartões comparativos para leitura rápida por operação.",
+            icone="🏢",
+            badge="Comparativo rápido",
+            badge_tipo="laranja",
         )
         cols = st.columns(len(df_bases))
-        # enumerate garante que 'i' seja sempre um número inteiro seguro para cols[i]
         for i, (_, row) in enumerate(df_bases.iterrows()):
             with cols[i]:
                 st.markdown(f"##### 🏷️ {row['BASE']}")
@@ -1246,7 +1215,11 @@ class UI:
     @staticmethod
     def _mostrar_graficos(df_bases: pd.DataFrame) -> None:
         render_section_header(
-            icon="📊", title="Análise visual", badge="Gráficos comparativos"
+            titulo="Análise visual",
+            subtitulo="Gráficos comparativos de participação, médias e intensidade por indicador.",
+            icone="📊",
+            badge="Gráficos comparativos",
+            badge_tipo="azul",
         )
         g1, g2 = st.columns(2)
         with g1:
@@ -1271,7 +1244,11 @@ class UI:
     @staticmethod
     def _mostrar_insights(df_bases: pd.DataFrame, total: dict[str, Any]) -> None:
         render_section_header(
-            icon="💡", title="Insights automáticos", badge="Leitura dos dados"
+            titulo="Insights automáticos",
+            subtitulo="Leituras rápidas geradas a partir dos números consolidados.",
+            icone="💡",
+            badge="Leitura dos dados",
+            badge_tipo="verde",
         )
         for msg, tipo in Visualization.gerar_insights(df_bases, total):
             render_insight(msg, tipo=tipo)
@@ -1283,7 +1260,8 @@ class UI:
                 st.markdown(f"**{nome}**")
                 st.write(f"Linhas na base: {Utils.fmt_int(len(df))}")
                 st.write(
-                    "Colunas Tipo O.S encontradas:", Utils.localizar_colunas_tipo_os(df)
+                    "Colunas Tipo O.S encontradas:",
+                    Utils.localizar_colunas_tipo_os(df),
                 )
                 st.write("Linhas com GPON_FLAG = 1:", int((df["GPON_FLAG"] == 1).sum()))
                 st.divider()
