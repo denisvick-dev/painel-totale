@@ -1,8 +1,16 @@
+# volumetria.py
+"""
+Página Volumetria — Portal TOTALE
+==================================
+Análise executiva de performance e projeções operacionais,
+com comparativo entre técnicos Escalados e Montados.
+"""
+
 from __future__ import annotations
 
 import html
-import textwrap
 import re
+import textwrap
 import unicodedata
 from io import BytesIO
 from typing import Any, Dict, List, Literal, Optional
@@ -17,16 +25,38 @@ from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================================
-# CONFIGURAÇÃO E CONSTANTES
+# COMPONENTES CORPORATIVOS CENTRALIZADOS
+# ==========================================================
+from components.componentes import (
+    COR_PRIMARIA,
+    COR_SECUNDARIA,
+    COR_TEXTO,
+    COR_TEXTO_2,
+    COR_TEXTO_3,
+    FONTE_TEXTO,
+    FONTE_TITULO,
+    aplicar_estilo as aplicar_estilo_corp,
+    render_hero_totale_1,
+    render_insight,
+    render_kpi as render_kpi_corp,
+    render_kpi_sm,
+    render_section_header,
+)
+
+# ==========================================================
+# CONFIGURAÇÃO DE PÁGINA
 # ==========================================================
 st.set_page_config(
-    page_title="Volumetria",
+    page_title="Volumetria | TOTALE",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 
+# ==========================================================
+# CONFIGURAÇÕES E CONSTANTES
+# ==========================================================
 class Config:
     URL_GSHEETS = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
     META_EXECUCAO = 0.80
@@ -48,20 +78,6 @@ class Config:
     CONTRATO_VALORES_VAZIOS = {"", "NAN", "NONE", "N/A", "NA", "-", "0", "NULL"}
     REGIOES_PRINCIPAIS = ["LESTE", "GRU", "ABCDM"]
 
-
-# ==========================================================
-# TEMAS DE CARDS
-# ==========================================================
-TEMAS_CARD: Dict[str, Dict[str, str]] = {
-    "amarelo": {"fundo": "#FEF9C3", "texto": "#854D0E", "borda": "#EAB308", "titulo": "#A16207"},
-    "azul":    {"fundo": "#F0F9FF", "texto": "#0369A1", "borda": "#0EA5E9", "titulo": "#075985"},
-    "verde":   {"fundo": "#F0FDF4", "texto": "#15803D", "borda": "#22C55E", "titulo": "#166534"},
-    "roxo":    {"fundo": "#FAF5FF", "texto": "#7E22CE", "borda": "#A855F7", "titulo": "#6B21A8"},
-    "cinza":   {"fundo": "#F8FAFC", "texto": "#334155", "borda": "#94A3B8", "titulo": "#64748B"},
-    "escuro":  {"fundo": "#1E293B", "texto": "#FFFFFF", "borda": "#475569", "titulo": "#E2E8F0"},
-    "vermelho":{"fundo": "#FEF2F2", "texto": "#B91C1C", "borda": "#EF4444", "titulo": "#991B1B"},
-    "laranja": {"fundo": "#FFF7ED", "texto": "#C2410C", "borda": "#F97316", "titulo": "#9A3412"},
-}
 
 CORES_REGIAO: Dict[str, Dict[str, str]] = {
     "LESTE":  {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
@@ -102,7 +118,6 @@ class Utils:
 
     @staticmethod
     def normalizar_chave(serie: pd.Series) -> pd.Series:
-        """Normaliza texto para comparações, preservando valores nulos como vazio."""
         s = serie.copy()
         return (
             s.where(s.notna(), "")
@@ -114,7 +129,6 @@ class Utils:
 
     @staticmethod
     def normalizar_login(serie: pd.Series) -> pd.Series:
-        """Normaliza logins e remove o sufixo .0 comum em dados vindos do Excel."""
         return Utils.normalizar_chave(serie).str.replace(r"\.0$", "", regex=True)
 
     @staticmethod
@@ -128,7 +142,6 @@ class Utils:
 
     @staticmethod
     def classificar_status(status_os: pd.Series) -> pd.Series:
-        """Padroniza os status da O.S. em três categorias do painel."""
         s = Utils.normalizar_chave(status_os)
         nao_exec = s.str.contains(r"NAO\s*EXECUT", regex=True, na=False)
         exec_ = s.str.contains(r"EXECUT", regex=True, na=False) & ~nao_exec
@@ -176,13 +189,12 @@ class Utils:
 
 
 # ==========================================================
-# CARREGAMENTO
+# CARREGAMENTO DE DADOS
 # ==========================================================
 class DataLoader:
     @staticmethod
     @st.cache_data(show_spinner=False)
     def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-        """Lê Excel ou CSV e devolve uma base independente do formato de origem."""
         if not file_bytes:
             raise ValueError("O arquivo enviado está vazio.")
 
@@ -190,7 +202,6 @@ class DataLoader:
         if nome.endswith(".xlsx"):
             return pd.read_excel(BytesIO(file_bytes), engine="openpyxl")
         if nome.endswith(".xls"):
-            # O pandas seleciona o engine apropriado (xlrd) para .xls.
             return pd.read_excel(BytesIO(file_bytes))
         if nome.endswith(".csv"):
             try:
@@ -300,10 +311,9 @@ class DataLoader:
 
 
 # ==========================================================
-# CÁLCULOS
+# CÁLCULOS DE NEGÓCIO
 # ==========================================================
 def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
-    """Calcula os KPIs gerais da base filtrada."""
     if df.empty:
         return {
             "total": 0, "executadas": 0, "nao_executadas": 0,
@@ -325,7 +335,6 @@ def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
 
 
 def calcular_volumetria_por_tecnico(kpis: Dict[str, Any], n: int) -> Dict[str, Any]:
-    """Calcula médias por técnico sem produzir números artificiais quando n=0."""
     n = max(int(n), 0)
     meta = Config.META_EXECUTADAS_TECNICO
     divisor = n if n > 0 else None
@@ -372,13 +381,12 @@ def calcular_volumetria(df: pd.DataFrame, grupos: List[str]) -> pd.DataFrame:
 
 
 def gerar_excel(df: pd.DataFrame, nome_aba: str) -> bytes:
-    """Gera Excel formatado, com filtros, congelamento do cabeçalho e larguras adaptativas."""
     output = BytesIO()
     export = df.copy()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export.to_excel(writer, index=False, sheet_name=nome_aba[:31])
         ws = writer.sheets[nome_aba[:31]]
-        hf = PatternFill("solid", fgColor="0F172A")
+        hf = PatternFill("solid", fgColor="012869")
 
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
@@ -400,7 +408,6 @@ def gerar_excel(df: pd.DataFrame, nome_aba: str) -> bytes:
 # VISÕES DE TÉCNICOS
 # ==========================================================
 def _agrupar_tecnicos(df: pd.DataFrame) -> pd.DataFrame:
-    """Agrega O.S. por técnico usando o TOTAL DE TAREFAS como peso."""
     if df.empty:
         return pd.DataFrame()
 
@@ -453,7 +460,9 @@ def criar_visao_tecnicos_montados(df: pd.DataFrame, total_montados: int) -> pd.D
 def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
     cm = RENOMEAR_COLUNAS.get("MONITOR", "Monitor")
     cr = RENOMEAR_COLUNAS.get("REGIÃO", "Região")
-    ce, cn, cp, cb, ct2, cta, cpr = "Executadas", "Não Exec.", "Pendentes", "Baixadas", "Total Alocado", RENOMEAR_COLUNAS.get("Taxa Execução", "Taxa Exec."), RENOMEAR_COLUNAS.get("Projeção", "Projeção")
+    ce, cn, cp, cb, ct2 = "Executadas", "Não Exec.", "Pendentes", "Baixadas", "Total Alocado"
+    cta = RENOMEAR_COLUNAS.get("Taxa Execução", "Taxa Exec.")
+    cpr = RENOMEAR_COLUNAS.get("Projeção", "Projeção")
     agg: Dict[str, Any] = {}
     for c in [ce, cn, cp, cb, ct2, cpr]:
         if c in df_tec.columns:
@@ -469,239 +478,195 @@ def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
 
 
 # ==========================================================
-# ESTILOS CSS
+# CSS ESPECÍFICO DA PÁGINA (COMPLEMENTAR AO GLOBAL)
 # ==========================================================
-def aplicar_estilo():
-    st.markdown("""
+def aplicar_estilo_pagina():
+    """Aplica CSS específico da Volumetria, complementando o CSS Global do componentes.py."""
+    st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
-
-    html, body, [class*="css"], .stApp {
-        font-family: 'Manrope', 'Inter', -apple-system, sans-serif !important;
-    }
-    [data-testid="stDataFrame"] * {
-        font-variant-numeric: tabular-nums !important;
-    }
-
-    .hero-corp {
-        background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);
-        padding: 32px 40px; border-radius: 16px; color: white;
-        box-shadow: 0 10px 40px rgba(1,40,105,0.25); margin-bottom: 24px;
-        position: relative; overflow: hidden;
-    }
-    .hero-corp::before {
-        content:''; position:absolute; top:-50%; right:-10%;
-        width:400px; height:400px; background:rgba(255,255,255,0.05); border-radius:50%;
-    }
-    .hero-title { font-size:34px; font-weight:800; margin:0; letter-spacing:-0.8px; }
-    .hero-subtitle { font-size:15px; opacity:0.92; margin:6px 0 0; font-weight:400; }
-
     /* ── CARD DE TÉCNICOS ── */
-    .tec-card {
+    .tec-card {{
         border-radius: 16px;
         overflow: hidden;
         box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
         border: 1px solid #E2E8F0;
-    }
-    .tec-card-head {
+        font-family: {FONTE_TEXTO};
+    }}
+    .tec-card-head {{
         padding: 20px 24px 16px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-    }
-    .tec-card-icon {
+    }}
+    .tec-card-icon {{
         width: 48px; height: 48px;
         border-radius: 14px;
         display: flex; align-items: center; justify-content: center;
         font-size: 22px;
         flex-shrink: 0;
-    }
-    .tec-card-info { flex: 1; }
-    .tec-card-tag {
+    }}
+    .tec-card-info {{ flex: 1; }}
+    .tec-card-tag {{
         font-size: 0.6rem; font-weight: 800;
         text-transform: uppercase; letter-spacing: 1.2px;
         opacity: 0.7;
-    }
-    .tec-card-titulo {
+        font-family: {FONTE_TITULO};
+    }}
+    .tec-card-titulo {{
         font-size: 0.95rem; font-weight: 700;
         letter-spacing: -0.2px; margin: 2px 0 0;
         line-height: 1.25;
-    }
-    .tec-card-numero {
-        text-align: right; flex-shrink: 0;
-    }
-    .tec-card-n-val {
+        font-family: {FONTE_TITULO};
+    }}
+    .tec-card-numero {{ text-align: right; flex-shrink: 0; }}
+    .tec-card-n-val {{
         font-size: 3.2rem; font-weight: 800;
         line-height: 1; letter-spacing: -2px;
         font-variant-numeric: tabular-nums;
-    }
-    .tec-card-n-lab {
+        font-family: {FONTE_TITULO};
+    }}
+    .tec-card-n-lab {{
         font-size: 0.6rem; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.8px;
         opacity: 0.65; margin-top: 2px; text-align: right;
-    }
-    .tec-card-body {
+    }}
+    .tec-card-body {{
         background: #FFFFFF;
         padding: 14px 20px 16px;
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
         gap: 8px;
-    }
-    .tec-card-metrica {
+    }}
+    .tec-card-metrica {{
         background: #F8FAFC;
         border: 1px solid #F1F5F9;
         border-radius: 10px;
         padding: 10px 12px;
         text-align: center;
-    }
-    .tec-card-m-lab {
+    }}
+    .tec-card-m-lab {{
         font-size: 0.58rem; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.5px;
         color: #64748B; margin-bottom: 3px;
-    }
-    .tec-card-m-val {
+    }}
+    .tec-card-m-val {{
         font-size: 1.2rem; font-weight: 800;
         letter-spacing: -0.3px; font-variant-numeric: tabular-nums;
         color: #0F172A; line-height: 1.15;
-    }
-    .tec-card-m-sub {
+        font-family: {FONTE_TITULO};
+    }}
+    .tec-card-m-sub {{
         font-size: 0.6rem; font-weight: 600;
         color: #94A3B8; margin-top: 1px;
-    }
-    .tec-card-foot {
+    }}
+    .tec-card-foot {{
         background: #F8FAFC;
         border-top: 1px solid #E2E8F0;
         padding: 10px 20px;
         display: flex; align-items: center;
         justify-content: space-between; gap: 10px;
-    }
-    .tec-barra {
+    }}
+    .tec-barra {{
         flex: 1; height: 8px;
         background: #E2E8F0; border-radius: 999px;
         overflow: hidden;
-    }
-    .tec-barra-fill {
+    }}
+    .tec-barra-fill {{
         height: 100%; border-radius: 999px;
         transition: width 0.4s ease;
-    }
-    .tec-meta-txt {
+    }}
+    .tec-meta-txt {{
         font-size: 0.68rem; font-weight: 700;
         white-space: nowrap; font-variant-numeric: tabular-nums;
-    }
+    }}
 
     /* ── FAIXA DE DIFERENÇA ── */
-    .diff-strip {
+    .diff-strip {{
         background: #F8FAFC; border: 1px solid #E2E8F0;
         border-radius: 12px; padding: 12px 20px;
         display: flex; align-items: center;
         flex-wrap: wrap; gap: 16px;
         font-size: 0.82rem; margin: 6px 0 4px;
-    }
-    .diff-strip-label {
+        font-family: {FONTE_TEXTO};
+    }}
+    .diff-strip-label {{
         font-weight: 700; color: #64748B;
         text-transform: uppercase; letter-spacing: 0.6px;
         font-size: 0.68rem;
-    }
-    .diff-strip-val {
-        font-weight: 800; font-size: 1.05rem;
-    }
-    .diff-strip-detail {
-        color: #64748B;
-    }
-    .diff-strip-right {
-        margin-left: auto; color: #475569; font-weight: 600;
-    }
+    }}
+    .diff-strip-val {{ font-weight: 800; font-size: 1.05rem; }}
+    .diff-strip-detail {{ color: #64748B; }}
+    .diff-strip-right {{ margin-left: auto; color: #475569; font-weight: 600; }}
 
-    /* ── KPI / BADGES / RESULTADO ── */
-    .kpi-card {
-        padding: 1.4rem 1.6rem; border-radius: 1rem;
-        border-left: 5px solid;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
-    .kpi-val { font-size: 1.95rem; font-weight: 800; line-height: 1.1; margin: 0.3rem 0; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
-    .kpi-lab { font-size: 0.72rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.08em; }
-    .kpi-sub { font-size: 0.78rem; margin-top: 0.2rem; font-weight: 500; }
+    /* ── BADGES DE VISÃO ── */
+    .visao-badge {{
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 16px; border-radius: 999px;
+        font-size: 0.78rem; font-weight: 700;
+        letter-spacing: 0.5px; text-transform: uppercase;
+        border: 2px solid; margin-bottom: 12px;
+        font-family: {FONTE_TEXTO};
+    }}
+    .badge-escalados {{ background:#D1FAE5; color:#065F46; border-color:#10B981; }}
+    .badge-montados  {{ background:#FEF3C7; color:#92400E; border-color:#F59E0B; }}
 
-    .visao-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; border: 2px solid; margin-bottom: 12px; }
-    .badge-escalados { background:#D1FAE5; color:#065F46; border-color:#10B981; }
-    .badge-montados  { background:#FEF3C7; color:#92400E; border-color:#F59E0B; }
+    /* ── RESULTADO DA BASE ── */
+    .resultado-base {{
+        background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #1E3A5F 100%);
+        padding: 1rem 1.5rem; border-radius: 0.75rem;
+        margin-bottom: 1.5rem;
+        display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem;
+        box-shadow: 0 4px 16px rgba(15,23,42,0.15);
+        font-family: {FONTE_TEXTO};
+    }}
+    .resultado-base-label {{
+        color: #FFB86B; font-size: 0.8rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.08em;
+    }}
+    .resultado-base-regiao {{
+        padding: 0.3rem 0.9rem; border-radius: 999px;
+        font-size: 0.82rem; font-weight: 700; border: 2px solid;
+    }}
+    .resultado-base-count {{
+        color: #CBD5E1; font-size: 0.72rem;
+        margin-left: auto; font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }}
 
-    .resultado-base { background: linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%); padding: 1rem 1.5rem; border-radius: 0.75rem; margin-bottom: 1.5rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; box-shadow: 0 4px 16px rgba(15,23,42,0.15); }
-    .resultado-base-label { color: #94A3B8; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-    .resultado-base-regiao { padding: 0.3rem 0.9rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700; border: 2px solid; }
-    .resultado-base-count { color: #64748B; font-size: 0.72rem; margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
-
-    .section-header { display: flex; align-items: center; gap: 0.6rem; margin: 1.5rem 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 2px solid #E2E8F0; }
-    .section-header h3 { margin: 0; font-size: 1.1rem; color: #0F172A; font-weight: 700; letter-spacing: -0.2px; }
-
-    .montados-box { background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); border: 2px solid #F59E0B; border-radius: 12px; padding: 14px 16px; margin: 8px 0 4px 0; }
-    .montados-box-title { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #92400E; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
-
-    .stButton > button { font-family: 'Manrope', 'Inter', sans-serif !important; font-weight: 600 !important; border-radius: 0.5rem !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] { font-weight: 600; border-radius: 8px 8px 0 0; }
-
-    /* Estilização para deixar o st.radio como botões de alternância modernos (Segmented Controls) */
-    div[data-testid="stRadio"] > div {
-        flex-direction: row !important;
-        gap: 0 !important;
-        background: #F1F5F9;
-        border-radius: 12px;
-        padding: 4px;
-        margin-bottom: 12px;
-    }
-    div[data-testid="stRadio"] label {
-        flex: 1 !important;
-        text-align: center !important;
-        padding: 8px 16px !important;
-        border-radius: 10px !important;
-        font-weight: 700 !important;
-        font-size: 0.82rem !important;
-        letter-spacing: 0.3px !important;
-        transition: all 0.2s ease !important;
-        cursor: pointer !important;
-        margin: 0 !important;
-        border: none !important;
-        background: transparent !important;
-    }
-    div[data-testid="stRadio"] label[data-checked="true"], 
-    div[data-testid="stRadio"] label:has(input:checked) {
-        background: #0F172A !important;
-        color: #FFFFFF !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15) !important;
-    }
-    div[data-testid="stRadio"] label p {
-        color: inherit !important;
-        font-weight: inherit !important;
-    }
-    div[data-testid="stRadio"] input[type="radio"] {
-        display: none !important;
-    }
+    /* ── CAIXA DE MONTADOS (SIDEBAR) ── */
+    .montados-box {{
+        background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+        border: 2px solid #F59E0B; border-radius: 12px;
+        padding: 14px 16px; margin: 8px 0 4px 0;
+    }}
+    .montados-box-title {{
+        font-size: 0.7rem; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.08em;
+        color: #92400E; margin-bottom: 6px;
+        display: flex; align-items: center; gap: 5px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
 
 # ==========================================================
-# COMPONENTES VISUAIS
+# COMPONENTES VISUAIS CUSTOMIZADOS
 # ==========================================================
 def render_resultado_base(regioes: List[str], total: int):
+    """Faixa horizontal exibindo regiões filtradas."""
     badges = "".join(
         f'<span class="resultado-base-regiao" style="background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]}">{html.escape(str(r))}</span>'
         for r in sorted(regioes)
     )
-    st.markdown(f'<div class="resultado-base"><span class="resultado-base-label">📋 Resultado da Base:</span>{badges}<span class="resultado-base-count">{total:,} registros</span></div>', unsafe_allow_html=True)
-
-
-def render_kpi(col, label: str, value: str, sub: str, tema: str = "azul"):
-    t = TEMAS_CARD.get(tema, TEMAS_CARD["azul"])
-    col.markdown(f'<div class="kpi-card" style="background:{t["fundo"]};border-left-color:{t["borda"]};"><div class="kpi-lab" style="color:{t["titulo"]}">{label}</div><div class="kpi-val" style="color:{t["texto"]}">{value}</div><div class="kpi-sub" style="color:{t["titulo"]}">{sub}</div></div>', unsafe_allow_html=True)
-
-
-def render_section(titulo: str):
-    st.markdown(f'<div class="section-header"><h3>{titulo}</h3></div>', unsafe_allow_html=True)
+    html_content = (
+        f'<div class="resultado-base">'
+        f'<span class="resultado-base-label">📋 Resultado da Base:</span>'
+        f'{badges}'
+        f'<span class="resultado-base-count">{total:,} registros</span>'
+        f'</div>'
+    )
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 def _fmt_br(n: float, casas: int = 1) -> str:
@@ -719,12 +684,7 @@ def render_card_tecnicos(
     kpis: Dict[str, Any],
     variante: Literal["escalados", "montados"] = "escalados",
 ):
-    """
-    Card visual completo mostrando:
-    • Número grande de técnicos
-    • 6 métricas de produtividade por técnico
-    • Barra de atingimento da meta exec/técnico
-    """
+    """Card visual completo mostrando número de técnicos + 6 métricas + barra de atingimento."""
     if variante == "escalados":
         head_bg = "linear-gradient(135deg, #064E3B 0%, #047857 55%, #10B981 100%)"
         head_fg = "#ECFDF5"
@@ -762,7 +722,6 @@ def render_card_tecnicos(
                 <div class="tec-card-n-lab">técnicos</div>
             </div>
         </div>
-
         <div class="tec-card-body">
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">O.S. / Técnico</div>
@@ -795,7 +754,6 @@ def render_card_tecnicos(
                 <div class="tec-card-m-sub">meta {Config.META_EXECUCAO:.0%}</div>
             </div>
         </div>
-
         <div class="tec-card-foot">
             <span class="tec-meta-txt" style="color:{cor_selo}">{selo}</span>
             <div class="tec-barra">
@@ -805,10 +763,8 @@ def render_card_tecnicos(
         </div>
     </div>
     """).strip()
-    # O Markdown do Streamlit encerra blocos HTML em determinadas quebras de linha.
-    # Removemos linhas em branco e a indentação para garantir que todo o card
-    # seja interpretado como um único bloco HTML, evitando que o conteúdo
-    # interno apareça literalmente na tela.
+
+    # Compactar HTML para evitar quebras de linha que confundem o parser do Streamlit
     card_html = re.sub(r"\n\s*\n", "\n", card_html)
     card_html = "\n".join(line.strip() for line in card_html.splitlines() if line.strip()).strip()
     col.markdown(card_html, unsafe_allow_html=True)
@@ -819,20 +775,17 @@ def render_faixa_diferenca(n_esc: int, n_mon: int, vol_esc: Dict, vol_mon: Dict)
     dif = n_mon - n_esc
     cor = "#B91C1C" if dif > 0 else ("#047857" if dif < 0 else "#64748B")
     sinal = "+" if dif > 0 else ""
-    st.markdown(f"""
-    <div class="diff-strip">
-        <span class="diff-strip-label">Diferença</span>
-        <span class="diff-strip-val" style="color:{cor}">{sinal}{dif} técnico(s)</span>
-        <span class="diff-strip-detail">
-            Montados ({n_mon}) − Escalados ({n_esc})
-        </span>
-        <span class="diff-strip-right">
-            Exec/téc: Escalados <strong>{_fmt_br(vol_esc['exe_tec'])}</strong>
-            &nbsp;×&nbsp;
-            Montados <strong>{_fmt_br(vol_mon['exe_tec'])}</strong>
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
+    html_content = (
+        f'<div class="diff-strip">'
+        f'<span class="diff-strip-label">Diferença</span>'
+        f'<span class="diff-strip-val" style="color:{cor}">{sinal}{dif} técnico(s)</span>'
+        f'<span class="diff-strip-detail">Montados ({n_mon}) − Escalados ({n_esc})</span>'
+        f'<span class="diff-strip-right">'
+        f'Exec/téc: Escalados <strong>{_fmt_br(vol_esc["exe_tec"])}</strong>'
+        f'&nbsp;×&nbsp;Montados <strong>{_fmt_br(vol_mon["exe_tec"])}</strong>'
+        f'</span></div>'
+    )
+    st.markdown(html_content, unsafe_allow_html=True)
 
 
 # ==========================================================
@@ -872,7 +825,6 @@ def render_dataframe(
         valores = pd.to_numeric(df_d[cta], errors="coerce")
         n = len(valores.dropna())
         if n:
-            # Percentil por valor evita que empates recebam cores inconsistentes.
             ranks = valores.rank(method="average", ascending=False, pct=True)
             ranking = {
                 float(v): float(p)
@@ -902,33 +854,31 @@ def render_dataframe(
         df_d = pd.concat([df_d, pd.DataFrame([tr])], ignore_index=True)
 
     data = pd.Timestamp.now().strftime("%d/%m/%Y")
-    st.markdown(f'<div style="background:#0B1739;padding:16px 24px;border-radius:12px 12px 0 0;color:#F9FAFB;margin-bottom:0;border-bottom:2px solid #1E3A8A;font-family:Manrope,Inter,sans-serif;"><span style="font-weight:700;font-size:0.85rem;letter-spacing:1.2px;">{icone}  {titulo.upper()} — {data}</span></div>', unsafe_allow_html=True)
+    header_html = (
+        f'<div style="background:{COR_PRIMARIA};padding:16px 24px;border-radius:12px 12px 0 0;'
+        f'color:#F9FAFB;margin-bottom:0;border-bottom:2px solid {COR_SECUNDARIA};'
+        f'font-family:{FONTE_TITULO};">'
+        f'<span style="font-weight:700;font-size:0.85rem;letter-spacing:1.2px;">'
+        f'{icone}  {titulo.upper()} — {data}</span></div>'
+    )
+    st.markdown(header_html, unsafe_allow_html=True)
 
     sty = df_d.style
 
     def fp(v):
-        if v == "" or v is None or pd.isna(v):
-            return ""
-        try:
-            return f"{float(v)*100:.1f}%".replace(".", ",")
-        except (ValueError, TypeError):
-            return str(v)
+        if v == "" or v is None or pd.isna(v): return ""
+        try: return f"{float(v)*100:.1f}%".replace(".", ",")
+        except (ValueError, TypeError): return str(v)
 
     def fi(v):
-        if v == "" or v is None or pd.isna(v):
-            return ""
-        try:
-            return f"{int(v):,}".replace(",", ".")
-        except (ValueError, TypeError):
-            return str(v)
+        if v == "" or v is None or pd.isna(v): return ""
+        try: return f"{int(v):,}".replace(",", ".")
+        except (ValueError, TypeError): return str(v)
 
     def fd(v):
-        if v == "" or v is None or pd.isna(v):
-            return ""
-        try:
-            return f"{float(v):.1f}".replace(".", ",")
-        except (ValueError, TypeError):
-            return str(v)
+        if v == "" or v is None or pd.isna(v): return ""
+        try: return f"{float(v):.1f}".replace(".", ",")
+        except (ValueError, TypeError): return str(v)
 
     fm: Dict[str, Any] = {}
     if cta in df_d.columns: fm[cta] = fp
@@ -981,8 +931,8 @@ def render_dataframe(
     sty = sty.apply(_et, axis=1)
 
     sty = sty.set_table_styles([
-        {"selector": "thead th", "props": [("background-color", "#1E293B"), ("color", "#F1F5F9"), ("font-weight", "600"), ("text-align", "center"), ("padding", "13px 12px"), ("border", "none"), ("font-size", "0.72rem"), ("text-transform", "uppercase"), ("letter-spacing", "1px")]},
-        {"selector": "tbody td", "props": [("padding", "12px 15px"), ("border-bottom", "1px solid #F1F5F9"), ("font-size", "0.85rem"), ("text-align", "center"), ("color", "#334155"), ("font-variant-numeric", "tabular-nums")]},
+        {"selector": "thead th", "props": [("background-color", COR_PRIMARIA), ("color", "#F1F5F9"), ("font-weight", "600"), ("text-align", "center"), ("padding", "13px 12px"), ("border", "none"), ("font-size", "0.72rem"), ("text-transform", "uppercase"), ("letter-spacing", "1px"), ("font-family", FONTE_TITULO)]},
+        {"selector": "tbody td", "props": [("padding", "12px 15px"), ("border-bottom", "1px solid #F1F5F9"), ("font-size", "0.85rem"), ("text-align", "center"), ("color", "#334155"), ("font-variant-numeric", "tabular-nums"), ("font-family", FONTE_TEXTO)]},
         {"selector": "tbody td:nth-child(1)", "props": [("text-align", "left"), ("font-weight", "600"), ("color", "#475569"), ("padding-left", "18px")]},
         {"selector": "tbody td:nth-child(2)", "props": [("text-align", "left"), ("font-weight", "600"), ("color", "#0F172A"), ("padding-left", "15px")]},
         {"selector": "tbody tr:nth-child(even) td", "props": [("background-color", "#FAFBFC")]},
@@ -996,7 +946,13 @@ def render_dataframe(
 # TABELAS DE TÉCNICOS (ABAS DETALHADAS)
 # ==========================================================
 def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
-    render_section("🧑‍🔧 Detalhamento por Técnico")
+    render_section_header(
+        titulo="Detalhamento por Técnico",
+        subtitulo="Comparativo entre técnicos escalados na base e o total fixo digitado.",
+        icone="🧑‍🔧",
+        badge="Detalhamento",
+        badge_tipo="azul",
+    )
 
     df_esc = criar_visao_tecnicos_escalados(df)
     df_mon = criar_visao_tecnicos_montados(df, total_montados_fixo)
@@ -1008,9 +964,14 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     a1, a2 = st.tabs(["🟢 Escalados — Base Importada", "🟡 Montados — Valor Fixo"])
 
     with a1:
-        st.markdown('<div class="visao-badge badge-escalados">🟢 Visão 1 · Escalados · Fonte: Base Importada</div><p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">Técnicos com ao menos <strong>1 O.S. alocada</strong> na base importada.</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="visao-badge badge-escalados">🟢 Visão 1 · Escalados · Fonte: Base Importada</div>'
+            '<p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">'
+            'Técnicos com ao menos <strong>1 O.S. alocada</strong> na base importada.</p>',
+            unsafe_allow_html=True,
+        )
         if df_esc.empty:
-            st.warning("⚠️ Nenhum técnico escalado encontrado.")
+            render_insight("Nenhum técnico escalado encontrado.", "alerta")
         else:
             render_dataframe(df_esc, titulo=f"Técnicos Escalados ({ne})", icone="🟢", height=520)
             c1, _ = st.columns([1, 5])
@@ -1022,9 +983,14 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
                     st.dataframe(r, use_container_width=True, hide_index=True)
 
     with a2:
-        st.markdown(f'<div class="visao-badge badge-montados">🟡 Visão 2 · Montados · Fixo: {nm}</div><p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">Todos os técnicos da base. Diferença de <strong>{dif}</strong> indica montados sem rota.</p>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="visao-badge badge-montados">🟡 Visão 2 · Montados · Fixo: {nm}</div>'
+            f'<p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">'
+            f'Todos os técnicos da base. Diferença de <strong>{dif}</strong> indica montados sem rota.</p>',
+            unsafe_allow_html=True,
+        )
         if df_mon.empty:
-            st.warning("⚠️ Nenhum técnico encontrado.")
+            render_insight("Nenhum técnico encontrado.", "alerta")
         else:
             nb = df_mon[ct].nunique() if ct in df_mon.columns else 0
             render_dataframe(df_mon, titulo=f"Técnicos Montados (fixo: {nm} | base: {nb})", icone="🟡", height=520)
@@ -1042,22 +1008,42 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
 # ==========================================================
 def plot_status_pie(df):
     res = df.groupby(Config.COL_STATUS)[Config.COL_TOTAL].sum()
-    fig = go.Figure(data=[go.Pie(labels=res.index, values=res.values, hole=0.5, marker=dict(colors=[Config.CORES_STATUS.get(s) for s in res.index]), textinfo="label+percent", textfont_size=13)])
-    fig.update_layout(height=370, margin=dict(t=40, b=10, l=10, r=10), title=dict(text="Distribuição de Status", font=dict(size=15)), showlegend=False)
+    fig = go.Figure(data=[go.Pie(
+        labels=res.index, values=res.values, hole=0.5,
+        marker=dict(colors=[Config.CORES_STATUS.get(s) for s in res.index]),
+        textinfo="label+percent", textfont_size=13,
+    )])
+    fig.update_layout(
+        height=370, margin=dict(t=40, b=10, l=10, r=10),
+        title=dict(text="Distribuição de Status", font=dict(size=15, family=FONTE_TITULO)),
+        showlegend=False,
+    )
     return fig
 
 
 def plot_ranking_monitor(df):
     tab = calcular_volumetria(df, [Config.COL_MONITOR]).nlargest(15, "Total Alocado")
-    fig = px.bar(tab, x="Taxa Execução", y=Config.COL_MONITOR, orientation="h", color="Taxa Execução", color_continuous_scale="RdYlGn", range_color=[0.4, 0.9], text=tab["Taxa Execução"].apply(lambda v: f"{v:.0%}"))
-    fig.add_vline(x=Config.META_EXECUCAO, line_dash="dash", line_color="#0F172A", annotation_text=f"Meta {Config.META_EXECUCAO:.0%}", annotation_position="top")
+    fig = px.bar(
+        tab, x="Taxa Execução", y=Config.COL_MONITOR, orientation="h",
+        color="Taxa Execução", color_continuous_scale="RdYlGn",
+        range_color=[0.4, 0.9],
+        text=tab["Taxa Execução"].apply(lambda v: f"{v:.0%}"),
+    )
+    fig.add_vline(
+        x=Config.META_EXECUCAO, line_dash="dash", line_color=COR_PRIMARIA,
+        annotation_text=f"Meta {Config.META_EXECUCAO:.0%}", annotation_position="top",
+    )
     fig.update_traces(textposition="outside")
-    fig.update_layout(height=420, title=dict(text="Taxa de Execução por Monitor (Top 15)", font=dict(size=15)), margin=dict(l=10, r=10, t=50, b=10), yaxis=dict(autorange="reversed"))
+    fig.update_layout(
+        height=420,
+        title=dict(text="Taxa de Execução por Monitor (Top 15)", font=dict(size=15, family=FONTE_TITULO)),
+        margin=dict(l=10, r=10, t=50, b=10),
+        yaxis=dict(autorange="reversed"),
+    )
     return fig
 
 
 def plot_comparativo(vol_esc, vol_mon):
-    # Comparativo geral, com destaque visual para a projeção contra a meta.
     df_p = pd.DataFrame([
         {"Métrica": "O.S./Téc.", "Visão": "Escalados", "Valor": vol_esc["os_tec"]},
         {"Métrica": "O.S./Téc.", "Visão": "Montados", "Valor": vol_mon["os_tec"]},
@@ -1104,16 +1090,15 @@ def plot_comparativo(vol_esc, vol_mon):
 # MAIN
 # ==========================================================
 def main():
-    aplicar_estilo()
+    # Estilos: primeiro o global (componentes), depois o específico da página
+    aplicar_estilo_corp()
+    aplicar_estilo_pagina()
 
-    st.markdown("""
-    <div class="hero-corp">
-        <div style="position:relative;z-index:2;">
-            <h1 class="hero-title">📊 Gestão de Volumetria</h1>
-            <p class="hero-subtitle">Análise executiva de performance e projeções operacionais</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Hero Principal Corporativo
+    render_hero_totale_1(
+        titulo="📊 Gestão de Volumetria",
+        subtitulo="Análise executiva de performance e projeções operacionais",
+    )
 
     if "base_data" not in st.session_state:
         st.session_state.base_data = None
@@ -1129,7 +1114,12 @@ def main():
 
         st.divider()
 
-        st.markdown('<div class="montados-box"><div class="montados-box-title">🟡 Técnicos Montados</div></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="montados-box">'
+            '<div class="montados-box-title">🟡 Técnicos Montados</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         sug = 0
         if st.session_state.base_data is not None:
@@ -1148,7 +1138,12 @@ def main():
             key="input_montados",
         )
 
-        st.markdown(f'<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:8px 12px;margin-top:4px;font-size:0.8rem;color:#92400E;font-weight:600;">📋 Montados: <strong>{total_montados_fixo}</strong></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;'
+            f'padding:8px 12px;margin-top:4px;font-size:0.8rem;color:#92400E;font-weight:600;">'
+            f'📋 Montados: <strong>{total_montados_fixo}</strong></div>',
+            unsafe_allow_html=True,
+        )
         st.divider()
 
         if st.session_state.base_data is not None:
@@ -1159,14 +1154,20 @@ def main():
 
     # ── UPLOAD ───────────────────────────────────────────
     if st.session_state.base_data is None:
-        render_section("📁 Importação de Dados")
+        render_section_header(
+            titulo="Importação de Dados",
+            subtitulo="Envie a base consolidada de O.S. do dia para iniciar a análise.",
+            icone="📁",
+            badge="Excel ou CSV",
+            badge_tipo="azul",
+        )
         u = st.file_uploader("Selecione a base (Excel/CSV)", type=["xlsx", "xls", "csv"])
         if u:
             try:
                 with st.spinner("Processando..."):
                     arquivo = DataLoader.ler_arquivo(u.getvalue(), u.name)
                     if arquivo.empty:
-                        st.error("O arquivo não possui registros.")
+                        render_insight("O arquivo não possui registros.", "critico")
                         return
 
                     st.session_state.base_data = DataLoader.preparar_base(
@@ -1175,7 +1176,7 @@ def main():
                     )
                     st.rerun()
             except Exception as exc:
-                st.error(f"Não foi possível processar o arquivo: {exc}")
+                render_insight(f"Não foi possível processar o arquivo: {exc}", "critico")
                 st.exception(exc)
         return
 
@@ -1205,29 +1206,38 @@ def main():
         & df_full[Config.COL_STATUS].isin(sel_s)
     ]
     if df.empty:
-        st.warning("Nenhum dado selecionado.")
+        render_insight("Nenhum dado selecionado com os filtros atuais.", "alerta")
         return
 
     # ── RESULTADO DA BASE ────────────────────────────────
     render_resultado_base(sorted(df[Config.COL_REGIAO].unique()), len(df))
 
-    # ── KPIs DE VOLUME ───────────────────────────────────
+    # ── KPIs DE VOLUME (Standard - 4 grandes) ────────────
+    render_section_header(
+        titulo="Indicadores gerais",
+        subtitulo="Visão consolidada da produção do dia com projeção final estimada.",
+        icone="📈",
+        badge="Consolidado",
+        badge_tipo="azul",
+    )
     kpis = calcular_kpis(df)
 
     c1, c2, c3, c4 = st.columns(4)
-    render_kpi(c1, "Total Alocado", f"{kpis['total']:,}", f"{kpis['pendentes']:,} pendentes", "azul")
-    render_kpi(c2, "Executadas", f"{kpis['executadas']:,}", f"Taxa: {kpis['taxa']:.1%}", "verde")
-    render_kpi(c3, "Projeção Final", f"{kpis['projecao']:,}", "Baseado na taxa atual", "escuro")
-    render_kpi(c4, "Meta", f"{Config.META_EXECUCAO:.0%}", "Referência", "amarelo")
+    render_kpi_corp(c1, "Total Alocado", f"{kpis['total']:,}", f"{kpis['pendentes']:,} pendentes", "azul")
+    render_kpi_corp(c2, "Executadas", f"{kpis['executadas']:,}", f"Taxa: {kpis['taxa']:.1%}", "verde")
+    render_kpi_corp(c3, "Projeção Final", f"{kpis['projecao']:,}", "Baseado na taxa atual", "cinza")
+    render_kpi_corp(c4, "Meta", f"{Config.META_EXECUCAO:.0%}", "Referência corporativa", "laranja")
 
-    st.markdown("")
+    # KPIs secundários compactos
+    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     s1, s2, s3 = st.columns(3)
-    render_kpi(s1, "Não Executadas", f"{kpis['nao_executadas']:,}", f"Quebra: {kpis['quebra']:.1%}", "vermelho")
-    render_kpi(s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "roxo")
-    render_kpi(s3, "Pendentes", f"{kpis['pendentes']:,}", f"{kpis['pendentes']/kpis['total']:.1%} do total" if kpis["total"] else "0%", "cinza")
+    render_kpi_sm(s1, "Não Executadas", f"{kpis['nao_executadas']:,}", f"Quebra: {kpis['quebra']:.1%}", "vermelho")
+    render_kpi_sm(s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul")
+    render_kpi_sm(s3, "Pendentes", f"{kpis['pendentes']:,}",
+                  f"{kpis['pendentes']/kpis['total']:.1%} do total" if kpis["total"] else "0%", "cinza")
 
     # ==========================================================
-    # ★ CARDS DE TÉCNICOS — DOIS PAINÉIS LADO A LADO ★
+    # ★ CARDS DE TÉCNICOS ★
     # ==========================================================
     n_escalados = int(df.loc[df[Config.COL_TOTAL] >= 1, Config.COL_TECNICO].nunique())
     n_montados = int(total_montados_fixo)
@@ -1235,75 +1245,72 @@ def main():
     vol_esc = calcular_volumetria_por_tecnico(kpis, n_escalados)
     vol_mon = calcular_volumetria_por_tecnico(kpis, n_montados)
 
-    render_section("👷 Nº de Técnicos — Escalados × Montados")
+    render_section_header(
+        titulo="Nº de Técnicos — Escalados × Montados",
+        subtitulo="Comparativo entre os técnicos da base importada e o total montado do dia.",
+        icone="👷",
+        badge="Comparativo",
+        badge_tipo="laranja",
+    )
 
     p1, p2 = st.columns(2)
-
     render_card_tecnicos(
-        p1,
-        titulo="Técnicos Escalados",
-        tag="Painel 1 · Importação",
+        p1, titulo="Técnicos Escalados", tag="Painel 1 · Importação",
         fonte="Base importada (técnicos com ≥ 1 O.S.)",
-        n_tecnicos=n_escalados,
-        vol=vol_esc,
-        kpis=kpis,
-        variante="escalados",
+        n_tecnicos=n_escalados, vol=vol_esc, kpis=kpis, variante="escalados",
     )
-
     render_card_tecnicos(
-        p2,
-        titulo="Técnicos Montados",
-        tag="Painel 2 · Valor Fixo",
+        p2, titulo="Técnicos Montados", tag="Painel 2 · Valor Fixo",
         fonte="Número digitado no painel lateral",
-        n_tecnicos=n_montados,
-        vol=vol_mon,
-        kpis=kpis,
-        variante="montados",
+        n_tecnicos=n_montados, vol=vol_mon, kpis=kpis, variante="montados",
     )
 
-    # Faixa de diferença entre os dois
     render_faixa_diferenca(n_escalados, n_montados, vol_esc, vol_mon)
 
     # ==========================================================
-    # ★ MÉDIAS POR TÉCNICO — ESCALADOS × MONTADOS ★
+    # ★ MÉDIAS POR TÉCNICO ★
     # ==========================================================
-    render_section("📊 Médias por Técnico — Escalados × Montados")
-
-    def _media_card(col, titulo, valor, detalhe, tema):
-        render_kpi(col, titulo, _fmt_br(valor), detalhe, tema)
+    render_section_header(
+        titulo="Médias por Técnico — Escalados × Montados",
+        subtitulo="Produtividade média em cada visão. Verde = Escalados; Amarelo = Montados.",
+        icone="📊",
+        badge="Produtividade",
+        badge_tipo="verde",
+    )
 
     m1, m2, m3, m4 = st.columns(4)
-    _media_card(m1, "OS / Escalado", vol_esc["os_tec"], f"{n_escalados:,} técnicos escalados", "verde")
-    _media_card(m2, "OS / Montado", vol_mon["os_tec"], f"{n_montados:,} técnicos montados", "amarelo")
-    _media_card(m3, "Executadas / Escalado", vol_esc["exe_tec"], f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "verde")
-    _media_card(m4, "Executadas / Montado", vol_mon["exe_tec"], f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "amarelo")
+    render_kpi_sm(m1, "OS / Escalado", _fmt_br(vol_esc["os_tec"]), f"{n_escalados:,} escalados", "verde")
+    render_kpi_sm(m2, "OS / Montado", _fmt_br(vol_mon["os_tec"]), f"{n_montados:,} montados", "laranja")
+    render_kpi_sm(m3, "Exec / Escalado", _fmt_br(vol_esc["exe_tec"]), f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "verde")
+    render_kpi_sm(m4, "Exec / Montado", _fmt_br(vol_mon["exe_tec"]), f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "laranja")
 
+    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
     m5, m6, m7, m8 = st.columns(4)
-    _media_card(m5, "Pendentes / Escalado", vol_esc["pen_tec"], "Média de pendências", "azul")
-    _media_card(m6, "Pendentes / Montado", vol_mon["pen_tec"], "Média de pendências", "cinza")
-    _media_card(m7, "Projeção / Escalado", vol_esc["proj_tec"], "Projeção média final", "escuro")
-    _media_card(m8, "Projeção / Montado", vol_mon["proj_tec"], "Projeção média final", "roxo")
+    render_kpi_sm(m5, "Pend / Escalado", _fmt_br(vol_esc["pen_tec"]), "Média de pendências", "azul")
+    render_kpi_sm(m6, "Pend / Montado", _fmt_br(vol_mon["pen_tec"]), "Média de pendências", "cinza")
+    render_kpi_sm(m7, "Proj / Escalado", _fmt_br(vol_esc["proj_tec"]), "Projeção média final", "azul")
+    render_kpi_sm(m8, "Proj / Montado", _fmt_br(vol_mon["proj_tec"]), "Projeção média final", "cinza")
 
-    # Tabela comparativa das médias
+    # Tabela comparativa
     medias = pd.DataFrame({
         "Indicador": [
             "Técnicos", "OS / Técnico", "Executadas / Técnico",
             "Não Executadas / Técnico", "Pendentes / Técnico",
-            "Baixadas / Técnico", "Projeção / Técnico", "Atingimento da Meta (Exec.)", "Projeção × Meta"
+            "Baixadas / Técnico", "Projeção / Técnico",
+            "Atingimento da Meta (Exec.)", "Projeção × Meta",
         ],
         "Escalados": [
             n_escalados, vol_esc["os_tec"], vol_esc["exe_tec"],
             vol_esc["nex_tec"], vol_esc["pen_tec"], vol_esc["bai_tec"],
-            vol_esc["proj_tec"], vol_esc["atingimento"], vol_esc["projecao_atingimento"]
+            vol_esc["proj_tec"], vol_esc["atingimento"], vol_esc["projecao_atingimento"],
         ],
         "Montados": [
             n_montados, vol_mon["os_tec"], vol_mon["exe_tec"],
             vol_mon["nex_tec"], vol_mon["pen_tec"], vol_mon["bai_tec"],
-            vol_mon["proj_tec"], vol_mon["atingimento"], vol_mon["projecao_atingimento"]
+            vol_mon["proj_tec"], vol_mon["atingimento"], vol_mon["projecao_atingimento"],
         ],
     })
     medias["Diferença (Montados - Escalados)"] = medias["Montados"] - medias["Escalados"]
-    medias.loc[medias["Indicador"] == "Atingimento da Meta", ["Escalados", "Montados", "Diferença (Montados - Escalados)"]] *= 100
 
     st.dataframe(
         medias.style.format({
@@ -1311,25 +1318,38 @@ def main():
             "Montados": lambda x: f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", "."),
             "Diferença (Montados - Escalados)": lambda x: f"{x:+,.1f}".replace(",", "X").replace(".", ",").replace("X", "."),
         }),
-        use_container_width=True,
-        hide_index=True,
+        use_container_width=True, hide_index=True,
     )
 
-    # Gráfico comparativo
     st.plotly_chart(plot_comparativo(vol_esc, vol_mon), use_container_width=True)
 
     # ── GRÁFICOS GERAIS ─────────────────────────────────
-    render_section("📈 Visão Geral")
+    render_section_header(
+        titulo="Visão Geral",
+        subtitulo="Distribuição de status e ranking dos monitores por taxa de execução.",
+        icone="📈",
+        badge="Panorama",
+        badge_tipo="azul",
+    )
     g1, g2 = st.columns([1, 2])
     g1.plotly_chart(plot_status_pie(df), use_container_width=True)
     g2.plotly_chart(plot_ranking_monitor(df), use_container_width=True)
 
     # ── ABAS PRINCIPAIS ─────────────────────────────────
+    render_section_header(
+        titulo="Análises Detalhadas",
+        subtitulo="Explore os dados agrupados por equipe, técnico ou monitor individualmente.",
+        icone="🔎",
+        badge="Detalhamento",
+        badge_tipo="laranja",
+    )
+
     t1, t2, t3, t4 = st.tabs(["👥 Equipes", "🧑‍🔧 Técnicos", "🔍 Detalhe Monitor", "📋 Base"])
 
     with t1:
         te = calcular_volumetria(df, [Config.COL_REGIAO, Config.COL_MONITOR])
-        render_dataframe(te, titulo="Volumetria por Equipe", icone="👥", color_col="Taxa Execução", color_meta=Config.META_EXECUCAO)
+        render_dataframe(te, titulo="Volumetria por Equipe", icone="👥",
+                        color_col="Taxa Execução", color_meta=Config.META_EXECUCAO)
         st.download_button("📥 Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx")
 
     with t2:
@@ -1338,12 +1358,15 @@ def main():
     with t3:
         md = st.selectbox("Monitor", sel_m, key="monitor_detalhe")
         tt = calcular_volumetria(df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO])
-        tt = tt.sort_values(["Executada", "Taxa Execução", "Total Alocado"], ascending=[False, False, False]).reset_index(drop=True)
-        render_dataframe(tt, titulo=f"Técnicos — {md}", icone="🧑‍🔧", color_col="Taxa Execução", color_meta=Config.META_EXECUCAO, height=500)
+        tt = tt.sort_values(["Executada", "Taxa Execução", "Total Alocado"],
+                           ascending=[False, False, False]).reset_index(drop=True)
+        render_dataframe(tt, titulo=f"Técnicos — {md}", icone="🧑‍🔧",
+                        color_col="Taxa Execução", color_meta=Config.META_EXECUCAO, height=500)
         st.download_button("📥 Baixar Técnicos", gerar_excel(tt, "Tecnicos"), f"tecnicos_{md}.xlsx")
 
     with t4:
-        render_dataframe(df.head(500), titulo="Base de Dados (prévia — 500 linhas)", icone="📋", badge=f"{len(df)} total", height=600)
+        render_dataframe(df.head(500), titulo="Base de Dados (prévia — 500 linhas)",
+                        icone="📋", badge=f"{len(df)} total", height=600)
 
 
 if __name__ == "__main__":
