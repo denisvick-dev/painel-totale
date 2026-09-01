@@ -921,8 +921,9 @@ def render_dataframe(
     if ct in df_d.columns:
         sty = sty.set_properties(**{"background-color": "#D1FAE5", "color": "#065F46", "font-weight": "700"}, subset=[ct])
     if cpr in df_d.columns:
-        sty = sty.set_properties(**{"background": "#1E293B", "color": "#FFFFFF", "font-weight": "800"}, subset=[cpr])
-
+        # AQUI: Alterado de "background" para "background-color"
+        sty = sty.set_properties(**{"background-color": "#1E293B", "color": "#FFFFFF", "font-weight": "800"}, subset=[cpr])
+        
     def _et(row):
         for v in row:
             if isinstance(v, str) and "TOTAL GERAL" in str(v).upper():

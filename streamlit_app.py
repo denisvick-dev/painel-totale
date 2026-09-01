@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from components.componentes import aplicar_estilo
+from components.sidebar import aplicar_sidebar_corp
 
 # ====================================================
 # 🔧 BLOCO 1: CONFIGURAÇÃO INICIAL
@@ -33,26 +34,6 @@ class Visual:
     def injetar_css_global():
         st.html("""
         <style>
-        /* SIDEBAR */
-        .stSidebar h2 { color: #012869 !important; font-size: 24px !important; font-weight: 700 !important; }
-        .stSidebar [data-testid="stWidgetLabel"] p { color: #000047 !important; font-size: 15px !important; font-weight: 600 !important; }
-        .stSidebar [data-baseweb="tag"] { background-color: #012869 !important; color: #FFFFFF !important; border-radius: 4px !important; }
-        .stSidebar [data-baseweb="tag"] svg { fill: #FFFFFF !important; }
-        [data-testid="stSidebar"] { background: linear-gradient(180deg, #FFBE64 0%, #F37C04 100%) !important; }
-        [data-testid="stSidebar"] h1,
-        [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] span,
-        [data-testid="stSidebar"] label,
-        [data-testid="stSidebar"] a { color: white !important; }
-        [data-testid="stSidebar"] .stButton button {
-            background-color: #012869 !important; color: white !important;
-            border-radius: 6px !important; border: none !important;
-        }
-        [data-testid="stSidebar"] .stButton button:hover {
-            background-color: #FFC48A !important; color: #012869 !important;
-        }
-
         /* INPUTS */
         [data-testid="stSelectbox"] label p { color: #012869 !important; font-weight: bold !important; }
         [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
@@ -197,6 +178,7 @@ def pagina_home():
 # ====================================================
 def main() -> None:
     aplicar_estilo()
+    aplicar_sidebar_corp()
     Visual.injetar_css_global()
     st.logo("assets/images/novo-logo-totale.png", size="medium")
 
@@ -204,7 +186,7 @@ def main() -> None:
     envio_excel = st.Page("pages/envio_excel.py", title="Atualização de Dados", icon="🔁")
 
     ranking_pontos = st.Page("pages/pontos.py", title="Ranking de Pontos", icon="📈")
-    qtde_os = st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="📊")
+    qtde_os = st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡")
     consultivo = st.Page("pages/consultivo.py", title="Consultivos", icon="📋")
     gestao_ativos = st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷")
     rota_inicial = st.Page("pages/rota_inicial.py", title="Rota Inicial", icon="🗺️")
@@ -212,7 +194,7 @@ def main() -> None:
     volumetria = st.Page("pages/volumetria.py", title="Volumetria", icon="📊")
     quebra_unif = st.Page("pages/quebra_unificada.py", title="Visão PME & Migração", icon="📉")
     assinatura = st.Page("pages/assinatura.py", title="Assinatura", icon="✉️")
-    retorno = st.Page("pages/retorno.py", title="Retornos", icon="📜")
+    retorno = st.Page("pages/retorno.py", title="Retornos", icon="🔍")
     p_atendimento = st.Page("pages/p_atendimento.py", title="1º Atendimento", icon="🚙")
     quebra_geral = st.Page("pages/quebra_geral.py", title="Geral", icon="📉")
 

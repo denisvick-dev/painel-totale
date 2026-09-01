@@ -176,22 +176,24 @@ def _configurar_plotly_global() -> None:
 # INJEÇÃO DE DEPENDÊNCIAS (CSS & FONTES)
 # ====================================================
 def _injetar_fontes_no_head_pai() -> None:
-    """Injeta as fontes Google no <head> pai do iframe do Streamlit."""
+    """Injeta as fontes Google no <head> pai com preconnect e retry."""
     urls_js = ", ".join(f'"{u}"' for u in _GOOGLE_FONTS_URLS)
     components.html(
         f"""<script>
         (function () {{
-            const urls = [{urls_js}];
-            let parentDoc;
-            try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
-            const head = parentDoc.head;
-            const existentes = Array.from(head.querySelectorAll('link[rel="stylesheet"]')).map(l => l.href);
-            urls.forEach(href => {{
-                if (existentes.includes(href)) return;
-                const link = parentDoc.createElement('link');
-                link.rel = 'stylesheet'; link.href = href;
-                head.appendChild(link);
-            }});
+            let d;
+            try {{ d = window.parent.document; }} catch (e) {{ return; }}
+            const head = d.head;
+            const add = (rel, href, cross) => {{
+                if (head.querySelector('link[href="' + href + '"]')) return;
+                const l = d.createElement('link');
+                l.rel = rel; l.href = href;
+                if (cross) l.crossOrigin = 'anonymous';
+                head.appendChild(l);
+            }};
+            add('preconnect', 'https://fonts.googleapis.com', false);
+            add('preconnect', 'https://fonts.gstatic.com', true);
+            [{urls_js}].forEach(u => add('stylesheet', u, false));
         }})();
         </script>""",
         height=0,
@@ -207,8 +209,10 @@ def _get_global_css() -> str:
 
     return f"""{links_html}
     <style>
-    /* ═══ DUPLA GARANTIA DE FONTES ═══ */
+    /* ═══ DUPLA GARANTIA DE FONTES E MATERIAL ICONS ═══ */
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
     /* ═══ VARIÁVEIS CSS ═══ */
     :root {{
@@ -242,23 +246,74 @@ def _get_global_css() -> str:
         font-family: var(--font-codigo) !important;
     }}
 
-    /* ═══ CORREÇÃO DE ÍCONES MATERIAL ═══ */
+    /* ═══ ÍCONES MATERIAL E FALLBACKS CSS ═══ */
     [data-testid="stIconMaterial"],
-    [data-testid="stSidebarCollapseButton"] *,
-    [data-testid="stSidebarHeader"] *,
-    .material-icons, 
-    .material-symbols-rounded, 
+    .material-icons,
+    .material-symbols-rounded,
     .material-symbols-outlined {{
-        font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+        font-family: "Material Symbols Rounded", "Material Icons" !important;
         font-weight: normal !important;
         font-style: normal !important;
+        font-size: 20px !important;
         line-height: 1 !important;
         letter-spacing: normal !important;
         text-transform: none !important;
         white-space: nowrap !important;
-        word-wrap: normal !important;
-        direction: ltr !important;
+        font-feature-settings: "liga" 1 !important;
+        font-variant-ligatures: normal !important;
         -webkit-font-smoothing: antialiased !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        overflow: hidden !important;
+    }}
+
+    /* FALLBACK EXPANDER: Oculta a seta texto e desenha chevron CSS puro */
+    [data-testid="stExpanderToggleIcon"],
+    [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {{
+        font-size: 0 !important;
+        width: 20px !important;
+        min-width: 20px !important;
+        height: 20px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        overflow: hidden !important;
+        flex-shrink: 0 !important;
+    }}
+    [data-testid="stExpanderToggleIcon"]::before,
+    [data-testid="stExpander"] summary [data-testid="stIconMaterial"]::before {{
+        content: "" !important;
+        width: 7px !important;
+        height: 7px !important;
+        border-right: 2.5px solid currentColor !important;
+        border-bottom: 2.5px solid currentColor !important;
+        transform: rotate(-45deg) !important;
+        transition: transform 0.2s ease !important;
+    }}
+    details[open] > summary [data-testid="stExpanderToggleIcon"]::before,
+    details[open] > summary [data-testid="stIconMaterial"]::before {{
+        transform: rotate(45deg) !important;
+    }}
+
+    /* FALLBACK SIDEBAR BUTTONS */
+    [data-testid="stSidebarCollapseButton"] button span,
+    [data-testid="stSidebarCollapsedControl"] button span {{
+        font-size: 0 !important;
+    }}
+    [data-testid="stSidebarCollapseButton"] button::after {{
+        content: "«" !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+        line-height: 1 !important;
+    }}
+    [data-testid="stSidebarCollapsedControl"] button::after {{
+        content: "»" !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+        color: {COR_PRIMARIA} !important;
+        line-height: 1 !important;
     }}
 
     /* ═══ LAYOUT CORE ═══ */
@@ -268,7 +323,7 @@ def _get_global_css() -> str:
     }}
 
     /* ═══════════════════════════════════════════════════
-       SIDEBAR — TOPO LARANJA + DEEP NAVY CORPORATIVO
+       SIDEBAR — TOPO LARANJA + DEEP NAVY + CENTRALIZADO
        ═══════════════════════════════════════════════════ */
     section[data-testid="stSidebar"] {{
         background: linear-gradient(
@@ -293,21 +348,23 @@ def _get_global_css() -> str:
         padding: 8px 12px !important;
     }}
 
-    /* Botão Collapse */
+    /* Botão Collapse Sidebar */
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {{
         background: transparent !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {{
-        color: #FFFFFF !important;
         background: rgba(0, 0, 0, 0.2) !important;
         border-radius: 6px !important;
         border: none !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }}
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {{
         background: rgba(0, 0, 0, 0.4) !important;
     }}
 
-    /* Títulos H1-H4 personalizados no sidebar */
+    /* Títulos H1-H4 - CENTRALIZADOS */
     section[data-testid="stSidebar"] h1, 
     section[data-testid="stSidebar"] h2, 
     section[data-testid="stSidebar"] h3,
@@ -323,9 +380,10 @@ def _get_global_css() -> str:
         margin-top: 18px !important;
         margin-bottom: 10px !important;
         background: transparent !important;
+        text-align: center !important;
     }}
 
-    /* Cabeçalhos NATIVOS de agrupamento de páginas no Menu */
+    /* Cabeçalhos NATIVOS de agrupamento no Menu - CENTRALIZADOS */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span[data-testid="stSidebarNavSeparator"] ~ span,
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li div {{
         color: #E2E8F0 !important;
@@ -337,14 +395,16 @@ def _get_global_css() -> str:
         background: transparent !important;
         border: none !important;
         margin-top: 16px !important;
-        padding-left: 14px !important;
+        padding-left: 0 !important;
+        text-align: center !important;
+        display: block !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
         padding-top: 0 !important;
     }}
 
-    /* Botões de páginas (Cards flutuantes) */
+    /* Botões de páginas - CENTRALIZADOS */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
         background-color: #06152F !important;
         border: 1px solid rgba(255, 255, 255, 0.03) !important;
@@ -355,12 +415,20 @@ def _get_global_css() -> str:
         transition: all 0.2s ease !important;
         display: flex !important;
         align-items: center !important;
+        justify-content: center !important;
+        gap: 10px !important;
+    }}
+
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a svg,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span:first-child {{
+        margin-right: 0 !important;
+        margin-left: 0 !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{
         background-color: #0A224A !important;
         border-color: rgba(243, 124, 4, 0.4) !important;
-        transform: translateX(3px);
+        transform: translateY(-2px);
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span {{
@@ -368,12 +436,14 @@ def _get_global_css() -> str:
         font-weight: 600 !important;
         font-size: 14px !important;
         background: transparent !important;
+        text-align: center !important;
     }}
 
-    /* Página Ativa - destaque laranja */
+    /* Página Ativa */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{
         background-color: #0A224A !important;
         border-left: 4px solid #F37C04 !important;
+        border-right: 4px solid #F37C04 !important;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25) !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] span {{
@@ -396,7 +466,21 @@ def _get_global_css() -> str:
         background: transparent !important;
     }}
 
-    /* Expanders */
+    /* Expanders Gerais (Impedindo sobreposição de texto) */
+    [data-testid="stExpander"] summary {{
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }}
+    [data-testid="stExpander"] summary p {{
+        flex: 1 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        margin: 0 !important;
+    }}
+
+    /* Expanders no Sidebar */
     section[data-testid="stSidebar"] [data-testid="stExpander"] {{
         background-color: rgba(0, 17, 53, 0.4) !important;
         border: 1px solid rgba(255, 255, 255, 0.15) !important;
@@ -772,11 +856,7 @@ def _injetar_css_global() -> None:
 def aplicar_estilo() -> None:
     """Aplica configuração Plotly, injeta fontes e CSS Global."""
     _configurar_plotly_global()
-
-    if not st.session_state.get("_fontes_ok"):
-        _injetar_fontes_no_head_pai()
-        st.session_state["_fontes_ok"] = True
-
+    _injetar_fontes_no_head_pai()
     _injetar_css_global()
 
 
@@ -909,16 +989,10 @@ def render_metric_delta(
 ) -> None:
     """
     Renderiza um KPI com indicador de variação (Delta).
-
-    Args:
-        delta: Valor da variação. Positivo = alta, Negativo = queda.
-        inverter_cor: Se True, delta positivo vira vermelho e negativo vira verde
-                     (útil para métricas onde "menos é melhor", ex: reclamações).
     """
     cor = _resolver_cor_tema(tema)
     renderer = col.markdown if hasattr(col, "markdown") else st.markdown
 
-    # Determina tendência automaticamente se não fornecida
     if tendencia is None:
         if delta > 0.01:
             tendencia = "up"
@@ -927,7 +1001,6 @@ def render_metric_delta(
         else:
             tendencia = "flat"
 
-    # Cores e ícones baseados em tendência
     icones = {"up": "▲", "down": "▼", "flat": "▬"}
     classes = {"up": "kpi-delta-up", "down": "kpi-delta-down", "flat": "kpi-delta-flat"}
 
@@ -974,10 +1047,7 @@ def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
 
 
 def render_status_pill(texto: str, tipo: TipoStatus = "ativo") -> str:
-    """
-    Retorna HTML de uma pílula de status (para uso inline ou em tabelas).
-    Não renderiza diretamente — retorna string HTML.
-    """
+    """Retorna HTML de uma pílula de status (para uso inline ou em tabelas)."""
     bg, cor_texto, borda = _STATUS_CONFIG.get(tipo, _STATUS_CONFIG["ativo"])
     return (
         f'<span class="status-pill" style="background:{bg};color:{cor_texto};border-color:{borda};">'
@@ -1027,10 +1097,7 @@ def render_progress_bar(
     unidade: str = "",
     mostrar_meta: bool = True,
 ) -> None:
-    """
-    Renderiza uma barra de progresso corporativa contra uma meta.
-    Cor dinâmica: verde (≥100%), amarelo (70-99%), vermelho (<70%).
-    """
+    """Renderiza uma barra de progresso corporativa contra uma meta."""
     percentual = (valor / meta * 100) if meta > 0 else 0
     percentual_bar = min(percentual, 100)
 
@@ -1171,12 +1238,7 @@ def render_table_html(
     max_cols: int = 20,
     linha_total: bool = False,
 ) -> None:
-    """
-    Renderiza uma tabela HTML corporativa com formatação, cores e destaque de totais.
-
-    Args:
-        linha_total: Se True, destaca a última linha como total.
-    """
+    """Renderiza uma tabela HTML corporativa com formatação e cores."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         render_empty_state(
             "Sem dados na tabela", "Ajuste os filtros para visualizar registros."

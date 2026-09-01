@@ -85,20 +85,60 @@ MAPEAMENTO_PERIODOS = {
 }
 
 TEMAS_CARD = {
-    "amarelo":  {"fundo": "#FEF9C3", "texto": "#854D0E", "borda": "#EAB308", "titulo": "#A16207"},
-    "azul":     {"fundo": "#F0F9FF", "texto": "#0369A1", "borda": "#0EA5E9", "titulo": "#075985"},
-    "verde":    {"fundo": "#F0FDF4", "texto": "#15803D", "borda": "#22C55E", "titulo": "#166534"},
-    "roxo":     {"fundo": "#FAF5FF", "texto": "#7E22CE", "borda": "#A855F7", "titulo": "#6B21A8"},
-    "cinza":    {"fundo": "#F8FAFC", "texto": "#334155", "borda": "#94A3B8", "titulo": "#64748B"},
-    "escuro":   {"fundo": "#1E293B", "texto": "#FFFFFF", "borda": "#475569", "titulo": "#E2E8F0"},
-    "laranja":  {"fundo": "#FFF7ED", "texto": "#C2410C", "borda": "#F97316", "titulo": "#9A3412"},
-    "vermelho": {"fundo": "#FEF2F2", "texto": "#B91C1C", "borda": "#EF4444", "titulo": "#991B1B"},
+    "amarelo": {
+        "fundo": "#FEF9C3",
+        "texto": "#854D0E",
+        "borda": "#EAB308",
+        "titulo": "#A16207",
+    },
+    "azul": {
+        "fundo": "#F0F9FF",
+        "texto": "#0369A1",
+        "borda": "#0EA5E9",
+        "titulo": "#075985",
+    },
+    "verde": {
+        "fundo": "#F0FDF4",
+        "texto": "#15803D",
+        "borda": "#22C55E",
+        "titulo": "#166534",
+    },
+    "roxo": {
+        "fundo": "#FAF5FF",
+        "texto": "#7E22CE",
+        "borda": "#A855F7",
+        "titulo": "#6B21A8",
+    },
+    "cinza": {
+        "fundo": "#F8FAFC",
+        "texto": "#334155",
+        "borda": "#94A3B8",
+        "titulo": "#64748B",
+    },
+    "escuro": {
+        "fundo": "#1E293B",
+        "texto": "#FFFFFF",
+        "borda": "#475569",
+        "titulo": "#E2E8F0",
+    },
+    "laranja": {
+        "fundo": "#FFF7ED",
+        "texto": "#C2410C",
+        "borda": "#F97316",
+        "titulo": "#9A3412",
+    },
+    "vermelho": {
+        "fundo": "#FEF2F2",
+        "texto": "#B91C1C",
+        "borda": "#EF4444",
+        "titulo": "#991B1B",
+    },
 }
 
 CORES_REGIAO = {
-    "LESTE":  {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
-    "GRU":    {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
-    "ABCDM":  {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
+    "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
+    "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
+    "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
     "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
 }
 
@@ -135,14 +175,10 @@ RENOMEAR_COLUNAS: Dict[str, str] = {
 _RE_PRODUTO_INTERNET = re.compile(r"\b(BL|BANDA\s*LARGA)\b", re.IGNORECASE)
 
 _RE_Mbps_Gbps = re.compile(
-    r"(\d+(?:[.,]\d+)?)\s*(GIGA|GB|G|MEGA|MB|M)\b",
-    re.IGNORECASE
+    r"(\d+(?:[.,]\d+)?)\s*(GIGA|GB|G|MEGA|MB|M)\b", re.IGNORECASE
 )
 
-_RE_BL = re.compile(
-    r"\bBL\s*(\d+(?:[.,]\d+)?)\s*(M|MEGA|G|GIGA)?\b",
-    re.IGNORECASE
-)
+_RE_BL = re.compile(r"\bBL\s*(\d+(?:[.,]\d+)?)\s*(M|MEGA|G|GIGA)?\b", re.IGNORECASE)
 
 
 def _extrair_velocidade_e_mbps(produto: Any) -> tuple[str, float]:
@@ -209,8 +245,7 @@ def atribuir_velocidade_por_contrato(df: pd.DataFrame) -> pd.DataFrame:
             ["CONTRATO", "_PRIORIDADE_VEL", "_VEL_MBPS"],
             ascending=[True, True, False],
         )
-        .drop_duplicates(subset=["CONTRATO"])
-        [["CONTRATO", "_VEL_LABEL"]]
+        .drop_duplicates(subset=["CONTRATO"])[["CONTRATO", "_VEL_LABEL"]]
         .rename(columns={"_VEL_LABEL": "VELOCIDADE_BANDA"})
     )
 
@@ -405,8 +440,7 @@ def render_dataframe_local(
         if col_original in RENOMEAR_COLUNAS:
             novo_nome = RENOMEAR_COLUNAS[col_original]
             if novo_nome == col_original or (
-                novo_nome not in nomes_existentes
-                and novo_nome not in nomes_ja_usados
+                novo_nome not in nomes_existentes and novo_nome not in nomes_ja_usados
             ):
                 colunas_para_renomear[col_original] = novo_nome
                 nomes_ja_usados.add(novo_nome)
@@ -419,10 +453,24 @@ def render_dataframe_local(
         color_col = colunas_para_renomear.get(color_col, color_col)
 
     colunas_int_originais = [
-        "Executada", "Não Executada", "Pendente", "Baixadas",
-        "Total Alocado", "Projeção", "Alocado", "Considerado",
-        "OS", "GPON", "ND", "PME", "Migração",
-        "Qtd_4K", "Ultra", "Soundbox", "Equipe", "TOTAL_TAREFAS",
+        "Executada",
+        "Não Executada",
+        "Pendente",
+        "Baixadas",
+        "Total Alocado",
+        "Projeção",
+        "Alocado",
+        "Considerado",
+        "OS",
+        "GPON",
+        "ND",
+        "PME",
+        "Migração",
+        "Qtd_4K",
+        "Ultra",
+        "Soundbox",
+        "Equipe",
+        "TOTAL_TAREFAS",
     ]
     for c in [colunas_para_renomear.get(c, c) for c in colunas_int_originais]:
         if c in df_display.columns:
@@ -435,6 +483,7 @@ def render_dataframe_local(
         styler = styler.format(fmt)
 
     if color_col and color_col in df_display.columns and color_meta is not None:
+
         def _cor(val: Any) -> str:
             try:
                 v = float(val)
@@ -455,19 +504,32 @@ def render_dataframe_local(
 
         styler = styler.map(_cor, subset=pd.Index([color_col]))
 
-    styler = styler.set_table_styles([
-        {"selector": "th", "props": [
-            ("background-color", "#0F172A"), ("color", "#FFFFFF"),
-            ("font-size", "0.78rem"), ("font-weight", "700"),
-            ("text-transform", "uppercase"), ("letter-spacing", "0.03em"),
-            ("padding", "0.6rem 0.8rem"), ("border", "none"),
-        ]},
-        {"selector": "td", "props": [
-            ("font-size", "0.82rem"), ("padding", "0.5rem 0.8rem"),
-            ("border-bottom", "1px solid #F1F5F9"),
-        ]},
-        {"selector": "tr:hover td", "props": [("background-color", "#F8FAFC")]},
-    ])
+    styler = styler.set_table_styles(
+        [
+            {
+                "selector": "th",
+                "props": [
+                    ("background-color", "#0F172A"),
+                    ("color", "#FFFFFF"),
+                    ("font-size", "0.78rem"),
+                    ("font-weight", "700"),
+                    ("text-transform", "uppercase"),
+                    ("letter-spacing", "0.03em"),
+                    ("padding", "0.6rem 0.8rem"),
+                    ("border", "none"),
+                ],
+            },
+            {
+                "selector": "td",
+                "props": [
+                    ("font-size", "0.82rem"),
+                    ("padding", "0.5rem 0.8rem"),
+                    ("border-bottom", "1px solid #F1F5F9"),
+                ],
+            },
+            {"selector": "tr:hover td", "props": [("background-color", "#F8FAFC")]},
+        ]
+    )
 
     st.dataframe(styler, use_container_width=True, hide_index=True, height="auto")
 
@@ -499,9 +561,11 @@ def buscar_google_sheets() -> pd.DataFrame:
         )
         df = df.dropna(subset=["Login"])
         df["Login"] = (
-            df["Login"].astype(str)
+            df["Login"]
+            .astype(str)
             .str.replace(r"\.0$", "", regex=True)
-            .str.strip().str.upper()
+            .str.strip()
+            .str.upper()
         )
         return df
     except Exception:
@@ -543,8 +607,11 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
         "LOGIN_TECNICO": ["LOGIN DO TÉCNICO", "LOGIN DO TECNICO"],
         "STATUS_ATIVIDADE": ["STATUS DA ATIVIDADE"],
         "STATUS_PRODUTO": [
-            "STATUS DO PRODUTO", "STATUS PRODUTO",
-            "SITUACAO DO PRODUTO", "SITUAÇÃO DO PRODUTO", "STATUS_ITEM",
+            "STATUS DO PRODUTO",
+            "STATUS PRODUTO",
+            "SITUACAO DO PRODUTO",
+            "SITUAÇÃO DO PRODUTO",
+            "STATUS_ITEM",
         ],
         "TOTAL_TAREFAS": ["TOTAL DE TAREFAS"],
         "TIPO_OS": ["TIPO O.S 1"],
@@ -563,11 +630,14 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
             df[padrao] = np.nan
 
     contrato = (
-        df["CONTRATO"].astype("string")
-        .str.replace("\u00a0", " ", regex=False).str.strip()
+        df["CONTRATO"]
+        .astype("string")
+        .str.replace("\u00a0", " ", regex=False)
+        .str.strip()
     )
     mask_vazio = (
-        contrato.isna() | contrato.eq("")
+        contrato.isna()
+        | contrato.eq("")
         | contrato.str.upper().isin(CONTRATO_VALORES_VAZIOS)
     )
     removidos = int(mask_vazio.sum())
@@ -578,26 +648,28 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
         return pd.DataFrame()
 
     df["LOGIN_TECNICO"] = (
-        df["LOGIN_TECNICO"].astype(str)
+        df["LOGIN_TECNICO"]
+        .astype(str)
         .str.replace(r"\.0$", "", regex=True)
-        .str.strip().str.upper()
+        .str.strip()
+        .str.upper()
     )
     df["TOTAL_TAREFAS"] = (
         pd.to_numeric(
             df["TOTAL_TAREFAS"].astype(str).str.replace(",", "."), errors="coerce"
-        ).fillna(1).astype(int)
-    )
-    df["STATUS_ATIVIDADE"] = (
-        df["STATUS_ATIVIDADE"].astype(str).str.strip().str.upper()
-    )
-    if "STATUS_PRODUTO" in df.columns:
-        df["STATUS_PRODUTO"] = (
-            df["STATUS_PRODUTO"].astype(str).str.strip().str.upper()
         )
+        .fillna(1)
+        .astype(int)
+    )
+    df["STATUS_ATIVIDADE"] = df["STATUS_ATIVIDADE"].astype(str).str.strip().str.upper()
+    if "STATUS_PRODUTO" in df.columns:
+        df["STATUS_PRODUTO"] = df["STATUS_PRODUTO"].astype(str).str.strip().str.upper()
 
     if isinstance(df_ativos, pd.DataFrame) and not df_ativos.empty:
         df = df.drop(
-            columns=[c for c in ["Técnico", "Monitor", "Base"] if c.upper() in df.columns],
+            columns=[
+                c for c in ["Técnico", "Monitor", "Base"] if c.upper() in df.columns
+            ],
             errors="ignore",
         )
         df = df.merge(df_ativos, left_on="LOGIN_TECNICO", right_on="Login", how="left")
@@ -618,7 +690,9 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
 
     df["Check_GPON"] = hab.str.contains(r"PON\(1/100\)", regex=True, na=False)
     df["Check_ND"] = tipo.str.contains("ADESAO", na=False)
-    df["Check_Migracao"] = (tipo.str.strip() == "24 - MUDANCA DE PACOTE") & df["Check_GPON"]
+    df["Check_Migracao"] = (tipo.str.strip() == "24 - MUDANCA DE PACOTE") & df[
+        "Check_GPON"
+    ]
     df["Check_PME"] = df["Check_ND"] & hab.str.contains("PME", na=False)
     df["Check_Streaming"] = hab.str.contains("TV VAS(1/100)", na=False)
     df["Check_Ponto_Ultra"] = hab.str.contains("NETLAR", na=False)
@@ -628,28 +702,50 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
     df = atribuir_velocidade_por_contrato(df)
 
     df["PERIODO_TRATADO"] = (
-        df["INTERVALO"].astype(str).str.strip()
-        .map(MAPEAMENTO_PERIODOS).fillna("Outros/Sem Período")
+        df["INTERVALO"]
+        .astype(str)
+        .str.strip()
+        .map(MAPEAMENTO_PERIODOS)
+        .fillna("Outros/Sem Período")
     )
 
     cidade = (
-        df["CIDADE"].fillna("").astype(str).str.strip().str.upper()
+        df["CIDADE"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
         .apply(
             lambda v: unicodedata.normalize("NFKD", v)
-            .encode("ASCII", "ignore").decode()
+            .encode("ASCII", "ignore")
+            .decode()
         )
     )
     df["REGIÃO"] = np.select(
         [
             cidade.isin(["SAO PAULO"]),
-            cidade.isin([
-                "GUARULHOS", "ARUJA", "MOGI DAS CRUZES", "SUZANO",
-                "ITAQUAQUECETUBA", "FERRAZ DE VASCONCELOS", "POA",
-            ]),
-            cidade.isin([
-                "SANTO ANDRE", "SAO BERNARDO DO CAMPO", "SAO CAETANO DO SUL",
-                "DIADEMA", "MAUA", "RIBEIRAO PIRES", "RIO GRANDE DA SERRA",
-            ]),
+            cidade.isin(
+                [
+                    "GUARULHOS",
+                    "ARUJA",
+                    "MOGI DAS CRUZES",
+                    "SUZANO",
+                    "ITAQUAQUECETUBA",
+                    "FERRAZ DE VASCONCELOS",
+                    "POA",
+                ]
+            ),
+            cidade.isin(
+                [
+                    "SANTO ANDRE",
+                    "SAO BERNARDO DO CAMPO",
+                    "SAO CAETANO DO SUL",
+                    "DIADEMA",
+                    "MAUA",
+                    "RIBEIRAO PIRES",
+                    "RIO GRANDE DA SERRA",
+                ]
+            ),
         ],
         ["LESTE", "GRU", "ABCDM"],
         default="OUTRAS",
@@ -691,7 +787,9 @@ def calcular_tabela_rota_turno(
         return pd.DataFrame()
 
     df_work = df_work[
-        ~df_work["Monitor"].astype(str).str.upper()
+        ~df_work["Monitor"]
+        .astype(str)
+        .str.upper()
         .isin({"NAN", "SEM MONITOR", "NÃO MAPEADO", ""})
     ].copy()
     if df_work.empty:
@@ -706,46 +804,64 @@ def calcular_tabela_rota_turno(
         df_mon = df_work[df_work["Monitor"] == mon]
         total_os = int(df_mon["TOTAL_TAREFAS"].sum())
         equipe = int(df_mon["LOGIN_TECNICO"].nunique())
-        linhas.append({
-            "Monitor": mon,
-            "WO": int(df_mon["Check_ND"].sum()),
-            "GPON": int(df_mon["Check_GPON"].sum()),
-            "OS": total_os,
-            "ND": int(df_mon["Check_ND"].sum()),
-            "Migração": int(df_mon["Check_Migracao"].sum()),
-            "Equipe": equipe,
-            "Média": total_os / equipe if equipe > 0 else 0.0,
-        })
+        linhas.append(
+            {
+                "Monitor": mon,
+                "WO": int(df_mon["Check_ND"].sum()),
+                "GPON": int(df_mon["Check_GPON"].sum()),
+                "OS": total_os,
+                "ND": int(df_mon["Check_ND"].sum()),
+                "Migração": int(df_mon["Check_Migracao"].sum()),
+                "Equipe": equipe,
+                "Média": total_os / equipe if equipe > 0 else 0.0,
+            }
+        )
 
     df_out = pd.DataFrame(linhas)
     total_os_g = int(df_out["OS"].sum())
     total_eq_escalados = int(df_out["Equipe"].sum())
     total_eq_montados = (
-        total_equipe_montada if total_equipe_montada is not None
+        total_equipe_montada
+        if total_equipe_montada is not None
         else int(df_work["LOGIN_TECNICO"].nunique())
     )
 
-    df_out = pd.concat([
-        df_out,
-        pd.DataFrame([
-            {
-                "Monitor": "Total Geral | Escalados",
-                "WO": int(df_out["WO"].sum()), "GPON": int(df_out["GPON"].sum()),
-                "OS": total_os_g, "ND": int(df_out["ND"].sum()),
-                "Migração": int(df_out["Migração"].sum()),
-                "Equipe": total_eq_escalados,
-                "Média": total_os_g / total_eq_escalados if total_eq_escalados else 0.0,
-            },
-            {
-                "Monitor": "Total Geral | Montados",
-                "WO": int(df_out["WO"].sum()), "GPON": int(df_out["GPON"].sum()),
-                "OS": total_os_g, "ND": int(df_out["ND"].sum()),
-                "Migração": int(df_out["Migração"].sum()),
-                "Equipe": total_eq_montados,
-                "Média": total_os_g / total_eq_montados if total_eq_montados else 0.0,
-            },
-        ]),
-    ], ignore_index=True)
+    df_out = pd.concat(
+        [
+            df_out,
+            pd.DataFrame(
+                [
+                    {
+                        "Monitor": "Total Geral | Escalados",
+                        "WO": int(df_out["WO"].sum()),
+                        "GPON": int(df_out["GPON"].sum()),
+                        "OS": total_os_g,
+                        "ND": int(df_out["ND"].sum()),
+                        "Migração": int(df_out["Migração"].sum()),
+                        "Equipe": total_eq_escalados,
+                        "Média": (
+                            total_os_g / total_eq_escalados
+                            if total_eq_escalados
+                            else 0.0
+                        ),
+                    },
+                    {
+                        "Monitor": "Total Geral | Montados",
+                        "WO": int(df_out["WO"].sum()),
+                        "GPON": int(df_out["GPON"].sum()),
+                        "OS": total_os_g,
+                        "ND": int(df_out["ND"].sum()),
+                        "Migração": int(df_out["Migração"].sum()),
+                        "Equipe": total_eq_montados,
+                        "Média": (
+                            total_os_g / total_eq_montados if total_eq_montados else 0.0
+                        ),
+                    },
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
 
     return df_out
 
@@ -763,9 +879,9 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
     for _, row in df.iterrows():
         monitor = str(row["Monitor"])
         classe = (
-            "total-escalados" if "Escalados" in monitor
-            else "total-montados" if "Montados" in monitor
-            else ""
+            "total-escalados"
+            if "Escalados" in monitor
+            else "total-montados" if "Montados" in monitor else ""
         )
         linhas_html.append(
             f'<tr class="{classe}">'
@@ -798,9 +914,11 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
 
 def render_bloco_rota_turno(df_master: pd.DataFrame, total_montados: int) -> None:
     from datetime import datetime
+
     data_hoje = datetime.now().strftime("%d/%m/%Y")
     total_efetivo = (
-        total_montados if total_montados > 0
+        total_montados
+        if total_montados > 0
         else int(df_master["LOGIN_TECNICO"].nunique())
     )
     for turno, label in [
@@ -874,7 +992,8 @@ def main() -> None:
         st.header("👥 Equipe Montada")
         total_montados_input = st.number_input(
             "Total de Técnicos Montados",
-            min_value=0, max_value=999,
+            min_value=0,
+            max_value=999,
             value=st.session_state["total_montados_manual"],
             step=1,
             help="Deixe em 0 para usar a contagem automática da base.",
@@ -883,7 +1002,9 @@ def main() -> None:
         st.session_state["total_montados_manual"] = total_montados_input
 
         if total_montados_input > 0:
-            st.caption(f"✅ Usando **{total_montados_input}** técnicos montados (manual)")
+            st.caption(
+                f"✅ Usando **{total_montados_input}** técnicos montados (manual)"
+            )
         else:
             auto_count = int(df_master["LOGIN_TECNICO"].nunique())
             st.caption(f"🔄 Usando **{auto_count}** técnicos (automático da base)")
@@ -932,17 +1053,23 @@ def main() -> None:
         if st.checkbox(
             "📉 Baixa Velocidade",
             help="Exibe apenas contratos com velocidade identificada inferior a 400 Mbps. "
-                 "Contratos sem velocidade são excluídos.",
+            "Contratos sem velocidade são excluídos.",
             key=f"filtro_vel_menor_400_{reset_key}",
         ):
+
             def _vel_para_mbps(label: str) -> float:
                 if not isinstance(label, str) or not label.strip():
                     return np.nan
                 try:
                     if "Gbps" in label:
-                        return float(label.replace("Gbps", "").replace(",", ".").strip()) * 1000
+                        return (
+                            float(label.replace("Gbps", "").replace(",", ".").strip())
+                            * 1000
+                        )
                     if "Mbps" in label:
-                        return float(label.replace("Mbps", "").replace(",", ".").strip())
+                        return float(
+                            label.replace("Mbps", "").replace(",", ".").strip()
+                        )
                 except ValueError:
                     pass
                 return np.nan
@@ -970,7 +1097,9 @@ def main() -> None:
     c1, c2, c3 = st.columns(3)
     render_kpi(c1, "Volume O.S.", f"{soma_os:,}", tema="azul")
     render_kpi(
-        c2, "Técnicos Operando", f"{tecnicos}",
+        c2,
+        "Técnicos Operando",
+        f"{tecnicos}",
         sub=f"Média: {soma_os / tecnicos:.1f} O.S./Téc." if tecnicos else "",
         tema="cinza",
     )
@@ -989,7 +1118,9 @@ def main() -> None:
     render_kpi(s1, "GPON", f"{qtd_gpon:,}", tema="verde")
     render_kpi(s2, "Adesão (ND)", f"{qtd_nd:,}", tema="azul")
     render_kpi(
-        s3, "PME", f"{qtd_pme:,}",
+        s3,
+        "PME",
+        f"{qtd_pme:,}",
         sub=f"{qtd_pme / qtd_nd:.1%} das ND" if qtd_nd > 0 else "sem ND",
         tema="azul",
     )
@@ -1011,35 +1142,57 @@ def main() -> None:
             df_master.groupby("PERIODO_TRATADO")["TOTAL_TAREFAS"].sum().reset_index()
         )
         fig_per = px.bar(
-            df_per, x="PERIODO_TRATADO", y="TOTAL_TAREFAS",
-            text_auto=True, color="PERIODO_TRATADO",
-            color_discrete_sequence=[COR_PRIMARIA, COR_SECUNDARIA, COR_SUCESSO, COR_NEUTRO],
+            df_per,
+            x="PERIODO_TRATADO",
+            y="TOTAL_TAREFAS",
+            text_auto=True,
+            color="PERIODO_TRATADO",
+            color_discrete_sequence=[
+                COR_PRIMARIA,
+                COR_SECUNDARIA,
+                COR_SUCESSO,
+                COR_NEUTRO,
+            ],
         )
         fig_per.update_layout(
-            showlegend=False, margin=dict(t=30, b=0, l=0, r=0),
-            height=320, xaxis_title="", yaxis_title="",
+            showlegend=False,
+            margin=dict(t=30, b=0, l=0, r=0),
+            height=320,
+            xaxis_title="",
+            yaxis_title="",
             title=dict(text="Pico de Agendamento", font=dict(size=14)),
         )
         st.plotly_chart(fig_per, use_container_width=True)
 
     with g2:
-        df_prem = pd.DataFrame([
-            {"Serviço": "GPON", "Qtd": qtd_gpon},
-            {"Serviço": "PME", "Qtd": qtd_pme},
-            {"Serviço": "4K", "Qtd": qtd_4k},
-            {"Serviço": "Soundbox", "Qtd": qtd_sound},
-            {"Serviço": "Ponto Ultra", "Qtd": int(df_master["Check_Ponto_Ultra"].sum())},
-        ])
+        df_prem = pd.DataFrame(
+            [
+                {"Serviço": "GPON", "Qtd": qtd_gpon},
+                {"Serviço": "PME", "Qtd": qtd_pme},
+                {"Serviço": "4K", "Qtd": qtd_4k},
+                {"Serviço": "Soundbox", "Qtd": qtd_sound},
+                {
+                    "Serviço": "Ponto Ultra",
+                    "Qtd": int(df_master["Check_Ponto_Ultra"].sum()),
+                },
+            ]
+        )
         df_prem = df_prem[df_prem["Qtd"] > 0]
         if not df_prem.empty:
             fig_prem = px.bar(
-                df_prem, x="Qtd", y="Serviço",
-                orientation="h", text_auto=True,
+                df_prem,
+                x="Qtd",
+                y="Serviço",
+                orientation="h",
+                text_auto=True,
                 color_discrete_sequence=[COR_SUCESSO],
             )
             fig_prem.update_layout(
-                showlegend=False, margin=dict(t=30, b=0, l=0, r=0),
-                height=320, xaxis_title="", yaxis_title="",
+                showlegend=False,
+                margin=dict(t=30, b=0, l=0, r=0),
+                height=320,
+                xaxis_title="",
+                yaxis_title="",
                 title=dict(text="Mix Premium", font=dict(size=14)),
             )
             st.plotly_chart(fig_prem, use_container_width=True)
@@ -1048,8 +1201,13 @@ def main() -> None:
 
     # ── Abas de Detalhamento ─────────────────────────
     aba_tec, aba_mapa, aba_base, aba_contratos, aba_equalizacao = st.tabs(
-        ["🏆 Top Técnicos", "🗺️ Mapa", "🗃️ Base Completa",
-         "📄 Resumo Contratos", "⚖️ Equalização de Rota"]
+        [
+            "🏆 Top Técnicos",
+            "🗺️ Mapa",
+            "🗃️ Base Completa",
+            "📄 Resumo Contratos",
+            "⚖️ Equalização de Rota",
+        ]
     )
 
     # ============================================================
@@ -1064,9 +1222,13 @@ def main() -> None:
             .head(15)
         )
         fig_tec = px.bar(
-            prod_df, x="TOTAL_TAREFAS", y="NOME_OFICIAL",
-            orientation="h", color="TOTAL_TAREFAS",
-            color_continuous_scale="Blues", text_auto=True,
+            prod_df,
+            x="TOTAL_TAREFAS",
+            y="NOME_OFICIAL",
+            orientation="h",
+            color="TOTAL_TAREFAS",
+            color_continuous_scale="Blues",
+            text_auto=True,
         )
         fig_tec.update_layout(
             yaxis={"categoryorder": "total ascending"},
@@ -1077,7 +1239,7 @@ def main() -> None:
         st.plotly_chart(fig_tec, use_container_width=True)
 
     # ============================================================
-    # ABA — MAPA
+    # ABA — MAPA (CORRIGIDA)
     # ============================================================
     with aba_mapa:
         df_mapa = df_master.dropna(subset=["COORD_X", "COORD_Y"]).copy()
@@ -1093,21 +1255,31 @@ def main() -> None:
             )
             df_mapa = df_mapa.dropna(subset=["COORD_X", "COORD_Y"])
             if not df_mapa.empty:
+                # Usando px.scatter_map compatível com Plotly 6.0+
                 fig_mapa = px.scatter_map(
-                    df_mapa, lat="COORD_Y", lon="COORD_X",
+                    df_mapa,
+                    lat="COORD_Y",
+                    lon="COORD_X",
                     color="STATUS_ATIVIDADE",
-                    zoom=9, height=550, hover_name="NOME_OFICIAL",
+                    zoom=9,
+                    height=550,
+                    hover_name="NOME_OFICIAL",
                 )
+
+                # Chamando o update_layout sem aninhamentos incorretos
                 fig_mapa.update_layout(
-                    mapbox_style="open-street-map",
+                    map_style="open-street-map",
                     margin={"r": 0, "t": 0, "l": 0, "b": 0},
                 )
                 st.plotly_chart(fig_mapa, use_container_width=True)
             else:
-                render_insight("Coordenadas GPS não encontradas após limpeza.", tipo="info")
+                render_insight(
+                    "Coordenadas GPS não encontradas após limpeza.", tipo="info"
+                )
         else:
             render_insight(
-                "A planilha não possui coordenadas GPS válidas para o mapa.", tipo="info"
+                "A planilha não possui coordenadas GPS válidas para o mapa.",
+                tipo="info",
             )
 
     # ============================================================
@@ -1171,7 +1343,8 @@ def main() -> None:
                     if str(x) not in {"nan", "SEM MONITOR", "NÃO MAPEADO"}
                 )
                 sel_mon = st.selectbox(
-                    "👔 Monitor", mon_contratos,
+                    "👔 Monitor",
+                    mon_contratos,
                     key=f"filtro_mon_contratos_{reset_key}",
                 )
 
@@ -1188,7 +1361,8 @@ def main() -> None:
                     if str(x) not in {"nan", "NÃO MAPEADO"}
                 )
                 sel_tec = st.selectbox(
-                    "👤 Técnico", tec_contratos,
+                    "👤 Técnico",
+                    tec_contratos,
                     key=f"filtro_tec_contratos_{reset_key}",
                 )
 
@@ -1217,17 +1391,15 @@ def main() -> None:
     # ============================================================
     # ABA — EQUALIZAÇÃO
     # ============================================================
-        # ============================================================
-    # ABA — EQUALIZAÇÃO (por distribuição de O.S.)
-    # ============================================================
     with aba_equalizacao:
         render_section_header(
-            "⚖️",
-            "Diagnóstico de Equalização por Distribuição de O.S."
+            "⚖️", "Diagnóstico de Equalização por Distribuição de O.S."
         )
 
         df_eq_work = df_master[
-            ~df_master["Monitor"].astype(str).str.upper()
+            ~df_master["Monitor"]
+            .astype(str)
+            .str.upper()
             .isin({"NAN", "SEM MONITOR", "NÃO MAPEADO", ""})
         ].copy()
 
@@ -1284,29 +1456,33 @@ def main() -> None:
             total_eq_g = int(df_eq_mon["Equipe"].sum())
 
             # Meta de produtividade global (O.S. por técnico)
-            os_por_tecnico_ideal = (
-                total_os_g / total_eq_g if total_eq_g > 0 else 0.0
-            )
+            os_por_tecnico_ideal = total_os_g / total_eq_g if total_eq_g > 0 else 0.0
 
             # KPIs de topo
             k1, k2, k3 = st.columns(3)
             with k1:
                 render_kpi_sm(
-                    st, "Total O.S.",
+                    st,
+                    "Total O.S.",
                     f"{int(total_os_g):,}".replace(",", "."),
-                    "Volume a distribuir", "azul",
+                    "Volume a distribuir",
+                    "azul",
                 )
             with k2:
                 render_kpi_sm(
-                    st, "Total Técnicos",
+                    st,
+                    "Total Técnicos",
                     f"{total_eq_g}",
-                    "Equipe fixa", "laranja",
+                    "Equipe fixa",
+                    "laranja",
                 )
             with k3:
                 render_kpi_sm(
-                    st, "Meta O.S./Técnico",
+                    st,
+                    "Meta O.S./Técnico",
                     f"{os_por_tecnico_ideal:.1f}".replace(".", ","),
-                    "Produtividade alvo", "verde",
+                    "Produtividade alvo",
+                    "verde",
                 )
 
             st.markdown(
@@ -1321,8 +1497,8 @@ def main() -> None:
             # ============================================================
             # OS Ideal = meta por técnico × equipe atual do monitor
             df_eq_mon["OS Ideal"] = (
-                df_eq_mon["Equipe"] * os_por_tecnico_ideal
-            ).round(0).astype(int)
+                (df_eq_mon["Equipe"] * os_por_tecnico_ideal).round(0).astype(int)
+            )
 
             # Diferença = quantas O.S. sobram (+) ou faltam (−) no monitor
             df_eq_mon["Balanço (O.S.)"] = (
@@ -1337,8 +1513,11 @@ def main() -> None:
             # Desvio % vs meta
             df_eq_mon["Desvio %"] = np.where(
                 os_por_tecnico_ideal > 0,
-                ((df_eq_mon["Média Atual"] - os_por_tecnico_ideal)
-                 / os_por_tecnico_ideal) * 100,
+                (
+                    (df_eq_mon["Média Atual"] - os_por_tecnico_ideal)
+                    / os_por_tecnico_ideal
+                )
+                * 100,
                 0.0,
             )
 
@@ -1358,10 +1537,18 @@ def main() -> None:
             # ============================================================
             # 5. TABELA CONSOLIDADA
             # ============================================================
-            df_display_eq = df_eq_mon[[
-                "Monitor", "Equipe", "OS_Atual", "OS Ideal",
-                "Balanço (O.S.)", "Média Atual", "Desvio %", "Status",
-            ]].rename(columns={"OS_Atual": "OS Atual"})
+            df_display_eq = df_eq_mon[
+                [
+                    "Monitor",
+                    "Equipe",
+                    "OS_Atual",
+                    "OS Ideal",
+                    "Balanço (O.S.)",
+                    "Média Atual",
+                    "Desvio %",
+                    "Status",
+                ]
+            ].rename(columns={"OS_Atual": "OS Atual"})
 
             render_dataframe_local(
                 df_display_eq,
@@ -1389,31 +1576,37 @@ def main() -> None:
             fig = go.Figure()
 
             # Barras: O.S. Atual
-            fig.add_trace(go.Bar(
-                name="O.S. Atual",
-                x=df_eq_mon["Monitor"],
-                y=df_eq_mon["OS_Atual"],
-                marker_color=[
-                    "#EF4444" if d > tolerancia
-                    else "#F59E0B" if d < -tolerancia
-                    else "#10B981"
-                    for d in df_eq_mon["Desvio %"]
-                ],
-                text=[f"{v}" for v in df_eq_mon["OS_Atual"]],
-                textposition="outside",
-            ))
+            fig.add_trace(
+                go.Bar(
+                    name="O.S. Atual",
+                    x=df_eq_mon["Monitor"],
+                    y=df_eq_mon["OS_Atual"],
+                    marker_color=[
+                        (
+                            "#EF4444"
+                            if d > tolerancia
+                            else "#F59E0B" if d < -tolerancia else "#10B981"
+                        )
+                        for d in df_eq_mon["Desvio %"]
+                    ],
+                    text=[f"{v}" for v in df_eq_mon["OS_Atual"]],
+                    textposition="outside",
+                )
+            )
 
             # Barras: O.S. Ideal (referência)
-            fig.add_trace(go.Bar(
-                name="O.S. Ideal",
-                x=df_eq_mon["Monitor"],
-                y=df_eq_mon["OS Ideal"],
-                marker_color="#CBD5E1",
-                marker_line=dict(color="#64748B", width=1),
-                text=[f"{v}" for v in df_eq_mon["OS Ideal"]],
-                textposition="outside",
-                opacity=0.7,
-            ))
+            fig.add_trace(
+                go.Bar(
+                    name="O.S. Ideal",
+                    x=df_eq_mon["Monitor"],
+                    y=df_eq_mon["OS Ideal"],
+                    marker_color="#CBD5E1",
+                    marker_line=dict(color="#64748B", width=1),
+                    text=[f"{v}" for v in df_eq_mon["OS Ideal"]],
+                    textposition="outside",
+                    opacity=0.7,
+                )
+            )
 
             fig.update_layout(
                 title=dict(
@@ -1429,8 +1622,10 @@ def main() -> None:
                 paper_bgcolor="white",
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom", y=1.02,
-                    xanchor="right", x=1,
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1,
                 ),
             )
             fig.update_xaxes(
@@ -1527,9 +1722,7 @@ def main() -> None:
             for mon in monitores_atuais:
                 if mon not in st.session_state["sim_os"]:
                     st.session_state["sim_os"][mon] = int(
-                        df_eq_mon.loc[
-                            df_eq_mon["Monitor"] == mon, "OS_Atual"
-                        ].iloc[0]
+                        df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "OS_Atual"].iloc[0]
                     )
 
             # Botões de controle
@@ -1541,9 +1734,9 @@ def main() -> None:
                 ):
                     for mon in monitores_atuais:
                         st.session_state["sim_os"][mon] = int(
-                            df_eq_mon.loc[
-                                df_eq_mon["Monitor"] == mon, "OS_Atual"
-                            ].iloc[0]
+                            df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "OS_Atual"].iloc[
+                                0
+                            ]
                         )
                     st.rerun()
 
@@ -1554,9 +1747,9 @@ def main() -> None:
                 ):
                     for mon in monitores_atuais:
                         st.session_state["sim_os"][mon] = int(
-                            df_eq_mon.loc[
-                                df_eq_mon["Monitor"] == mon, "OS Ideal"
-                            ].iloc[0]
+                            df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "OS Ideal"].iloc[
+                                0
+                            ]
                         )
                     st.rerun()
 
@@ -1564,9 +1757,7 @@ def main() -> None:
             cols_sim = st.columns(min(len(monitores_atuais), 4))
             for i, mon in enumerate(monitores_atuais):
                 equipe_mon = int(
-                    df_eq_mon.loc[
-                        df_eq_mon["Monitor"] == mon, "Equipe"
-                    ].iloc[0]
+                    df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "Equipe"].iloc[0]
                 )
                 with cols_sim[i % len(cols_sim)]:
                     valor_input = st.number_input(
@@ -1581,73 +1772,79 @@ def main() -> None:
 
             # ── Recálculo com base na simulação ──
             df_sim = df_eq_mon.copy()
-            df_sim["OS Simulada"] = df_sim["Monitor"].map(
-                st.session_state["sim_os"]
-            )
+            df_sim["OS Simulada"] = df_sim["Monitor"].map(st.session_state["sim_os"])
             df_sim["Média Simulada"] = (
-                df_sim["OS Simulada"]
-                / df_sim["Equipe"].replace(0, np.nan)
+                df_sim["OS Simulada"] / df_sim["Equipe"].replace(0, np.nan)
             ).fillna(0)
 
             df_sim["Desvio Sim %"] = np.where(
                 os_por_tecnico_ideal > 0,
-                ((df_sim["Média Simulada"] - os_por_tecnico_ideal)
-                 / os_por_tecnico_ideal) * 100,
+                (
+                    (df_sim["Média Simulada"] - os_por_tecnico_ideal)
+                    / os_por_tecnico_ideal
+                )
+                * 100,
                 0.0,
             )
-            df_sim["Status Sim"] = df_sim["Desvio Sim %"].apply(
-                classificar_status
-            )
+            df_sim["Status Sim"] = df_sim["Desvio Sim %"].apply(classificar_status)
 
             # KPIs comparativos
             total_sim_os = int(sum(st.session_state["sim_os"].values()))
             diff_total_os = total_sim_os - int(total_os_g)
 
-            equilibrados_sim = int(
-                (df_sim["Desvio Sim %"].abs() <= tolerancia).sum()
-            )
-            equilibrados_atual = int(
-                (df_eq_mon["Desvio %"].abs() <= tolerancia).sum()
-            )
+            equilibrados_sim = int((df_sim["Desvio Sim %"].abs() <= tolerancia).sum())
+            equilibrados_atual = int((df_eq_mon["Desvio %"].abs() <= tolerancia).sum())
 
             ks1, ks2, ks3 = st.columns(3)
             with ks1:
                 render_kpi_sm(
-                    st, "O.S. simuladas (total)",
+                    st,
+                    "O.S. simuladas (total)",
                     f"{total_sim_os:,}".replace(",", "."),
                     f"Δ {diff_total_os:+d} vs atual",
                     "azul" if diff_total_os == 0 else "laranja",
                 )
             with ks2:
                 render_kpi_sm(
-                    st, "Monitores equilibrados",
+                    st,
+                    "Monitores equilibrados",
                     f"{equilibrados_sim} / {len(df_sim)}",
                     f"Antes: {equilibrados_atual}",
-                    "verde" if equilibrados_sim >= equilibrados_atual
-                    else "vermelho",
+                    "verde" if equilibrados_sim >= equilibrados_atual else "vermelho",
                 )
             with ks3:
                 variacao_max = float(df_sim["Desvio Sim %"].abs().max())
                 render_kpi_sm(
-                    st, "Maior desvio",
+                    st,
+                    "Maior desvio",
                     f"{variacao_max:.1f}%",
                     "Idealmente ≤ tolerância",
                     "verde" if variacao_max <= tolerancia else "vermelho",
                 )
 
             # Tabela comparativa
-            df_comp = df_sim[[
-                "Monitor", "Equipe", "OS_Atual", "OS Simulada",
-                "Média Atual", "Média Simulada",
-                "Desvio %", "Desvio Sim %",
-                "Status", "Status Sim",
-            ]].rename(columns={
-                "OS_Atual": "OS Atual",
-                "Desvio %": "Desvio Atual",
-                "Desvio Sim %": "Desvio Simulado",
-                "Status": "Status Atual",
-                "Status Sim": "Status Simulado",
-            })
+            df_comp = df_sim[
+                [
+                    "Monitor",
+                    "Equipe",
+                    "OS_Atual",
+                    "OS Simulada",
+                    "Média Atual",
+                    "Média Simulada",
+                    "Desvio %",
+                    "Desvio Sim %",
+                    "Status",
+                    "Status Sim",
+                ]
+            ].rename(
+                columns={
+                    "OS_Atual": "OS Atual",
+                    "Desvio %": "Desvio Atual",
+                    "Desvio Sim %": "Desvio Simulado",
+                    "Status": "Status Atual",
+                    "Status Sim": "Status Simulado",
+                }
+            )
 
             render_dataframe_local(
                 df_comp,
@@ -1671,27 +1868,37 @@ def main() -> None:
             # Gráfico comparativo
             fig_sim = go.Figure()
 
-            fig_sim.add_trace(go.Bar(
-                name="O.S. Atual",
-                x=df_sim["Monitor"],
-                y=df_sim["OS_Atual"],
-                marker_color="#94A3B8",
-                text=[f"{v}" for v in df_sim["OS_Atual"]],
-                textposition="outside",
-            ))
-            fig_sim.add_trace(go.Bar(
-                name="O.S. Simulada",
-                x=df_sim["Monitor"],
-                y=df_sim["OS Simulada"],
-                marker_color=[
-                    "#EF4444" if d is not None and float(d) > tolerancia
-                    else "#F59E0B" if d is not None and float(d) < (tolerancia * -1)
-                    else "#10B981"
-                    for d in df_sim["Desvio Sim %"]
-                ],
-                text=[f"{v}" for v in df_sim["OS Simulada"]],
-                textposition="outside",
-            ))
+            fig_sim.add_trace(
+                go.Bar(
+                    name="O.S. Atual",
+                    x=df_sim["Monitor"],
+                    y=df_sim["OS_Atual"],
+                    marker_color="#94A3B8",
+                    text=[f"{v}" for v in df_sim["OS_Atual"]],
+                    textposition="outside",
+                )
+            )
+            fig_sim.add_trace(
+                go.Bar(
+                    name="O.S. Simulada",
+                    x=df_sim["Monitor"],
+                    y=df_sim["OS Simulada"],
+                    marker_color=[
+                        (
+                            "#EF4444"
+                            if d is not None and float(d) > tolerancia
+                            else (
+                                "#F59E0B"
+                                if d is not None and float(d) < (tolerancia * -1)
+                                else "#10B981"
+                            )
+                        )
+                        for d in df_sim["Desvio Sim %"]
+                    ],
+                    text=[f"{v}" for v in df_sim["OS Simulada"]],
+                    textposition="outside",
+                )
+            )
 
             fig_sim.update_layout(
                 title=dict(
@@ -1707,8 +1914,10 @@ def main() -> None:
                 paper_bgcolor="white",
                 legend=dict(
                     orientation="h",
-                    yanchor="bottom", y=1.02,
-                    xanchor="right", x=1,
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1,
                 ),
             )
             fig_sim.update_xaxes(

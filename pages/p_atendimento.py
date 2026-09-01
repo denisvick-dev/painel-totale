@@ -28,6 +28,7 @@ import pandas as pd
 import streamlit as st
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from streamlit_gsheets import GSheetsConnection
 
 # ═══════════════════════════════════════════════════════
 # CONFIGURAÇÃO
@@ -373,7 +374,6 @@ def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
         df.to_excel(writer, index=False, sheet_name=aba[:31])
         ws = writer.sheets[aba[:31]]
 
-        # ─── Cabeçalho estilizado ───
         header_fill = PatternFill("solid", fgColor="012869")
         header_font = Font(color="FFFFFF", bold=True, size=11)
 
@@ -381,13 +381,11 @@ def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
             cell.fill = header_fill
             cell.font = header_font
 
-        # ─── Largura das colunas (safe para NaN/float) ───
         for i, col in enumerate(df.columns, 1):
             try:
                 if df[col].empty:
                     max_len_dados = 0
                 else:
-                    # ✅ Converte TUDO para string primeiro, incluindo NaN
                     serie_str = df[col].fillna("").astype(str)
                     tamanhos = serie_str.str.len()
                     max_len_dados = int(tamanhos.max()) if len(tamanhos) > 0 else 0
@@ -398,7 +396,6 @@ def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
                 ws.column_dimensions[get_column_letter(i)].width = largura
 
             except Exception:
-                # Se algo der errado nessa coluna, usa largura padrão
                 ws.column_dimensions[get_column_letter(i)].width = 20
 
     return output.getvalue()
@@ -431,45 +428,65 @@ def fmt_hora(t: time) -> str:
 
 
 # ═══════════════════════════════════════════════════════
-# GOOGLE SHEETS — MERGE COM LISTA_ATIVOS
+# GOOGLE SHEETS — MERGE COM LISTA_ATIVOS (CORRIGIDO)
 # ═══════════════════════════════════════════════════════
 @st.cache_data(ttl=600, show_spinner="🔗 Conectando com Google Sheets...")
 def carregar_lista_ativos() -> pd.DataFrame:
     """
-    Lê a aba de técnicos usando a exportação nativa de CSV do Google Sheets.
+    Lê a aba de técnicos do Google Sheets com fallbacks para evitar HTTP 400.
     Retorna DataFrame com colunas: Login | Técnico | Monitor | Base
     """
+    sheet_id = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+
     try:
-        # 1. Define o ID padrão
-        sheet_id = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+        if "GSHEETS_ID" in st.secrets:
+            sheet_id = st.secrets["GSHEETS_ID"]
+    except Exception:
+        pass
 
-        # 2. Tenta ler do secrets de forma totalmente segura
-        try:
-            if "GSHEETS_ID" in st.secrets:
-                sheet_id = st.secrets["GSHEETS_ID"]
-        except Exception:
-            # Se o arquivo secrets.toml não existir, ele ignora o erro silenciosamente
-            pass
+    df = None
 
-        # URL de exportação direta (mais rápido e sem erro 400)
-        url_csv = (
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid=0"
+    # Método 1: Google Visualization API (GViz CSV - Não exige gid e previne erro 400)
+    try:
+        url_gviz = (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
         )
+        df = pd.read_csv(url_gviz)
+    except Exception:
+        df = None
 
-        df = pd.read_csv(url_csv)
+    # Método 2: Conexão Nativa Streamlit
+    if df is None or df.empty:
+        try:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            df = conn.read(
+                spreadsheet=f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+            )
+        except Exception:
+            df = None
 
-        if df is None or df.empty:
+    # Método 3: Export direto sem gid fixo
+    if df is None or df.empty:
+        try:
+            url_export = (
+                f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+            )
+            df = pd.read_csv(url_export)
+        except Exception as e:
+            st.warning(f"⚠️ Não foi possível conectar com Google Sheets: {e}")
             return pd.DataFrame()
 
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    try:
         df.columns = df.columns.astype(str).str.strip()
 
         cols_esperadas = ["Login", "Técnico", "Monitor", "Base"]
         cols_encontradas = [c for c in cols_esperadas if c in df.columns]
 
         if "Login" not in cols_encontradas:
-            st.warning(
-                "⚠️ A coluna 'Login' não foi encontrada na planilha do Google Sheets."
-            )
+            st.warning("⚠️ A coluna 'Login' não foi encontrada no Google Sheets.")
             return pd.DataFrame()
 
         df = df[cols_encontradas].copy()
@@ -488,7 +505,7 @@ def carregar_lista_ativos() -> pd.DataFrame:
         return df
 
     except Exception as e:
-        st.warning(f"⚠️ Não foi possível conectar com Google Sheets: {e}")
+        st.warning(f"⚠️ Erro ao processar Google Sheets: {e}")
         return pd.DataFrame()
 
 
@@ -839,10 +856,8 @@ def aplicar_cor_horario(valor: Any) -> str:
         return ""
 
     try:
-        # Extrai a string e remove espaços
         horario = valor[:8].strip()
 
-        # Proteção: se o horário vier faltando o zero à esquerda (ex: "8:30:00")
         if len(horario) == 7 and horario[1] == ":":
             horario = "0" + horario
 
@@ -1342,7 +1357,6 @@ def main() -> None:
 
     with col_f1:
         if col_base_final and col_base_final in df_filtrado.columns:
-            # Dropna e Strip evitam categorias vazias/duplicadas
             regioes = ["Todas"] + sorted(
                 [
                     str(r).strip()
@@ -1392,7 +1406,6 @@ def main() -> None:
     )
 
     if busca:
-        # Busca Vetorizada de Alta Performance
         mask_busca = pd.Series(False, index=df_filtrado.index)
         for col in df_filtrado.columns:
             mask_busca |= (
@@ -1434,7 +1447,6 @@ def main() -> None:
     outras = [c for c in df_filtrado.columns if c not in colunas_prio]
     df_exibir = df_filtrado[colunas_prio + outras].copy()
 
-    # Spinner caso a tabela seja muito grande
     with st.spinner("Montando tabela de pendentes..."):
         st.dataframe(df_exibir, use_container_width=True, hide_index=True, height=500)
 

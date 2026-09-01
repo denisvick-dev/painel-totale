@@ -75,7 +75,7 @@ from components.criterios import (
 # =====================================================================
 st.set_page_config(
     page_title="Análise de Quebra | TOTALE",
-    page_icon="📊",
+    page_icon="📉",
     layout="wide",
 )
 _aplicar_estilo_global()

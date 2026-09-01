@@ -73,7 +73,7 @@ class Config:
     """Configurações globais da página e regras de negócio."""
 
     PAGE_TITLE: str = "Rota Geral | TOTALE"
-    PAGE_ICON: str = "📊"
+    PAGE_ICON: str = "🗺️"
     LAYOUT: Literal["centered", "wide"] = "wide"
 
     BASES: list[str] = ["ABCDM", "GUARULHOS", "LESTE"]
@@ -702,7 +702,7 @@ class UI:
         UI._injetar_css()
 
         render_hero_totale_1(
-            titulo="📊 Rota Geral | TOTALE",
+            titulo="🗺️ Rota Geral | TOTALE",
             subtitulo="Ponto de partida da roteirização, unificando os dados das bases operacionais",
         )
 
