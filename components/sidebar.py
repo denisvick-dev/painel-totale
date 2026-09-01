@@ -3,12 +3,22 @@ sidebar.py
 ==========
 Módulo centralizado de styling e componentes do Sidebar corporativo TOTALE.
 
+Design System:
+    - Fundo escuro sólido (Deep Navy)
+    - Acento laranja apenas em elementos ativos/hover
+    - Tipografia hierárquica e legível
+    - Componentes limpos sem "cards blocados"
+
 Uso:
     from components.sidebar import (
         aplicar_sidebar_corp,
         render_sidebar_info,
         render_sidebar_filtro,
-        render_sidebar_status
+        render_sidebar_status,
+        render_sidebar_section,
+        render_sidebar_divider,
+        render_sidebar_spacer,
+        render_sidebar_footer_info,
     )
     aplicar_sidebar_corp()
     render_sidebar_info(user_name="João", email="joao@totale.com")
@@ -27,9 +37,14 @@ TOTALE_LARANJA = "#F37C04"
 TOTALE_LARANJA_CLARO = "#FFBE64"
 TOTALE_ROXO = "#8B5CF6"
 
+# Novas cores do design escuro moderno
+COR_FUNDO_SIDEBAR = "#0B1120"  # Azul quase preto (fundo principal)
+COR_FUNDO_HOVER = "#1E293B"  # Fundo em hover suave
+COR_BORDA_SUTIL = "#1E293B"  # Bordas internas discretas
 COR_TEXTO_CLARO = "#F1F5F9"
-COR_TEXTO_MEDIO = "#E2E8F0"
-COR_FUNDO_DARK = "#0B1E3D"
+COR_TEXTO_MEDIO = "#CBD5E1"
+COR_TEXTO_SUAVE = "#64748B"  # Para categorias e labels discretas
+COR_FUNDO_DARK = "#0F172A"
 
 FUSO_HORARIO = ZoneInfo("America/Sao_Paulo")
 
@@ -48,7 +63,7 @@ def hex_to_rgb(hex_color: str) -> str:
 # ====================================================
 def aplicar_sidebar_corp() -> None:
     """
-    Aplica o CSS corporativo completo ao sidebar.
+    Aplica o CSS corporativo moderno ao sidebar.
     Deve ser chamado uma única vez, logo após o st.set_page_config.
     """
     st.markdown(_get_sidebar_css(), unsafe_allow_html=True)
@@ -56,128 +71,147 @@ def aplicar_sidebar_corp() -> None:
 
 @st.cache_data(ttl=3600)
 def _get_sidebar_css() -> str:
-    """Retorna o CSS do sidebar corporativo."""
+    """Retorna o CSS do sidebar corporativo com design moderno escuro."""
 
-    # Cores convertidas para RGB para suportar transparência corretamente
     rgb_laranja = hex_to_rgb(TOTALE_LARANJA)
     rgb_azul = hex_to_rgb(TOTALE_AZUL)
 
     return f"""
     <style>
     /* ═════════════════════════════════════════════════════════════
-       SIDEBAR CORPORATIVO TOTALE — TOPO LARANJA + DEEP NAVY
+       SIDEBAR CORPORATIVO TOTALE — DESIGN MODERNO ESCURO
        ═════════════════════════════════════════════════════════════ */
-    
+
+    /* Fundo sólido elegante (sem gradiente laranja agressivo) */
     section[data-testid="stSidebar"] {{
-        background: linear-gradient(
-            180deg,
-            {TOTALE_LARANJA_CLARO} 0%,
-            {TOTALE_LARANJA} 8%,
-            #E86B03 12%,
-            #0B1E3D 20%,
-            {TOTALE_AZUL} 50%,
-            #001135 100%
-        ) !important;
-        border-right: 2px solid rgba({rgb_laranja}, 0.4) !important;
-        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.25) !important;
+        background: {COR_FUNDO_SIDEBAR} !important;
+        border-right: 1px solid {COR_BORDA_SUTIL} !important;
     }}
 
-    /* Esconder o footer nativo do Streamlit ("Made with Streamlit") */
+    /* Esconder o footer nativo do Streamlit */
     footer {{visibility: hidden !important; display: none !important;}}
     .stApp > header {{background-color: transparent !important;}}
 
+    /* Scrollbar discreta */
+    section[data-testid="stSidebar"] ::-webkit-scrollbar {{
+        width: 4px !important;
+        background: transparent !important;
+    }}
+    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{
+        background: {COR_BORDA_SUTIL} !important;
+        border-radius: 10px !important;
+    }}
+    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{
+        background: {COR_TEXTO_SUAVE} !important;
+    }}
+
     /* ═════ CABEÇALHO (LOGO E BRANDING) ═════ */
     section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
-        background: linear-gradient(
-            180deg,
-            rgba(255, 255, 255, 0.1) 0%,
-            rgba(255, 255, 255, 0.0) 100%
-        ) !important;
-        padding: 16px 12px 8px 12px !important;
+        background: transparent !important;
+        padding: 12px 12px 8px 12px !important;
         border-radius: 0 !important;
     }}
 
-    /* ═════ BOTÃO COLLAPSE ═════ */
+    /* ═════ BOTÃO COLLAPSE (Discreto) ═════ */
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {{
-        background: rgba(255, 255, 255, 0.1) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        border-radius: 6px !important;
-        color: {COR_TEXTO_CLARO} !important;
+        background: transparent !important;
+        border: none !important;
+        color: {COR_TEXTO_SUAVE} !important;
         transition: all 0.2s ease !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {{
-        background: rgba(255, 255, 255, 0.2) !important;
-        border-color: rgba({rgb_laranja}, 0.6) !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        color: {COR_TEXTO_CLARO} !important;
     }}
 
-    /* ═════ TÍTULOS E SEÇÕES ═════ */
+    /* ═════ TÍTULOS E CATEGORIAS (Discretos e Alinhados à Esquerda) ═════ */
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3,
     section[data-testid="stSidebar"] h4 {{
-        color: {TOTALE_LARANJA_CLARO} !important;
-        font-weight: 800 !important;
+        color: {COR_TEXTO_SUAVE} !important;
+        font-weight: 700 !important;
         font-size: 11px !important;
         letter-spacing: 1px !important;
         text-transform: uppercase !important;
-        border-bottom: 1px solid rgba({rgb_laranja}, 0.3) !important;
-        padding-bottom: 6px !important;
-        margin: 20px 0 12px 0 !important;
+        border-bottom: none !important;
+        padding: 0 0 0 20px !important;
+        margin: 24px 0 4px 0 !important;
+        text-align: left !important;
     }}
 
     /* ═════ MENU NATIVO DE PÁGINAS ═════ */
+    section[data-testid="stSidebarNav"] {{
+        padding-top: 0 !important;
+    }}
+    
     section[data-testid="stSidebarNav"] li:first-child {{
-        display: none !important; /* Esconde item padrão */
+        display: none !important;
     }}
 
+    /* Itens de menu limpos, sem cards blocados */
     section[data-testid="stSidebarNav"] a {{
-        background-color: rgba(6, 21, 47, 0.4) !important;
-        border: 1px solid rgba(255, 255, 255, 0.06) !important;
-        border-radius: 8px !important;
-        margin: 6px 12px !important;
-        padding: 8px 14px !important;
+        background-color: transparent !important;
+        border: none !important;
+        border-left: 3px solid transparent !important;
+        border-radius: 0 6px 6px 0 !important;
+        margin: 2px 12px 2px 0 !important;
+        padding: 8px 12px 8px 17px !important;
         transition: all 0.2s ease !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 12px !important;
+        box-shadow: none !important;
     }}
     section[data-testid="stSidebarNav"] a:hover {{
-        background-color: rgba(10, 34, 74, 0.8) !important;
-        border-color: rgba({rgb_laranja}, 0.5) !important;
-        transform: translateX(4px);
+        background-color: rgba(255, 255, 255, 0.05) !important;
+        transform: none !important;
     }}
-    section[data-testid="stSidebarNav"] a span {{
-        color: {COR_TEXTO_CLARO} !important;
-        font-weight: 600 !important;
-        font-size: 13px !important;
+    section[data-testid="stSidebarNav"] a span,
+    section[data-testid="stSidebarNav"] a svg {{
+        color: {COR_TEXTO_MEDIO} !important;
+        fill: {COR_TEXTO_MEDIO} !important;
+        font-weight: 500 !important;
+        font-size: 14px !important;
     }}
 
-    /* PÁGINA ATIVA */
+    /* PÁGINA ATIVA (Destaque laranja elegante) */
     section[data-testid="stSidebarNav"] a[aria-current="page"] {{
-        background: linear-gradient(135deg, rgba({rgb_laranja}, 0.2) 0%, rgba({rgb_azul}, 0.5) 100%) !important;
-        border: 1px solid {TOTALE_LARANJA} !important;
-        box-shadow: 0 4px 10px rgba({rgb_laranja}, 0.2) !important;
+        background-color: rgba({rgb_laranja}, 0.1) !important;
+        border-left: 3px solid {TOTALE_LARANJA} !important;
+        box-shadow: none !important;
     }}
-    section[data-testid="stSidebarNav"] a[aria-current="page"] span {{
-        color: {TOTALE_LARANJA_CLARO} !important;
+    section[data-testid="stSidebarNav"] a[aria-current="page"] span,
+    section[data-testid="stSidebarNav"] a[aria-current="page"] svg {{
+        color: {TOTALE_LARANJA} !important;
+        fill: {TOTALE_LARANJA} !important;
         font-weight: 700 !important;
     }}
 
-    /* ═════ INPUTS E LABELS ═════ */
+    /* ═════ LABELS DE WIDGETS ═════ */
     section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{
-        color: {TOTALE_LARANJA_CLARO} !important;
+        color: {COR_TEXTO_MEDIO} !important;
         font-weight: 600 !important;
         font-size: 12px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.4px !important;
     }}
 
-    section[data-testid="stSidebar"] [data-baseweb="select"],
-    section[data-testid="stSidebar"] [data-baseweb="input"] {{
-        background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba({rgb_laranja}, 0.3) !important;
+    /* ═════ INPUTS / SELECTS ═════ */
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div,
+    section[data-testid="stSidebar"] [data-baseweb="input"],
+    section[data-testid="stSidebar"] input,
+    section[data-testid="stSidebar"] select {{
+        background-color: {COR_FUNDO_DARK} !important;
+        border: 1px solid {COR_BORDA_SUTIL} !important;
         border-radius: 6px !important;
-        color: white !important;
+        color: {COR_TEXTO_CLARO} !important;
     }}
-    section[data-testid="stSidebar"] [data-baseweb="select"]:hover,
-    section[data-testid="stSidebar"] [data-baseweb="input"]:focus {{
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div:hover,
+    section[data-testid="stSidebar"] [data-baseweb="input"]:focus-within,
+    section[data-testid="stSidebar"] input:focus {{
         border-color: {TOTALE_LARANJA} !important;
-        background-color: rgba(255, 255, 255, 0.1) !important;
+        background-color: {COR_FUNDO_HOVER} !important;
     }}
 
     /* ═════ BOTÕES ═════ */
@@ -188,30 +222,32 @@ def _get_sidebar_css() -> str:
         border-radius: 6px !important;
         font-weight: 700 !important;
         transition: all 0.2s ease !important;
-        box-shadow: 0 4px 10px rgba({rgb_laranja}, 0.3) !important;
+        box-shadow: 0 2px 6px rgba({rgb_laranja}, 0.25) !important;
     }}
     section[data-testid="stSidebar"] .stButton button:hover {{
         filter: brightness(1.1) !important;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba({rgb_laranja}, 0.5) !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba({rgb_laranja}, 0.4) !important;
     }}
 
     /* ═════ DIVIDERS ═════ */
     section[data-testid="stSidebar"] hr {{
-        border-color: rgba({rgb_laranja}, 0.2) !important;
-        margin: 16px 0 !important;
+        background: {COR_BORDA_SUTIL} !important;
+        border: none !important;
+        height: 1px !important;
+        margin: 16px 20px !important;
     }}
 
-    /* ═════ SCROLLBAR ═════ */
-    section[data-testid="stSidebar"] ::-webkit-scrollbar {{
-        width: 6px !important;
+    /* ═════ EXPANDERS ═════ */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] {{
+        background: rgba(255,255,255,0.03) !important;
+        border: 1px solid {COR_BORDA_SUTIL} !important;
+        border-radius: 8px !important;
     }}
-    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{
-        background: rgba({rgb_laranja}, 0.4) !important;
-        border-radius: 10px !important;
-    }}
-    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{
-        background: rgba({rgb_laranja}, 0.8) !important;
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary span {{
+        color: {COR_TEXTO_CLARO} !important;
+        font-weight: 600 !important;
     }}
     </style>
     """
@@ -228,37 +264,60 @@ def render_sidebar_info(
     role: Optional[str] = None,
     avatar: Optional[str] = None,
 ) -> None:
-    """Renderiza bloco de informações do usuário (Avatar inteligente)."""
-
+    """
+    Renderiza bloco de informações do usuário com Avatar inteligente.
+    Design escuro moderno alinhado ao novo layout.
+    """
     # Tratamento de avatar (Imagem via URL/Base64 ou Emoji)
     if avatar and (avatar.startswith("http") or avatar.startswith("data:image")):
-        avatar_html = f'<img src="{avatar}" style="width:50px; height:50px; border-radius:50%; object-fit:cover; border: 2px solid {TOTALE_LARANJA_CLARO}; margin-bottom: 8px;">'
+        avatar_html = (
+            f'<img src="{avatar}" style="width:44px; height:44px; border-radius:50%; '
+            f'object-fit:cover; border: 2px solid {TOTALE_LARANJA}; flex-shrink: 0;">'
+        )
     else:
         avatar_text = avatar or "👤"
         avatar_html = (
-            f'<div style="font-size: 32px; margin-bottom: 4px;">{avatar_text}</div>'
+            f'<div style="width:44px; height:44px; border-radius:50%; '
+            f"background: linear-gradient(135deg, {TOTALE_LARANJA} 0%, #D86A02 100%); "
+            f"display:flex; align-items:center; justify-content:center; "
+            f'font-size: 20px; flex-shrink: 0;">{avatar_text}</div>'
         )
 
-    role_text = f" • {role}" if role else ""
+    role_html = ""
+    if role:
+        role_html = (
+            f'<p style="color: {TOTALE_LARANJA}; font-size: 10px; font-weight:700; '
+            f'margin: 2px 0 0 0; text-transform: uppercase; letter-spacing: 0.5px;">{role}</p>'
+        )
 
-    rgb_laranja = hex_to_rgb(TOTALE_LARANJA)
+    email_html = ""
+    if email:
+        email_html = (
+            f'<p style="color: {COR_TEXTO_SUAVE}; font-size: 11px; margin: 2px 0 0 0; '
+            f'word-break: break-word; font-weight: 400;">{email}</p>'
+        )
+
     st.markdown(
         f"""
         <div style="
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba({rgb_laranja}, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid {COR_BORDA_SUTIL};
             border-radius: 8px;
-            padding: 16px 12px;
-            margin-bottom: 16px;
-            text-align: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 12px;
+            margin: 8px 12px 16px 12px;
         ">
             {avatar_html}
-            <p style="color: {COR_TEXTO_CLARO}; font-weight: 700; font-size: 14px; margin: 0 0 2px 0;">
-                {user_name}
-            </p>
-            {f'<p style="color: {TOTALE_LARANJA_CLARO}; font-size: 11px; font-weight:600; margin: 0;">{role_text.strip(" • ")}</p>' if role else ''}
-            {f'<p style="color: {COR_TEXTO_MEDIO}; font-size: 11px; margin: 4px 0 0 0; word-break: break-word; opacity: 0.8;">{email}</p>' if email else ''}
+            <div style="flex: 1; min-width: 0; text-align: left;">
+                <p style="color: {COR_TEXTO_CLARO}; font-weight: 700; font-size: 13px; 
+                          margin: 0; line-height: 1.2; overflow: hidden; text-overflow: ellipsis;">
+                    {user_name}
+                </p>
+                {role_html}
+                {email_html}
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -270,25 +329,27 @@ def render_sidebar_status(
     mensagem: str = "Sistema operacional",
     ultima_atualizacao: Optional[datetime] = None,
 ) -> None:
-    """Renderiza indicador de status com 3 níveis (ok, alerta, erro)."""
-
+    """
+    Renderiza indicador de status com 3 níveis (ok, alerta, erro).
+    Design discreto com pill de status.
+    """
     configs = {
         "ok": {
-            "bg": "rgba(16, 185, 129, 0.15)",
-            "border": "#10B981",
-            "icon": "✅",
+            "bg": "rgba(16, 185, 129, 0.1)",
+            "border": "rgba(16, 185, 129, 0.3)",
+            "dot": "#10B981",
             "color": "#34D399",
         },
         "alerta": {
-            "bg": "rgba(245, 158, 11, 0.15)",
-            "border": "#F59E0B",
-            "icon": "⚠️",
+            "bg": "rgba(245, 158, 11, 0.1)",
+            "border": "rgba(245, 158, 11, 0.3)",
+            "dot": "#F59E0B",
             "color": "#FCD34D",
         },
         "erro": {
-            "bg": "rgba(239, 68, 68, 0.15)",
-            "border": "#EF4444",
-            "icon": "❌",
+            "bg": "rgba(239, 68, 68, 0.1)",
+            "border": "rgba(239, 68, 68, 0.3)",
+            "dot": "#EF4444",
             "color": "#FCA5A5",
         },
     }
@@ -298,7 +359,10 @@ def render_sidebar_status(
     tempo_html = ""
     if ultima_atualizacao:
         tempo = ultima_atualizacao.strftime("%d/%m/%Y %H:%M")
-        tempo_html = f"<p style='font-size: 10px; margin: 4px 0 0 0; color: rgba(255,255,255,0.6);'>🕒 Atualizado às {tempo}</p>"
+        tempo_html = (
+            f"<p style='font-size: 10px; margin: 6px 0 0 0; color: {COR_TEXTO_SUAVE};'>"
+            f"🕒 Atualizado às {tempo}</p>"
+        )
 
     st.markdown(
         f"""
@@ -306,13 +370,18 @@ def render_sidebar_status(
             background: {cfg['bg']};
             border: 1px solid {cfg['border']};
             border-radius: 6px;
-            padding: 10px;
-            margin: 12px 0;
-            text-align: center;
+            padding: 10px 12px;
+            margin: 12px 12px;
         ">
-            <p style="font-size: 13px; font-weight: 600; margin: 0; color: {cfg['color']};">
-                {cfg['icon']} {mensagem}
-            </p>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; 
+                             background: {cfg['dot']}; box-shadow: 0 0 8px {cfg['dot']};
+                             flex-shrink: 0;"></span>
+                <p style="font-size: 12px; font-weight: 600; margin: 0; 
+                          color: {cfg['color']}; flex: 1;">
+                    {mensagem}
+                </p>
+            </div>
             {tempo_html}
         </div>
         """,
@@ -328,7 +397,7 @@ def render_sidebar_filtro(
     help_text: Optional[str] = None,
     multi: bool = False,
 ) -> Any:
-    """Renderiza filtro customizado no sidebar."""
+    """Renderiza filtro customizado no sidebar (Selectbox ou Multiselect)."""
     if multi:
         return st.multiselect(
             label, options=options, default=default, key=key, help=help_text
@@ -341,7 +410,7 @@ def render_sidebar_filtro(
 
 
 def render_sidebar_section(title: str) -> None:
-    """Renderiza um título de seção customizado."""
+    """Renderiza um título de seção customizado (categoria de menu)."""
     st.markdown(f"#### {title}", unsafe_allow_html=False)
 
 
@@ -360,7 +429,7 @@ def render_sidebar_footer_info(
     ambiente: str = "Produção",
     mostrar_timestamp: bool = True,
 ) -> None:
-    """Renderiza o rodapé de versão/ambiente."""
+    """Renderiza o rodapé de versão/ambiente com design discreto."""
     info_items = [f"v{versao}", ambiente]
 
     if mostrar_timestamp:
@@ -368,23 +437,23 @@ def render_sidebar_footer_info(
         info_items.append(agora.strftime("%d/%m/%Y %H:%M"))
 
     info_text = " • ".join(info_items)
-    rgb_laranja = hex_to_rgb(TOTALE_LARANJA)
 
     st.markdown(
         f"""
         <div style="
-            background: rgba(0, 0, 0, 0.25);
-            border-top: 1px solid rgba({rgb_laranja}, 0.2);
-            padding: 12px;
-            margin-top: 20px;
+            border-top: 1px solid {COR_BORDA_SUTIL};
+            padding: 12px 16px;
+            margin: 20px 12px 8px 12px;
             text-align: center;
             font-size: 10px;
-            color: rgba(255,255,255,0.5);
+            color: {COR_TEXTO_SUAVE};
             font-weight: 500;
-            border-radius: 6px;
         ">
             {info_text}<br>
-            <span style="color: {TOTALE_LARANJA_CLARO}; font-weight: 700;">SISTEMA TOTALE</span>
+            <span style="color: {TOTALE_LARANJA}; font-weight: 700; 
+                         letter-spacing: 0.5px; font-size: 11px;">
+                SISTEMA TOTALE
+            </span>
         </div>
         """,
         unsafe_allow_html=True,
