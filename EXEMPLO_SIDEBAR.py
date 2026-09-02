@@ -10,7 +10,7 @@ Copie e adapte os exemplos para suas páginas.
 
 import streamlit as st
 from datetime import datetime
-from components.sidebar import (
+from components.componentes import (
     aplicar_sidebar_corp,
     render_sidebar_info,
     render_sidebar_status,
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     with tab1:
         st.header("1️⃣ Setup Inicial")
         st.code("""
-from components.sidebar import aplicar_sidebar_corp
+from components.componentes import aplicar_sidebar_corp
 
 def main():
     aplicar_sidebar_corp()  # Chamar UMA VEZ no início

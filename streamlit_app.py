@@ -7,13 +7,10 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from functools import wraps
 
-from components.componentes import aplicar_estilo
-from components.sidebar import (
+from components.componentes import (
     aplicar_sidebar_corp,
-    render_sidebar_info,
-    render_sidebar_section,
+    aplicar_estilo,
     render_sidebar_status,
-    render_sidebar_footer_info,
 )
 
 # Configuração de logging
@@ -201,6 +198,20 @@ class GerenciadorEstilos:
 
         /* NAVIGATION SIDEBAR - ÍCONE E TEXTO COLADOS (HORIZONTAL) */
         [data-testid="stSidebar"] {{
+            position: relative !important;
+
+            &::after {{
+                content: "";
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 4px;
+                height: 100%;
+                background: linear-gradient(180deg, {CORES.PRIMARIA} 0%, {CORES.PRIMARIA} 58%, {CORES.SECUNDARIA} 58%, {CORES.SECUNDARIA} 100%);
+                pointer-events: none;
+                z-index: 100;
+            }}
+
             a[href] {{
                 display: flex !important;
                 flex-direction: row !important;
@@ -227,27 +238,30 @@ class GerenciadorEstilos:
 
             a[href] p,
             a[href] span {{
+                color: {CORES.PRIMARIA} !important;
                 font-size: 12px !important;
                 font-weight: 600 !important;
                 text-align: left !important;
                 line-height: 1.1 !important;
-                margin: 0 !important;
+                margin: 0px !important;
                 white-space: nowrap !important;
             }}
 
             a[href][aria-current="page"] {{
-                background-color: {CORES.SECUNDARIA} !important;
-                border: 2px solid {CORES.SECUNDARIA} !important;
+                background-color: #FFF7ED !important;
+                border: 1px solid {CORES.SECUNDARIA} !important;
+                border-left: 3px solid {CORES.SECUNDARIA} !important;
             }}
 
             a[href][aria-current="page"] p,
             a[href][aria-current="page"] span {{
-                color: white !important;
+                color: {CORES.PRIMARIA} !important;
+                font-weight: 700 !important;
             }}
 
             a[href][aria-current="page"] svg {{
-                fill: white !important;
-                color: white !important;
+                fill: {CORES.SECUNDARIA} !important;
+                color: {CORES.SECUNDARIA} !important;
             }}
         }}
         """
@@ -430,7 +444,7 @@ class GerenciadorNavegacao:
                 ),
             ],
             "CENTRAL DE PERFORMANCE": [
-                st.Page("pages/pontos.py", title="Ranking de Pontos", icon="📈"),
+                st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
                 st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡"),
                 st.Page("pages/consultivo.py", title="Consultivos", icon="📋"),
             ],
@@ -457,9 +471,8 @@ class GerenciadorNavegacao:
 
     @staticmethod
     def renderizar_sidebar(paginas: Dict[str, list]) -> None:
-        """Renderiza a sidebar com todas as seções."""
-        for titulo_categoria in paginas.keys():
-            render_sidebar_section(titulo_categoria)
+        """Mantém o ponto de extensão sem duplicar a navegação nativa."""
+        return None
 
 
 # ====================================================
@@ -483,26 +496,18 @@ def main() -> None:
     aplicar_sidebar_corp()
     GerenciadorEstilos.injetar_css_global()
 
-    # 3. Elementos do sidebar
-    st.logo(CONFIG.LOGO_PATH, size="medium")
-    render_sidebar_info(user_name="Operador TOTALE", email="operacoes@totale.com")
-
-    # 4. Status operacional
+    # 3. Status operacional
     dados_prod = st.session_state.get("dados_prod")
     if dados_prod is not None:
         render_sidebar_status(label="Bases Atualizadas", tipo="success")
     else:
         render_sidebar_status(label="Aguardando Sincronismo", tipo="warning")
 
-    # 5. Navegação
+    # 4. Navegação nativa
     paginas = GerenciadorNavegacao._definir_paginas()
-    GerenciadorNavegacao.renderizar_sidebar(paginas)
 
     pg = st.navigation(paginas)
     pg.run()
-
-    # 6. Footer do sidebar
-    render_sidebar_footer_info(versao=CONFIG.VERSAO)
 
     logger.info("Aplicação iniciada com sucesso")
 

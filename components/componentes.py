@@ -1,16 +1,23 @@
 """
 componentes.py
 ==============
-Módulo central de estilos, fontes, componentes reutilizáveis e
-visualizações gráficas padronizadas para todo o projeto Streamlit.
+Módulo central unificado de estilos, fontes, componentes reutilizáveis,
+visualizações gráficas padronizadas e Design System do Sidebar TOTALE.
 
 Uso em qualquer página:
     from componentes import (
         aplicar_estilo,
+        # Sidebar
+        aplicar_sidebar_corp,
+        render_sidebar_info, render_sidebar_section,
+        render_sidebar_status, render_sidebar_footer_info,
+        render_sidebar_divider, render_sidebar_spacer,
+        # UI
         render_kpi, render_kpi_sm, render_metric_delta,
         render_insight, render_status_pill, render_empty_state,
         render_section_header, render_divider, render_progress_bar,
         render_sidebar_brand, render_table_html,
+        # Gráficos
         render_grafico_linhas, render_grafico_barras,
         render_grafico_rosca, render_grafico_gauge, render_grafico_funnel,
         render_hero_totale_1, render_hero_totale_2
@@ -22,7 +29,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Literal, Union
+from datetime import datetime
+from typing import Any, Callable, Literal, Optional, Union
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -49,7 +58,7 @@ ColorMapDict = dict[str, list[ColorRule]]
 
 
 # ====================================================
-# TIPOGRAFIA & CORES CORPORATIVAS
+# TIPOGRAFIA & CORES CORPORATIVAS UNIFICADAS
 # ====================================================
 FONTE_TITULO = "'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
 FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -64,6 +73,7 @@ _GOOGLE_FONTS_URLS = (
 # Paleta Corporativa Totale
 COR_PRIMARIA = "#012869"  # Deep Midnight Navy
 COR_SECUNDARIA = "#F37C04"  # Solar Orange
+COR_SECUNDARIA_HOVER = "#D46B02"
 COR_SUCESSO = "#059669"  # Emerald Green
 COR_ALERTA = "#DC2626"  # Crimson Red
 COR_ATENCAO = "#F59E0B"  # Amber Warning
@@ -80,6 +90,17 @@ COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
 COR_FUNDO_2 = "#F1F5F9"
 
+# ── Sidebar (tema claro, conforme imagem de referência) ──────────────────
+SB_FUNDO = "#EEF2F7"  # Fundo geral da sidebar (cinza-azulado claro)
+SB_FUNDO_LINK = "#FFFFFF"  # Fundo dos botões de navegação
+SB_FUNDO_LINK_HOVER = "#F8FAFC"
+SB_FUNDO_ATIVO = "#FFF7ED"  # Bege/laranja bem claro para item ativo
+SB_BORDA_ATIVA = "#F37C04"  # Borda laranja à esquerda do ativo
+SB_TITULO_SECAO = "#012869"  # Azul corporativo para títulos de seção
+SB_TEXTO_LINK = "#1F2937"  # Texto escuro dos links
+SB_TEXTO_MUTED = "#64748B"  # Cinza para labels secundários
+SB_BORDA_SUTIL = "#D9E0E9"  # Linhas divisórias discretas
+
 _TEMA_CORES: dict[str, str] = {
     "azul": COR_PRIMARIA,
     "verde": COR_SUCESSO,
@@ -91,9 +112,9 @@ _TEMA_CORES: dict[str, str] = {
 
 _INSIGHT_CONFIG: dict[str, tuple[str, str, str, str]] = {
     "ok": ("#D1FAE5", "#065F46", "#059669", "✅"),
-    "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
-    "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
-    "critico": ("#FEE2E2", "#991B1B", "#DC2626", "🚨"),
+    "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "️"),
+    "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "️"),
+    "critico": ("#FEE2E2", "#991B1B", "#DC2626", ""),
     "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", "🎯"),
 }
 
@@ -111,10 +132,10 @@ _PLOTLY_COLORWAY = [
     COR_SUCESSO,
     COR_ALERTA,
     COR_ROXO,
-    "#EC4899",  # Rosa
-    "#14B8A6",  # Teal
-    "#F59E0B",  # Amarelo Âmbar
-    "#6366F1",  # Índigo
+    "#EC4899",
+    "#14B8A6",
+    "#F59E0B",
+    "#6366F1",
     COR_NEUTRO,
 ]
 
@@ -209,7 +230,7 @@ def _get_global_css() -> str:
 
     return f"""{links_html}
     <style>
-    /* ═══ DUPLA GARANTIA DE FONTES E MATERIAL ICONS ═══ */
+    /* ═══ DUPLA GARANTIA DE FONTES E MATERIAL ICONS ══ */
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
     @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
@@ -246,7 +267,7 @@ def _get_global_css() -> str:
         font-family: var(--font-codigo) !important;
     }}
 
-    /* ═══ ÍCONES MATERIAL E FALLBACKS CSS ═══ */
+    /* ═══ ÍCONES MATERIAL ═══ */
     [data-testid="stIconMaterial"],
     .material-icons,
     .material-symbols-rounded,
@@ -268,54 +289,6 @@ def _get_global_css() -> str:
         overflow: hidden !important;
     }}
 
-    /* FALLBACK EXPANDER: Oculta a seta texto e desenha chevron CSS puro */
-    [data-testid="stExpanderToggleIcon"],
-    [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {{
-        font-size: 0 !important;
-        width: 20px !important;
-        min-width: 20px !important;
-        height: 20px !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        overflow: hidden !important;
-        flex-shrink: 0 !important;
-    }}
-    [data-testid="stExpanderToggleIcon"]::before,
-    [data-testid="stExpander"] summary [data-testid="stIconMaterial"]::before {{
-        content: "" !important;
-        width: 7px !important;
-        height: 7px !important;
-        border-right: 2.5px solid currentColor !important;
-        border-bottom: 2.5px solid currentColor !important;
-        transform: rotate(-45deg) !important;
-        transition: transform 0.2s ease !important;
-    }}
-    details[open] > summary [data-testid="stExpanderToggleIcon"]::before,
-    details[open] > summary [data-testid="stIconMaterial"]::before {{
-        transform: rotate(45deg) !important;
-    }}
-
-    /* FALLBACK SIDEBAR BUTTONS */
-    [data-testid="stSidebarCollapseButton"] button span,
-    [data-testid="stSidebarCollapsedControl"] button span {{
-        font-size: 0 !important;
-    }}
-    [data-testid="stSidebarCollapseButton"] button::after {{
-        content: "«" !important;
-        font-size: 15px !important;
-        font-weight: 700 !important;
-        color: #FFFFFF !important;
-        line-height: 1 !important;
-    }}
-    [data-testid="stSidebarCollapsedControl"] button::after {{
-        content: "»" !important;
-        font-size: 15px !important;
-        font-weight: 700 !important;
-        color: {COR_PRIMARIA} !important;
-        line-height: 1 !important;
-    }}
-
     /* ═══ LAYOUT CORE ═══ */
     .main .block-container {{
         padding-top: 1rem;
@@ -323,19 +296,12 @@ def _get_global_css() -> str:
     }}
 
     /* ═══════════════════════════════════════════════════
-       SIDEBAR — TOPO LARANJA + DEEP NAVY + CENTRALIZADO
+       SIDEBAR — TEMA CLARO CORPORATIVO (TOTALE)
        ═══════════════════════════════════════════════════ */
     section[data-testid="stSidebar"] {{
-        background: linear-gradient(
-            180deg,
-            #F37C04 0%,
-            #E86B03 7%,
-            #0B1E3D 15%,
-            #012869 45%,
-            #001135 100%
-        ) !important;
-        border-right: 1px solid rgba(243, 124, 4, 0.3) !important;
-        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.25) !important;
+        background-color: {SB_FUNDO} !important;
+        border-right: 1px solid {SB_BORDA_SUTIL} !important;
+        box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
     }}
 
     section[data-testid="stSidebar"] > div:first-child,
@@ -343,112 +309,121 @@ def _get_global_css() -> str:
         background: transparent !important;
     }}
 
-    section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-        padding: 8px 12px !important;
-    }}
-
-    /* Botão Collapse Sidebar */
-    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] {{
+    /* Scrollbar minimalista */
+    section[data-testid="stSidebar"] ::-webkit-scrollbar {{
+        width: 5px !important;
         background: transparent !important;
     }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {{
-        background: rgba(0, 0, 0, 0.2) !important;
-        border-radius: 6px !important;
-        border: none !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{
+        background: {SB_BORDA_SUTIL} !important;
+        border-radius: 20px !important;
     }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {{
-        background: rgba(0, 0, 0, 0.4) !important;
+    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{
+        background: {SB_TEXTO_MUTED} !important;
     }}
 
-    /* Títulos H1-H4 - CENTRALIZADOS */
-    section[data-testid="stSidebar"] h1, 
-    section[data-testid="stSidebar"] h2, 
+    /* Títulos de seção (categorias) */
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3,
-    section[data-testid="stSidebar"] h4 {{
-        color: #FFB86B !important;
+    section[data-testid="stSidebar"] h4,
+    section[data-testid="stSidebar"] .sidebar-section-title {{
+        color: {SB_TITULO_SECAO} !important;
         font-family: var(--font-titulo) !important;
         font-weight: 800 !important;
         font-size: 11px !important;
         letter-spacing: 1.2px !important;
         text-transform: uppercase !important;
-        border-bottom: 1px solid rgba(243, 124, 4, 0.35) !important;
-        padding-bottom: 6px !important;
-        margin-top: 18px !important;
-        margin-bottom: 10px !important;
+        border-bottom: none !important;
+        padding: 18px 14px 6px 14px !important;
+        margin: 0 !important;
         background: transparent !important;
-        text-align: center !important;
+        text-align: left !important;
     }}
 
-    /* Cabeçalhos NATIVOS de agrupamento no Menu - CENTRALIZADOS */
+    /* Cabeçalhos NATIVOS de agrupamento no Menu */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span[data-testid="stSidebarNavSeparator"] ~ span,
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li div {{
-        color: #E2E8F0 !important;
+        color: {SB_TITULO_SECAO} !important;
         font-family: var(--font-titulo) !important;
         font-weight: 800 !important;
-        font-size: 12px !important;
-        letter-spacing: 0.5px !important;
+        font-size: 11px !important;
+        letter-spacing: 1.2px !important;
         text-transform: uppercase !important;
         background: transparent !important;
         border: none !important;
-        margin-top: 16px !important;
-        padding-left: 0 !important;
-        text-align: center !important;
+        margin-top: 14px !important;
+        padding: 0 14px 4px 14px !important;
+        text-align: left !important;
         display: block !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
-        padding-top: 0 !important;
+        padding-top: 4px !important;
     }}
 
-    /* Botões de páginas - CENTRALIZADOS */
+    /* Botões de páginas — horizontal (ícone + texto) */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
-        background-color: #06152F !important;
-        border: 1px solid rgba(255, 255, 255, 0.03) !important;
+        background-color: {SB_FUNDO_LINK} !important;
+        border: 1px solid {SB_BORDA_SUTIL} !important;
+        border-left: 3px solid transparent !important;
         border-radius: 6px !important;
-        margin: 4px 14px !important;
-        padding: 10px 12px !important;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15) !important;
-        transition: all 0.2s ease !important;
+        margin: 3px 10px !important;
+        padding: 8px 12px !important;
+        box-shadow: 0 1px 2px rgba(1, 40, 105, 0.04) !important;
+        transition: all 0.18s ease !important;
         display: flex !important;
+        flex-direction: row !important;
         align-items: center !important;
-        justify-content: center !important;
+        justify-content: flex-start !important;
         gap: 10px !important;
+        min-height: 36px !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a svg,
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span:first-child {{
-        margin-right: 0 !important;
-        margin-left: 0 !important;
+        width: 16px !important;
+        height: 16px !important;
+        margin: 0 !important;
+        flex-shrink: 0 !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{
-        background-color: #0A224A !important;
-        border-color: rgba(243, 124, 4, 0.4) !important;
-        transform: translateY(-2px);
+        background-color: {SB_FUNDO_LINK_HOVER} !important;
+        border-color: {COR_BORDA} !important;
+        transform: translateX(2px);
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span {{
-        color: #F8FAFC !important;
+        color: {SB_TEXTO_LINK} !important;
+        font-family: var(--font-texto) !important;
         font-weight: 600 !important;
-        font-size: 14px !important;
+        font-size: 13px !important;
         background: transparent !important;
-        text-align: center !important;
+        text-align: left !important;
+        line-height: 1.1 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        white-space: nowrap !important;
+        display: inline-block !important;
+        vertical-align: middle !important;
     }}
 
-    /* Página Ativa */
+    /* Página Ativa — destaque laranja */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{
-        background-color: #0A224A !important;
-        border-left: 4px solid #F37C04 !important;
-        border-right: 4px solid #F37C04 !important;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25) !important;
+        background-color: {SB_FUNDO_ATIVO} !important;
+        border-left: 3px solid {SB_BORDA_ATIVA} !important;
+        border-color: {SB_BORDA_SUTIL} !important;
+        border-left-color: {SB_BORDA_ATIVA} !important;
+        box-shadow: 0 2px 6px rgba(243, 124, 4, 0.12) !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] span {{
-        color: #FFFFFF !important;
-        font-weight: 800 !important;
+        color: {COR_PRIMARIA} !important;
+        font-weight: 700 !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] svg {{
+        fill: {COR_SECUNDARIA} !important;
+        color: {COR_SECUNDARIA} !important;
     }}
 
     /* Esconde linha separadora nativa */
@@ -457,55 +432,41 @@ def _get_global_css() -> str:
     }}
 
     /* Textos genéricos e labels */
-    section[data-testid="stSidebar"] p, 
+    section[data-testid="stSidebar"] p,
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
     section[data-testid="stSidebar"] span {{
-        color: #F1F5F9 !important;
+        color: {SB_TEXTO_LINK} !important;
         font-weight: 500 !important;
         background: transparent !important;
     }}
 
-    /* Expanders Gerais (Impedindo sobreposição de texto) */
-    [data-testid="stExpander"] summary {{
-        display: flex !important;
-        align-items: center !important;
-        gap: 8px !important;
-    }}
-    [data-testid="stExpander"] summary p {{
-        flex: 1 !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        white-space: nowrap !important;
-        margin: 0 !important;
-    }}
-
     /* Expanders no Sidebar */
     section[data-testid="stSidebar"] [data-testid="stExpander"] {{
-        background-color: rgba(0, 17, 53, 0.4) !important;
-        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        background-color: {SB_FUNDO_LINK} !important;
+        border: 1px solid {SB_BORDA_SUTIL} !important;
         border-radius: 8px !important;
-        margin-bottom: 12px !important;
+        margin: 8px 10px !important;
         overflow: hidden !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-        background-color: rgba(255, 255, 255, 0.08) !important;
+        background-color: {SB_FUNDO_LINK_HOVER} !important;
         padding: 10px 14px !important;
         transition: background-color 0.2s ease;
     }}
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
-        background-color: rgba(255, 255, 255, 0.15) !important;
+        background-color: {COR_FUNDO_2} !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary span,
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary svg {{
-        color: #FFFFFF !important;
-        fill: #FFFFFF !important;
+        color: {COR_PRIMARIA} !important;
+        fill: {COR_PRIMARIA} !important;
         font-weight: 700 !important;
         font-family: var(--font-titulo) !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stExpanderDetails"] {{
-        padding: 16px 14px !important;
+        padding: 14px !important;
         background: transparent !important;
     }}
 
@@ -515,7 +476,7 @@ def _get_global_css() -> str:
     }}
     section[data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stThumbValue"],
     section[data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stTickBar"] {{
-        color: #FFFFFF !important;
+        color: {COR_PRIMARIA} !important;
         font-family: var(--font-codigo) !important;
         font-weight: 600 !important;
         font-size: 13px !important;
@@ -523,45 +484,54 @@ def _get_global_css() -> str:
 
     /* Checkboxes */
     section[data-testid="stSidebar"] [data-testid="stCheckbox"] label span {{
-        color: #FFFFFF !important;
+        color: {SB_TEXTO_LINK} !important;
         font-weight: 600 !important;
     }}
 
     /* Divisores */
     section[data-testid="stSidebar"] hr {{
-        background: linear-gradient(90deg, transparent 0%, rgba(243, 124, 4, 0.5) 50%, transparent 100%) !important;
+        background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 50%, transparent 100%) !important;
         height: 1px !important;
         border: none !important;
-        margin: 16px 0 !important;
+        margin: 14px 10px !important;
     }}
 
     /* Botões primários no sidebar */
     section[data-testid="stSidebar"] .stButton button {{
-        background: linear-gradient(180deg, #FF9029 0%, #F37C04 100%) !important;
+        background: {COR_SECUNDARIA} !important;
         color: #FFFFFF !important;
-        border: 1px solid rgba(0, 0, 0, 0.2) !important;
+        border: none !important;
+        border-radius: 6px !important;
         font-weight: 700 !important;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important;
+        font-family: var(--font-titulo) !important;
+        font-size: 13px !important;
+        letter-spacing: 0.3px !important;
+        width: 100% !important;
+        padding: 8px 14px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 2px 4px rgba(243, 124, 4, 0.25) !important;
     }}
     section[data-testid="stSidebar"] .stButton button:hover {{
+        background: {COR_SECUNDARIA_HOVER} !important;
         transform: translateY(-1px);
         box-shadow: 0 4px 12px rgba(243, 124, 4, 0.35) !important;
     }}
 
     /* Inputs e Selects */
-    section[data-testid="stSidebar"] input, 
+    section[data-testid="stSidebar"] input,
     section[data-testid="stSidebar"] select,
     section[data-testid="stSidebar"] [data-baseweb="select"] > div,
     section[data-testid="stSidebar"] [data-baseweb="base-input"] {{
-        background-color: rgba(0, 0, 0, 0.25) !important;
-        color: #FFFFFF !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        background-color: {SB_FUNDO_LINK} !important;
+        color: {SB_TEXTO_LINK} !important;
+        border: 1px solid {SB_BORDA_SUTIL} !important;
         border-radius: 6px !important;
+        font-family: var(--font-texto) !important;
     }}
     section[data-testid="stSidebar"] input:focus,
     section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within {{
-        border-color: #F37C04 !important;
-        background-color: rgba(0, 0, 0, 0.4) !important;
+        border-color: {COR_SECUNDARIA} !important;
+        box-shadow: 0 0 0 2px rgba(243, 124, 4, 0.15) !important;
     }}
 
     /* ═══════════════════════════════════════════════════
@@ -635,7 +605,6 @@ def _get_global_css() -> str:
     }}
     .kpi-card .kpi-sub {{ font-size: 12px; color: #94A3B8; }}
 
-    /* KPI com Delta (Variação) */
     .kpi-card-delta {{
         background: #FFFFFF;
         border-radius: var(--radius-md);
@@ -671,7 +640,6 @@ def _get_global_css() -> str:
     .kpi-delta-down {{ background: #FEE2E2; color: #991B1B; }}
     .kpi-delta-flat {{ background: #F1F5F9; color: #475569; }}
 
-    /* KPI Small */
     .kpi-card-sm {{
         background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
         border-radius: var(--radius-sm);
@@ -841,6 +809,55 @@ def _get_global_css() -> str:
         font-weight: 800 !important;
         border-top: 2px solid var(--cor-secundaria) !important;
     }}
+
+    /* ═══════════════════════════════════════════════════
+       COMPONENTES CUSTOMIZADOS SIDEBAR (TOTALE UI)
+       ═══════════════════════════════════════════════════ */
+    .sidebar-section-title {{
+        color: {SB_TITULO_SECAO} !important;
+        font-weight: 800 !important;
+        font-size: 11px !important;
+        letter-spacing: 1.2px !important;
+        text-transform: uppercase !important;
+        padding: 18px 14px 6px 14px !important;
+        margin: 0 !important;
+        font-family: var(--font-titulo) !important;
+    }}
+    .user-profile-box {{
+        padding: 12px 14px;
+        border-radius: 8px;
+        background: {SB_FUNDO_LINK};
+        border: 1px solid {SB_BORDA_SUTIL};
+        margin: 8px 10px 16px 10px;
+        box-shadow: 0 1px 3px rgba(1, 40, 105, 0.05);
+    }}
+    .user-profile-name {{
+        color: {COR_PRIMARIA};
+        font-size: 13.5px;
+        font-weight: 700;
+        font-family: var(--font-titulo) !important;
+    }}
+    .user-profile-email {{
+        color: {SB_TEXTO_MUTED};
+        font-size: 11px;
+        margin-top: 2px;
+    }}
+
+    .status-container {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12.5px;
+        color: {SB_TEXTO_LINK};
+        padding: 6px 14px;
+        font-weight: 600;
+    }}
+    .status-pill-dot {{
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        box-shadow: 0 0 6px currentColor;
+    }}
     </style>
     """
 
@@ -987,9 +1004,7 @@ def render_metric_delta(
     tema: TemaKPI = "azul",
     inverter_cor: bool = False,
 ) -> None:
-    """
-    Renderiza um KPI com indicador de variação (Delta).
-    """
+    """Renderiza um KPI com indicador de variação (Delta)."""
     cor = _resolver_cor_tema(tema)
     renderer = col.markdown if hasattr(col, "markdown") else st.markdown
 
@@ -1103,13 +1118,13 @@ def render_progress_bar(
 
     if percentual >= 100:
         cor = COR_SUCESSO
-        gradiente = f"linear-gradient(90deg, #059669 0%, #10B981 100%)"
+        gradiente = "linear-gradient(90deg, #059669 0%, #10B981 100%)"
     elif percentual >= 70:
         cor = COR_ATENCAO
-        gradiente = f"linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)"
+        gradiente = "linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)"
     else:
         cor = COR_ALERTA
-        gradiente = f"linear-gradient(90deg, #DC2626 0%, #EF4444 100%)"
+        gradiente = "linear-gradient(90deg, #DC2626 0%, #EF4444 100%)"
 
     footer_txt = ""
     if mostrar_meta:
@@ -1205,22 +1220,192 @@ def render_sidebar_brand(
     if not logo_svg:
         logo_svg = (
             '<svg width="34" height="34" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15));">'
-            '<circle cx="50" cy="50" r="44" stroke="rgba(255, 255, 255, 0.15)" stroke-width="6"/>'
+            '<circle cx="50" cy="50" r="44" stroke="rgba(1, 40, 105, 0.15)" stroke-width="6"/>'
             '<path d="M50 12 A 38 38 0 0 1 88 50" stroke="#F37C04" stroke-width="10" stroke-linecap="round"/>'
-            '<path d="M50 88 A 38 38 0 0 1 12 50" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>'
+            '<path d="M50 88 A 38 38 0 0 1 12 50" stroke="#012869" stroke-width="8" stroke-linecap="round"/>'
             '<circle cx="50" cy="50" r="10" fill="#F37C04"/>'
             "</svg>"
         )
 
     html = (
-        f'<div style="display: flex; align-items: center; gap: 12px; padding: 8px 4px 16px 4px; margin-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.15);">'
+        f'<div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 8px 10px 12px 10px; border-bottom: 1px solid {SB_BORDA_SUTIL};">'
         f'<div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center;">{logo_svg}</div>'
         f'<div style="display: flex; flex-direction: column; justify-content: center;">'
-        f'<span style="font-family: {FONTE_TITULO}; font-size: 20px; font-weight: 800; color: #FFFFFF; letter-spacing: 0.8px; line-height: 1;">{empresa}</span>'
-        f'<span style="font-family: {FONTE_TEXTO}; font-size: 10px; font-weight: 600; color: #FFB86B; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; opacity: 0.95;">{segmento}</span>'
+        f'<span style="font-family: {FONTE_TITULO}; font-size: 20px; font-weight: 800; color: {COR_PRIMARIA}; letter-spacing: 0.8px; line-height: 1;">{empresa}</span>'
+        f'<span style="font-family: {FONTE_TEXTO}; font-size: 10px; font-weight: 600; color: {COR_SECUNDARIA}; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; opacity: 0.95;">{segmento}</span>'
         f"</div></div>"
     )
     st.sidebar.markdown(html, unsafe_allow_html=True)
+
+
+# ====================================================
+#  COMPONENTES DE INTERFACE DO SIDEBAR (TOTALE UI)
+# ====================================================
+def aplicar_sidebar_corp() -> None:
+    """
+    Injeta a folha de estilo do sidebar após a configuração da página.
+    """
+    st.markdown(_get_sidebar_css(), unsafe_allow_html=True)
+
+
+@st.cache_data(ttl=3600)
+def _get_sidebar_css() -> str:
+    """Retorna os ajustes específicos do sidebar corporativo claro."""
+    return f"""
+    <style>
+    section[data-testid="stSidebar"] {{
+        background: linear-gradient(180deg, #F4F6F9 0%, {SB_FUNDO} 100%) !important;
+        border-right: 1px solid {SB_BORDA_SUTIL} !important;
+        box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a {{
+        background: {SB_FUNDO_LINK} !important;
+        border: 1px solid {SB_BORDA_SUTIL} !important;
+        border-left: 3px solid transparent !important;
+        border-radius: 6px !important;
+        margin: 3px 10px !important;
+        min-height: 36px !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {{
+        background: {SB_FUNDO_LINK_HOVER} !important;
+        border-color: #B8C4D3 !important;
+        transform: translateX(2px);
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] {{
+        background: {SB_FUNDO_ATIVO} !important;
+        border-left-color: {SB_BORDA_ATIVA} !important;
+    }}
+    section[data-testid="stSidebar"] .stButton > button {{
+        background: {COR_PRIMARIA} !important;
+        color: #FFFFFF !important;
+        border: 0 !important;
+    }}
+    section[data-testid="stSidebar"] .stButton > button:hover {{
+        background: {COR_SECUNDARIA} !important;
+    }}
+    </style>
+    """
+
+
+def render_sidebar_info(
+    user_name: str,
+    email: str = "",
+    role: str = "",
+    avatar: str = "👤",
+) -> None:
+    """Gera o bloco identificador de perfil do usuário logado na plataforma."""
+    with st.sidebar:
+        st.markdown(
+            f"""
+            <div class="user-profile-box">
+                <div class="user-profile-name">{avatar} {user_name}</div>
+                {f'<div class="user-profile-email">{role}</div>' if role else ''}
+                <div class="user-profile-email">{email}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_sidebar_section(title: str) -> None:
+    """Cria um título de agrupamento/categoria corporativa textual no menu."""
+    with st.sidebar:
+        st.markdown(
+            f'<p class="sidebar-section-title">{title}</p>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_sidebar_status(
+    label: str = "Sistema operacional",
+    tipo: Literal["success", "warning", "danger", "info"] = "success",
+    sistema_ok: Optional[bool] = None,
+    mensagem: Optional[str] = None,
+    ultima_atualizacao: Optional[datetime] = None,
+) -> None:
+    """Exibe indicadores de status da aplicação em formato micro-pill brilhante."""
+    cores_status = {
+        "success": "#10B981",
+        "warning": "#F59E0B",
+        "danger": "#EF4444",
+        "info": "#3B82F6",
+    }
+    if sistema_ok is not None:
+        tipo = "success" if sistema_ok else "danger"
+    label = mensagem or label
+    cor = cores_status.get(tipo, cores_status["success"])
+    with st.sidebar:
+        st.markdown(
+            f"""
+            <div class="status-container">
+                <div class="status-pill-dot" style="background-color: {cor}; color: {cor};"></div>
+                <span>{label}</span>
+                {f'<small>{ultima_atualizacao.strftime("%H:%M")}</small>' if ultima_atualizacao else ''}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_sidebar_divider() -> None:
+    """Gera uma linha horizontal divisória fina ultra sutil alinhada ao tema."""
+    with st.sidebar:
+        st.markdown(
+            f'<hr style="margin: 14px 10px; border: 0; border-top: 1px solid {SB_BORDA_SUTIL};">',
+            unsafe_allow_html=True,
+        )
+
+
+def render_sidebar_spacer(height: int = 15) -> None:
+    """Cria um bloco espaçador vertical transparente milimétrico."""
+    with st.sidebar:
+        st.markdown(f'<div style="height: {height}px;"></div>', unsafe_allow_html=True)
+
+
+def render_sidebar_footer_info(versao: str = "v3.1.0") -> None:
+    """Renderiza as informações consolidadas de compliance no rodapé operacional."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
+    with st.sidebar:
+        render_sidebar_divider()
+        st.markdown(
+            f"""
+            <div style="font-size: 11px; color: {SB_TEXTO_MUTED}; line-height: 1.6; padding: 4px 14px 12px 14px;">
+                <div>🕒 {agora} BRT</div>
+                <div>🚀 Versão {versao}</div>
+                <div style="margin-top: 6px; font-weight: 700; color: {COR_PRIMARIA}; font-size: 10px; letter-spacing: 0.5px; font-family: {FONTE_TITULO};">© TOTALE TECNOLOGIA</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def get_hora_atual_brt() -> str:
+    """Retorna a hora atual no fuso de Sao Paulo."""
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%H:%M:%S")
+
+
+def get_data_atual_br() -> str:
+    """Retorna a data atual no formato brasileiro."""
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y")
+
+
+def render_sidebar_filtro(
+    label: str,
+    options: list,
+    key: str,
+    default: Any = None,
+    multi: bool = False,
+) -> Any:
+    """Abstração otimizada do st.selectbox respeitando a estilização unificada corporativa."""
+    with st.sidebar:
+        if multi:
+            defaults = default if isinstance(default, list) else []
+            return st.multiselect(label, options=options, default=defaults, key=key)
+        index = options.index(default) if default in options else 0
+        return st.selectbox(label, options=options, index=index, key=key)
 
 
 # ====================================================
@@ -1268,365 +1453,3 @@ def render_table_html(
                 display[c] = s.map(lambda v, _f=f: _f(v) if v != "—" else "—")
             elif isinstance(f, str):
                 display[c] = s.map(lambda v, _f=f: _f.format(v) if v != "—" else "—")
-        else:
-            display[c] = s.astype(str)
-
-    style_maps: dict[str, pd.Series] = {}
-    if color_rules:
-        for c, regras in color_rules.items():
-            if c not in df_show.columns:
-                continue
-            styles = pd.Series("", index=df_show.index, dtype=str)
-            raw = df.loc[df_show.index, c] if c in df.columns else df_show[c]
-            for pred, css_str in regras:
-                try:
-                    mask = raw.map(
-                        lambda v, _p=pred: bool(_p(v)) if v != "—" else False
-                    )
-                    styles = styles.where(~mask, css_str)
-                except Exception:
-                    continue
-            style_maps[c] = styles
-
-    header = "".join(f"<th>{c}</th>" for c in cols)
-    rows_html: list[str] = []
-    values = display.to_numpy()
-    total_idx = len(values) - 1 if linha_total else -1
-
-    for i in range(values.shape[0]):
-        tds: list[str] = []
-        for j, c in enumerate(cols):
-            cls_str = ' class="num"' if c in num_set else ""
-            stl_str = (
-                f' style="{style_maps[c].iloc[i]}"'
-                if c in style_maps and style_maps[c].iloc[i]
-                else ""
-            )
-            val = (
-                str(values[i, j])
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            )
-            tds.append(f"<td{cls_str}{stl_str}>{val}</td>")
-
-        tr_class = ' class="total-row"' if i == total_idx else ""
-        rows_html.append(f"<tr{tr_class}>{''.join(tds)}</tr>")
-
-    html_tabela = (
-        f'<div class="corp-table-wrap" style="max-height:{int(height)}px;">'
-        f'<table class="corp-table">'
-        f"<thead><tr>{header}</tr></thead>"
-        f'<tbody>{"".join(rows_html)}</tbody>'
-        f"</table></div>"
-    )
-    st.markdown(html_tabela, unsafe_allow_html=True)
-
-    if len(df) > max_rows or len(df.columns) > max_cols:
-        st.caption(
-            f"Exibindo limite de visualização: {min(len(df), max_rows)} linhas x {min(len(df.columns), max_cols)} colunas."
-        )
-
-
-# ====================================================
-# GRÁFICOS PLOTLY PADRONIZADOS
-# ====================================================
-def _obter_config_interacao() -> dict[str, Any]:
-    """Retorna configuração limpa para gráficos Plotly."""
-    return {
-        "displayModeBar": "hover",
-        "displaylogo": False,
-        "modeBarButtonsToRemove": [
-            "select2d",
-            "lasso2d",
-            "zoomIn2d",
-            "zoomOut2d",
-            "autoScale2d",
-            "resetScale2d",
-            "toggleSpikelines",
-        ],
-        "responsive": True,
-    }
-
-
-def _titulo_plotly(titulo: str, subtitulo: str = "") -> str:
-    """Formata título com subtítulo para gráficos."""
-    if subtitulo:
-        return f"<b>{titulo}</b><br><span style='font-size:12px; font-weight:normal; color:{COR_TEXTO_3}'>{subtitulo}</span>"
-    return f"<b>{titulo}</b>"
-
-
-def render_grafico_linhas(
-    df: pd.DataFrame,
-    x: str,
-    y: list[str] | str,
-    titulo: str = "",
-    subtitulo: str = "",
-    altura: int = 350,
-    area: bool = False,
-    stacked: bool = False,
-) -> None:
-    """Renderiza gráfico de linhas ou áreas suavizadas (spline)."""
-    if df is None or df.empty:
-        render_empty_state(
-            "Sem dados para o gráfico", "Ajuste os filtros para visualizar."
-        )
-        return
-
-    colunas_y = [y] if isinstance(y, str) else y
-    fig = go.Figure()
-
-    for i, col in enumerate(colunas_y):
-        cor_manual = _PLOTLY_COLORWAY[i % len(_PLOTLY_COLORWAY)]
-        fill_mode = "tonexty" if area else None
-        if area and i == 0 and not stacked:
-            fill_mode = "tozeroy"
-
-        fig.add_trace(
-            go.Scatter(
-                x=df[x],
-                y=df[col],
-                name=col,
-                mode="lines+markers",
-                line=dict(width=3, shape="spline", color=cor_manual),
-                marker=dict(size=6),
-                fill=fill_mode,
-                stackgroup="one" if (area and stacked) else None,
-                hovertemplate=f"<b>%{{x}}</b><br>{col}: %{{y}}<extra></extra>",
-            )
-        )
-
-    layout_args = {"height": altura, "hovermode": "x unified"}
-    if titulo:
-        layout_args["title"] = _titulo_plotly(titulo, subtitulo)
-
-    fig.update_layout(**layout_args)
-    st.plotly_chart(fig, use_container_width=True, config=_obter_config_interacao())
-
-
-def render_grafico_barras(
-    df: pd.DataFrame,
-    x: str,
-    y: list[str] | str,
-    titulo: str = "",
-    subtitulo: str = "",
-    horizontal: bool = False,
-    empilhado: bool = False,
-    altura: int = 350,
-) -> None:
-    """Renderiza gráfico de barras (vertical/horizontal, agrupado/empilhado)."""
-    if df is None or df.empty:
-        render_empty_state(
-            "Sem dados para o gráfico", "Ajuste os filtros para visualizar."
-        )
-        return
-
-    colunas_y = [y] if isinstance(y, str) else y
-    fig = go.Figure()
-
-    for i, col in enumerate(colunas_y):
-        cor_manual = _PLOTLY_COLORWAY[i % len(_PLOTLY_COLORWAY)]
-        if horizontal:
-            fig.add_trace(
-                go.Bar(
-                    y=df[x],
-                    x=df[col],
-                    name=col,
-                    orientation="h",
-                    marker=dict(color=cor_manual, line=dict(color="white", width=1)),
-                    hovertemplate=f"<b>%{{y}}</b><br>{col}: %{{x}}<extra></extra>",
-                )
-            )
-        else:
-            fig.add_trace(
-                go.Bar(
-                    x=df[x],
-                    y=df[col],
-                    name=col,
-                    marker=dict(color=cor_manual, line=dict(color="white", width=1)),
-                    hovertemplate=f"<b>%{{x}}</b><br>{col}: %{{y}}<extra></extra>",
-                )
-            )
-
-    layout_args = {
-        "height": altura,
-        "barmode": "stack" if empilhado else "group",
-        "bargap": 0.18,
-        "bargroupgap": 0.04,
-    }
-    if titulo:
-        layout_args["title"] = _titulo_plotly(titulo, subtitulo)
-
-    fig.update_layout(**layout_args)
-    if horizontal:
-        fig.update_layout(
-            xaxis=dict(showgrid=True, gridcolor="#F1F5F9"),
-            yaxis=dict(showgrid=False),
-        )
-
-    st.plotly_chart(fig, use_container_width=True, config=_obter_config_interacao())
-
-
-def render_grafico_rosca(
-    df: pd.DataFrame,
-    valores: str,
-    nomes: str,
-    titulo: str = "",
-    subtitulo: str = "",
-    furo: float = 0.6,
-    altura: int = 330,
-) -> None:
-    """Renderiza gráfico de rosca com totalizador no centro."""
-    if df is None or df.empty:
-        render_empty_state(
-            "Sem dados para o gráfico", "Ajuste os filtros para visualizar."
-        )
-        return
-
-    valor_total = df[valores].sum()
-    if valor_total >= 1_000_000:
-        texto_centro = f"Total<br><b>{valor_total/1_000_000:.1f}M</b>"
-    elif valor_total >= 1_000:
-        texto_centro = f"Total<br><b>{valor_total/1_000:.1f}k</b>"
-    else:
-        texto_centro = f"Total<br><b>{valor_total:,.0f}</b>"
-
-    fig = go.Figure(
-        data=[
-            go.Pie(
-                labels=df[nomes],
-                values=df[valores],
-                hole=furo,
-                marker=dict(line=dict(color="white", width=2)),
-                textinfo="percent",
-                textposition="inside",
-                direction="clockwise",
-                sort=True,
-                hovertemplate=f"<b>%{{label}}</b><br>{valores}: %{{value}}<br>Proporção: %{{percent}}<extra></extra>",
-            )
-        ]
-    )
-
-    layout_args = {
-        "height": altura,
-        "annotations": [
-            dict(
-                text=texto_centro,
-                x=0.5,
-                y=0.5,
-                font=dict(family=FONTE_TITULO, size=15, color=COR_TEXTO),
-                showarrow=False,
-            )
-        ],
-        "legend": dict(
-            orientation="v", yanchor="middle", y=0.5, xanchor="left", x=0.85
-        ),
-        "margin": dict(l=20, r=80, t=50, b=20),
-    }
-    if titulo:
-        layout_args["title"] = _titulo_plotly(titulo, subtitulo)
-
-    fig.update_layout(**layout_args)
-    st.plotly_chart(fig, use_container_width=True, config=_obter_config_interacao())
-
-
-def render_grafico_gauge(
-    valor: float,
-    meta: float,
-    titulo: str = "",
-    subtitulo: str = "",
-    sufixo: str = "%",
-    altura: int = 280,
-) -> None:
-    """Renderiza velocímetro (gauge) para acompanhamento de meta."""
-    percentual = (valor / meta * 100) if meta > 0 else 0
-
-    if percentual >= 100:
-        cor = COR_SUCESSO
-    elif percentual >= 70:
-        cor = COR_ATENCAO
-    else:
-        cor = COR_ALERTA
-
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number+delta",
-            value=valor,
-            number={
-                "suffix": sufixo,
-                "font": {"family": FONTE_TITULO, "size": 32, "color": cor},
-            },
-            delta={
-                "reference": meta,
-                "increasing": {"color": COR_SUCESSO},
-                "decreasing": {"color": COR_ALERTA},
-            },
-            gauge={
-                "axis": {
-                    "range": [0, meta * 1.3],
-                    "tickfont": {"family": FONTE_TEXTO, "size": 11},
-                },
-                "bar": {"color": cor, "thickness": 0.7},
-                "bgcolor": "#F8FAFC",
-                "borderwidth": 1,
-                "bordercolor": COR_BORDA,
-                "steps": [
-                    {"range": [0, meta * 0.7], "color": "#FEE2E2"},
-                    {"range": [meta * 0.7, meta], "color": "#FEF3C7"},
-                    {"range": [meta, meta * 1.3], "color": "#D1FAE5"},
-                ],
-                "threshold": {
-                    "line": {"color": COR_PRIMARIA, "width": 3},
-                    "thickness": 0.85,
-                    "value": meta,
-                },
-            },
-            domain={"x": [0, 1], "y": [0, 1]},
-        )
-    )
-
-    layout_args = {"height": altura, "margin": dict(l=20, r=20, t=60, b=20)}
-    if titulo:
-        layout_args["title"] = _titulo_plotly(titulo, subtitulo)
-
-    fig.update_layout(**layout_args)
-    st.plotly_chart(fig, use_container_width=True, config=_obter_config_interacao())
-
-
-def render_grafico_funnel(
-    df: pd.DataFrame,
-    valores: str,
-    nomes: str,
-    titulo: str = "",
-    subtitulo: str = "",
-    altura: int = 350,
-) -> None:
-    """Renderiza gráfico de funil (útil para análise de conversão)."""
-    if df is None or df.empty:
-        render_empty_state(
-            "Sem dados para o gráfico", "Ajuste os filtros para visualizar."
-        )
-        return
-
-    fig = go.Figure(
-        go.Funnel(
-            y=df[nomes],
-            x=df[valores],
-            textinfo="value+percent initial",
-            textposition="inside",
-            textfont=dict(family=FONTE_TEXTO, size=13, color="white"),
-            marker=dict(
-                color=_PLOTLY_COLORWAY[: len(df)],
-                line=dict(width=2, color="white"),
-            ),
-            connector={"line": {"color": COR_BORDA, "width": 2, "dash": "dot"}},
-            hovertemplate=f"<b>%{{y}}</b><br>{valores}: %{{x}}<extra></extra>",
-        )
-    )
-
-    layout_args = {"height": altura, "margin": dict(l=40, r=40, t=60, b=20)}
-    if titulo:
-        layout_args["title"] = _titulo_plotly(titulo, subtitulo)
-
-    fig.update_layout(**layout_args)
-    st.plotly_chart(fig, use_container_width=True, config=_obter_config_interacao())

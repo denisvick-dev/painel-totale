@@ -72,9 +72,23 @@ st.markdown(
         color: #166534 !important;
         font-weight: 700 !important;
     }}
+    .corp-table td.falta-meta {{
+        background: #FEE2E2 !important;
+        color: #991B1B !important;
+        font-weight: 700 !important;
+    }}
     .corp-table td.num {{
         text-align: right !important;
         font-variant-numeric: tabular-nums !important;
+    }}
+    .corp-table-wrap.centralizada {{
+        width: min(100%, 1100px) !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }}
+    .corp-table-wrap.centralizada .corp-table th,
+    .corp-table-wrap.centralizada .corp-table td {{
+        text-align: center !important;
     }}
     </style>
     """,
@@ -84,6 +98,7 @@ st.markdown(
 
 class Configuracoes:
     url_ativos = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
+    meta_diaria_consultivos = 7
 
 
 class Calculos:
@@ -195,12 +210,71 @@ def preparar_ranking(
     return res[nova_ordem]
 
 
+def preparar_resumo_diario_monitor(
+    df: pd.DataFrame, data_referencia: pd.Timestamp
+) -> pd.DataFrame:
+    """Agrega os consultivos do dia e preserva monitores sem movimentação."""
+    monitores = pd.DataFrame(
+        df[["Base", "Monitor"]]
+        .dropna()
+        .astype(str)
+        .drop_duplicates()
+        .sort_values(["Base", "Monitor"])
+    )
+    mascara_dia = (
+        df["DATA"].notna()
+        & df["DATA"].dt.normalize().eq(data_referencia.normalize())
+    )
+    resumo = (
+        df.loc[mascara_dia]
+        .groupby(["Base", "Monitor"], dropna=False)["Qtde. Cons."]
+        .sum()
+        .rename("Total Consultivos")
+        .reset_index()
+    )
+    resumo = monitores.merge(resumo, on=["Base", "Monitor"], how="left")
+    resumo["Total Consultivos"] = resumo["Total Consultivos"].fillna(0).astype(int)
+    return resumo.sort_values("Total Consultivos", ascending=False).reset_index(drop=True)
+
+
+def calcular_meta_acumulada_monitor(
+    df: pd.DataFrame, data_referencia: pd.Timestamp
+) -> pd.DataFrame:
+    """Calcula a meta de hoje compensando apenas o déficit de ontem."""
+    ontem = data_referencia.normalize() - pd.Timedelta(days=1)
+    mascara_anterior = (
+        df["DATA"].notna()
+        & df["DATA"].dt.normalize().eq(ontem)
+    )
+    realizado_anterior = (
+        df.loc[mascara_anterior]
+        .groupby(["Base", "Monitor"], dropna=False)["Qtde. Cons."]
+        .sum()
+        .rename("Realizado Anterior")
+        .reset_index()
+    )
+    monitores = df[["Base", "Monitor"]].dropna().astype(str).drop_duplicates()
+    resumo = monitores.merge(
+        realizado_anterior, on=["Base", "Monitor"], how="left"
+    )
+    resumo["Realizado Anterior"] = resumo["Realizado Anterior"].fillna(0).astype(int)
+    resumo["Saldo Anterior"] = (
+        Configuracoes.meta_diaria_consultivos
+        - resumo["Realizado Anterior"]
+    ).clip(lower=0)
+    resumo["Meta Ajustada"] = (
+        Configuracoes.meta_diaria_consultivos + resumo["Saldo Anterior"]
+    ).astype(int)
+    return resumo[["Base", "Monitor", "Saldo Anterior", "Meta Ajustada"]]
+
+
 def render_tabela_cons(
     df: pd.DataFrame,
     height: int = 450,
     max_rows: int = 300,
     limite_destaque: float = 350,
     colunas_destaque: list[str] | None = None,
+    centralizar: bool = False,
 ) -> None:
     """Tabela HTML corporativa customizada para os Consultivos."""
     if df.empty:
@@ -219,7 +293,7 @@ def render_tabela_cons(
         if (
             "Total" in col
             or "Proj" in col
-            or col in ("Mesh", "TV Box", "Virtua", "Posição")
+            or col in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
         ):
             try:
                 return f"{float(val):,.0f}".replace(",", ".")
@@ -233,7 +307,7 @@ def render_tabela_cons(
         if (
             "Total" in col
             or "Proj" in col
-            or col in ("Mesh", "TV Box", "Virtua", "Posição")
+            or col in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
         ):
             classes.append("num")
 
@@ -245,8 +319,17 @@ def render_tabela_cons(
 
         if col in colunas_destaque:
             try:
-                if float(val) > limite_destaque:
+                if float(val) >= limite_destaque:
                     classes.append("meta-batida")
+            except (ValueError, TypeError):
+                pass
+
+        if col == "Status" and val == "Meta atingida":
+            classes.append("meta-batida")
+
+        if col == "Falta para Meta":
+            try:
+                classes.append("meta-batida" if float(val) == 0 else "falta-meta")
             except (ValueError, TypeError):
                 pass
 
@@ -272,7 +355,7 @@ def render_tabela_cons(
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
     html = f"""
-    <div class="corp-table-wrap" style="max-height:{int(height)}px;">
+    <div class="corp-table-wrap{' centralizada' if centralizar else ''}" style="max-height:{int(height)}px;">
       <table class="corp-table">
         <thead><tr>{header}</tr></thead>
         <tbody>{''.join(body_rows)}</tbody>
@@ -347,6 +430,8 @@ for col in ["Qtde. Cons.", "Qtde. Prod.", "Qtde. Mesh", "Qtde. TV", "Qtde. Virtu
     if col in df.columns:
         df[col] = df[col].fillna(0).astype(int)
 
+df_base = df.copy()
+
 
 # ====================================================
 # BLOCO 4: FILTROS E CÁLCULOS GLOBAIS
@@ -361,8 +446,8 @@ if "DATA" in df.columns and df["DATA"].notna().any():
     df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
     datas_validas = df["DATA"].dropna()
     data_min = datas_validas.min().date()
-    data_max = datas_validas.max().date()
     hoje = pd.Timestamp.today().normalize().date()
+    data_max = max(datas_validas.max().date(), hoje)
 
     data_referencia = min(hoje, data_max)
 
@@ -621,7 +706,9 @@ st.markdown(
 )
 
 # ── ABAS INFERIORES ──
-aba1, aba2 = st.tabs(["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"])
+aba1, aba2, aba3 = st.tabs(
+    ["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos", "📅 Consultivos de Hoje"]
+)
 
 with aba1:
     g1, g2 = st.columns(2)
@@ -663,6 +750,47 @@ with aba2:
             "Excelente! 100% da operação possui pelo menos um consultivo registrado.",
             "ok",
         )
+
+with aba3:
+    hoje = pd.Timestamp.today().normalize()
+    render_section_header("🎯", "Consultivos do Dia por Monitor")
+    st.caption(f"Data de referência: {hoje.strftime('%d/%m/%Y')}")
+
+    filtro_base_dia, campo_meta = st.columns([1.5, 1])
+    with filtro_base_dia:
+        bases_dia = ["Todas"] + sorted(
+            df_base["Base"].dropna().astype(str).unique().tolist()
+        )
+        base_dia = st.selectbox(
+            "Base",
+            bases_dia,
+            key="base_consultivos_dia",
+        )
+    with campo_meta:
+        st.metric("Meta base diária", Configuracoes.meta_diaria_consultivos)
+
+    df_dia_monitor = preparar_resumo_diario_monitor(df_base, hoje)
+    df_meta_monitor = calcular_meta_acumulada_monitor(df_base, hoje)
+    df_dia_monitor = df_dia_monitor.merge(
+        df_meta_monitor, on=["Base", "Monitor"], how="left"
+    )
+    if base_dia != "Todas":
+        df_dia_monitor = df_dia_monitor[
+            df_dia_monitor["Base"] == base_dia
+        ].copy()
+    df_dia_monitor["Meta Diária"] = df_dia_monitor["Meta Ajustada"]
+    df_dia_monitor["Falta para Meta"] = (
+        df_dia_monitor["Meta Diária"] - df_dia_monitor["Total Consultivos"]
+    ).clip(lower=0)
+    df_dia_monitor = df_dia_monitor.drop(columns=["Saldo Anterior"])
+
+    render_tabela_cons(
+        df_dia_monitor,
+        height=420,
+        colunas_destaque=["Total Consultivos"],
+        limite_destaque=Configuracoes.meta_diaria_consultivos,
+        centralizar=True,
+    )
 
 # ── EXPORTAÇÃO ──
 st.divider()
