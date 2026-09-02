@@ -90,7 +90,7 @@ COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
 COR_FUNDO_2 = "#F1F5F9"
 
-# ── Sidebar (tema claro, conforme imagem de referência) ──────────────────
+# ─ Sidebar (tema claro, conforme imagem de referência) ──────────────────
 SB_FUNDO = "#EEF2F7"  # Fundo geral da sidebar (cinza-azulado claro)
 SB_FUNDO_LINK = "#FFFFFF"  # Fundo dos botões de navegação
 SB_FUNDO_LINK_HOVER = "#F8FAFC"
@@ -112,10 +112,10 @@ _TEMA_CORES: dict[str, str] = {
 
 _INSIGHT_CONFIG: dict[str, tuple[str, str, str, str]] = {
     "ok": ("#D1FAE5", "#065F46", "#059669", "✅"),
-    "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "️"),
-    "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "️"),
-    "critico": ("#FEE2E2", "#991B1B", "#DC2626", ""),
-    "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", "🎯"),
+    "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
+    "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
+    "critico": ("#FEE2E2", "#991B1B", "#DC2626", "🚨"),
+    "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", ""),
 }
 
 _STATUS_CONFIG: dict[str, tuple[str, str, str]] = {
@@ -267,7 +267,7 @@ def _get_global_css() -> str:
         font-family: var(--font-codigo) !important;
     }}
 
-    /* ═══ ÍCONES MATERIAL ═══ */
+    /* ═══ ÍCONES MATERIAL ══ */
     [data-testid="stIconMaterial"],
     .material-icons,
     .material-symbols-rounded,
@@ -362,7 +362,7 @@ def _get_global_css() -> str:
         padding-top: 4px !important;
     }}
 
-    /* Botões de páginas — horizontal (ícone + texto) */
+    /* Botões de páginas — ícone acima do texto */
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
         background-color: {SB_FUNDO_LINK} !important;
         border: 1px solid {SB_BORDA_SUTIL} !important;
@@ -373,11 +373,11 @@ def _get_global_css() -> str:
         box-shadow: 0 1px 2px rgba(1, 40, 105, 0.04) !important;
         transition: all 0.18s ease !important;
         display: flex !important;
-        flex-direction: row !important;
+        flex-direction: column !important;
         align-items: center !important;
-        justify-content: flex-start !important;
-        gap: 10px !important;
-        min-height: 36px !important;
+        justify-content: center !important;
+        gap: 2px !important;
+        min-height: 58px !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a svg,
@@ -401,7 +401,7 @@ def _get_global_css() -> str:
         font-size: 13px !important;
         background: transparent !important;
         text-align: left !important;
-        line-height: 1.1 !important;
+        line-height: 1 !important;
         margin: 0 !important;
         padding: 0 !important;
         white-space: nowrap !important;
@@ -441,7 +441,9 @@ def _get_global_css() -> str:
         background: transparent !important;
     }}
 
-    /* Expanders no Sidebar */
+    /* ═══════════════════════════════════════════════════
+       EXPANDERS NO SIDEBAR — CORREÇÃO DO CARACTERE "a"
+       ═══════════════════════════════════════════════════ */
     section[data-testid="stSidebar"] [data-testid="stExpander"] {{
         background-color: {SB_FUNDO_LINK} !important;
         border: 1px solid {SB_BORDA_SUTIL} !important;
@@ -451,8 +453,35 @@ def _get_global_css() -> str:
     }}
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
         background-color: {SB_FUNDO_LINK_HOVER} !important;
-        padding: 10px 14px !important;
+        position: relative !important;
+        padding: 10px 14px 10px 36px !important;
         transition: background-color 0.2s ease;
+        list-style: none !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::before {{
+        content: "▸" !important;
+        display: block !important;
+        position: absolute !important;
+        left: 14px !important;
+        top: 50% !important;
+        color: {COR_PRIMARIA} !important;
+        font-family: Arial, sans-serif !important;
+        font-size: 18px !important;
+        line-height: 1 !important;
+        transform: translateY(-50%) !important;
+        visibility: visible !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stExpander"][open] > summary::before,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] details[open] > summary::before {{
+        content: "▾" !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::-webkit-details-marker {{
+        display: none !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary .material-icons,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary .material-symbols-rounded,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {{
+        display: none !important;
     }}
     section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
         background-color: {COR_FUNDO_2} !important;
@@ -468,6 +497,11 @@ def _get_global_css() -> str:
     section[data-testid="stSidebar"] [data-testid="stExpanderDetails"] {{
         padding: 14px !important;
         background: transparent !important;
+    }}
+    /* Desativa ligaturas de fonte que podem causar caracteres fantasmas */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary * {{
+        font-feature-settings: "liga" 0 !important;
+        font-variant-ligatures: none !important;
     }}
 
     /* Sliders */
@@ -670,7 +704,7 @@ def _get_global_css() -> str:
 
     /* ═══════════════════════════════════════════════════
        STATUS PILLS
-       ═══════════════════════════════════════════════════ */
+       ══════════════════════════════════════════════════ */
     .status-pill {{
         display: inline-flex; align-items: center; gap: 5px;
         padding: 3px 10px; border-radius: 12px;
@@ -770,7 +804,7 @@ def _get_global_css() -> str:
         letter-spacing: 1.2px;
     }}
 
-    /* ═══════════════════════════════════════════════════
+    /* ══════════════════════════════════════════════════
        TABELAS CORPORATIVAS
        ═══════════════════════════════════════════════════ */
     .corp-table-wrap {{
@@ -857,6 +891,17 @@ def _get_global_css() -> str:
         height: 8px;
         border-radius: 50%;
         box-shadow: 0 0 6px currentColor;
+    }}
+
+    /* ═══════════════════════════════════════════════════
+       CORREÇÃO FINAL - REMOVE CARACTERES FANTASMAS GLOBAIS
+       ═══════════════════════════════════════════════════ */
+    section[data-testid="stSidebar"] details summary {{
+        list-style-type: none !important;
+        list-style-position: outside !important;
+    }}
+    section[data-testid="stSidebar"] details summary::-webkit-details-marker {{
+        display: inline-block !important;
     }}
     </style>
     """
@@ -1239,12 +1284,10 @@ def render_sidebar_brand(
 
 
 # ====================================================
-#  COMPONENTES DE INTERFACE DO SIDEBAR (TOTALE UI)
+# COMPONENTES DE INTERFACE DO SIDEBAR (TOTALE UI)
 # ====================================================
 def aplicar_sidebar_corp() -> None:
-    """
-    Injeta a folha de estilo do sidebar após a configuração da página.
-    """
+    """Injeta a folha de estilo do sidebar após a configuração da página."""
     st.markdown(_get_sidebar_css(), unsafe_allow_html=True)
 
 
@@ -1283,6 +1326,12 @@ def _get_sidebar_css() -> str:
     section[data-testid="stSidebar"] .stButton > button:hover {{
         background: {COR_SECUNDARIA} !important;
     }}
+    /* CORREÇÃO EXPANDER - Remove caracteres fantasmas */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::before,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::after {{
+        content: "" !important;
+        display: none !important;
+    }}
     </style>
     """
 
@@ -1291,7 +1340,7 @@ def render_sidebar_info(
     user_name: str,
     email: str = "",
     role: str = "",
-    avatar: str = "👤",
+    avatar: str = "",
 ) -> None:
     """Gera o bloco identificador de perfil do usuário logado na plataforma."""
     with st.sidebar:
@@ -1364,9 +1413,6 @@ def render_sidebar_spacer(height: int = 15) -> None:
 
 def render_sidebar_footer_info(versao: str = "v3.1.0") -> None:
     """Renderiza as informações consolidadas de compliance no rodapé operacional."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
     agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
     with st.sidebar:
         render_sidebar_divider()
@@ -1453,3 +1499,40 @@ def render_table_html(
                 display[c] = s.map(lambda v, _f=f: _f(v) if v != "—" else "—")
             elif isinstance(f, str):
                 display[c] = s.map(lambda v, _f=f: _f.format(v) if v != "—" else "—")
+        else:
+            display[c] = s
+
+    html_rows = []
+    for _, row in display.iterrows():
+        cells = []
+        for c in cols:
+            val = row[c]
+            style = ""
+            if color_rules and c in color_rules:
+                for rule, color in color_rules[c]:
+                    if rule(val):
+                        style = f"color:{color};font-weight:600;"
+                        break
+            cells.append(f'<td style="{style}">{val}</td>')
+        # ✅ CORREÇÃO: Aspas fechando corretamente
+        html_rows.append(f'<tr>{"".join(cells)}</tr>')
+
+    if linha_total and not df_show.empty:
+        total_cells = []
+        for c in cols:
+            if c in num_set:
+                total = df_show[c].sum()
+                total_cells.append(f'<td class="num">{_fmt_br(total)}</td>')
+            else:
+                total_cells.append("<td><strong>TOTAL</strong></td>")
+        html_rows.append(f'<tr class="total-row">{"".join(total_cells)}</tr>')
+
+    headers_html = "".join(f"<th>{c}</th>" for c in cols)
+    html = (
+        f'<div class="corp-table-wrap" style="max-height:{height}px;overflow-y:auto;">'
+        f'<table class="corp-table">'
+        f"<thead><tr>{headers_html}</tr></thead>"
+        f'<tbody>{"".join(html_rows)}</tbody>'
+        f"</table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
