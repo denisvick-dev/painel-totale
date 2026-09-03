@@ -507,18 +507,18 @@ class Utilitarios:
     @staticmethod
     def calcular_dias_uteis(df: pd.DataFrame) -> tuple[int, int, Any, int]:
         col_data = Utilitarios.encontrar_coluna_data(df)
-        data_max: datetime.date = (
+        data_referencia: datetime.date = (
             pd.to_datetime(df[col_data].max()).date()
             if col_data and pd.notna(df[col_data].max())
             else datetime.date.today()
         )
-        ano, mes = data_max.year, data_max.month
+        ano, mes = data_referencia.year, data_referencia.month
         primeiro = datetime.date(ano, mes, 1)
         _, ult = calendar.monthrange(ano, mes)
         ultimo = datetime.date(ano, mes, ult)
 
         p_np = np.datetime64(primeiro)
-        m_np = np.datetime64(data_max)
+        m_np = np.datetime64(data_referencia)
         u_np = np.datetime64(ultimo)
 
         total = int(
@@ -529,7 +529,7 @@ class Utilitarios:
         )
         brutos = max(0, total - passados)
         seguros = max(1, brutos)
-        return brutos, seguros, data_max, passados
+        return brutos, seguros, data_referencia, passados
 
     @staticmethod
     def exportar_excel(dataframe: pd.DataFrame) -> bytes:

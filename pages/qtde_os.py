@@ -476,8 +476,20 @@ class Componentes:
     """Renderiza seções visuais do dashboard."""
 
     @staticmethod
-    def kpis(proc: ProcessadorDados) -> None:
-        c1, c2, c3, c4 = st.columns(4)
+    def kpis(proc: ProcessadorDados, dias_faltantes: int) -> None:
+        c1, c2, c3, c4, c5 = st.columns(5)
+        if ProcessadorDados.COL_DATA in proc.df.columns and not proc.df.empty:
+            quantidade_por_dia = proc.df.groupby(
+                proc.df[ProcessadorDados.COL_DATA].dt.normalize()
+            )[ProcessadorDados.COL_OS].count()
+            media_total = (
+                float(quantidade_por_dia.mean())
+                if not quantidade_por_dia.empty
+                else 0.0
+            )
+        else:
+            media_total = 0.0
+        projecao_total = int(round(proc.total_filtrado + media_total * dias_faltantes))
         render_kpi(
             c1,
             "Total O.S. (Geral)",
@@ -492,6 +504,13 @@ class Componentes:
         )
         render_kpi(c3, "Projetos Ativos", str(proc.qtd_projetos), tema="laranja")
         render_kpi(c4, "Supervisores Ativos", str(proc.qtd_supervisores), tema="verde")
+        render_kpi(
+            c5,
+            "Projeção O.S.",
+            f"{projecao_total:,}".replace(",", "."),
+            f"+{max(0, projecao_total - proc.total_filtrado):,} até o fim do período".replace(",", "."),
+            tema="azul",
+        )
 
     @staticmethod
     def grafico_tendencia(df_tend: pd.DataFrame) -> None:
@@ -728,7 +747,7 @@ def main() -> None:
     )
 
     # ── KPIs ──
-    Componentes.kpis(proc)
+    Componentes.kpis(proc, cal.dias_faltantes)
     st.divider()
 
     # ── Tendência ──

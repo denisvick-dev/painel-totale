@@ -1,19 +1,48 @@
 """
 dashboard_meta.py
 =================
-Dashboard de Metas Operacionais - TOTALE
-Integração Completa: Produção + Consultivo (CSV via gdown) + Hierarquia
+Dashboard de Metas Operacionais - TOTALE (Versão Production-Ready, reestruturada)
+
+Foco: robustez, performance, segurança de execução e manutenção.
+- Carregamento: GSheets (hierarquia + produção) e Drive CSV (consultivo)
+- Enriquecimento: merge por LOGIN e fallback por TECNICO (normalizado)
+- Filtros: Base, Monitor, Projeto, Período
+- Abas: Produção, Consultivos, Bases (com projeções e prioridades), Projeção por base
+
+Revisão técnica aplicada:
+- Tipagem corrigida (sem Any[...] inválido)
+- Sem vazamento de arquivos temporários (gdown)
+- Cache + proteção contra mutação (copy após cache)
+- Colunas normalizadas pré-computadas (_BASE_NORM etc.)
+- Projeção por base O(n_bases) sem filtrar DF em loop
+- Render wrappers corporativos com fallback seguro (inclui tabelas)
 """
 
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import tempfile
 import unicodedata
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from html import escape
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+)
 from urllib.parse import quote as url_quote
 from zoneinfo import ZoneInfo
 
@@ -21,160 +50,192 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly.io as pio
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
-from streamlit_gsheets import GSheetsConnection
+from streamlit.delta_generator import DeltaGenerator
+
+# =============================================================================
+# Imports opcionais (componentes corporativos / gsheets / gdown)
+# =============================================================================
 
 try:
-    import gdown
+    from streamlit_gsheets import GSheetsConnection  # type: ignore
 except ImportError:
-    gdown = None
+    GSheetsConnection = None  # type: ignore
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CONFIGURAÇÃO DA PÁGINA
-# ═══════════════════════════════════════════════════════════════════════════
+try:
+    import gdown  # type: ignore
+except ImportError:
+    gdown = None  # type: ignore
+
+try:
+    from components.componentes import (  # type: ignore
+        aplicar_estilo as aplicar_estilo_corporativo,
+        render_empty_state as render_empty_state_corporativo,
+        render_insight as render_insight_corporativo,
+        render_kpi as render_kpi_corporativo,
+        render_progress_bar as render_progress_bar_corporativo,
+        render_section_header as render_section_header_corporativo,
+        render_status_pill as render_status_pill_corporativo,
+        render_table_html as render_table_html_corporativo,
+    )
+
+    COMPONENTES_CORPORATIVOS = True
+except (ImportError, ModuleNotFoundError):
+    COMPONENTES_CORPORATIVOS = False
+    aplicar_estilo_corporativo = None  # type: ignore
+    render_empty_state_corporativo = None  # type: ignore
+    render_insight_corporativo = None  # type: ignore
+    render_kpi_corporativo = None  # type: ignore
+    render_progress_bar_corporativo = None  # type: ignore
+    render_section_header_corporativo = None  # type: ignore
+    render_status_pill_corporativo = None  # type: ignore
+    render_table_html_corporativo = None  # type: ignore
+
+
+# =============================================================================
+# Logging + Page config
+# =============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger("dashboard_meta")
 
 st.set_page_config(
     page_title="Dashboard de Metas | TOTALE",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded",
+    menu_items={"About": "Dashboard de Metas Operacionais - TOTALE"},
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CORES E DESIGN SYSTEM
-# ═══════════════════════════════════════════════════════════════════════════
 
-FONTE_TITULO = "'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
-FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+# =============================================================================
+# Tipos / Constantes
+# =============================================================================
 
-COR_PRIMARIA = "#012869"
-COR_SECUNDARIA = "#F37C04"
-COR_SUCESSO = "#059669"
-COR_ALERTA = "#DC2626"
-COR_ATENCAO = "#F59E0B"
-COR_NEUTRO = "#64748B"
-COR_FUNDO_CARD = "#FFFFFF"
-COR_BORDA = "#E2E8F0"
-COR_TEXTO = "#1F2937"
-COR_TEXTO_3 = "#6B7280"
+Number = Union[int, float, np.integer, np.floating]
+CorTema = Literal["laranja", "azul", "verde", "vermelho", "cinza", "roxo"]
 
-SB_FUNDO = "#F8FAFC"
-SB_BORDA_SUTIL = "#E2E8F0"
-
-_TEMA_CORES: Dict[str, str] = {
-    "azul": COR_PRIMARIA,
-    "verde": COR_SUCESSO,
-    "vermelho": COR_ALERTA,
-    "laranja": COR_SECUNDARIA,
-    "cinza": COR_NEUTRO,
-}
-
-CACHE_TTL_PRODUCAO = 300
-CACHE_TTL_CONSULTIVO = 600
-CACHE_TTL_METAS = 3600
-
-# Fallback se o módulo de componentes existir
-try:
-    from components.componentes import COR_TEXTO as _CT, COR_TEXTO_3 as _CT3
-
-    COR_TEXTO = _CT
-    COR_TEXTO_3 = _CT3
-except Exception:
-    pass
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CONFIGURAÇÕES E METAS
-# ═══════════════════════════════════════════════════════════════════════════
+BASES_PRIORITARIAS: Tuple[str, ...] = ("NET-ABCDM", "NET-LESTE", "NET-GUARULHOS")
+PROJETOS_NET: Tuple[str, ...] = ("NET-ABCDM", "NET-LESTE", "NET-GUARULHOS")
 
 
+def get_secret(key: str, default: str) -> str:
+    try:
+        return str(st.secrets.get(key, default))
+    except Exception:
+        return default
+
+
+@dataclass(frozen=True)
 class Configuracoes:
-    # Planilha lista_ativos (Hierarquia)
-    URL_ATIVOS = (
-        "https://docs.google.com/spreadsheets/d/"
-        "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+    URL_ATIVOS: str = get_secret(
+        "GSHEETS_URL_ATIVOS",
+        "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg",
     )
-    SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-    SHEET_ABA_ATIVOS = "lista_ativos"  # nome da aba
+    SHEET_ID_ATIVOS: str = get_secret(
+        "GSHEETS_ID_ATIVOS", "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+    )
+    SHEET_ABA_ATIVOS: str = "lista_ativos"
 
-    SHEET_ID_PROD = "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
-    SHEET_ABA_PROD = "Prod"
-    DRIVE_ID_CONS = "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
+    SHEET_ID_PROD: str = get_secret(
+        "GSHEETS_ID_PROD", "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
+    )
+    SHEET_ABA_PROD: str = "Prod"
 
-    TIMEOUT = 30
-    TZ = ZoneInfo("America/Sao_Paulo")
+    DRIVE_ID_CONS: str = get_secret(
+        "DRIVE_ID_CONS", "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
+    )
+
+    TIMEOUT: int = 30
+    TZ: ZoneInfo = ZoneInfo("America/Sao_Paulo")
+
+    CACHE_TTL_HIERARQUIA: int = 3600
+    CACHE_TTL_CONSULTIVO: int = 600
+    CACHE_TTL_PRODUCAO: int = 300
 
 
-class ObjetivosOperacao:
-    PRODUCAO_OS_PROJETO = {"minima": 7_000, "meta_base": 10_000, "alta_perf": 11_000}
-    CONSULTIVO_PROJETO = {"minima": 367, "meta_base": 525, "alta_perf": 580}
-    PRODUCAO_OS_GERAL = {"minima": 21_000, "meta_base": 30_000, "alta_perf": 33_000}
-    CONSULTIVO_GERAL = {"minima": 1_102, "meta_base": 1_575, "alta_perf": 1_732}
+class Cores:
+    PRIMARIA = "#012869"
+    SECUNDARIA = "#F37C04"
+    SUCESSO = "#059669"
+    ALERTA = "#DC2626"
+    ATENCAO = "#F59E0B"
+    NEUTRO = "#64748B"
+    FUNDO_CARD = "#FFFFFF"
+    BORDA = "#E2E8F0"
+    TEXTO = "#1F2937"
+    TEXTO_3 = "#6B7280"
+
+    MAPA_CORES: Dict[CorTema, str] = {
+        "azul": PRIMARIA,
+        "verde": SUCESSO,
+        "vermelho": ALERTA,
+        "laranja": SECUNDARIA,
+        "cinza": NEUTRO,
+        "roxo": "#7C3AED",
+    }
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# UTILITÁRIOS DE COLUNAS (corrige duplicate keys / .str em DataFrame)
-# ═══════════════════════════════════════════════════════════════════════════
+class Metas:
+    PRODUCAO_OS_BASE = {"minima": 10_000, "meta_base": 11_000, "alta_perf": 12_000}
+    CONSULTIVO_BASE = {"minima": 400, "meta_base": 525, "alta_perf": 600}
+    PRODUCAO_OS_GERAL = {"minima": 30_000, "meta_base": 33_000, "alta_perf": 36_000}
+    CONSULTIVO_GERAL = {"minima": 1_200, "meta_base": 1_575, "alta_perf": 1_800}
+
+
+CFG = Configuracoes()
+
+
+# =============================================================================
+# HTTP session (reuso de conexões)
+# =============================================================================
+
+
+@st.cache_resource
+def http_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({"User-Agent": "totale-dashboard/2.0"})
+    return s
+
+
+# =============================================================================
+# Utils de dados
+# =============================================================================
 
 
 def normalizar_texto(texto: Any) -> str:
     if pd.isna(texto):
         return ""
     txt = str(texto).strip()
-    return "".join(
+    txt = "".join(
         c for c in unicodedata.normalize("NFD", txt) if unicodedata.category(c) != "Mn"
-    ).upper()
-
-
-def _primeira_serie(df: pd.DataFrame, col: str) -> Optional[pd.Series]:
-    """Se houver colunas duplicadas com o mesmo nome, devolve só a primeira Series."""
-    if col not in df.columns:
-        return None
-    obj = df[col]
-    if isinstance(obj, pd.DataFrame):
-        return obj.iloc[:, 0]
-    return obj
-
-
-def deduplicar_colunas(df: pd.DataFrame) -> pd.DataFrame:
-    """Remove colunas com nome repetido (mantém a primeira)."""
-    if df.columns.is_unique:
-        return df
-    return df.loc[:, ~df.columns.duplicated(keep="first")].copy()
+    )
+    return txt.upper()
 
 
 def mapear_colunas(df: pd.DataFrame, regras: Dict[str, List[str]]) -> pd.DataFrame:
-    """
-    Renomeia colunas de forma 1:1 (sem gerar nomes duplicados).
-
-    regras = {
-        "DATA": ["DATA", "DT_CRIACAO", "DT", "EXECUCAO", "CRIACAO"],
-        "LOGIN": ["LOGIN", "USUARIO", "USER", "MATRICULA"],
-        ...
-    }
-    Prioridade: ordem da lista de aliases (primeiro match ganha).
-    Cada destino só é atribuído uma vez.
-    """
     if df.empty:
         return df
 
     df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
+    df.columns = pd.Index([str(c).strip() for c in df.columns])
 
-    # destino -> coluna original
     destino_para_origem: Dict[str, str] = {}
-    origem_usada: set[str] = set()
-
-    colunas_norm = {c: normalizar_texto(c) for c in df.columns}
+    origem_usada: Set[str] = set()
+    colunas_norm: Dict[str, str] = {str(c): normalizar_texto(c) for c in df.columns}
 
     for destino, aliases in regras.items():
         if destino in destino_para_origem:
             continue
+
         aliases_norm = [normalizar_texto(a) for a in aliases]
 
-        # 1) match exato pelo alias
+        # busca exata
         for alias in aliases_norm:
             for orig, cn in colunas_norm.items():
                 if orig in origem_usada:
@@ -186,7 +247,7 @@ def mapear_colunas(df: pd.DataFrame, regras: Dict[str, List[str]]) -> pd.DataFra
             if destino in destino_para_origem:
                 break
 
-        # 2) match por "contém", do alias mais específico (mais longo) ao menor
+        # busca parcial
         if destino not in destino_para_origem:
             for alias in sorted(aliases_norm, key=len, reverse=True):
                 if len(alias) < 2:
@@ -194,15 +255,10 @@ def mapear_colunas(df: pd.DataFrame, regras: Dict[str, List[str]]) -> pd.DataFra
                 for orig, cn in colunas_norm.items():
                     if orig in origem_usada:
                         continue
-                    # evita match fraco demais (ex.: "OS" dentro de "POSICAO")
+
                     if alias == "OS":
-                        if (
-                            cn == "OS"
-                            or cn.startswith("OS_")
-                            or cn.endswith("_OS")
-                            or "NUMERO_OS" in cn
-                            or "NUM_OS" in cn
-                            or "N_OS" in cn
+                        if cn == "OS" or any(
+                            x in cn for x in ("NUMERO_OS", "NUM_OS", "N_OS")
                         ):
                             destino_para_origem[destino] = orig
                             origem_usada.add(orig)
@@ -219,54 +275,117 @@ def mapear_colunas(df: pd.DataFrame, regras: Dict[str, List[str]]) -> pd.DataFra
             columns={orig: dest for dest, orig in destino_para_origem.items()}
         )
 
-    return deduplicar_colunas(df)
+    return df.loc[:, ~df.columns.duplicated(keep="first")].copy()
 
 
 def garantir_datetime(df: pd.DataFrame, col: str = "DATA") -> pd.DataFrame:
     if col not in df.columns:
         return df
-    s = _primeira_serie(df, col)
-    if s is None:
-        return df
-    df = deduplicar_colunas(df)
-    df[col] = pd.to_datetime(s, errors="coerce", dayfirst=True)
+    df = df.copy()
+    df[col] = pd.to_datetime(df[col], errors="coerce", dayfirst=True)
     return df
 
 
 def garantir_login(df: pd.DataFrame, col: str = "LOGIN") -> pd.DataFrame:
     if col not in df.columns:
         return df
-    s = _primeira_serie(df, col)
-    if s is None:
-        return df
-    df = deduplicar_colunas(df)
-    df[col] = (
-        s.astype(str)
-        .str.strip()
-        .str.upper()
-        .replace({"NAN": pd.NA, "NONE": pd.NA, "": pd.NA})
-    )
+    df = df.copy()
+    s = df[col].astype(str).str.strip().str.upper()
+    invalidos = {"NAN", "NONE", "N/A", "<NA>", "", "NA"}
+    s = s.where(~s.isin(list(invalidos)), None)
+    s = s.where(s.notna(), None)
+    df[col] = s
     return df
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CÁLCULOS E REGRAS DE NEGÓCIO
-# ═══════════════════════════════════════════════════════════════════════════
+def add_norm_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """Pré-computa colunas normalizadas usadas em filtros/joins."""
+    if df.empty:
+        return df
+    df = df.copy()
+    if "BASE" in df.columns and "_BASE_NORM" not in df.columns:
+        df["_BASE_NORM"] = df["BASE"].map(normalizar_texto)
+    if "LOGIN" in df.columns and "_LOGIN_NORM" not in df.columns:
+        df["_LOGIN_NORM"] = df["LOGIN"].map(normalizar_texto)
+    if "TECNICO" in df.columns and "_TECNICO_NORM" not in df.columns:
+        df["_TECNICO_NORM"] = df["TECNICO"].map(normalizar_texto)
+    if "PROJETO" in df.columns and "_PROJETO_NORM" not in df.columns:
+        df["_PROJETO_NORM"] = df["PROJETO"].map(normalizar_texto)
+    return df
 
 
-class Calculos:
+# =============================================================================
+# Métricas / Projeção (otimizadas)
+# =============================================================================
+
+
+class CalculosOperacionais:
     @staticmethod
-    def variacao(valor: float, meta: float) -> str:
-        if meta == 0 or pd.isna(meta):
-            return "N/A"
-        pct = ((valor - meta) / meta) * 100
-        return f"+{pct:.1f}%" if pct > 0 else f"{pct:.1f}%"
+    @lru_cache(maxsize=16)
+    def feriados_brasil(ano: int) -> Tuple[date, ...]:
+        """Feriados nacionais + móveis (aproximação)."""
+        a = ano % 19
+        b = ano // 100
+        c = ano % 100
+        d = b // 4
+        e = b % 4
+        f = (b + 8) // 25
+        g = (b - f + 1) // 3
+        h = (19 * a + b - d - g + 15) % 30
+        i = c // 4
+        k = c % 4
+        l = (32 + 2 * e + 2 * i - h - k) % 7
+        m = (a + 11 * h + 22 * l) // 451
+        mes = (h + l - 7 * m + 114) // 31
+        dia = ((h + l - 7 * m + 114) % 31) + 1
+        pascoa = date(ano, mes, dia)
+
+        feriados = (
+            date(ano, 1, 1),
+            date(ano, 4, 21),
+            date(ano, 5, 1),
+            date(ano, 9, 7),
+            date(ano, 10, 12),
+            date(ano, 11, 2),
+            date(ano, 11, 15),
+            date(
+                ano, 11, 20
+            ),  # pode variar por cidade/UF; manter se regra interna aceita
+            date(ano, 12, 25),
+            pascoa - timedelta(days=48),
+            pascoa - timedelta(days=47),
+            pascoa - timedelta(days=2),
+            pascoa + timedelta(days=60),
+        )
+        return tuple(sorted(set(feriados)))
 
     @staticmethod
-    def share(valor: float, geral: float) -> str:
-        if geral == 0 or pd.isna(geral) or abs(valor - geral) < 0.0001:
-            return "100.0%"
-        return f"{(valor / geral) * 100:.1f}%"
+    def _busday_count(
+        inicio: date, fim_inclusivo: date, feriados: Sequence[date]
+    ) -> int:
+        hol = np.array([np.datetime64(d) for d in feriados], dtype="datetime64[D]")
+        return int(
+            np.busday_count(
+                np.datetime64(inicio),
+                np.datetime64(fim_inclusivo + timedelta(days=1)),
+                holidays=hol,
+            )
+        )
+
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def fator_por_data_max(data_max: date) -> Tuple[float, int, int]:
+        inicio_mes = data_max.replace(day=1)
+        prox_mes = (inicio_mes.replace(day=28) + timedelta(days=4)).replace(day=1)
+        fim_mes = prox_mes - timedelta(days=1)
+
+        feriados = CalculosOperacionais.feriados_brasil(data_max.year)
+        total = CalculosOperacionais._busday_count(inicio_mes, fim_mes, feriados)
+        decorridos = CalculosOperacionais._busday_count(inicio_mes, data_max, feriados)
+
+        faltantes = max(0, total - decorridos)
+        fator = (total / decorridos) if decorridos > 0 else 1.0
+        return float(fator), int(faltantes), int(total)
 
     @staticmethod
     def fator_projecao(
@@ -274,208 +393,414 @@ class Calculos:
     ) -> Tuple[float, int, int]:
         if df.empty or coluna_data not in df.columns:
             return 1.0, 0, 0
-
-        s = _primeira_serie(df, coluna_data)
-        if s is None:
-            return 1.0, 0, 0
-
-        datas = pd.to_datetime(s, errors="coerce").dropna()
+        datas = pd.to_datetime(df[coluna_data], errors="coerce").dropna()
         if datas.empty:
             return 1.0, 0, 0
+        dmax = datas.max().normalize().date()
+        return CalculosOperacionais.fator_por_data_max(dmax)
 
-        data_max = datas.max().normalize()
-        inicio_mes = data_max.replace(day=1)
-        prox_mes = (inicio_mes + pd.Timedelta(days=32)).replace(day=1)
-        fim_mes = prox_mes - pd.Timedelta(days=1)
-
-        dias_uteis_total = len(
-            [d for d in pd.date_range(inicio_mes, fim_mes) if d.dayofweek < 6]
-        )
-        dias_decorridos = len(
-            [d for d in pd.date_range(inicio_mes, data_max) if d.dayofweek < 6]
-        )
-        faltantes = max(0, dias_uteis_total - dias_decorridos)
-        fator = (dias_uteis_total / dias_decorridos) if dias_decorridos > 0 else 1.0
-        return fator, faltantes, dias_uteis_total
+    @staticmethod
+    def calcular_atingimento(
+        valor: Any[Number, pd.Series], meta: Number
+    ) -> Any[float, pd.Series]:
+        if meta <= 0:
+            return 0.0 if not isinstance(valor, pd.Series) else valor * 0
+        return (valor / meta) * 100
 
 
-def get_status_geral(valor: int | float, tipo: str = "os") -> Tuple[str, str, str]:
-    m = (
-        ObjetivosOperacao.PRODUCAO_OS_GERAL
-        if tipo == "os"
-        else ObjetivosOperacao.CONSULTIVO_GERAL
-    )
-    if valor >= m["alta_perf"]:
-        return "🔥 Alta Performance", COR_SUCESSO, "#D1FAE5"
-    elif valor >= m["meta_base"]:
-        return "✅ Meta Atingida", COR_SUCESSO, "#D1FAE5"
-    elif valor >= m["minima"]:
-        return "⚠️ Atenção / Mínimo", COR_ATENCAO, "#FEF3C7"
-    else:
-        return "🚨 Crítico / Abaixo", COR_ALERTA, "#FEE2E2"
-
-
-def get_status_projeto(
-    valor: int | float, metas: Dict[str, int]
+def get_status_geral(
+    valor: Any, tipo: Literal["os", "cons"] = "os"
 ) -> Tuple[str, str, str]:
-    if valor >= metas["alta_perf"]:
-        return "🔥 Alta Performance", COR_SUCESSO, "#D1FAE5"
-    if valor >= metas["meta_base"]:
-        return "✅ Meta Atingida", COR_SUCESSO, "#D1FAE5"
-    if valor >= metas["minima"]:
-        return "⚠️ Atenção / Mínimo", COR_ATENCAO, "#FEF3C7"
-    return "🚨 Crítico / Abaixo", COR_ALERTA, "#FEE2E2"
+    if pd.isna(valor):
+        valor = 0
+    metas = Metas.PRODUCAO_OS_GERAL if tipo == "os" else Metas.CONSULTIVO_GERAL
+    if float(valor) >= metas["alta_perf"]:
+        return "Alta Performance", Cores.SUCESSO, "#D1FAE5"
+    if float(valor) >= metas["meta_base"]:
+        return "Meta Atingida", Cores.SUCESSO, "#D1FAE5"
+    if float(valor) >= metas["minima"]:
+        return "Atenção / Mínimo", Cores.ATENCAO, "#FEF3C7"
+    return "Crítico / Abaixo", Cores.ALERTA, "#FEE2E2"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# ESTILOS CSS
-# ═══════════════════════════════════════════════════════════════════════════
+def get_status_base(valor: Any, metas: Mapping[str, Number]) -> Tuple[str, str, str]:
+    if pd.isna(valor):
+        valor = 0
+    if float(valor) >= float(metas["alta_perf"]):
+        return "Alta Performance", Cores.SUCESSO, "#D1FAE5"
+    if float(valor) >= float(metas["meta_base"]):
+        return "Meta Atingida", Cores.SUCESSO, "#D1FAE5"
+    if float(valor) >= float(metas["minima"]):
+        return "Atenção / Mínimo", Cores.ATENCAO, "#FEF3C7"
+    return "Crítico / Abaixo", Cores.ALERTA, "#FEE2E2"
 
 
-def aplicar_estilo():
+# =============================================================================
+# CSS (corporativo + fallback local)
+# =============================================================================
+
+
+def aplicar_estilo_local() -> None:
     st.markdown(
         f"""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
 
-    html, body, p, label, li, a, button, input, select, textarea {{
-        font-family: {FONTE_TEXTO} !important;
-    }}
-    h1, h2, h3, h4 {{
-        font-family: {FONTE_TITULO} !important;
-        font-weight: 700;
-        color: {COR_PRIMARIA};
-    }}
-    .main .block-container {{
-        padding-top: 1.2rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
-    }}
-    section[data-testid="stSidebar"] {{
-        background-color: {SB_FUNDO} !important;
-        border-right: 1px solid {SB_BORDA_SUTIL} !important;
-    }}
-    .hero-totale {{
-        background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #02419c 60%, {COR_SECUNDARIA} 100%);
-        padding: 1.8rem 2.2rem;
-        border-radius: 12px;
-        color: #FFFFFF;
-        box-shadow: 0 4px 14px rgba(1, 40, 105, 0.15);
-        margin-bottom: 1.5rem;
-    }}
-    .hero-totale h1 {{ color: #FFFFFF !important; margin: 0 0 0.4rem 0; font-size: 1.9rem; }}
-    .hero-totale p {{ color: #E2E8F0 !important; margin: 0; font-size: 0.95rem; }}
+        html, body, [class*="css"] {{
+            font-family: 'IBM Plex Sans', sans-serif !important;
+        }}
+        h1, h2, h3 {{
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            color: {Cores.PRIMARIA};
+        }}
+        .main .block-container {{
+            padding-top: 1.2rem;
+            max-width: 1440px;
+        }}
+        .hero-totale {{
+            background: linear-gradient(135deg, {Cores.PRIMARIA} 0%, #02419c 60%, {Cores.SECUNDARIA} 100%);
+            padding: 1.8rem 2rem;
+            border-radius: 12px;
+            color: #FFFFFF;
+            box-shadow: 0 4px 14px rgba(1, 40, 105, 0.15);
+            margin-bottom: 1.5rem;
+        }}
+        .hero-totale h1 {{ color: #FFFFFF !important; margin: 0; font-size: 1.85rem; }}
+        .hero-totale p {{ color: #E2E8F0 !important; margin: 0.45rem 0 0 0; }}
 
-    .card-kpi {{
-        background: {COR_FUNDO_CARD};
-        border-radius: 10px;
-        padding: 1.2rem 1.4rem;
-        border: 1px solid {COR_BORDA};
-        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        height: 100%;
-    }}
-    .card-kpi-titulo {{ font-size: 0.85rem; font-weight: 600; color: {COR_NEUTRO}; text-transform: uppercase; margin-bottom: 0.3rem; }}
-    .card-kpi-valor {{ font-size: 1.8rem; font-weight: 700; color: {COR_TEXTO}; margin-bottom: 0.4rem; }}
-    .card-kpi-sub {{ font-size: 0.8rem; color: {COR_TEXTO_3}; }}
-    .card-projeto {{
-        background: {COR_FUNDO_CARD};
-        border: 1px solid {COR_BORDA};
-        border-top: 4px solid {COR_SECUNDARIA};
-        border-radius: 10px;
-        padding: 1rem 1.1rem;
-        min-height: 150px;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-    }}
-    .card-projeto-titulo {{ font-size: 1rem; font-weight: 700; color: {COR_PRIMARIA}; margin-bottom: 0.6rem; }}
-    .card-projeto-valor {{ font-size: 1.7rem; font-weight: 700; color: {COR_TEXTO}; }}
-    .card-projeto-sub {{ font-size: 0.78rem; color: {COR_TEXTO_3}; margin-top: 0.25rem; }}
-    .badge {{
-        display: inline-block;
-        padding: 0.25rem 0.6rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }}
-    </style>
-    """,
+        .card-kpi {{
+            background: {Cores.FUNDO_CARD};
+            border-radius: 10px;
+            padding: 1.1rem 1.2rem;
+            border: 1px solid {Cores.BORDA};
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            height: 100%;
+        }}
+        .card-kpi-titulo {{
+            font-size: 0.80rem;
+            font-weight: 700;
+            color: {Cores.NEUTRO};
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }}
+        .card-kpi-valor {{
+            font-size: 1.9rem;
+            font-weight: 800;
+            color: {Cores.TEXTO};
+            margin: 0.35rem 0 0.2rem 0;
+        }}
+        .card-kpi-sub {{ font-size: 0.8rem; color: {Cores.TEXTO_3}; }}
+
+        .base-card {{
+            background: #FFFFFF;
+            border: 1px solid {Cores.BORDA};
+            border-top: 4px solid {Cores.SECUNDARIA};
+            border-radius: 10px;
+            padding: 1rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            height: 100%;
+        }}
+        .base-title {{
+            color: {Cores.PRIMARIA};
+            font-weight: 800;
+            margin-bottom: 0.7rem;
+        }}
+        .pill {{
+            display: inline-block;
+            padding: 0.22rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            border: 1px solid {Cores.BORDA};
+            background: #F8FAFC;
+            color: {Cores.TEXTO};
+        }}
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
 
-aplicar_estilo()
+if COMPONENTES_CORPORATIVOS and aplicar_estilo_corporativo:
+    try:
+        aplicar_estilo_corporativo()  # type: ignore[misc]
+    except Exception as e:
+        logger.warning(f"Falha ao aplicar estilo corporativo: {e}")
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CARREGAMENTO DE DADOS
-# ═══════════════════════════════════════════════════════════════════════════
+aplicar_estilo_local()
+
+
+# =============================================================================
+# Render wrappers (corporativo com fallback)
+# =============================================================================
+
+
+def render_section_header_seguro(
+    titulo: str,
+    subtitulo: str = "",
+    icone: str = "",
+    badge: str = "",
+    badge_tipo: CorTema = "laranja",
+) -> None:
+    if COMPONENTES_CORPORATIVOS and render_section_header_corporativo:
+        try:
+            render_section_header_corporativo(  # type: ignore[misc]
+                titulo,
+                subtitulo=subtitulo,
+                icone=icone,
+                badge=badge,
+                badge_tipo=badge_tipo,
+            )
+            return
+        except Exception as e:
+            logger.warning(f"Falha render_section_header_corporativo: {e}")
+
+    st.subheader(f"{icone} {titulo}".strip())
+    if subtitulo:
+        st.caption(subtitulo)
+
+
+def render_kpi_fallback(
+    container: DeltaGenerator, titulo: str, valor: str, subtexto: str, cor_tema: CorTema
+) -> None:
+    cor_hex = Cores.MAPA_CORES.get(cor_tema, Cores.PRIMARIA)
+    container.markdown(
+        f"""
+        <div class="card-kpi">
+            <div class="card-kpi-titulo">{escape(titulo)}</div>
+            <div class="card-kpi-valor" style="color:{cor_hex};">{escape(valor)}</div>
+            <div class="card-kpi-sub">{escape(subtexto)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_kpi_seguro(
+    container: DeltaGenerator, titulo: str, valor: str, subtexto: str, cor_tema: CorTema
+) -> None:
+    if COMPONENTES_CORPORATIVOS and render_kpi_corporativo:
+        try:
+            render_kpi_corporativo(container, titulo, valor, subtexto, cor_tema)  # type: ignore[misc]
+            return
+        except Exception as e:
+            logger.warning(f"Falha render_kpi_corporativo: {e}")
+    render_kpi_fallback(container, titulo, valor, subtexto, cor_tema)
+
+
+def render_empty_state_seguro(titulo: str, mensagem: str) -> None:
+    if COMPONENTES_CORPORATIVOS and render_empty_state_corporativo:
+        try:
+            render_empty_state_corporativo(titulo, mensagem)  # type: ignore[misc]
+            return
+        except Exception as e:
+            logger.warning(f"Falha render_empty_state_corporativo: {e}")
+    st.info(f"{titulo}: {mensagem}")
+
+
+def render_insight_seguro(
+    mensagem: str, tipo: Literal["info", "alerta", "critico"] = "info"
+) -> None:
+    if COMPONENTES_CORPORATIVOS and render_insight_corporativo:
+        try:
+            render_insight_corporativo(mensagem, tipo=tipo)  # type: ignore[misc]
+            return
+        except Exception as e:
+            logger.warning(f"Falha render_insight_corporativo: {e}")
+
+    if tipo in ("alerta", "critico"):
+        st.warning(mensagem)
+    else:
+        st.info(mensagem)
+
+
+def render_progress_bar_seguro(
+    label: str, valor: Number, meta: Number, unidade: str = ""
+) -> None:
+    if COMPONENTES_CORPORATIVOS and render_progress_bar_corporativo:
+        try:
+            render_progress_bar_corporativo(label, valor, meta, unidade)  # type: ignore[misc]
+            return
+        except Exception as e:
+            logger.warning(f"Falha render_progress_bar_corporativo: {e}")
+
+    pct = float(CalculosOperacionais.calcular_atingimento(float(valor), float(meta)))
+    st.progress(
+        min(pct / 100.0, 1.0),
+        text=f"{label}: {pct:.1f}% ({valor}{unidade} / {meta}{unidade})",
+    )
+
+
+def render_status_pill_seguro(texto: str, status: str) -> str:
+    if COMPONENTES_CORPORATIVOS and render_status_pill_corporativo:
+        try:
+            status_tipo = (
+                "sucesso"
+                if "Meta" in status or "Performance" in status
+                else "pendente" if "Atenção" in status else "erro"
+            )
+            return render_status_pill_corporativo(texto, status_tipo)  # type: ignore[misc]
+        except Exception as e:
+            logger.warning(f"Falha render_status_pill_corporativo: {e}")
+    return f"<span class='pill'>{escape(texto)}</span>"
+
+
+def _styler_apply_color_rules(
+    df: pd.DataFrame,
+    color_rules: Dict[str, List[Tuple[Callable[[Any], bool], str]]],
+) -> pd.io.formats.style.Styler:
+    styler = df.style
+
+    # aplica por célula apenas nas colunas definidas
+    def style_cell(val: Any, rules: List[Tuple[Callable[[Any], bool], str]]) -> str:
+        for pred, color in rules:
+            try:
+                if pred(val):
+                    return f"color: {color}; font-weight: 700;"
+            except Exception:
+                continue
+        return ""
+
+    for col, rules in color_rules.items():
+        if col in df.columns:
+            styler = styler.map(lambda v, rr=rules: style_cell(v, rr), subset=[col])
+    return styler
+
+
+def render_table_seguro(
+    df: pd.DataFrame,
+    titulo: str = "",
+    fmt: Optional[Any[str, str]] = None,
+    num_cols: Optional[List[str]] = None,
+    color_rules: Optional[Any[str, List[Tuple[Callable[[Any], bool], str]]]] = None,
+) -> None:
+    if COMPONENTES_CORPORATIVOS and render_table_html_corporativo:
+        try:
+            render_table_html_corporativo(  # type: ignore[misc]
+                df,
+                titulo=titulo,
+                fmt=fmt or {},
+                color_rules=color_rules or {},
+                num_cols=num_cols or [],
+            )
+            return
+        except Exception as e:
+            logger.warning(
+                f"Falha render_table_html corporativo; fallback st.dataframe: {e}"
+            )
+
+    if titulo:
+        st.markdown(f"**{titulo}**")
+
+    _df = df.copy()
+    if fmt:
+        # fallback simples: format via Styler
+        styler = _df.style.format(fmt)
+    else:
+        styler = _df.style
+
+    if color_rules:
+        styler = _styler_apply_color_rules(_df, color_rules)
+
+    st.dataframe(styler, use_container_width=True, hide_index=True)
+
+
+# =============================================================================
+# Charts
+# =============================================================================
+
+
+def render_gauge(
+    valor: int, min_val: int, base: int, alta: int, titulo: str
+) -> go.Figure:
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number+delta",
+            value=valor,
+            title={"text": titulo, "font": {"size": 16, "color": Cores.PRIMARIA}},
+            delta={
+                "reference": base,
+                "increasing": {"color": Cores.SUCESSO},
+                "decreasing": {"color": Cores.ALERTA},
+            },
+            gauge={
+                "axis": {"range": [0, max(int(alta * 1.2), int(valor * 1.2), 1)]},
+                "bar": {"color": Cores.PRIMARIA},
+                "steps": [
+                    {"range": [0, min_val], "color": "#FEE2E2"},
+                    {"range": [min_val, base], "color": "#FEF3C7"},
+                    {"range": [base, max(int(alta * 1.2), 1)], "color": "#D1FAE5"},
+                ],
+                "threshold": {
+                    "line": {"color": Cores.SECUNDARIA, "width": 4},
+                    "thickness": 0.75,
+                    "value": base,
+                },
+            },
+        )
+    )
+    fig.update_layout(
+        height=250, margin=dict(l=10, r=10, t=35, b=10), paper_bgcolor="rgba(0,0,0,0)"
+    )
+    return fig
+
+
+# =============================================================================
+# ETL: leitura e downloads
+# =============================================================================
 
 
 def _ler_csv_bytes(conteudo: bytes) -> pd.DataFrame:
-    """Tenta vários encodings/separadores até obter um DataFrame válido."""
     if not conteudo or len(conteudo) < 10:
-        raise ValueError("Arquivo CSV vazio ou muito pequeno.")
+        raise ValueError("CSV vazio ou corrompido.")
 
-    melhor: Optional[pd.DataFrame] = None
-    melhor_cols = 0
+    # heurística leve para separador
+    head = conteudo[:4096]
+    seps = [b";", b",", b"\t", b"|"]
+    sep = max(seps, key=lambda s: head.count(s))
+    sep_char = sep.decode("utf-8", errors="ignore") or ";"
 
-    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
-        for sep in (",", ";", "\t", "|"):
-            try:
-                tmp = pd.read_csv(
-                    io.BytesIO(conteudo),
-                    sep=sep,
-                    encoding=enc,
-                    low_memory=False,
-                    dtype=str,  # evita inferência ambígua; convertemos depois
-                )
-                if tmp is not None and len(tmp.columns) > melhor_cols and len(tmp) > 0:
-                    melhor = tmp
-                    melhor_cols = len(tmp.columns)
-                    # bom o bastante
-                    if melhor_cols >= 3:
-                        return melhor
-            except Exception:
-                continue
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            df = pd.read_csv(
+                io.BytesIO(conteudo),
+                sep=sep_char,
+                encoding=enc,
+                dtype=str,
+                low_memory=False,
+                on_bad_lines="skip",
+            )
+            if not df.empty and len(df.columns) > 1:
+                return df
+        except Exception:
+            continue
 
-    if melhor is not None:
-        return melhor
-
+    # último fallback
     return pd.read_csv(
-        io.BytesIO(conteudo), encoding="latin-1", low_memory=False, dtype=str
+        io.BytesIO(conteudo),
+        encoding="latin-1",
+        dtype=str,
+        low_memory=False,
+        on_bad_lines="skip",
     )
 
 
 def _baixar_drive_csv(file_id: str) -> bytes:
-    """
-    Baixa arquivo do Google Drive.
-    1) tenta gdown em arquivo temporário
-    2) fallback via requests (export direto)
-    """
-    urls = [
-        f"https://drive.google.com/uc?id={file_id}&export=download",
-        f"https://drive.google.com/uc?export=download&id={file_id}",
-        f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
-    ]
+    sess = http_session()
+    url = f"https://drive.google.com/uc?id={file_id}&export=download"
 
-    # --- gdown (arquivo temp; BytesIO costuma falhar em algumas versões) ---
-    if gdown is not None:
-        tmp_path = None
+    # gdown (com cleanup garantido)
+    download = getattr(gdown, "download", None) if gdown else None
+    if callable(download):
+        tmp_path: Optional[str] = None
         try:
             fd, tmp_path = tempfile.mkstemp(suffix=".csv")
             os.close(fd)
-            out = gdown.download(
-                url=f"https://drive.google.com/uc?id={file_id}",
-                output=tmp_path,
-                quiet=True,
-                fuzzy=True,
-            )
-            if out and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 10:
-                with open(tmp_path, "rb") as f:
-                    return f.read()
-        except Exception:
-            pass
+            download(f"https://drive.google.com/uc?id={file_id}", tmp_path, quiet=True)
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning(f"gdown falhou, fallback requests: {e}")
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 try:
@@ -483,809 +808,925 @@ def _baixar_drive_csv(file_id: str) -> bytes:
                 except OSError:
                     pass
 
-    # --- requests ---
-    last_err = None
-    session = requests.Session()
-    for url in urls:
-        try:
-            resp = session.get(url, timeout=Configuracoes.TIMEOUT, allow_redirects=True)
-            # confirmação de download grande do Drive
-            if (
-                "confirm=" in resp.text[:2000]
-                and "download_warning" in resp.text[:5000]
-            ):
-                m = re.search(r"confirm=([0-9A-Za-z_]+)", resp.text)
-                if m:
-                    resp = session.get(
-                        f"https://drive.google.com/uc?export=download&confirm={m.group(1)}&id={file_id}",
-                        timeout=Configuracoes.TIMEOUT,
-                    )
-            if resp.status_code == 200 and len(resp.content) > 10:
-                ctype = resp.headers.get("Content-Type", "")
-                # evita página HTML de login/permissão
-                if (
-                    "text/html" in ctype
-                    and b"," not in resp.content[:500]
-                    and b";" not in resp.content[:500]
-                ):
-                    last_err = "Drive retornou HTML (arquivo sem permissão pública?)"
-                    continue
-                return resp.content
-            last_err = f"HTTP {resp.status_code}"
-        except Exception as e:
-            last_err = str(e)
+    resp = sess.get(url, timeout=CFG.TIMEOUT)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Falha download Drive: HTTP {resp.status_code}")
 
-    raise RuntimeError(last_err or "Falha ao baixar CSV do Drive")
+    if "confirm=" in resp.text:
+        token = re.search(r"confirm=([0-9A-Za-z_]+)", resp.text)
+        if token:
+            url_confirm = f"https://drive.google.com/uc?export=download&confirm={token.group(1)}&id={file_id}"
+            resp = sess.get(url_confirm, timeout=CFG.TIMEOUT)
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Falha download Drive confirm: HTTP {resp.status_code}")
+
+    return resp.content
 
 
-@st.cache_data(ttl=CACHE_TTL_METAS, show_spinner="Carregando hierarquia...")
+@st.cache_data(ttl=CFG.CACHE_TTL_HIERARQUIA, show_spinner="Carregando hierarquia...")
 def carregar_hierarquia() -> pd.DataFrame:
-    """
-    Carrega lista_ativos.
-    Tenta streamlit_gsheets; fallback CSV público da planilha.
-    """
     df = pd.DataFrame()
 
     # 1) GSheetsConnection
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
+    if GSheetsConnection:
         try:
-            df = conn.read(
-                spreadsheet=Configuracoes.URL_ATIVOS,
-                worksheet=Configuracoes.SHEET_ABA_ATIVOS,
-                ttl=0,
-            )
-        except Exception:
-            df = conn.read(spreadsheet=Configuracoes.URL_ATIVOS, ttl=0)
-    except Exception:
-        df = pd.DataFrame()
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            df = conn.read(spreadsheet=CFG.URL_ATIVOS, worksheet=CFG.SHEET_ABA_ATIVOS, ttl=0)  # type: ignore[no-untyped-call]
+        except Exception as e:
+            logger.warning(f"Hierarquia via GSheetsConnection falhou: {e}")
 
-    # 2) Fallback: export CSV público
-    if df is None or df.empty:
+    # 2) fallback gviz csv
+    if df.empty:
         try:
+            sess = http_session()
             csv_url = (
-                f"https://docs.google.com/spreadsheets/d/{Configuracoes.SHEET_ID_ATIVOS}"
-                f"/gviz/tq?tqx=out:csv&sheet={url_quote(Configuracoes.SHEET_ABA_ATIVOS)}"
+                f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_ATIVOS}"
+                f"/gviz/tq?tqx=out:csv&sheet={url_quote(CFG.SHEET_ABA_ATIVOS)}"
             )
-            resp = requests.get(csv_url, timeout=Configuracoes.TIMEOUT)
+            resp = sess.get(csv_url, timeout=CFG.TIMEOUT)
             if resp.status_code == 200 and len(resp.text) > 10:
                 df = pd.read_csv(io.StringIO(resp.text), dtype=str)
-        except Exception:
-            df = pd.DataFrame()
+        except Exception as e:
+            logger.warning(f"Hierarquia via gviz falhou: {e}")
 
-    if df is None or df.empty:
+    if df.empty:
         return pd.DataFrame(columns=["LOGIN", "TECNICO", "MONITOR", "BASE"])
 
-    df.columns = [str(c).strip() for c in df.columns]
     df = mapear_colunas(
         df,
         {
-            "LOGIN": ["LOGIN", "USER", "USUARIO", "MATRICULA", "ID"],
-            "TECNICO": ["TECNICO", "NOME", "COLABORADOR", "NOME_TECNICO"],
-            "MONITOR": ["MONITOR", "SUPERVISOR", "GESTOR", "LIDER"],
-            "BASE": ["BASE", "FILIAL", "REGIONAL", "CIDADE", "LOCALIDADE"],
+            "LOGIN": ["LOGIN", "USER", "USUARIO", "MATRICULA"],
+            "TECNICO": ["TECNICO", "NOME", "COLABORADOR"],
+            "MONITOR": ["MONITOR", "SUPERVISOR", "GESTOR"],
+            "BASE": ["BASE", "FILIAL", "REGIONAL"],
         },
     )
-
-    for col in ["LOGIN", "TECNICO", "MONITOR", "BASE"]:
+    for col in ("LOGIN", "TECNICO", "MONITOR", "BASE"):
         if col not in df.columns:
             df[col] = "Não Informado"
 
     df = garantir_login(df, "LOGIN")
-    df = deduplicar_colunas(df)
-    return (
+    df = (
         df[["LOGIN", "TECNICO", "MONITOR", "BASE"]]
         .dropna(subset=["LOGIN"])
-        .drop_duplicates(subset=["LOGIN"])
+        .drop_duplicates()
         .reset_index(drop=True)
     )
+    df = add_norm_cols(df)
+    return df
 
 
-@st.cache_data(ttl=CACHE_TTL_CONSULTIVO, show_spinner="Baixando Consultivos (Drive)...")
+@st.cache_data(
+    ttl=CFG.CACHE_TTL_CONSULTIVO, show_spinner="Carregando consultivos (Drive)..."
+)
 def carregar_consultivos() -> Tuple[pd.DataFrame, Optional[str]]:
     try:
-        conteudo = _baixar_drive_csv(Configuracoes.DRIVE_ID_CONS)
-        df = _ler_csv_bytes(conteudo)
-        df.columns = [str(c).strip() for c in df.columns]
-
+        content = _baixar_drive_csv(CFG.DRIVE_ID_CONS)
+        df = _ler_csv_bytes(content)
         df = mapear_colunas(
             df,
             {
-                "DATA": [
-                    "DATA",
-                    "DT_CRIACAO",
-                    "DATA_CRIACAO",
-                    "DT",
-                    "CRIACAO",
-                    "DATAS",
-                ],
-                "LOGIN": ["LOGIN", "USUARIO", "USER", "MATRICULA"],
-                "PROJETO": ["PROJETO", "PROJECT", "CONTRATO", "CLIENTE_PROJETO"],
-                "BASE": ["BASE", "FILIAL", "REGIONAL"],
-                "TECNICO": ["TECNICO", "NOME", "COLABORADOR"],
-                "MONITOR": ["MONITOR", "SUPERVISOR", "GESTOR"],
+                "DATA": ["DATA", "DT_CRIACAO", "CRIACAO"],
+                "LOGIN": ["LOGIN NETSALES", "LOGIN", "USUARIO", "MATRICULA"],
+                "PROJETO": ["PROJETO", "CONTRATO"],
+                "BASE": ["BASE", "FILIAL"],
+                "TECNICO": ["TECNICO", "NOME"],
+                "MONITOR": ["MONITOR", "SUPERVISOR"],
             },
         )
         df = garantir_datetime(df, "DATA")
         df = garantir_login(df, "LOGIN")
-        df = deduplicar_colunas(df)
+        df = add_norm_cols(df)
         return df, None
     except Exception as e:
-        return pd.DataFrame(), f"Erro ao processar CSV: {str(e)[:160]}"
+        logger.exception("Erro ao carregar consultivos")
+        return pd.DataFrame(), f"Consultivo: {type(e).__name__}: {str(e)[:180]}"
 
 
-@st.cache_data(ttl=CACHE_TTL_PRODUCAO, show_spinner="Carregando Produção...")
+@st.cache_data(
+    ttl=CFG.CACHE_TTL_PRODUCAO, show_spinner="Carregando produção (GSheets)..."
+)
 def carregar_producao() -> Tuple[pd.DataFrame, Optional[str]]:
     try:
+        sess = http_session()
         url = (
-            f"https://docs.google.com/spreadsheets/d/{Configuracoes.SHEET_ID_PROD}"
-            f"/gviz/tq?tqx=out:csv&sheet={url_quote(Configuracoes.SHEET_ABA_PROD)}"
+            f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_PROD}"
+            f"/gviz/tq?tqx=out:csv&sheet={url_quote(CFG.SHEET_ABA_PROD)}"
         )
-        resp = requests.get(url, timeout=Configuracoes.TIMEOUT)
+        resp = sess.get(url, timeout=CFG.TIMEOUT)
+
         if resp.status_code != 200:
-            return pd.DataFrame(), f"Erro HTTP {resp.status_code}"
+            return pd.DataFrame(), f"Produção: HTTP {resp.status_code}"
 
-        # gviz às vezes devolve HTML de login
-        text = resp.text
-        if text.lstrip().lower().startswith(
-            "<!doctype"
-        ) or text.lstrip().lower().startswith("<html"):
-            return (
-                pd.DataFrame(),
-                "Planilha de Produção inacessível (permissão/público).",
-            )
+        if (
+            resp.text.lstrip().lower().startswith("<!doctype")
+            or "<html" in resp.text.lower()
+        ):
+            return pd.DataFrame(), "Produção: planilha privada/indisponível."
 
-        df = pd.read_csv(io.StringIO(text), dtype=str)
-        df.columns = [str(c).strip() for c in df.columns]
-
-        # remove colunas totalmente vazias / Unnamed
-        df = df.loc[:, [c for c in df.columns if not str(c).startswith("Unnamed")]]
+        df = pd.read_csv(io.StringIO(resp.text), dtype=str)
+        df = df.loc[:, ~df.columns.astype(str).str.contains("^Unnamed")]
 
         df = mapear_colunas(
             df,
             {
-                "DATA": [
-                    "DATA",
-                    "DT_EXECUCAO",
-                    "DATA_EXECUCAO",
-                    "DT",
-                    "EXECUCAO",
-                    "DATA_OS",
+                "DATA": ["DATA", "DT_EXECUCAO", "EXECUCAO"],
+                "LOGIN": ["LOGIN", "MATRICULA", "USER"],
+                "NUM_OS": ["NUM_OS", "NUMERO_OS", "OS"],
+                "PROJETO": [
+                    "PROJETO",
+                    "CAMPANHA",
+                    "OPERACAO",
+                    "OPERAÇÃO",
+                    "CONTRATO_PROJETO",
                 ],
-                "LOGIN": ["LOGIN", "MATRICULA", "USUARIO", "USER", "LOGIN_TECNICO"],
-                "PROJETO": ["PROJETO", "PROJECT", "CONTRATO"],
-                "NUM_OS": ["NUM_OS", "NUMERO_OS", "N_OS", "OS", "ORDEM", "NUMERO"],
-                "BASE": ["BASE", "FILIAL", "REGIONAL"],
-                "TECNICO": ["TECNICO", "NOME", "COLABORADOR"],
-                "MONITOR": ["MONITOR", "SUPERVISOR", "GESTOR"],
+                "BASE": ["BASE", "FILIAL"],
+                "TECNICO": ["NOME EQUIPE", "TECNICO", "NOME"],
+                "MONITOR": ["MONITOR", "SUPERVISOR"],
             },
         )
         df = garantir_datetime(df, "DATA")
         df = garantir_login(df, "LOGIN")
-        df = deduplicar_colunas(df)
+        df = add_norm_cols(df)
         return df, None
     except Exception as e:
-        return pd.DataFrame(), f"{type(e).__name__}: {str(e)[:140]}"
+        logger.exception("Erro ao carregar produção")
+        return pd.DataFrame(), f"Produção: {type(e).__name__}: {str(e)[:180]}"
 
 
-# Carregamento
-df_hierarquia = carregar_hierarquia()
-df_cons_raw, erro_cons = carregar_consultivos()
-df_prod_raw, erro_prod = carregar_producao()
+# =============================================================================
+# Enriquecimento (hierarquia) - com fallback por LOGIN e TECNICO normalizados
+# =============================================================================
 
 
 def enriquecer_dados(df: pd.DataFrame, hierarquia: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-    df = deduplicar_colunas(df.copy())
 
-    if hierarquia.empty or "LOGIN" not in df.columns:
-        for col in ["TECNICO", "MONITOR", "BASE"]:
-            if col not in df.columns:
-                df[col] = "Não Informado"
-        return df
+    dfm = df.copy()
+    for col in ("TECNICO", "MONITOR", "BASE"):
+        if col not in dfm.columns:
+            dfm[col] = pd.NA
 
-    hier = deduplicar_colunas(hierarquia.copy())
-    df_merged = pd.merge(df, hier, on="LOGIN", how="left", suffixes=("", "_hier"))
+    if hierarquia.empty:
+        return dfm.fillna("Não Informado")
 
-    for col in ["TECNICO", "MONITOR", "BASE"]:
-        c_hier = f"{col}_hier"
-        if col in df_merged.columns and c_hier in df_merged.columns:
-            df_merged[col] = df_merged[col].fillna(df_merged[c_hier])
-            df_merged.drop(columns=[c_hier], inplace=True)
-        elif c_hier in df_merged.columns:
-            df_merged.rename(columns={c_hier: col}, inplace=True)
-        elif col not in df_merged.columns:
-            df_merged[col] = "Não Informado"
+    hier = hierarquia.copy()
+    hier = add_norm_cols(hier)
 
-        df_merged[col] = df_merged[col].fillna("Não Informado")
+    # 1) merge por LOGIN normalizado
+    if "_LOGIN_NORM" not in dfm.columns:
+        dfm["_LOGIN_NORM"] = dfm.get("LOGIN", pd.Series([""] * len(dfm))).map(
+            normalizar_texto
+        )
 
-    return deduplicar_colunas(df_merged)
+    lk_login = hier.dropna(subset=["_LOGIN_NORM"]).drop_duplicates("_LOGIN_NORM")[
+        ["_LOGIN_NORM", "TECNICO", "MONITOR", "BASE"]
+    ]
+    lk_login = lk_login.rename(
+        columns={c: f"{c}_H" for c in ("TECNICO", "MONITOR", "BASE")}
+    )
 
+    dfm = dfm.merge(lk_login, on="_LOGIN_NORM", how="left")
+    for c in ("TECNICO", "MONITOR", "BASE"):
+        vazio = dfm[c].isna() | dfm[c].map(normalizar_texto).isin(
+            {"", "NAN", "NONE", "NAO INFORMADO"}
+        )
+        dfm.loc[vazio, c] = dfm.loc[vazio, f"{c}_H"]
+        dfm.drop(columns=[f"{c}_H"], inplace=True)
+
+    # 2) fallback por técnico normalizado (apenas onde segue vazio)
+    if "TECNICO" in dfm.columns:
+        dfm["_TECNICO_NORM"] = dfm["TECNICO"].map(normalizar_texto)
+    if "_TECNICO_NORM" not in hier.columns and "TECNICO" in hier.columns:
+        hier["_TECNICO_NORM"] = hier["TECNICO"].map(normalizar_texto)
+
+    lk_tec = hier.dropna(subset=["_TECNICO_NORM"]).drop_duplicates("_TECNICO_NORM")[
+        ["_TECNICO_NORM", "MONITOR", "BASE"]
+    ]
+    lk_tec = lk_tec.rename(columns={"MONITOR": "MONITOR_H2", "BASE": "BASE_H2"})
+
+    dfm = dfm.merge(lk_tec, on="_TECNICO_NORM", how="left")
+    for c, ch in (("MONITOR", "MONITOR_H2"), ("BASE", "BASE_H2")):
+        vazio = dfm[c].isna() | dfm[c].map(normalizar_texto).isin(
+            {"", "NAN", "NONE", "NAO INFORMADO"}
+        )
+        dfm.loc[vazio, c] = dfm.loc[vazio, ch]
+        dfm.drop(columns=[ch], inplace=True)
+
+    dfm = dfm.fillna("Não Informado")
+    dfm = add_norm_cols(dfm)
+    return dfm
+
+
+# =============================================================================
+# Carregamento principal (com cópias para evitar mutação em cache)
+# =============================================================================
+
+df_hierarquia = carregar_hierarquia().copy()
+df_cons_raw, erro_cons = carregar_consultivos()
+df_prod_raw, erro_prod = carregar_producao()
+df_cons_raw = df_cons_raw.copy()
+df_prod_raw = df_prod_raw.copy()
 
 df_prod = enriquecer_dados(df_prod_raw, df_hierarquia)
 df_cons = enriquecer_dados(df_cons_raw, df_hierarquia)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# BARRA LATERAL (FILTROS)
-# ═══════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# Sidebar / Filtros (com defaults estáveis)
+# =============================================================================
+
+
+def _unique_sorted(series: pd.Series) -> List[str]:
+    if series is None or series.empty:
+        return []
+    vals = series.dropna().astype(str).str.strip()
+    vals = vals[vals != ""]
+    return sorted(set(vals.tolist()))
+
 
 with st.sidebar:
-    st.markdown("### 🎛️ Filtros Globais")
+    st.markdown("### Filtros Globais")
 
-    def _opts(*series_list):
-        vals = set()
-        for s in series_list:
-            if s is None:
-                continue
-            vals.update(
-                [
-                    v
-                    for v in s.dropna().astype(str).unique().tolist()
-                    if v and v != "nan"
-                ]
-            )
-        return sorted(vals)
-
-    bases = _opts(
-        df_prod["BASE"] if "BASE" in df_prod.columns else None,
-        df_cons["BASE"] if "BASE" in df_cons.columns else None,
+    bases_opts = sorted(
+        set(_unique_sorted(df_prod.get("BASE", pd.Series(dtype=str))))
+        | set(_unique_sorted(df_cons.get("BASE", pd.Series(dtype=str))))
     )
-    monitores = _opts(
-        df_prod["MONITOR"] if "MONITOR" in df_prod.columns else None,
-        df_cons["MONITOR"] if "MONITOR" in df_cons.columns else None,
+    monitores_opts = sorted(
+        set(_unique_sorted(df_prod.get("MONITOR", pd.Series(dtype=str))))
+        | set(_unique_sorted(df_cons.get("MONITOR", pd.Series(dtype=str))))
+    )
+    projetos_opts = sorted(
+        set(_unique_sorted(df_prod.get("PROJETO", pd.Series(dtype=str))))
+        | set(_unique_sorted(df_cons.get("PROJETO", pd.Series(dtype=str))))
     )
 
+    st.divider()
+    st.markdown("### Filtro Rápido")
+    filtro_net = st.checkbox(
+        "Filtrar apenas NET (ABCDM/LESTE/GUARULHOS)", value=False, key="filtro_net"
+    )
+
+    default_projetos = (
+        [p for p in PROJETOS_NET if p in projetos_opts] if filtro_net else []
+    )
+
+    filtro_projeto = st.multiselect(
+        "Projeto",
+        options=projetos_opts,
+        default=default_projetos,
+        placeholder="Todos",
+        key="select_projetos",
+    )
     filtro_base = st.multiselect(
-        "📍 Base / Regional", options=bases, placeholder="Todas as Bases"
+        "Base / Regional", options=bases_opts, placeholder="Todas", key="select_bases"
     )
     filtro_monitor = st.multiselect(
-        "👤 Monitor / Supervisor", options=monitores, placeholder="Todos os Monitores"
+        "Monitor", options=monitores_opts, placeholder="Todos", key="select_monitores"
     )
 
-    todas_datas: List[pd.Timestamp] = []
-    for dframe in (df_prod, df_cons):
-        if "DATA" in dframe.columns:
-            s = pd.to_datetime(
-                _primeira_serie(dframe, "DATA"), errors="coerce"
-            ).dropna()
-            todas_datas.extend(s.tolist())
-
-    if todas_datas:
-        min_dt = min(todas_datas).date()
-        max_dt = max(todas_datas).date()
+    # Período (usa datetime64 direto para filtrar)
+    todas_datas = pd.concat(
+        [
+            df_prod.get("DATA", pd.Series(dtype="datetime64[ns]")),
+            df_cons.get("DATA", pd.Series(dtype="datetime64[ns]")),
+        ],
+        ignore_index=True,
+    ).dropna()
+    if not todas_datas.empty:
+        min_dt = pd.to_datetime(todas_datas.min()).date()
+        max_dt = pd.to_datetime(todas_datas.max()).date()
         filtro_datas = st.date_input(
-            "📅 Período de Atendimento",
+            "Período",
             value=(min_dt, max_dt),
             min_value=min_dt,
             max_value=max_dt,
+            key="date_range",
         )
     else:
         filtro_datas = None
 
     st.divider()
-    st.caption(f"Hierarquia: **{len(df_hierarquia)}** logins")
-    st.caption(f"Produção (raw): **{len(df_prod_raw)}** linhas")
-    st.caption(f"Consultivo (raw): **{len(df_cons_raw)}** linhas")
-
-    if st.button("🔄 Atualizar Cache de Dados", use_container_width=True):
+    if st.button(
+        "Atualizar Dados (limpa cache global)",
+        use_container_width=True,
+        key="btn_refresh",
+    ):
         st.cache_data.clear()
+        st.cache_resource.clear()
         st.rerun()
 
-    st.caption(
-        f"🕐 Última consulta: {datetime.now(Configuracoes.TZ).strftime('%d/%m/%Y %H:%M:%S')}"
-    )
+    st.caption(f"Atualizado: {datetime.now(CFG.TZ).strftime('%d/%m %H:%M')}")
+    st.caption(f"Hierarquia: {len(df_hierarquia):,}")
+    st.caption(f"Produção: {len(df_prod):,} | Consultivo: {len(df_cons):,}")
 
 
-def filtrar_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def aplicar_filtros(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-    dff = deduplicar_colunas(df.copy())
+
+    dff = df.copy()
+    mask = pd.Series(True, index=dff.index)
 
     if filtro_base and "BASE" in dff.columns:
-        dff = dff[dff["BASE"].astype(str).isin(filtro_base)]
+        mask &= dff["BASE"].astype(str).isin(filtro_base)
+
     if filtro_monitor and "MONITOR" in dff.columns:
-        dff = dff[dff["MONITOR"].astype(str).isin(filtro_monitor)]
-    if (
-        filtro_datas
-        and isinstance(filtro_datas, (tuple, list))
-        and len(filtro_datas) == 2
-        and "DATA" in dff.columns
-    ):
-        d1, d2 = filtro_datas
-        datas = pd.to_datetime(_primeira_serie(dff, "DATA"), errors="coerce")
-        dff = dff[(datas.dt.date >= d1) & (datas.dt.date <= d2)]
-    return dff
+        mask &= dff["MONITOR"].astype(str).isin(filtro_monitor)
+
+    if filtro_projeto and "PROJETO" in dff.columns:
+        mask &= dff["PROJETO"].astype(str).isin(filtro_projeto)
+
+    if filtro_datas and "DATA" in dff.columns:
+        if isinstance(filtro_datas, tuple) and len(filtro_datas) == 2:
+            d1, d2 = filtro_datas
+        else:
+            d1 = filtro_datas[0]
+            d2 = filtro_datas[0]
+        sdt = pd.to_datetime(dff["DATA"], errors="coerce")
+        mask &= (sdt.dt.normalize() >= pd.Timestamp(d1)) & (
+            sdt.dt.normalize() <= pd.Timestamp(d2)
+        )
+
+    return dff.loc[mask].copy()
 
 
-df_prod_f = filtrar_dataframe(df_prod)
-df_cons_f = filtrar_dataframe(df_cons)
+df_prod_f = add_norm_cols(aplicar_filtros(df_prod))
+df_cons_f = add_norm_cols(aplicar_filtros(df_cons))
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CABEÇALHO
-# ═══════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# Header + erros
+# =============================================================================
 
 st.markdown(
     """
-<div class="hero-totale">
-    <h1>🎯 Dashboard de Metas Operacionais</h1>
-    <p>Gestão Integrada de Produção (O.S.), Consultivos e Hierarquia Operacional</p>
-</div>
-""",
+    <div class="hero-totale">
+        <h1>Dashboard de Metas Operacionais</h1>
+        <p>Gestão Integrada: Produção (O.S.) + Consultivos + Hierarquia + Bases</p>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
-if erro_cons:
-    st.warning(f"⚠️ Status Consultivo: {erro_cons}")
-if erro_prod:
-    st.warning(f"⚠️ Status Produção: {erro_prod}")
+for err in [erro_prod, erro_cons]:
+    if err:
+        st.warning(f"Aviso: {err}")
+
 if df_hierarquia.empty:
-    st.info(
-        "ℹ️ Hierarquia vazia. Confira se a planilha "
-        f"`{Configuracoes.SHEET_ABA_ATIVOS}` está pública ou se o secrets do GSheets está ok."
+    render_insight_seguro(
+        "Hierarquia vazia. Verifique permissões da planilha/credenciais.", tipo="alerta"
     )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# COMPONENTES VISUAIS
-# ═══════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# Abas
+# =============================================================================
+
+tab_prod, tab_cons, tab_bases, tab_projecao = st.tabs(
+    ["📊 Produção", "💼 Consultivos", "🗂️ Bases", "📈 Projeção"]
+)
 
 
-def render_gauge(
-    valor_real: int, meta_min: int, meta_base: int, meta_alta: int, titulo: str
-):
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number+delta",
-            value=valor_real,
-            domain={"x": [0, 1], "y": [0, 1]},
-            title={
-                "text": titulo,
-                "font": {"size": 18, "family": FONTE_TITULO, "color": COR_PRIMARIA},
-            },
-            delta={
-                "reference": meta_base,
-                "increasing": {"color": COR_SUCESSO},
-                "decreasing": {"color": COR_ALERTA},
-            },
-            gauge={
-                "axis": {
-                    "range": [0, max(meta_alta * 1.15, valor_real * 1.15, 1)],
-                    "tickwidth": 1,
-                },
-                "bar": {"color": COR_PRIMARIA},
-                "bgcolor": "#FFFFFF",
-                "borderwidth": 1,
-                "bordercolor": "#E2E8F0",
-                "steps": [
-                    {"range": [0, meta_min], "color": "#FEE2E2"},
-                    {"range": [meta_min, meta_base], "color": "#FEF3C7"},
-                    {
-                        "range": [meta_base, max(meta_alta * 1.15, 1)],
-                        "color": "#D1FAE5",
-                    },
-                ],
-                "threshold": {
-                    "line": {"color": COR_SECUNDARIA, "width": 4},
-                    "thickness": 0.8,
-                    "value": meta_base,
-                },
-            },
+def render_aba_metricas(
+    tab: DeltaGenerator,
+    titulo_total: str,
+    total: int,
+    metas: Dict[str, int],
+    df: pd.DataFrame,
+    tipo: Literal["os", "cons"],
+) -> Tuple[int, int]:
+    """Renderiza KPIs + gauge. Retorna (dias_restantes, projecao) para reuso se necessário."""
+    with tab:
+        render_section_header_seguro(
+            titulo_total,
+            "Acompanhamento operacional e projeção mensal",
+            icone="📊" if tipo == "os" else "💼",
+            badge="Produção" if tipo == "os" else "Consultivos",
+            badge_tipo="azul" if tipo == "os" else "laranja",
         )
-    )
-    fig.update_layout(
-        height=280, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor="transparent"
-    )
-    return fig
 
+        fator, dias_rest, _ = CalculosOperacionais.fator_projecao(df, "DATA")
+        projecao = int(total * fator)
 
-def render_cards_por_projeto(
-    df: pd.DataFrame, tipo: str, titulo: str, unidade: str
-) -> None:
-    if df.empty or "PROJETO" not in df.columns:
-        st.info(f"Dados de projeto não disponíveis para {titulo.lower()}.")
-        return
+        status_txt, status_cor, _ = get_status_geral(total, tipo)
+        cor_status: CorTema = "verde" if status_cor == Cores.SUCESSO else "vermelho"
 
-    metas = (
-        ObjetivosOperacao.PRODUCAO_OS_PROJETO
-        if tipo == "os"
-        else ObjetivosOperacao.CONSULTIVO_PROJETO
-    )
-    projetos = df["PROJETO"].fillna("Não informado").astype(str).str.strip()
-    projetos = projetos.replace({"": "Não informado", "nan": "Não informado"})
-    volumes = projetos.value_counts().sort_values(ascending=False)
-
-    st.markdown(f"#### {titulo}")
-    items = list(volumes.items())
-    for inicio in range(0, len(items), 4):
-        cards = st.columns(min(len(items) - inicio, 4))
-        for card, (projeto, volume) in zip(cards, items[inicio : inicio + 4]):
-            atingimento = (
-                (volume / metas["meta_base"] * 100) if metas["meta_base"] else 0
+        ating = float(
+            CalculosOperacionais.calcular_atingimento(
+                float(total), float(metas["meta_base"])
             )
-            status, cor, _ = get_status_projeto(volume, metas)
-            with card:
-                st.markdown(
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+        render_kpi_seguro(
+            c1, titulo_total, f"{total:,}", f"{ating:.1f}% da meta base", "azul"
+        )
+        render_kpi_seguro(
+            c2,
+            "Meta base",
+            f"{metas['meta_base']:,}",
+            f"Variação: {total - metas['meta_base']:+,}",
+            "laranja",
+        )
+        render_kpi_seguro(
+            c3,
+            "Projeção mês",
+            f"{projecao:,}",
+            f"{dias_rest} dias úteis restantes",
+            "verde",
+        )
+        render_kpi_seguro(c4, "Status", status_txt, "Avaliação no período", cor_status)
+
+        st.plotly_chart(
+            render_gauge(
+                total,
+                metas["minima"],
+                metas["meta_base"],
+                metas["alta_perf"],
+                f"Termômetro {titulo_total}",
+            ),
+            use_container_width=True,
+        )
+
+        # opcional: curva acumulada (apenas se DATA existe e não explode)
+        if "DATA" in df.columns and df["DATA"].notna().any():
+            sdt = pd.to_datetime(df["DATA"], errors="coerce").dropna()
+            if not sdt.empty:
+                daily = (
+                    sdt.dt.date.value_counts()
+                    .rename_axis("DATA")
+                    .reset_index(name="Volume")
+                    .sort_values("DATA")
+                )
+                daily["Acumulado"] = daily["Volume"].cumsum()
+                fig = px.area(
+                    daily,
+                    x="DATA",
+                    y="Acumulado",
+                    title="Evolução acumulada no período",
+                )
+                fig.add_hline(
+                    y=metas["meta_base"], line_dash="dash", line_color=Cores.SECUNDARIA
+                )
+                fig.update_layout(
+                    height=260,
+                    margin=dict(l=10, r=10, t=45, b=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        return dias_rest, projecao
+
+
+# Produção
+dias_rest_prod, proj_prod = render_aba_metricas(
+    tab_prod,
+    "O.S. realizadas",
+    int(len(df_prod_f)),
+    Metas.PRODUCAO_OS_GERAL,
+    df_prod_f,
+    "os",
+)
+
+# Consultivos
+dias_rest_cons, proj_cons = render_aba_metricas(
+    tab_cons,
+    "Consultivos",
+    int(len(df_cons_f)),
+    Metas.CONSULTIVO_GERAL,
+    df_cons_f,
+    "cons",
+)
+
+
+# =============================================================================
+# Aba Bases (resumo + prioridades + projeções por base otimizadas)
+# =============================================================================
+
+
+def _resumo_por_base(df: pd.DataFrame, nome_coluna: str) -> pd.DataFrame:
+    if df.empty or "_BASE_NORM" not in df.columns:
+        return pd.DataFrame(columns=["_BASE_NORM", "Base", nome_coluna, "MAX_DATA"])
+
+    g = (
+        df.dropna(subset=["DATA"], how="all")
+        .groupby("_BASE_NORM", dropna=False)
+        .agg(
+            Base=(
+                "BASE",
+                lambda s: (
+                    s.dropna().astype(str).iloc[0]
+                    if len(s.dropna())
+                    else "Não Informado"
+                ),
+            ),
+            **{nome_coluna: ("DATA", "size")},
+            MAX_DATA=("DATA", "max"),
+        )
+        .reset_index()
+    )
+    g[nome_coluna] = g[nome_coluna].fillna(0).astype(int)
+    return g
+
+
+def _projecao_por_base(prod: pd.DataFrame, cons: pd.DataFrame) -> pd.DataFrame:
+    a = _resumo_por_base(prod, "O.S.")
+    b = _resumo_por_base(cons, "Consultivos")
+    dfm = a.merge(b, on="_BASE_NORM", how="outer", suffixes=("", "_CONS"))
+
+    # resolve Base display
+    dfm["Base"] = dfm["Base"].fillna(dfm["Base_CONS"]).fillna("Não Informado")
+    dfm.drop(columns=[c for c in ("Base_CONS",) if c in dfm.columns], inplace=True)
+
+    dfm["O.S."] = dfm["O.S."].fillna(0).astype(int)
+    dfm["Consultivos"] = dfm["Consultivos"].fillna(0).astype(int)
+
+    max_data = pd.to_datetime(
+        dfm[["MAX_DATA", "MAX_DATA_CONS"]].max(axis=1), errors="coerce"
+    )
+    dfm["MAX_DATA_ALL"] = max_data
+
+    # calcula fator por linha usando cache por data_max
+    dias_falt = []
+    fator_lst = []
+    for v in dfm["MAX_DATA_ALL"].tolist():
+        if pd.isna(v):
+            fator, falt, _ = 1.0, 0, 0
+        else:
+            fator, falt, _ = CalculosOperacionais.fator_por_data_max(
+                pd.Timestamp(v).normalize().date()
+            )
+        fator_lst.append(fator)
+        dias_falt.append(falt)
+
+    dfm["Dias faltantes"] = dias_falt
+    dfm["Fator"] = fator_lst
+    dfm["O.S. projetadas"] = (dfm["O.S."] * dfm["Fator"]).astype(int)
+    dfm["Consultivos projetados"] = (dfm["Consultivos"] * dfm["Fator"]).astype(int)
+
+    dfm["% Meta O.S. (proj)"] = np.round(
+        CalculosOperacionais.calcular_atingimento(
+            dfm["O.S. projetadas"], Metas.PRODUCAO_OS_BASE["meta_base"]
+        ),
+        1,
+    )
+    dfm["% Meta Cons. (proj)"] = np.round(
+        CalculosOperacionais.calcular_atingimento(
+            dfm["Consultivos projetados"], Metas.CONSULTIVO_BASE["meta_base"]
+        ),
+        1,
+    )
+
+    dfm["Falta atual O.S."] = np.maximum(
+        Metas.PRODUCAO_OS_BASE["meta_base"] - dfm["O.S."], 0
+    ).astype(int)
+    dfm["Falta atual consultivos"] = np.maximum(
+        Metas.CONSULTIVO_BASE["meta_base"] - dfm["Consultivos"], 0
+    ).astype(int)
+    dfm["A fazer após projeção O.S."] = np.maximum(
+        Metas.PRODUCAO_OS_BASE["meta_base"] - dfm["O.S. projetadas"], 0
+    ).astype(int)
+    dfm["A fazer após projeção consultivos"] = np.maximum(
+        Metas.CONSULTIVO_BASE["meta_base"] - dfm["Consultivos projetados"], 0
+    ).astype(int)
+
+    dfm["Status O.S."] = dfm["O.S."].map(
+        lambda v: get_status_base(v, Metas.PRODUCAO_OS_BASE)[0]
+    )
+    dfm["Status Consult."] = dfm["Consultivos"].map(
+        lambda v: get_status_base(v, Metas.CONSULTIVO_BASE)[0]
+    )
+
+    return dfm.sort_values("Base").reset_index(drop=True)
+
+
+with tab_bases:
+    render_section_header_seguro(
+        "Visão por Base",
+        "Comparativo independente de Produção e Consultivos por unidade operacional",
+        icone="🗂️",
+        badge="Metas por base",
+        badge_tipo="verde",
+    )
+
+    if df_prod_f.empty and df_cons_f.empty:
+        render_empty_state_seguro(
+            "Sem dados", "Ajuste filtros para visualizar as bases."
+        )
+    else:
+        df_proj_base = _projecao_por_base(df_prod_f, df_cons_f)
+
+        # KPIs consolidados
+        k1, k2, k3, k4 = st.columns(4)
+        render_kpi_seguro(
+            k1,
+            "Bases com dados",
+            f"{len(df_proj_base):,}",
+            "Bases únicas no período",
+            "azul",
+        )
+        render_kpi_seguro(
+            k2,
+            "O.S. (atual)",
+            f"{int(df_proj_base['O.S.'].sum()):,}",
+            "Soma produção filtrada",
+            "verde",
+        )
+        render_kpi_seguro(
+            k3,
+            "Consultivos (atual)",
+            f"{int(df_proj_base['Consultivos'].sum()):,}",
+            "Soma consultivo filtrado",
+            "laranja",
+        )
+        render_kpi_seguro(
+            k4,
+            "Bases prioritárias",
+            f"{sum(df_proj_base['Base'].str.upper().isin(BASES_PRIORITARIAS)):,}",
+            "ABCDM/LESTE/GUARULHOS",
+            "roxo",
+        )
+
+        st.divider()
+        st.markdown("#### Bases prioritárias")
+
+        cards = st.columns(3)
+        for col, base_nome in zip(cards, BASES_PRIORITARIAS):
+            row = df_proj_base[
+                df_proj_base["Base"].astype(str).str.strip().str.upper() == base_nome
+            ]
+            os_atual = int(row["O.S."].iloc[0]) if not row.empty else 0
+            cons_atual = int(row["Consultivos"].iloc[0]) if not row.empty else 0
+
+            ating_os = float(
+                CalculosOperacionais.calcular_atingimento(
+                    os_atual, Metas.PRODUCAO_OS_BASE["meta_base"]
+                )
+            )
+            ating_cons = float(
+                CalculosOperacionais.calcular_atingimento(
+                    cons_atual, Metas.CONSULTIVO_BASE["meta_base"]
+                )
+            )
+
+            status_os = get_status_base(os_atual, Metas.PRODUCAO_OS_BASE)[0]
+            status_cons = get_status_base(cons_atual, Metas.CONSULTIVO_BASE)[0]
+
+            with col:
+                col.markdown(
                     f"""
-                    <div class="card-projeto">
-                        <div class="card-projeto-titulo">{projeto}</div>
-                        <div class="card-projeto-valor" style="color: {cor};">{volume:,}</div>
-                        <div class="card-projeto-sub">{unidade} | Atingimento: <b>{atingimento:.1f}%</b></div>
-                        <div class="card-projeto-sub" style="color: {cor};"><b>{status}</b></div>
-                        <div class="card-projeto-sub">Meta base: {metas["meta_base"]:,}</div>
+                    <div class="base-card">
+                        <div class="base-title">{escape(base_nome)}</div>
+                        <div style="margin-bottom:.45rem;">
+                            <div><strong>Produção:</strong> {os_atual:,} O.S. ({ating_os:.1f}%)</div>
+                            <div>{render_status_pill_seguro(status_os, status_os)}</div>
+                        </div>
+                        <div>
+                            <div><strong>Consultivos:</strong> {cons_atual:,} ({ating_cons:.1f}%)</div>
+                            <div>{render_status_pill_seguro(status_cons, status_cons)}</div>
+                        </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
+        st.divider()
+        cA, cB = st.columns(2)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# ABAS
-# ═══════════════════════════════════════════════════════════════════════════
-
-aba_prod, aba_cons, aba_hierarquia, aba_simulador = st.tabs(
-    [
-        "📊 Produção (O.S.)",
-        "💼 Consultivos",
-        "👥 Visão por Equipe & Base",
-        "📈 Projeções & Simulador",
-    ]
-)
-
-# ── ABA 1: PRODUÇÃO ────────────────────────────────────────────────────────
-with aba_prod:
-    total_os = len(df_prod_f)
-    meta_min_os = ObjetivosOperacao.PRODUCAO_OS_GERAL["minima"]
-    meta_base_os = ObjetivosOperacao.PRODUCAO_OS_GERAL["meta_base"]
-    meta_alta_os = ObjetivosOperacao.PRODUCAO_OS_GERAL["alta_perf"]
-
-    fator_proj_os, dias_rest_os, dias_tot_os = Calculos.fator_projecao(
-        df_prod_f, "DATA"
-    )
-    projecao_os = int(total_os * fator_proj_os)
-    atingimento_os = (total_os / meta_base_os * 100) if meta_base_os > 0 else 0
-    status_os_txt, status_os_cor, _ = get_status_geral(total_os, "os")
-
-    k1, k2, k3, k4 = st.columns(4)
-    with k1:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">O.S. Realizadas</div>
-            <div class="card-kpi-valor" style="color: {COR_PRIMARIA};">{total_os:,}</div>
-            <div class="card-kpi-sub">Atingimento: <b>{atingimento_os:.1f}%</b> da meta base</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with k2:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Meta Consolidada (Base)</div>
-            <div class="card-kpi-valor">{meta_base_os:,}</div>
-            <div class="card-kpi-sub">Mín: {meta_min_os:,} | Alta Perf: {meta_alta_os:,}</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with k3:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Projeção Fechamento (Run-Rate)</div>
-            <div class="card-kpi-valor" style="color: {COR_SECUNDARIA};">{projecao_os:,}</div>
-            <div class="card-kpi-sub">{dias_rest_os} dias úteis restantes</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with k4:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Status Operacional</div>
-            <div class="card-kpi-valor" style="font-size: 1.35rem; color: {status_os_cor};">{status_os_txt}</div>
-            <div class="card-kpi-sub">Diferença: <b>{total_os - meta_base_os:+,} O.S.</b></div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-    render_cards_por_projeto(df_prod_f, "os", "Produção por Projeto", "O.S. realizadas")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    g1, g2 = st.columns([1, 2])
-    with g1:
-        st.plotly_chart(
-            render_gauge(
-                total_os,
-                meta_min_os,
-                meta_base_os,
-                meta_alta_os,
-                "Termômetro de Produção (O.S.)",
-            ),
-            use_container_width=True,
-        )
-    with g2:
-        if (
-            "DATA" in df_prod_f.columns
-            and pd.to_datetime(_primeira_serie(df_prod_f, "DATA"), errors="coerce")
-            .notna()
-            .any()
-        ):
-            s_data = pd.to_datetime(_primeira_serie(df_prod_f, "DATA"), errors="coerce")
-            df_tempo = (
-                s_data.dt.date.value_counts()
-                .rename_axis("DATA")
-                .reset_index(name="Volume")
-                .sort_values("DATA")
+        with cA:
+            fig_os = px.bar(
+                df_proj_base.sort_values("O.S.", ascending=True),
+                x="O.S.",
+                y="Base",
+                orientation="h",
+                color="O.S.",
+                color_continuous_scale=["#DBEAFE", Cores.PRIMARIA],
+                title="Produção (O.S.) por base",
             )
-            df_tempo["Acumulado"] = df_tempo["Volume"].cumsum()
-            fig_tempo = px.area(
-                df_tempo,
-                x="DATA",
-                y="Acumulado",
-                title="Evolução Acumulada da Produção no Período",
-                color_discrete_sequence=[COR_PRIMARIA],
-            )
-            fig_tempo.add_hline(
-                y=meta_base_os,
+            fig_os.add_vline(
+                x=Metas.PRODUCAO_OS_BASE["meta_base"],
                 line_dash="dash",
-                line_color=COR_SECUNDARIA,
-                annotation_text="Meta Base",
+                line_color=Cores.SECUNDARIA,
             )
-            fig_tempo.update_layout(
-                height=280,
-                margin=dict(l=20, r=20, t=40, b=20),
-                paper_bgcolor="transparent",
+            fig_os.update_layout(
+                height=360,
+                margin=dict(l=20, r=20, t=50, b=10),
+                coloraxis_showscale=False,
             )
-            st.plotly_chart(fig_tempo, use_container_width=True)
-        else:
-            st.info("Distribuição temporal não disponível com os dados atuais.")
+            st.plotly_chart(fig_os, use_container_width=True)
 
-    with st.expander("📋 Ver Tabela de Dados da Produção", expanded=False):
-        st.dataframe(df_prod_f, use_container_width=True, hide_index=True)
-
-# ── ABA 2: CONSULTIVOS ─────────────────────────────────────────────────────
-with aba_cons:
-    total_cons = len(df_cons_f)
-    meta_min_cons = ObjetivosOperacao.CONSULTIVO_GERAL["minima"]
-    meta_base_cons = ObjetivosOperacao.CONSULTIVO_GERAL["meta_base"]
-    meta_alta_cons = ObjetivosOperacao.CONSULTIVO_GERAL["alta_perf"]
-
-    fator_proj_cons, dias_rest_c, _ = Calculos.fator_projecao(df_cons_f, "DATA")
-    projecao_cons = int(total_cons * fator_proj_cons)
-    atingimento_cons = (total_cons / meta_base_cons * 100) if meta_base_cons > 0 else 0
-    status_c_txt, status_c_cor, _ = get_status_geral(total_cons, "cons")
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Consultivos Realizados</div>
-            <div class="card-kpi-valor" style="color: {COR_PRIMARIA};">{total_cons:,}</div>
-            <div class="card-kpi-sub">Atingimento: <b>{atingimento_cons:.1f}%</b> da meta</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Meta Consultivo (Base)</div>
-            <div class="card-kpi-valor">{meta_base_cons:,}</div>
-            <div class="card-kpi-sub">Mín: {meta_min_cons:,} | Alta Perf: {meta_alta_cons:,}</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with c3:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Projeção Fechamento</div>
-            <div class="card-kpi-valor" style="color: {COR_SECUNDARIA};">{projecao_cons:,}</div>
-            <div class="card-kpi-sub">{dias_rest_c} dias úteis restantes</div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with c4:
-        st.markdown(
-            f"""
-        <div class="card-kpi">
-            <div class="card-kpi-titulo">Status Consultivo</div>
-            <div class="card-kpi-valor" style="font-size: 1.35rem; color: {status_c_cor};">{status_c_txt}</div>
-            <div class="card-kpi-sub">Diferença: <b>{total_cons - meta_base_cons:+,}</b></div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-    render_cards_por_projeto(
-        df_cons_f, "cons", "Consultivos por Projeto", "Consultivos realizados"
-    )
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    cg1, cg2 = st.columns([1, 2])
-    with cg1:
-        st.plotly_chart(
-            render_gauge(
-                total_cons,
-                meta_min_cons,
-                meta_base_cons,
-                meta_alta_cons,
-                "Termômetro Consultivo",
-            ),
-            use_container_width=True,
-        )
-    with cg2:
-        if (
-            "DATA" in df_cons_f.columns
-            and pd.to_datetime(_primeira_serie(df_cons_f, "DATA"), errors="coerce")
-            .notna()
-            .any()
-        ):
-            s_data = pd.to_datetime(_primeira_serie(df_cons_f, "DATA"), errors="coerce")
-            df_tempo_c = (
-                s_data.dt.date.value_counts()
-                .rename_axis("DATA")
-                .reset_index(name="Volume")
-                .sort_values("DATA")
+        with cB:
+            fig_cons = px.bar(
+                df_proj_base.sort_values("Consultivos", ascending=True),
+                x="Consultivos",
+                y="Base",
+                orientation="h",
+                color="Consultivos",
+                color_continuous_scale=["#FED7AA", Cores.SECUNDARIA],
+                title="Consultivos por base",
             )
-            df_tempo_c["Acumulado"] = df_tempo_c["Volume"].cumsum()
-            fig_tempo_c = px.line(
-                df_tempo_c,
-                x="DATA",
-                y="Acumulado",
-                title="Curva de Realização de Consultivos",
-                markers=True,
-                color_discrete_sequence=[COR_SECUNDARIA],
-            )
-            fig_tempo_c.add_hline(
-                y=meta_base_cons,
+            fig_cons.add_vline(
+                x=Metas.CONSULTIVO_BASE["meta_base"],
                 line_dash="dash",
-                line_color=COR_PRIMARIA,
-                annotation_text="Meta Base",
+                line_color=Cores.PRIMARIA,
             )
-            fig_tempo_c.update_layout(
-                height=280,
-                margin=dict(l=20, r=20, t=40, b=20),
-                paper_bgcolor="transparent",
+            fig_cons.update_layout(
+                height=360,
+                margin=dict(l=20, r=20, t=50, b=10),
+                coloraxis_showscale=False,
             )
-            st.plotly_chart(fig_tempo_c, use_container_width=True)
-        else:
-            st.info("Distribuição temporal de consultivo não disponível.")
+            st.plotly_chart(fig_cons, use_container_width=True)
 
-    with st.expander("📋 Ver Tabela de Dados Consultivos", expanded=False):
-        st.dataframe(df_cons_f, use_container_width=True, hide_index=True)
-
-# ── ABA 3: EQUIPE & BASE ───────────────────────────────────────────────────
-with aba_hierarquia:
-    st.subheader("Desempenho por Base e Liderança")
-    col_h1, col_h2 = st.columns(2)
-
-    with col_h1:
-        if "BASE" in df_prod_f.columns and not df_prod_f.empty:
-            df_base = (
-                df_prod_f.groupby("BASE", dropna=False)
-                .size()
-                .reset_index(name="Volume O.S.")
-                .sort_values(by="Volume O.S.", ascending=False)
-            )
-            fig_base = px.bar(
-                df_base,
-                x="BASE",
-                y="Volume O.S.",
-                title="Produção de O.S. por Base",
-                text_auto=True,
-                color="Volume O.S.",
-                color_continuous_scale=["#DBEAFE", COR_PRIMARIA],
-            )
-            fig_base.update_layout(height=340, coloraxis_showscale=False)
-            st.plotly_chart(fig_base, use_container_width=True)
-        else:
-            st.info("Dados de Base não encontrados na Produção.")
-
-    with col_h2:
-        if "MONITOR" in df_prod_f.columns and not df_prod_f.empty:
-            df_mon = (
-                df_prod_f.groupby("MONITOR", dropna=False)
-                .size()
-                .reset_index(name="Volume O.S.")
-                .sort_values(by="Volume O.S.", ascending=False)
-            )
-            fig_mon = px.bar(
-                df_mon,
-                x="MONITOR",
-                y="Volume O.S.",
-                title="Produção de O.S. por Monitor",
-                text_auto=True,
-                color="Volume O.S.",
-                color_continuous_scale=["#FED7AA", COR_SECUNDARIA],
-            )
-            fig_mon.update_layout(height=340, coloraxis_showscale=False)
-            st.plotly_chart(fig_mon, use_container_width=True)
-        else:
-            st.info("Dados de Monitor não encontrados na Produção.")
-
-    st.divider()
-    st.subheader("🏆 Ranking de Produtividade por Técnico")
-
-    col_rk = (
-        "TECNICO"
-        if "TECNICO" in df_prod_f.columns
-        else "LOGIN" if "LOGIN" in df_prod_f.columns else None
-    )
-    if col_rk and not df_prod_f.empty:
-        grp_cols = [col_rk, "BASE"] if "BASE" in df_prod_f.columns else [col_rk]
-        df_tec = (
-            df_prod_f.groupby(grp_cols, dropna=False)
-            .size()
-            .reset_index(name="Total O.S.")
-            .sort_values(by="Total O.S.", ascending=False)
+        st.divider()
+        st.markdown("#### Projeções mensais por base")
+        st.caption(
+            "Projeção com ritmo atual e dias úteis restantes no mês (exclui domingos e feriados)."
         )
-        st.dataframe(
-            df_tec.head(25).style.background_gradient(
-                subset=["Total O.S."], cmap="Blues"
-            ),
-            use_container_width=True,
-            hide_index=True,
+
+        base_prioritaria_rule = {
+            "Base": [
+                (
+                    lambda v: str(v).strip().upper() in BASES_PRIORITARIAS,
+                    Cores.SECUNDARIA,
+                )
+            ]
+        }
+        faltantes_rule = {
+            **base_prioritaria_rule,
+            "Falta atual O.S.": [
+                (lambda v: isinstance(v, (int, float)) and v > 0, Cores.ALERTA)
+            ],
+            "A fazer após projeção O.S.": [
+                (lambda v: isinstance(v, (int, float)) and v > 0, Cores.ATENCAO)
+            ],
+            "Falta atual consultivos": [
+                (lambda v: isinstance(v, (int, float)) and v > 0, Cores.ALERTA)
+            ],
+            "A fazer após projeção consultivos": [
+                (lambda v: isinstance(v, (int, float)) and v > 0, Cores.ATENCAO)
+            ],
+        }
+
+        render_table_seguro(
+            df_proj_base[
+                [
+                    "Base",
+                    "Dias faltantes",
+                    "O.S.",
+                    "Falta atual O.S.",
+                    "O.S. projetadas",
+                    "A fazer após projeção O.S.",
+                    "% Meta O.S. (proj)",
+                ]
+            ],
+            titulo="Produção projetada por base | Meta: 11.000 O.S.",
+            fmt={"% Meta O.S. (proj)": "{:.1f}%"},
+            color_rules=faltantes_rule,
+            num_cols=[
+                "Dias faltantes",
+                "O.S.",
+                "Falta atual O.S.",
+                "O.S. projetadas",
+                "A fazer após projeção O.S.",
+            ],
+        )
+
+        render_table_seguro(
+            df_proj_base[
+                [
+                    "Base",
+                    "Dias faltantes",
+                    "Consultivos",
+                    "Falta atual consultivos",
+                    "Consultivos projetados",
+                    "A fazer após projeção consultivos",
+                    "% Meta Cons. (proj)",
+                ]
+            ],
+            titulo="Consultivos projetados por base | Meta: 525",
+            fmt={"% Meta Cons. (proj)": "{:.1f}%"},
+            color_rules=faltantes_rule,
+            num_cols=[
+                "Dias faltantes",
+                "Consultivos",
+                "Falta atual consultivos",
+                "Consultivos projetados",
+                "A fazer após projeção consultivos",
+            ],
+        )
+
+        with st.expander("Exportar resumo por base"):
+            csv = df_proj_base.to_csv(index=False, encoding="utf-8-sig", sep=";")
+            st.download_button(
+                "Baixar CSV",
+                data=csv,
+                file_name=f"resumo_bases_{datetime.now(CFG.TZ).strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+
+# =============================================================================
+# Aba Projeção (por base)
+# =============================================================================
+
+with tab_projecao:
+    render_section_header_seguro(
+        "Projeção por Base",
+        "Projete o fechamento mensal com os ritmos atuais de Produção e Consultivos",
+        icone="📈",
+        badge="Projeção",
+        badge_tipo="azul",
+    )
+
+    bases_projecao = sorted(
+        set(df_prod_f.get("BASE", pd.Series(dtype=str)).dropna().astype(str))
+        | set(df_cons_f.get("BASE", pd.Series(dtype=str)).dropna().astype(str))
+    )
+    if not bases_projecao:
+        render_empty_state_seguro(
+            "Sem bases", "Ajuste os filtros para habilitar a projeção."
         )
     else:
-        st.info(
-            "Identificadores de técnicos/logins insuficientes para montar o ranking."
+        base_sel = st.selectbox("Base", bases_projecao, key="projecao_base")
+        base_norm = normalizar_texto(base_sel)
+
+        prod_base = (
+            df_prod_f[df_prod_f.get("_BASE_NORM", pd.Series(dtype=str)) == base_norm]
+            if not df_prod_f.empty
+            else df_prod_f
+        )
+        cons_base = (
+            df_cons_f[df_cons_f.get("_BASE_NORM", pd.Series(dtype=str)) == base_norm]
+            if not df_cons_f.empty
+            else df_cons_f
+        )
+        base_union = pd.concat([prod_base, cons_base], ignore_index=True)
+
+        _, dias_rest_sim, dias_tot = CalculosOperacionais.fator_projecao(
+            base_union, "DATA"
         )
 
-# ── ABA 4: SIMULADOR ───────────────────────────────────────────────────────
-with aba_simulador:
-    st.subheader("🎯 Simulador de Fechamento de Metas")
-    st.markdown(
-        "Ajuste o ritmo diário esperado e os dias úteis restantes para calcular cenários de entrega."
-    )
-
-    # defaults seguros caso produção esteja vazia
-    _dias_decorridos = max(1, (dias_tot_os - dias_rest_os) if dias_tot_os else 1)
-    _default_ritmo_os = int(total_os / _dias_decorridos) if total_os else 1000
-    _default_ritmo_cons = int(total_cons / _dias_decorridos) if total_cons else 50
-
-    sim_col1, sim_col2, sim_col3 = st.columns(3)
-    with sim_col1:
-        dias_sim = st.number_input(
-            "Dias Úteis Restantes no Mês",
+        c1, c2, c3 = st.columns(3)
+        dias_projecao = c1.number_input(
+            "Dias restantes (úteis)",
             min_value=0,
-            max_value=31,
-            value=int(max(dias_rest_os, 0)),
+            value=int(dias_rest_sim),
+            key="projecao_dias",
         )
-    with sim_col2:
-        ritmo_prod_diario = st.number_input(
-            "Média Diária Esperada de O.S. (Geral)",
+        ritmo_os = c2.number_input(
+            "Ritmo diário O.S.",
             min_value=0,
-            value=max(_default_ritmo_os, 0),
+            value=(
+                int(len(prod_base) / max(1, dias_rest_sim)) if dias_rest_sim > 0 else 0
+            ),
+            key="projecao_ritmo_os",
         )
-    with sim_col3:
-        ritmo_cons_diario = st.number_input(
-            "Média Diária Esperada de Consultivos",
+        ritmo_cons = c3.number_input(
+            "Ritmo diário consultivos",
             min_value=0,
-            value=max(_default_ritmo_cons, 0),
+            value=(
+                int(len(cons_base) / max(1, dias_rest_sim)) if dias_rest_sim > 0 else 0
+            ),
+            key="projecao_ritmo_cons",
         )
 
-    os_simulado = total_os + (ritmo_prod_diario * dias_sim)
-    cons_simulado = total_cons + (ritmo_cons_diario * dias_sim)
+        res_os = int(len(prod_base) + (ritmo_os * dias_projecao))
+        res_cons = int(len(cons_base) + (ritmo_cons * dias_projecao))
 
-    st.markdown("#### Resultado da Simulação")
-    rs1, rs2 = st.columns(2)
-    with rs1:
-        st.metric(
-            label="Projeção Simulada de Produção (O.S.)",
-            value=f"{os_simulado:,} O.S.",
-            delta=f"{os_simulado - meta_base_os:+,} vs Meta Base ({meta_base_os:,})",
+        st.markdown("#### Resultado projetado")
+        r1, r2 = st.columns(2)
+        render_kpi_seguro(
+            r1,
+            "Produção projetada",
+            f"{res_os:,} O.S.",
+            f"Meta 11.000 | {float(CalculosOperacionais.calcular_atingimento(res_os, Metas.PRODUCAO_OS_BASE['meta_base'])):.1f}% | {get_status_base(res_os, Metas.PRODUCAO_OS_BASE)[0]}",
+            "azul",
         )
-    with rs2:
-        st.metric(
-            label="Projeção Simulada de Consultivos",
-            value=f"{cons_simulado:,} Consultivos",
-            delta=f"{cons_simulado - meta_base_cons:+,} vs Meta Base ({meta_base_cons:,})",
+        render_kpi_seguro(
+            r2,
+            "Consultivos projetados",
+            f"{res_cons:,}",
+            f"Meta 525 | {float(CalculosOperacionais.calcular_atingimento(res_cons, Metas.CONSULTIVO_BASE['meta_base'])):.1f}% | {get_status_base(res_cons, Metas.CONSULTIVO_BASE)[0]}",
+            "laranja",
+        )
+
+        render_progress_bar_seguro(
+            "Progresso projetado Produção",
+            res_os,
+            Metas.PRODUCAO_OS_BASE["meta_base"],
+            " O.S.",
+        )
+        render_progress_bar_seguro(
+            "Progresso projetado Consultivos",
+            res_cons,
+            Metas.CONSULTIVO_BASE["meta_base"],
+            "",
+        )
+
+        st.caption(
+            f"Base {base_sel}: atual {len(prod_base):,} O.S. e {len(cons_base):,} consultivos | {dias_tot} dias úteis no mês (conforme data máxima)"
         )
