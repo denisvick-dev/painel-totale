@@ -17,10 +17,11 @@ Uso em qualquer página:
         render_insight, render_status_pill, render_empty_state,
         render_section_header, render_divider, render_progress_bar,
         render_sidebar_brand, render_table_html,
-        # Gráficos
+        # Gráficos e Heros
         render_grafico_linhas, render_grafico_barras,
         render_grafico_rosca, render_grafico_gauge, render_grafico_funnel,
-        render_hero_totale_1, render_hero_totale_2
+        render_hero_totale_1, render_hero_totale_2,
+        render_hero_migracao, render_hero_pme
     )
     aplicar_estilo()
 """
@@ -60,14 +61,14 @@ ColorMapDict = dict[str, list[ColorRule]]
 # ====================================================
 # TIPOGRAFIA & CORES CORPORATIVAS UNIFICADAS
 # ====================================================
-FONTE_TITULO = "'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
+FONTE_TITULO = "'Plus Jakarta Sans', 'Inter', 'Segoe UI', Arial, sans-serif"
 FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 FONTE_CODIGO = "'IBM Plex Mono', Consolas, 'Courier New', monospace"
 
 _GOOGLE_FONTS_URLS = (
     "https://fonts.googleapis.com/icon?family=Material+Icons",
     "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap",
-    "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap",
+    "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap",
 )
 
 # Paleta Corporativa Totale
@@ -231,7 +232,7 @@ def _get_global_css() -> str:
     return f"""{links_html}
     <style>
     /* ═══ DUPLA GARANTIA DE FONTES E MATERIAL ICONS ══ */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
     @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
     @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
@@ -588,8 +589,6 @@ def _get_global_css() -> str:
     }}
     @keyframes feixeLuz {{ 0% {{ left: -60%; }} 30%, 100% {{ left: 130%; }} }}
     .hero-t1-content {{ position: relative; z-index: 1; }}
-    .hero-t1-title {{ margin: 0; font-size: 2.8rem; font-weight: 700; letter-spacing: -0.5px; }}
-    .hero-t1-sub {{ margin: 0.75rem 0 0 0; font-size: 1.25rem; font-weight: 400; opacity: 0.95; }}
 
     .hero-totale-2 {{
         background: linear-gradient(to right, rgb(243,124,4) 0%, rgb(1,40,105) 100%);
@@ -614,6 +613,113 @@ def _get_global_css() -> str:
     }}
     .badge-laranja {{ background-color: #FFFFFF; color: rgb(243,124,4); }}
     .badge-azul {{ background-color: rgb(1,40,105); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.4); }}
+
+    /* ═══════════════════════════════════════════════════
+       HEROS ESPECÍFICOS (MIGRAÇÃO E PME) — RÉPLICA DA IMAGEM
+       ═══════════════════════════════════════════════════ */
+    .hero-migracao {{
+        background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%);
+        padding: 2.2rem 2.5rem;
+        border-radius: 16px;
+        color: #FFFFFF;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(2, 75, 122, 0.2);
+    }}
+    .hero-migracao::after {{
+        content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%;
+        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%);
+        transform: rotate(25deg);
+        animation: feixeLuz 7s infinite ease-in-out;
+    }}
+
+    .hero-pme {{
+        background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%);
+        padding: 2.2rem 2.5rem;
+        border-radius: 16px;
+        color: #FFFFFF;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(74, 29, 150, 0.2);
+    }}
+    .hero-pme::after {{
+        content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%;
+        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%);
+        transform: rotate(25deg);
+        animation: feixeLuz 7s infinite ease-in-out;
+    }}
+
+    /* ═══════════════════════════════════════════════════
+       TIPOGRAFIA DOS HEROS
+       ═══════════════════════════════════════════════════ */
+    .hero-totale-1 .hero-t1-title,
+    .hero-totale-2 .hero-t2-title {{
+        font-family: var(--font-titulo) !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.5px;
+        margin: 0;
+        color: #FFFFFF !important;
+        line-height: 1.15;
+    }}
+
+    .hero-migracao .hero-alt-title,
+    .hero-pme .hero-alt-title,
+    .hero-alt-title {{
+        font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif !important;
+        font-weight: 800 !important;
+        font-size: 2.1rem !important;
+        letter-spacing: -0.6px !important;
+        margin: 0 !important;
+        color: #FFFFFF !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 14px !important;
+        line-height: 1.2 !important;
+    }}
+
+    /* Container do ícone quadrado escuro igual ao da imagem */
+    .hero-alt-title .hero-icon-box {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.28);
+        border: 1.5px solid rgba(255, 255, 255, 0.35);
+        border-radius: 6px;
+        width: 38px;
+        height: 38px;
+        font-size: 20px;
+        flex-shrink: 0;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    }}
+
+    .hero-totale-1 .hero-t1-title {{ font-size: 2.8rem; }}
+    .hero-totale-2 .hero-t2-title {{ font-size: 2.4rem; }}
+
+    .hero-totale-1 .hero-t1-sub,
+    .hero-totale-2 .hero-t2-sub {{
+        font-family: var(--font-texto) !important;
+        font-weight: 500 !important;
+        letter-spacing: 0;
+        margin: 0.75rem 0 0 0;
+        color: rgba(255, 255, 255, 0.95) !important;
+        line-height: 1.45;
+        opacity: 0.95;
+    }}
+
+    .hero-migracao .hero-alt-sub,
+    .hero-pme .hero-alt-sub,
+    .hero-alt-sub {{
+        font-family: 'IBM Plex Sans', 'Inter', sans-serif !important;
+        font-weight: 400 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0px !important;
+        margin: 1rem 0 0 0 !important;
+        color: rgba(255, 255, 255, 0.88) !important;
+        line-height: 1.4 !important;
+    }}
+
+    .hero-totale-1 .hero-t1-sub {{ font-size: 1.25rem; }}
+    .hero-totale-2 .hero-t2-sub {{ font-size: 1.1rem; }}
 
     /* ═══════════════════════════════════════════════════
        KPIs CORPORATIVOS
@@ -987,6 +1093,42 @@ def render_hero_totale_2(
     st.markdown(html, unsafe_allow_html=True)
 
 
+def render_hero_migracao(
+    titulo: str = "Migração — Quebra de Agenda",
+    subtitulo: str = "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
+    icone: str = "🔄",
+) -> None:
+    """Hero Específico: Gradiente Azul para painéis de Migração."""
+    if not titulo:
+        return
+    html_icone = f'<div class="hero-icon-box">{icone}</div>' if icone else ""
+    html = (
+        f'<div class="hero-migracao"><div class="hero-t1-content">'
+        f'<h1 class="hero-alt-title">{html_icone}<span>{titulo}</span></h1>'
+        f'<p class="hero-alt-sub">{subtitulo}</p>'
+        f"</div></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_hero_pme(
+    titulo: str = "PME — Quebra de Agenda",
+    subtitulo: str = "Análise estratégica dedicada às Pequenas e Médias Empresas",
+    icone: str = "🏢",
+) -> None:
+    """Hero Específico: Gradiente Roxo para painéis PME."""
+    if not titulo:
+        return
+    html_icone = f'<div class="hero-icon-box">{icone}</div>' if icone else ""
+    html = (
+        f'<div class="hero-pme"><div class="hero-t1-content">'
+        f'<h1 class="hero-alt-title">{html_icone}<span>{titulo}</span></h1>'
+        f'<p class="hero-alt-sub">{subtitulo}</p>'
+        f"</div></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
     """Função legada — aponta para hero_totale_1."""
     extra = f" · {badge}" if badge else ""
@@ -1236,7 +1378,7 @@ def render_section_header(
         )
 
     html_sub = (
-        f'<div style="font-family: {FONTE_TEXTO}; font-size: 14px; color: {COR_TEXTO_3}; margin-top: 5px; font-weight: 400;">{subtitulo}</div>'
+        f'<div style="font-family: {FONTE_TITULO}; font-size: 18px; color: {COR_PRIMARIA}; margin-top: 5px; font-weight: bold;">{subtitulo}</div>'
         if subtitulo
         else ""
     )
@@ -1514,7 +1656,6 @@ def render_table_html(
                         style = f"color:{color};font-weight:600;"
                         break
             cells.append(f'<td style="{style}">{val}</td>')
-        # ✅ CORREÇÃO: Aspas fechando corretamente
         html_rows.append(f'<tr>{"".join(cells)}</tr>')
 
     if linha_total and not df_show.empty:

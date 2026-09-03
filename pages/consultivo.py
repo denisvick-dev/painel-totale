@@ -378,6 +378,8 @@ render_hero_totale_2(
     badge_tipo="info",
 )
 
+st.divider()
+
 if (
     "dados_cons" not in st.session_state
     or "Consultivo" not in st.session_state["dados_cons"]
@@ -621,6 +623,8 @@ render_kpi(
 )
 render_kpi(c4, "Eficiência (Conversão)", f"{eficiencia:.2%}", tema="cinza")
 
+st.divider()
+
 st.markdown("#### 📊 Resultado Realizado (Até o momento)")
 c5, c6, c7, c8, c9 = st.columns(5)
 render_kpi(
@@ -640,6 +644,8 @@ render_kpi(
 render_kpi(c7, "Total Mesh", f"{f_mesh:,.0f}".replace(",", "."), tema="cinza")
 render_kpi(c8, "Total TV Box", f"{f_tv:,.0f}".replace(",", "."), tema="cinza")
 render_kpi(c9, "Total Virtua", f"{f_vir:,.0f}".replace(",", "."), tema="cinza")
+
+st.divider()
 
 if falt_dias > 0:
     st.markdown(
@@ -717,8 +723,8 @@ st.markdown(
 )
 
 # ── ABAS INFERIORES ──
-aba1, aba2, aba3 = st.tabs(
-    ["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos", "📅 Consultivos de Hoje"]
+aba1, aba2 = st.tabs(
+    ["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"]
 )
 
 with aba1:
@@ -761,47 +767,6 @@ with aba2:
             "Excelente! 100% da operação possui pelo menos um consultivo registrado.",
             "ok",
         )
-
-with aba3:
-    hoje = pd.Timestamp.today().normalize()
-    render_section_header("🎯", "Consultivos do Dia por Monitor")
-    st.caption(f"Data de referência: {hoje.strftime('%d/%m/%Y')}")
-
-    filtro_base_dia, campo_meta = st.columns([1.5, 1])
-    with filtro_base_dia:
-        bases_dia = ["Todas"] + sorted(
-            df_base["Base"].dropna().astype(str).unique().tolist()
-        )
-        base_dia = st.selectbox(
-            "Base",
-            bases_dia,
-            key="base_consultivos_dia",
-        )
-    with campo_meta:
-        st.metric("Meta base diária", Configuracoes.meta_diaria_consultivos)
-
-    df_dia_monitor = preparar_resumo_diario_monitor(df_base, hoje)
-    df_meta_monitor = calcular_meta_acumulada_monitor(df_base, hoje)
-    df_dia_monitor = df_dia_monitor.merge(
-        df_meta_monitor, on=["Base", "Monitor"], how="left"
-    )
-    if base_dia != "Todas":
-        df_dia_monitor = df_dia_monitor[
-            df_dia_monitor["Base"] == base_dia
-        ].copy()
-    df_dia_monitor["Meta Diária"] = df_dia_monitor["Meta Ajustada"]
-    df_dia_monitor["Falta para Meta"] = (
-        df_dia_monitor["Meta Diária"] - df_dia_monitor["Total Consultivos"]
-    ).clip(lower=0)
-    df_dia_monitor = df_dia_monitor.drop(columns=["Saldo Anterior"])
-
-    render_tabela_cons(
-        df_dia_monitor,
-        height=420,
-        colunas_destaque=["Total Consultivos"],
-        limite_destaque=Configuracoes.meta_diaria_consultivos,
-        centralizar=True,
-    )
 
 # ── EXPORTAÇÃO ──
 st.divider()

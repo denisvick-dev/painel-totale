@@ -48,6 +48,8 @@ from components.componentes import (
     render_kpi,
     render_kpi_sm,
     render_insight,
+    render_hero_migracao,
+    render_hero_pme,
     TemaKPI,
     TipoInsight,
 )
@@ -642,20 +644,21 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "sombra_hero": "rgba(12, 74, 110, 0.25)",
         "sla_default": Config.SLA_MIGRACAO,
         "pdf_class": PDFExecutivoMigracao,
+        "hero_fn": render_hero_migracao,  # ← NOVO
         "acoes": [
             (
-                "ALTA",
+                "🔴 ALTA",
                 "Verificar estoque de equipamentos nos almoxarifados das regiões com maior quebra.",
                 "alerta",
             ),
             (
-                "MÉDIA",
+                "🟡 MÉDIA",
                 "Confirmar certificação dos técnicos em instalação GPON.",
                 "acao",
             ),
-            ("MÉDIA", "Priorizar agendamentos de migração no início do turno.", "acao"),
+            ("🟡 MÉDIA", "Priorizar agendamentos de migração no início do turno.", "acao"),
             (
-                "BAIXA",
+                "🟢 BAIXA",
                 "Validar se ordens com status 'Pendente' possuem pré-vistoria aprovada.",
                 "info",
             ),
@@ -670,9 +673,10 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "sombra_hero": "rgba(76, 29, 149, 0.25)",
         "sla_default": Config.SLA_PME,
         "pdf_class": PDFExecutivoPME,
+        "hero_fn": render_hero_pme,  # ← NOVO
         "acoes": [
             (
-                "🟡 MÉDIA",
+                "🔴 ALTA",
                 "Verificar disponibilidade de técnicos habilitados em PME.",
                 "acao",
             ),
@@ -686,42 +690,33 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
     },
 }
 
-
 # =====================================================================
 # COMPONENTES VISUAIS
 # =====================================================================
 def _injetar_css_dinamico(segmento: str) -> None:
+    """CSS residual da página (sticky + resultado-base). O hero vem dos componentes."""
     conf = SEGMENTOS_CONFIG[segmento]
     st.markdown(
         f"""
 <style>
+/* Sticky do topo (hero componente + resultado da base) */
 div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
-    position: sticky !important; top: 0.75rem !important; z-index: 1000 !important;
+    position: sticky !important;
+    top: 0.75rem !important;
+    z-index: 1000 !important;
 }}
 .topo-fixo-dinamico {{
-    background: rgba(248,250,252,0.96); backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px); padding: 0.5rem 0; border-radius: 16px;
+    background: rgba(248,250,252,0.96);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 0.5rem 0 0.25rem 0;
+    border-radius: 16px;
 }}
-.hero-dinamico {{
-    background: {conf["grad_hero"]}; padding: 32px 40px; border-radius: 16px;
-    color: white; box-shadow: 0 10px 40px {conf["sombra_hero"]};
-    margin-bottom: 12px; position: relative; overflow: hidden;
-}}
-.hero-dinamico::before {{
-    content: ""; position: absolute; top: -55%; right: -8%;
-    width: 390px; height: 390px; background: rgba(255,255,255,0.07);
-    border-radius: 50%; pointer-events: none;
-}}
-.hero-dinamico h1 {{
-    position: relative; z-index: 2; color: white !important;
-    font-family: "Manrope", sans-serif !important;
-    font-size: 34px; font-weight: 800; margin: 0; letter-spacing: -0.5px;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.28);
-}}
-.hero-dinamico p {{
-    position: relative; z-index: 2; color: rgba(255,255,255,0.92) !important;
-    font-family: "Inter", sans-serif !important; font-size: 15px;
-    margin: 8px 0 0; font-weight: 400;
+.topo-fixo-dinamico .hero-migracao,
+.topo-fixo-dinamico .hero-pme {{
+    margin-bottom: 12px !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 40px {conf["sombra_hero"]} !important;
 }}
 .resultado-base {{
     margin-bottom: 0 !important;
@@ -744,7 +739,7 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
 </style>""",
         unsafe_allow_html=True,
     )
-
+    
 
 def _html_resultado_base(regioes: List[str], total: int) -> str:
     cores_regiao = {
@@ -781,19 +776,25 @@ def _html_resultado_base(regioes: List[str], total: int) -> str:
 
 
 def _render_topo_fixo(segmento: str, regioes: List[str], total: int) -> None:
+    """Hero corporativo (componente) + faixa de Resultado da Base, sticky."""
     conf = SEGMENTOS_CONFIG[segmento]
-    st.markdown(
-        f"""
-<div class="topo-fixo-dinamico">
-    <div class="hero-dinamico">
-        <h1>{conf["icone"]} {segmento} — Quebra de Agenda</h1>
-        <p>{conf["subtitulo"]}</p>
-    </div>
-    {_html_resultado_base(regioes, total)}
-</div>""",
-        unsafe_allow_html=True,
+    hero_fn = conf["hero_fn"]
+
+    # Abre o wrapper sticky
+    st.markdown('<div class="topo-fixo-dinamico">', unsafe_allow_html=True)
+
+    # Hero oficial do Design System (cores das imagens)
+    hero_fn(
+        titulo=f"{segmento} — Quebra de Agenda",
+        subtitulo=conf["subtitulo"],
+        icone=conf["icone"],
     )
 
+    # Faixa de regiões / volume
+    st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
+
+    # Fecha o wrapper sticky
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def _render_card_status(
     segmento: str,

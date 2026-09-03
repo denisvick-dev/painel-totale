@@ -797,6 +797,7 @@ MEDIA_GERAL_PONTOS = (
     TOTAL_GERAL_PONTOS / TOTAL_GERAL_EQUIPES if TOTAL_GERAL_EQUIPES > 0 else 0.0
 )
 
+st.divider()
 
 # ====================================================
 # BLOCO 7: FILTROS
