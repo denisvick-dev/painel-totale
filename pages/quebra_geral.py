@@ -1,6 +1,6 @@
 """
-quebra_totale.py
-================
+quebra.py
+=========
 Super Relatório Corporativo Unificado | Quebra Operacional TOTALE
 
 Módulos integrados:
@@ -2013,1798 +2013,544 @@ def _render_hero_segmento(segmento: str, regioes: List[str], total: int) -> None
     )
 
 
-def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -> None:
-    conf = SEGMENTOS_CONFIG[segmento]
-    quebra_atual = float(m_seg["quebra_atual"])
-    dentro_sla = quebra_atual <= sla_meta
-
-    if dentro_sla:
-        status_label = "DENTRO DO SLA"
-        status_icone = "✓"
-        cor_status = "#059669"
-        cor_bg = "#D1FAE5"
-        cor_txt = "#065F46"
-        mensagem = (
-            f"{segmento} com folga de "
-            f"<strong>{sla_meta - quebra_atual:.2%}</strong> em relação à meta."
-        )
-        icone_mensagem = "✅"
-    else:
-        status_label = "FORA DO SLA"
-        status_icone = "!"
-        cor_status = "#DC2626"
-        cor_bg = "#FEE2E2"
-        cor_txt = "#991B1B"
-        mensagem = (
-            f"{segmento} acima da meta em "
-            f"<strong>{quebra_atual - sla_meta:.2%}</strong>. "
-            "Ação corretiva imediata necessária."
-        )
-        icone_mensagem = "🚨"
-
-    pct_barra = min(
-        100.0,
-        (quebra_atual / (sla_meta * 2)) * 100 if sla_meta > 0 else 0,
-    )
-
-    # textwrap.dedent remove os espaços de recuo para o Streamlit não renderizar como bloco de código
-    html = textwrap.dedent(f"""
-        <div style="background:white;border:1px solid #E5E7EB;border-radius:14px;padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);margin:16px 0 24px 0;border-top:3px solid {conf['cor_primaria']};">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-                <div style="display:flex;align-items:center;gap:14px;">
-                    <div style="width:44px;height:44px;background:{conf['grad_hero']};border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px {conf['sombra_hero']};">
-                        <span style="font-size:22px;">{conf['icone']}</span>
-                    </div>
-                    <div>
-                        <div style="font-family:{FONTE_TITULO};font-size:20px;font-weight:800;color:#0F172A;letter-spacing:-0.03em;line-height:1.1;">
-                            {segmento}
-                        </div>
-                        <div style="font-family:{FONTE_TEXTO};font-size:12px;color:#64748B;font-weight:500;margin-top:4px;letter-spacing:-0.01em;">
-                            Análise de Quebra
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                    <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:{cor_bg};border-radius:999px;border:1px solid {cor_status};">
-                        <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;background:{cor_status};color:white;border-radius:50%;font-family:{FONTE_TEXTO};font-size:11px;font-weight:800;">
-                            {status_icone}
-                        </span>
-                        <span style="font-family:{FONTE_TEXTO};font-size:11px;font-weight:800;color:{cor_txt};text-transform:uppercase;letter-spacing:0.04em;">
-                            {status_label}
-                        </span>
-                    </div>
-                    <div style="display:inline-flex;flex-direction:column;padding:7px 15px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;min-width:102px;">
-                        <span style="font-family:{FONTE_TEXTO};font-size:9px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;">
-                            Quebra Atual
-                        </span>
-                        <span style="font-family:{FONTE_TITULO};font-size:18px;color:{cor_status};font-weight:900;line-height:1.15;letter-spacing:-0.04em;font-variant-numeric:tabular-nums;">
-                            {quebra_atual:.2%}
-                        </span>
-                    </div>
-                    <div style="display:inline-flex;flex-direction:column;padding:7px 15px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;min-width:92px;">
-                        <span style="font-family:{FONTE_TEXTO};font-size:9px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;">
-                            Meta SLA
-                        </span>
-                        <span style="font-family:{FONTE_TITULO};font-size:18px;color:{conf['cor_secundaria']};font-weight:900;line-height:1.15;letter-spacing:-0.04em;font-variant-numeric:tabular-nums;">
-                            {sla_meta:.2%}
-                        </span>
-                    </div>
-                </div>
-            </div>
-            <div style="margin:16px 0 12px 0;">
-                <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-family:{FONTE_TEXTO};font-size:11px;color:#64748B;font-weight:700;">
-                    <span>0%</span>
-                    <span>Meta {sla_meta:.2%}</span>
-                    <span>{sla_meta * 2:.0%}</span>
-                </div>
-                <div style="position:relative;height:8px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
-                    <div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#374151;z-index:2;"></div>
-                    <div style="width:{pct_barra:.2f}%;height:100%;background:linear-gradient(90deg,{cor_status} 0%, {cor_status}CC 100%);border-radius:4px;"></div>
-                </div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:{cor_bg};border-left:3px solid {cor_status};border-radius:6px;">
-                <span style="font-size:16px;line-height:1;flex-shrink:0;">
-                    {icone_mensagem}
-                </span>
-                <div style="font-family:{FONTE_TEXTO};font-size:13px;color:{cor_txt};line-height:1.55;font-weight:500;letter-spacing:-0.01em;">
-                    {mensagem}
-                </div>
-            </div>
-        </div>
-    """).strip()
-
-    st.markdown(html, unsafe_allow_html=True)
-
 # ═══════════════════════════════════════════════════════════════════════
-# UTILITÁRIO — Contratos Pendentes por Segmento
+# VISUALIZAÇÃO DOS MÓDULOS DE NAVEGAÇÃO
 # ═══════════════════════════════════════════════════════════════════════
-def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
-    MAPA = {
-        "Contrato": [
-            "CONTRATO",
-            "Nº CONTRATO",
-            "NUM_CONTRATO",
-            "NUMERO CONTRATO",
-            "NÚMERO CONTRATO",
-            "CONTRATO_ID",
-            "COD_CONTRATO",
-            "CÓDIGO CONTRATO",
-        ],
-        "Login": [
-            "LOGIN DO TÉCNICO",
-            "LOGIN DO TECNICO",
-            "LOGIN_DO_TECNICO",
-            "LOGIN_TECNICO",
-            "LOGIN TÉCNICO",
-            "LOGIN TECNICO",
-            "LOGIN",
-            "USER",
-            "USUÁRIO",
-            "USUARIO",
-            "USERNAME",
-            "MATRÍCULA",
-            "MATRICULA",
-        ],
-        "Técnico": [
-            "TÉCNICO",
-            "TECNICO",
-            "NOME TÉCNICO",
-            "NOME_TECNICO",
-            "NOME DO TÉCNICO",
-        ],
-        "Monitor": ["MONITOR", "SUPERVISOR", "NOME MONITOR", "NOME_MONITOR"],
-        "Qtde. O.S.": ["TOTAL DE TAREFAS"],
-    }
+def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
+    render_section("📊 Resumo Executivo — Matriz de Quebra por Monitor")
+    df_valid = df[df["TIPO_SERVICO"] != "Outros"]
+    regioes = df_valid["REGIÃO"].unique().tolist()
+    total_reg = len(df_valid)
 
-    def _norm(s: str) -> str:
-        return (
-            unicodedata.normalize("NFKD", str(s))
-            .encode("ascii", errors="ignore")
-            .decode("ascii")
-            .upper()
-            .strip()
-            .replace("_", " ")
-            .replace(".", "")
-        )
-
-    def _achar(df: pd.DataFrame, cands: List[str]) -> Optional[str]:
-        cols_norm = {_norm(c): c for c in df.columns}
-        for cand in cands:
-            cn = _norm(cand)
-            if cn in cols_norm:
-                return cols_norm[cn]
-        for cand in cands:
-            cn = _norm(cand)
-            for col_norm, col_real in cols_norm.items():
-                if cn in col_norm:
-                    return col_real
-        return None
-
-    if "Status Contrato" in df_seg.columns:
-        mask = (
-            df_seg["Status Contrato"]
-            .str.upper()
-            .isin(["PENDENTE", "PENDING", "ABERTO", "EM ABERTO", "NÃO EXECUTADO"])
-        )
-    else:
-        mask = pd.Series(True, index=df_seg.index)
-
-    df_p = df_seg[mask].copy()
-    if df_p.empty:
-        return pd.DataFrame(
-            columns=["Contrato", "Login", "Técnico", "Monitor", "Qtde. O.S."]
-        )
-
-    df_out = pd.DataFrame(index=df_p.index)
-    for nome, cands in MAPA.items():
-        col = _achar(df_p, cands)
-        df_out[nome] = df_p[col].values if col else "N/D"
-
-    if "Qtde. O.S." in df_out.columns:
-        df_out["Qtde. O.S."] = (
-            pd.to_numeric(df_out["Qtde. O.S."], errors="coerce").fillna(0).astype(int)
-        )
-
-    return (
-        df_out.drop_duplicates()
-        .sort_values("Técnico", na_position="last")
-        .reset_index(drop=True)
-        .pipe(lambda d: d.set_index(d.index + 1))
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# SUB-ABAS SEGMENTO
-# ═══════════════════════════════════════════════════════════════════════
-def _sub_visao_geral(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    m_seg: Dict[str, Any],
-    p_ot: float,
-    p_base: float,
-    p_pess: float,
-    sla_meta: float,
-) -> None:
-    render_section(f"📊 Resumo Operacional — {segmento}")
-    tema_q: TemaKPI = "vermelho" if m_seg["quebra_atual"] > sla_meta else "verde"
-    c1, c2, c3, c4, c5 = st.columns(5)
-    render_kpi(
-        c1, "Alocado", f"{int(m_seg['alocado']):,}".replace(",", "."), tema="azul"
-    )
-    render_kpi(
-        c2, "Executadas", f"{int(m_seg['exec']):,}".replace(",", "."), tema="verde"
-    )
-    render_kpi(
-        c3, "Não Exec.", f"{int(m_seg['naoexec']):,}".replace(",", "."), tema="laranja"
-    )
-    render_kpi(
-        c4, "Pendentes", f"{int(m_seg['pend']):,}".replace(",", "."), tema="cinza"
-    )
-    render_kpi(
-        c5,
-        "Quebra Atual",
-        f"{m_seg['quebra_atual']:.2%}",
-        sub=f"Meta: {sla_meta:.0%}",
-        tema=tema_q,
-    )
-
-    st.markdown("")
-    render_section("🔮 Projeções de Fechamento")
-    cen = {
-        n: Motor.projetar(df_seg, p)
-        for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
-    }
-    c_cen, c_gauge = st.columns([2, 3])
-    with c_cen:
-        for nome, cd in cen.items():
-            cor_p: TemaKPI = "vermelho" if cd["fechamento_proj"] > sla_meta else "verde"
-            render_kpi_sm(
-                st,
-                nome,
-                f"{cd['fechamento_proj']:.2%}",
-                sub=f"Não Exec. proj.: {int(cd['naoexec_proj']):,}",
-                tema=cor_p,
-            )
-
-    with c_gauge:
-        cor_bar = "#EF4444" if m_seg["quebra_atual"] > sla_meta else "#10B981"
-        fig = go.Figure(
-            go.Indicator(
-                mode="gauge+number+delta",
-                value=m_seg["quebra_atual"] * 100,
-                delta={
-                    "reference": sla_meta * 100,
-                    "increasing": {"color": "#EF4444"},
-                    "decreasing": {"color": "#10B981"},
-                    "suffix": "%",
-                },
-                number={"suffix": "%", "font": {"size": 40}},
-                gauge={
-                    "axis": {"range": [0, 50], "ticksuffix": "%"},
-                    "bar": {"color": cor_bar},
-                    "steps": [
-                        {"range": [0, sla_meta * 100], "color": "#DCFCE7"},
-                        {"range": [sla_meta * 100, sla_meta * 120], "color": "#FEF9C3"},
-                        {"range": [sla_meta * 120, 50], "color": "#FEE2E2"},
-                    ],
-                    "threshold": {
-                        "line": {"color": "#DC2626", "width": 3},
-                        "thickness": 0.85,
-                        "value": sla_meta * 100,
-                    },
-                },
-                title={"text": f"Quebra vs. Meta {sla_meta:.0%}", "font": {"size": 14}},
-            )
-        )
-        fig.update_layout(height=280, margin=dict(t=40, b=10, l=20, r=20))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-    st.markdown("")
-    render_section("🛡️ Folga de SLA")
-    folga = Motor.folga_sla(df_seg, sla_meta)
-    f1, f2, f3 = st.columns(3)
-    cor_f: TemaKPI = (
-        "vermelho"
-        if folga["estourado"]
-        else ("verde" if folga["folga_ne_pendente"] > 0 else "laranja")
-    )
-    render_kpi(
-        f1,
-        "Folga (OS)",
-        f"{int(np.floor(folga['folga_ne_pendente'])):,}",
-        sub="Não Exec. ainda permitidas",
-        tema=cor_f,
-    )
-    render_kpi(
-        f2,
-        "Execução Mínima",
-        f"{int(np.ceil(folga['precisa_executar_pendente'])):,}",
-        sub="Pendentes a executar para atingir meta",
-        tema="azul",
-    )
-    render_kpi(
-        f3,
-        "Limite NE Total",
-        f"{int(folga['limite_ne_total']):,}",
-        sub=f"= {sla_meta:.0%} × {int(folga['alocado']):,}",
-        tema="cinza",
-    )
-
-
-def _sub_causa_raiz_segmento(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"🔍 Causa Raiz — {segmento}")
-    df_c = Motor.causa_raiz_segmento(df_seg, segmento, "_COL_BAIXA", top_n=8)
-    if df_c.empty:
-        render_insight(
-            "Coluna de código/motivo de baixa não identificada.", tipo="alerta"
-        )
+    mat = Motor.matriz_resumo(df)
+    if mat.empty:
+        st.warning("⚠️ Dados insuficientes para montar a Matriz Resumo.")
         return
 
-    c_tab, c_chart = st.columns([1.2, 2])
-    with c_tab:
-        render_dataframe_profundo(df_c, f"Top Motivos — {segmento}", "🔍", height=350)
-    with c_chart:
-        cor_bar = SEGMENTOS_CONFIG[segmento]["cor_primaria"]
-        cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
-        fig = go.Figure()
-        fig.add_trace(
-            go.Bar(
-                x=df_c["Motivo de Baixa"],
-                y=df_c["Volume"],
-                name="Volume",
-                marker_color=cor_bar,
-                text=df_c["Volume"],
-                textposition="outside",
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df_c["Motivo de Baixa"],
-                y=df_c["Acumulado"],
-                name="Acumulado %",
-                yaxis="y2",
-                mode="lines+markers",
-                line=dict(color=cor_linha, width=2),
-                marker=dict(size=7),
-            )
-        )
-        fig.update_layout(
-            title=f"Pareto de Motivos — {segmento}",
-            yaxis=dict(title="Volume"),
-            yaxis2=dict(
-                title="Acumulado %",
-                overlaying="y",
-                side="right",
-                tickformat=".0%",
-                range=[0, 1.1],
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            height=380,
-            xaxis=dict(tickangle=-30),
-        )
-        fig.add_hline(
-            y=0.8,
-            line_dash="dot",
-            line_color="#F59E0B",
-            yref="y2",
-            annotation_text="80%",
-            annotation_position="top right",
-        )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-    if len(df_c) >= 2:
-        t1, t2 = df_c.iloc[0], df_c.iloc[1]
-        render_insight(
-            f"Os 2 principais motivos (**{t1['Motivo de Baixa']}** e **{t2['Motivo de Baixa']}**) "
-            f"respondem por **{t2['Acumulado']:.1%}** das quebras.",
-            tipo="acao",
-        )
-
-
-def _sub_tecnicos_segmento(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    p_base: float,
-    min_aloc: float,
-    top_n: int,
-    sla_meta: float,
-) -> None:
-    render_section(f"👤 Técnicos com Maior Quebra — {segmento}")
-    df_tec = Motor.tecnicos_criticos(df_seg, segmento, p_base, min_aloc, top_n)
-    if df_tec.empty:
-        render_insight("Não há técnicos com volume suficiente.", tipo="info")
-        return
-
-    render_dataframe_profundo(
-        df_tec,
-        f"Técnicos Críticos — {segmento}",
-        "🚨",
-        color_col="Fechamento Base",
-        meta=sla_meta,
-        height=450,
-    )
-    st.download_button(
-        "📥 Exportar Técnicos",
-        Utils.gerar_excel(df_tec, f"Tec_{segmento[:20]}"),
-        f"tecnicos_{segmento.lower()}.xlsx",
-        key=f"dl_tec_{segmento}",
-    )
-
-    df_plot = df_tec.head(10).sort_values("Fechamento Base")
-    cores = [
-        "#EF4444" if v > sla_meta else "#10B981" for v in df_plot["Fechamento Base"]
-    ]
-    fig = go.Figure(
-        go.Bar(
-            y=df_plot["TÉCNICO"],
-            x=df_plot["Fechamento Base"],
-            orientation="h",
-            marker_color=cores,
-            text=[f"{v:.1%}" for v in df_plot["Fechamento Base"]],
-            textposition="outside",
-        )
-    )
-    fig.add_vline(
-        x=sla_meta,
-        line_dash="dash",
-        line_color="#DC2626",
-        annotation_text=f"Meta {sla_meta:.0%}",
-    )
-    fig.update_layout(
-        title="Quebra Projetada por Técnico",
-        xaxis_tickformat=".1%",
-        height=max(300, len(df_plot) * 36),
-        margin=dict(t=40, b=20, l=10, r=60),
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-
-def _sub_plano_acao(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    p_base: float,
-    sla_meta: float,
-) -> None:
-    render_section(f"🎯 Plano de Ação — {segmento}")
-    folga = Motor.folga_sla(df_seg, sla_meta)
-    cen = Motor.projetar(df_seg, p_base)
-    excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])
-    pend_exec = folga["precisa_executar_pendente"]
-
-    col_d, col_a = st.columns([1, 1.5])
-    with col_d:
-        render_section("📋 Diagnóstico")
-        render_kpi_sm(
-            st,
-            "Excesso de NE",
-            f"{int(excesso):,}",
-            sub="OS além do permitido",
-            tema="vermelho" if excesso > 0 else "verde",
-        )
-        render_kpi_sm(
-            st,
-            "Pendentes a Executar",
-            f"{int(np.ceil(pend_exec)):,}",
-            sub=f"Mínimo para meta {sla_meta:.0%}",
-            tema="azul",
-        )
-        render_kpi_sm(
-            st,
-            "Proj. Base",
-            f"{cen['fechamento_proj']:.2%}",
-            sub=f"c/ {p_base:.0%} de quebra nos pend.",
-            tema="vermelho" if cen["fechamento_proj"] > sla_meta else "verde",
-        )
-
-    with col_a:
-        render_section("✅ Ações Recomendadas")
-        acoes: List[Tuple[str, str, str]] = []
-        if folga["estourado"]:
-            acoes.append(
-                (
-                    "🔴 IMEDIATA",
-                    f"Acionar plantão para recuperar {int(excesso):,} OS não executadas.",
-                    "critico",
-                )
-            )
-        if pend_exec > 0:
-            acoes.append(
-                (
-                    "🟠 ALTA",
-                    f"Garantir execução de {int(np.ceil(pend_exec)):,} OS pendentes para atingir meta.",
-                    "alerta",
-                )
-            )
-        acoes.extend(SEGMENTOS_CONFIG[segmento]["acoes"])
-        for pri, ac, tp in acoes:
-            render_insight(f"**{pri}** — {ac}", tipo=cast(TipoInsight, tp))
-
-    df_plano = pd.DataFrame(
-        [{"Segmento": segmento, "Prioridade": p, "Ação": a} for p, a, _ in acoes]
-    )
-    if not df_plano.empty:
-        st.download_button(
-            "📥 Exportar Plano",
-            Utils.gerar_excel(df_plano, f"Plano_{segmento[:20]}"),
-            f"plano_{segmento.lower()}.xlsx",
-            key=f"dl_plano_{segmento}",
-        )
-
-
-def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"📋 Contratos Pendentes — {segmento}")
-    df_pend = _build_df_pendentes(df_seg)
-    total_pend = len(df_pend)
-
-    m1, m2, m3 = st.columns(3)
-    render_kpi(
-        m1,
-        "Total Pendentes",
-        f"{total_pend:,}",
-        sub="contratos sem execução",
-        tema="laranja" if total_pend > 0 else "verde",
-    )
-    render_kpi(
-        m2,
-        "Técnicos Envolvidos",
-        f"{df_pend['Técnico'].replace('N/D', pd.NA).dropna().nunique():,}",
-        sub="com contrato pendente",
-        tema="azul",
-    )
-    render_kpi(
-        m3,
-        "Monitores Envolvidos",
-        f"{df_pend['Monitor'].replace('N/D', pd.NA).dropna().nunique():,}",
-        sub="supervisionando pendências",
-        tema="cinza",
-    )
-
-    st.markdown("")
-    if df_pend.empty:
-        render_insight("Nenhum contrato pendente encontrado.", tipo="ok")
-        return
-
-    with st.expander("🔎 Filtros rápidos", expanded=False):
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            f_tec = st.selectbox(
-                "Técnico",
-                ["Todos"]
-                + sorted(
-                    str(x)
-                    for x in df_pend["Técnico"].dropna().unique()
-                    if str(x) not in {"N/D", "nan"}
-                ),
-                key=f"pend_f_tec_{segmento}",
-            )
-        with fc2:
-            f_mon = st.selectbox(
-                "Monitor",
-                ["Todos"]
-                + sorted(
-                    str(x)
-                    for x in df_pend["Monitor"].dropna().unique()
-                    if str(x) not in {"N/D", "nan"}
-                ),
-                key=f"pend_f_mon_{segmento}",
-            )
-
-    df_view = df_pend.copy()
-    if f_tec != "Todos":
-        df_view = df_view[df_view["Técnico"] == f_tec]
-    if f_mon != "Todos":
-        df_view = df_view[df_view["Monitor"] == f_mon]
-
-    st.markdown(f"**Exibindo {len(df_view):,} de {total_pend:,} contratos pendentes**")
-    render_dataframe_profundo(
-        df_view.reset_index(drop=True), "Pendentes", "📋", height=480
-    )
-
-    st.markdown("")
-    col_exp1, col_exp2, _ = st.columns([1, 1, 2])
-    with col_exp1:
-        st.download_button(
-            "📥 Exportar Filtrado",
-            Utils.gerar_excel(df_view, "Filtrado"),
-            f"pendentes_{segmento.lower()}_filtrado.xlsx",
-            key=f"dl_pend_f_{segmento}",
-        )
-    with col_exp2:
-        st.download_button(
-            "📥 Exportar Completo",
-            Utils.gerar_excel(df_pend, "Completo"),
-            f"pendentes_{segmento.lower()}_completo.xlsx",
-            key=f"dl_pend_c_{segmento}",
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# VISÕES: Resumo Executivo, Análise Detalhada e Segmento
-# ═══════════════════════════════════════════════════════════════════════
-def render_visao_resumo(df: pd.DataFrame, meta_pct: float) -> None:
-    if df.empty:
-        render_insight("Sem dados para a Visão Resumo.", tipo="alerta")
-        return
-
-    with st.spinner("Gerando matriz corporativa..."):
-        df_matriz = Motor.matriz_resumo(df)
-
-    if df_matriz.empty:
-        render_insight("Não foi possível gerar a matriz de resumo.", tipo="alerta")
-        return
-
-    total_row = df_matriz[df_matriz["Monitor"] == "Total Geral"].iloc[0]
-    total_tar = int(total_row["Total Tarefas"])
-    q_geral = float(total_row["Quebra Geral"])
-
-    k1, k2, k3, k4 = st.columns(4)
-    render_kpi(
-        k1,
-        "Total O.S.",
-        f"{total_tar:,}".replace(",", "."),
-        "Base válida analisada",
-        "azul",
-    )
-    render_kpi(
-        k2,
-        "Quebra Consolidada",
-        f"{q_geral:.2%}",
-        "Todos os segmentos",
-        "vermelho" if q_geral > meta_pct else "verde",
-    )
-    render_kpi(k3, "Meta Geral", f"{meta_pct:.0%}", "SLA Alvo", "cinza")
-
-    pior_tipo = max(Config.ORDEM_TIPOS, key=lambda t: float(total_row.get(t, 0)))
-    render_kpi(
-        k4,
-        "Segmento Crítico",
-        pior_tipo,
-        f"Quebra: {float(total_row[pior_tipo]):.2%}",
-        "laranja",
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    render_section("📋 Matriz de Desempenho (Monitor × Segmento)")
     st.markdown(
-        '<div style="background:#F1F5F9;padding:12px;border-radius:6px;'
-        'font-size:13px;color:#334155;margin-bottom:16px;">'
-        "🧮 <b>Fórmula:</b> Não Executadas ÷ (Executadas + Não Executadas). "
-        "Pendentes não entram no cálculo.</div>",
-        unsafe_allow_html=True,
-    )
-    styler = estilizar_matriz(df_matriz, meta_pct)
-    st.markdown(
-        f'<div style="background:white;padding:5px;border-radius:12px;'
-        f'box-shadow:0 4px 12px rgba(0,0,0,0.08);">'
-        f'{styler.hide(axis="index").to_html()}</div>',
+        f'<div style="font-size:0.85rem;color:#64748B;margin-bottom:1rem;">'
+        f"Visão consolidada do percentual de quebra (% Não Executadas sobre Executadas + Não Executadas) "
+        f"por Monitor e Segmento Operacional. "
+        f'Células em <span style="color:#991B1B;font-weight:700;">vermelho</span> '
+        f"indicam quebra acima da meta de <b>{meta_sla:.0%}</b>.</div>",
         unsafe_allow_html=True,
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    c_dw1, _, _ = st.columns([1, 1, 3])
-    with c_dw1:
+    styler = estilizar_matriz(mat, meta_sla)
+    st.dataframe(styler, use_container_width=True, hide_index=True, height=520)
+
+    col_btn1, col_btn2 = st.columns([1, 4])
+    with col_btn1:
         st.download_button(
-            "📊 Baixar Matriz (Excel)",
-            Utils.gerar_excel(df_matriz, "Matriz"),
-            f"matriz_quebra_{datetime.now():%Y%m%d_%H%M}.xlsx",
+            "📥 Baixar Matriz (Excel)",
+            data=Utils.gerar_excel(mat, "Matriz_Resumo"),
+            file_name=f"matriz_resumo_quebra_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    render_section("📊 Distribuição Visual")
-    df_plot = df_matriz[df_matriz["Monitor"] != "Total Geral"].copy()
-    fig = go.Figure()
-    for tipo in Config.ORDEM_TIPOS:
-        fig.add_trace(
-            go.Bar(
-                name=tipo,
-                x=df_plot["Monitor"],
-                y=df_plot[tipo],
-                marker_color=Config.CORES_TIPO.get(tipo, "#64748B"),
-                text=[_fmt_pct_br(v) for v in df_plot[tipo]],
-                textposition="outside",
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        render_section("📈 Quebra Geral por Segmento")
+        df_seg = (
+            df_valid.groupby("TIPO_SERVICO")
+            .agg(
+                Executadas=(
+                    "TOTAL DE TAREFAS",
+                    lambda x: x[
+                        df_valid.loc[x.index, "Status Contrato"] == "Executada"
+                    ].sum(),
+                ),
+                NaoExecutadas=(
+                    "TOTAL DE TAREFAS",
+                    lambda x: x[
+                        df_valid.loc[x.index, "Status Contrato"] == "Não Executada"
+                    ].sum(),
+                ),
+                Total=("TOTAL DE TAREFAS", "sum"),
             )
+            .reset_index()
         )
-    fig.add_hline(
-        y=meta_pct,
-        line_dash="dash",
-        line_color="#DC2626",
-        annotation_text=f"META: {meta_pct:.0%}",
-    )
-    fig.update_layout(
-        barmode="group",
-        height=500,
-        yaxis_tickformat=".0%",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        df_seg["Considerado"] = df_seg["Executadas"] + df_seg["NaoExecutadas"]
+        df_seg["Quebra %"] = np.where(
+            df_seg["Considerado"] > 0,
+            df_seg["NaoExecutadas"] / df_seg["Considerado"],
+            0,
+        )
+
+        fig = px.bar(
+            df_seg,
+            x="TIPO_SERVICO",
+            y="Quebra %",
+            color="TIPO_SERVICO",
+            color_discrete_map=Config.CORES_TIPO,
+            text=df_seg["Quebra %"].apply(_fmt_pct_br),
+            labels={"TIPO_SERVICO": "Segmento", "Quebra %": "% Quebra"},
+        )
+        fig.add_shape(
+            type="line",
+            x0=-0.5,
+            x1=len(df_seg) - 0.5,
+            y0=meta_sla,
+            y1=meta_sla,
+            line=dict(color="#DC2626", width=2, dash="dash"),
+        )
+        fig.update_layout(
+            showlegend=False,
+            height=320,
+            margin=dict(l=20, r=20, t=20, b=20),
+            yaxis=dict(tickformat=".0%"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with c2:
+        render_section("🧩 Distribuição de Volume Por Status")
+        df_st = (
+            df_valid.groupby("Status Contrato")["TOTAL DE TAREFAS"].sum().reset_index()
+        )
+        fig_pie = px.pie(
+            df_st,
+            names="Status Contrato",
+            values="TOTAL DE TAREFAS",
+            color="Status Contrato",
+            color_discrete_map=Config.CORES_STATUS,
+            hole=0.4,
+        )
+        fig_pie.update_layout(
+            height=320,
+            margin=dict(l=20, r=20, t=20, b=20),
+            legend=dict(orientation="h"),
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
 
 
-def render_tab_causas(df: pd.DataFrame, meta: float) -> None:
-    render_section("🔍 Análise Profunda de Causas Raiz")
-    if df.empty:
-        render_insight("Sem dados para análise de causas.", tipo="alerta")
-        return
-
-    df_ne = df[df["Status Contrato"] == "Não Executada"]
-    total_ne = int(df_ne["TOTAL DE TAREFAS"].sum())
-    motivos_unicos = (
-        df_ne["_COL_BAIXA"].nunique() if "_COL_BAIXA" in df_ne.columns else 0
-    )
-    tec_afetados = df_ne["TÉCNICO"].nunique()
-
-    kc1, kc2, kc3 = st.columns(3)
-    render_kpi(kc1, "Total NE", _fmt_int_br(total_ne), "OSs não executadas", "vermelho")
-    render_kpi(
-        kc2, "Motivos Únicos", str(motivos_unicos), "Códigos de baixa distintos", "roxo"
-    )
-    render_kpi(
-        kc3, "Técnicos Afetados", str(tec_afetados), "com pelo menos 1 NE", "laranja"
+def view_analise_detalhada(df: pd.DataFrame, meta_sla: float) -> None:
+    st.markdown("### 🔍 Módulo de Análise Detalhada & Operacional")
+    t1, t2, t3, t4, t5 = st.tabs(
+        [
+            "🔮 Projeções & SLA",
+            "🏆 Rankings & Pior Caso",
+            "🪵 Causa Raiz & Pareto",
+            "🚨 Fila de Backoffice",
+            "💾 Base Higienizada",
+        ]
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    sub_geral, sub_seg, sub_mon, sub_reg = st.tabs(
-        ["📊 Pareto Geral", "🏷️ Por Segmento", "👔 Por Monitor", "🗺️ Por Região"]
-    )
-
-    with sub_geral:
-        df_causa = Motor.causa_raiz(df, "_COL_BAIXA", 10)
-        if df_causa.empty:
-            render_insight("Sem dados de motivos de baixa.", tipo="alerta")
-        else:
-            c1, c2 = st.columns([1.2, 2])
-            with c1:
-                render_dataframe_profundo(
-                    df_causa, "Top 10 Motivos Gerais", "🔍", height=430
+    with t1:
+        render_section("🔮 Projeção de Fechamento de Quebra")
+        c_proj1, c_proj2 = st.columns([1, 2])
+        with c_proj1:
+            p_pen = (
+                st.slider(
+                    "Probabilidade de Quebra nos Pendentes (%):",
+                    min_value=0,
+                    max_value=100,
+                    value=30,
+                    step=5,
+                    help="Taxa estimada de não execução para as tarefas que ainda estão pendentes.",
                 )
-            with c2:
-                fig_p = go.Figure()
-                fig_p.add_trace(
+                / 100.0
+            )
+            proj = Motor.projetar(df, p_pen)
+            folga = Motor.folga_sla(df, meta_sla)
+
+            k1, k2 = st.columns(2)
+            render_kpi_sm(
+                k1,
+                "Quebra Atual",
+                _fmt_pct_br(proj["quebra_atual"]),
+                "Realizada até agora",
+                "laranja" if proj["quebra_atual"] > meta_sla else "verde",
+            )
+            render_kpi_sm(
+                k2,
+                "Fechamento Projetado",
+                _fmt_pct_br(proj["fechamento_proj"]),
+                f"Com {p_pen:.0%} nos pendentes",
+                "vermelho" if proj["fechamento_proj"] > meta_sla else "azul",
+            )
+
+            if folga["estourado"]:
+                render_insight(
+                    f"⚠️ <b>SLA Estourado!</b> O volume atual de Não Executadas ({int(folga['naoexec'])}) "
+                    f"já superou o limite máximo do SLA ({int(folga['limite_ne_total'])}).",
+                    "critico",
+                )
+            else:
+                render_insight(
+                    f"✅ <b>Dentro do SLA:</b> Você ainda pode ter até <b>{int(folga['folga_ne_pendente'])}</b> "
+                    f"tarefas Não Executadas nos pendentes sem estourar a meta de {meta_sla:.0%}.",
+                    "ok",
+                )
+
+        with c_proj2:
+            st.markdown("#### Cenários de Fechamento por Monitor")
+            tab_cen = Motor.tabela_cenarios(
+                df, "MONITOR", p_ot=0.15, p_base=0.30, p_pess=0.50, min_aloc=5
+            )
+            render_dataframe_profundo(
+                tab_cen,
+                "Simulação de Cenários por Monitor",
+                "🎭",
+                color_col="Fechamento Base",
+                meta=meta_sla,
+                height=320,
+            )
+
+    with t2:
+        render_section("🏆 Rankings da Operação & Pior Caso")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            st.markdown("##### 🔴 Monitores com Maior Taxa de Quebra")
+            tab_mon = Motor.tabela_cenarios(
+                df, "MONITOR", p_ot=0.15, p_base=0.30, p_pess=0.50, min_aloc=5
+            )
+            render_dataframe_profundo(
+                tab_mon.head(10),
+                "Top 10 Monitores Críticos",
+                "📊",
+                color_col="Quebra Atual",
+                meta=meta_sla,
+            )
+
+        with col_r2:
+            st.markdown("##### 👷 Técnicos Críticos (Maior Volume NE + Pendente)")
+            tab_tec = Motor.tabela_cenarios(
+                df, "TÉCNICO", p_ot=0.15, p_base=0.30, p_pess=0.50, min_aloc=3
+            )
+            render_dataframe_profundo(
+                tab_tec.head(10),
+                "Top 10 Técnicos Críticos",
+                "👷",
+                color_col="Fechamento Base",
+                meta=meta_sla,
+            )
+
+    with t3:
+        render_section("🪵 Análise de Causa Raiz & Pareto")
+        c_par1, c_par2 = st.columns([2, 1])
+        df_causa = Motor.causa_raiz(df, "_COL_BAIXA", top_n=10)
+
+        with c_par1:
+            if not df_causa.empty:
+                fig_par = go.Figure()
+                fig_par.add_trace(
                     go.Bar(
                         x=df_causa["Motivo de Baixa"],
                         y=df_causa["Volume"],
-                        name="Volume",
+                        name="Volume NE",
                         marker_color="#EF4444",
-                        text=df_causa["Volume"],
-                        textposition="outside",
                     )
                 )
-                fig_p.add_trace(
+                fig_par.add_trace(
                     go.Scatter(
                         x=df_causa["Motivo de Baixa"],
                         y=df_causa["Acumulado"],
-                        name="Acumulado %",
+                        name="% Acumulado",
                         yaxis="y2",
-                        mode="lines+markers",
-                        line=dict(color="#0EA5E9", width=2),
-                        marker=dict(size=8),
+                        line=dict(color="#1E3A8A", width=3),
                     )
                 )
-                fig_p.add_hline(
-                    y=0.8,
-                    line_dash="dot",
-                    line_color="#F59E0B",
-                    yref="y2",
-                    annotation_text="80%",
-                    annotation_position="top right",
-                )
-                fig_p.update_layout(
-                    title="Pareto de Motivos",
-                    yaxis=dict(title="Volume"),
+                fig_par.update_layout(
+                    height=380,
+                    margin=dict(l=20, r=20, t=20, b=20),
+                    yaxis=dict(title="Volume de Não Executadas"),
                     yaxis2=dict(
-                        title="Acumulado %",
+                        title="% Acumulado",
                         overlaying="y",
                         side="right",
                         tickformat=".0%",
-                        range=[0, 1.1],
+                        range=[0, 1.05],
                     ),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02),
-                    height=430,
-                    xaxis=dict(tickangle=-30),
-                    margin=dict(t=50, b=100),
+                    legend=dict(orientation="h", y=1.1),
                 )
-                st.plotly_chart(
-                    fig_p, use_container_width=True, config={"displayModeBar": False}
-                )
+                st.plotly_chart(fig_par, use_container_width=True)
+            else:
+                st.info("Sem dados de causa raiz.")
 
-            if len(df_causa) >= 3:
-                top3 = df_causa.iloc[2]
-                render_insight(
-                    f"💡 <b>Insight:</b> Os <b>3 principais motivos</b> "
-                    f"(<b>{df_causa.iloc[0]['Motivo de Baixa']}</b>, "
-                    f"<b>{df_causa.iloc[1]['Motivo de Baixa']}</b> e "
-                    f"<b>{top3['Motivo de Baixa']}</b>) respondem por "
-                    f"<b>{top3['Acumulado']:.1%}</b> de todas as quebras.",
-                    tipo="info",
-                )
-
-    with sub_seg:
-        df_seg = Motor.causa_por_segmento(df, "_COL_BAIXA", top_n=5)
-        if df_seg.empty:
-            render_insight("Sem dados de motivos por segmento.", tipo="alerta")
-        else:
-            segmentos_com_dados = df_seg["Segmento"].unique().tolist()
-            for i in range(0, len(segmentos_com_dados), 2):
-                cols = st.columns(2)
-                for j, col in enumerate(cols):
-                    if i + j >= len(segmentos_com_dados):
-                        break
-                    seg = segmentos_com_dados[i + j]
-                    df_s = df_seg[df_seg["Segmento"] == seg].copy()
-                    cor = Config.CORES_TIPO.get(seg, "#64748B")
-                    with col:
-                        fig = go.Figure()
-                        fig.add_trace(
-                            go.Bar(
-                                y=df_s["Motivo"],
-                                x=df_s["Volume"],
-                                orientation="h",
-                                marker_color=cor,
-                                text=[
-                                    f"{int(v)} ({p:.1%})"
-                                    for v, p in zip(
-                                        df_s["Volume"], df_s["% no Segmento"]
-                                    )
-                                ],
-                                textposition="outside",
-                            )
-                        )
-                        fig.update_layout(
-                            title=f"🏷️ {seg} — Top 5 Motivos",
-                            height=280,
-                            margin=dict(t=40, b=10, l=10, r=10),
-                            yaxis=dict(autorange="reversed"),
-                            xaxis=dict(title="Volume"),
-                            showlegend=False,
-                        )
-                        st.plotly_chart(
-                            fig,
-                            use_container_width=True,
-                            config={"displayModeBar": False},
-                        )
-            st.markdown("<br>", unsafe_allow_html=True)
+        with c_par2:
             render_dataframe_profundo(
-                df_seg, "Todos os Motivos por Segmento", "📋", height=350
-            )
-            st.download_button(
-                "📥 Baixar Motivos × Segmento",
-                Utils.gerar_excel(df_seg, "Motivos_Segmento"),
-                f"motivos_segmento_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                key="dl_causa_seg",
+                df_causa, "Tabela de Causas (Pareto)", "📌", height=380
             )
 
-    with sub_mon:
-        df_mon = Motor.causa_por_monitor(df, "_COL_BAIXA", top_n_monitores=15)
-        if df_mon.empty:
-            render_insight("Sem dados de causas por monitor.", tipo="alerta")
-        else:
-            c1, c2 = st.columns([1.5, 1.5])
-            with c1:
-                render_dataframe_profundo(
-                    df_mon, "Ranking Monitores + Motivo Principal", "👔", height=500
-                )
-            with c2:
-                fig = px.bar(
-                    df_mon.head(10),
-                    x="Total NE",
-                    y="Monitor",
-                    orientation="h",
-                    color="% do Motivo",
-                    color_continuous_scale="Reds",
-                    text=df_mon.head(10)["Total NE"].apply(_fmt_int_br),
-                    title="Top 10 Monitores com Mais NE",
-                    labels={
-                        "Total NE": "Volume NE",
-                        "% do Motivo": "% Motivo Principal",
-                    },
-                )
-                fig.update_traces(textposition="outside")
-                fig.update_layout(
-                    height=500,
-                    yaxis=dict(autorange="reversed"),
-                    margin=dict(t=50, b=10, l=10, r=10),
-                )
-                st.plotly_chart(
-                    fig, use_container_width=True, config={"displayModeBar": False}
-                )
-            st.download_button(
-                "📥 Baixar Causas por Monitor",
-                Utils.gerar_excel(df_mon, "Motivos_Monitor"),
-                f"motivos_monitor_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                key="dl_causa_mon",
-            )
-
-    with sub_reg:
-        df_reg = Motor.causa_por_regiao(df, "_COL_BAIXA")
-        if df_reg.empty:
-            render_insight("Sem dados de causas por região.", tipo="alerta")
-        else:
-            df_hm = df_reg.set_index("Motivo").drop(columns=["Total"], errors="ignore")
-            fig = px.imshow(
-                df_hm,
-                text_auto=True,
-                aspect="auto",
-                color_continuous_scale="Reds",
-                labels=dict(x="Região", y="Motivo", color="Volume"),
-            )
-            fig.update_layout(
-                title="🌡️ Mapa de Calor — Motivo × Região",
-                height=500,
-                margin=dict(t=50, b=10, l=10, r=10),
-            )
-            st.plotly_chart(
-                fig, use_container_width=True, config={"displayModeBar": False}
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
+    with t4:
+        render_section("🚨 Gestão de Fila & Reincidência de Backoffice")
+        fb1, fb2 = st.columns(2)
+        with fb1:
+            st.markdown("##### 📥 Fila Operacional Pendente / NE")
+            fila = Motor.backoffice_fila(df)
             render_dataframe_profundo(
-                df_reg, "Matriz Motivo × Região", "🗺️", height=400
-            )
-            st.download_button(
-                "📥 Baixar Motivos × Região",
-                Utils.gerar_excel(df_reg, "Motivos_Regiao"),
-                f"motivos_regiao_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                key="dl_causa_reg",
+                fila.head(15), "Prioridade na Fila", "⚡", height=350
             )
 
+        with fb2:
+            st.markdown("##### 🔄 Reincidência de Motivos por Técnico")
+            reinc = Motor.backoffice_reincidencia(df, "_COL_BAIXA", min_ocorrencias=2)
+            render_dataframe_profundo(
+                reinc.head(15), "Técnicos Reincidentes", "🔁", height=350
+            )
 
-def render_tab_backoffice(df: pd.DataFrame, meta: float) -> None:
-    render_section("🚨 Central de Backoffice")
-    if df.empty:
-        render_insight("Sem dados para backoffice.", tipo="alerta")
-        return
-
-    df_ne = df[df["Status Contrato"] == "Não Executada"]
-    df_pen = df[df["Status Contrato"] == "Pendente"]
-    total_ne = int(df_ne["TOTAL DE TAREFAS"].sum())
-    total_pen = int(df_pen["TOTAL DE TAREFAS"].sum())
-    total_fila = total_ne + total_pen
-    tec_fila = df[df["Status Contrato"].isin(["Não Executada", "Pendente"])][
-        "TÉCNICO"
-    ].nunique()
-
-    kb1, kb2, kb3, kb4 = st.columns(4)
-    render_kpi(
-        kb1,
-        "🚨 Total na Fila",
-        _fmt_int_br(total_fila),
-        "OSs para tratamento",
-        "vermelho",
-    )
-    render_kpi(
-        kb2, "❌ Não Executadas", _fmt_int_br(total_ne), "Prioridade alta", "laranja"
-    )
-    render_kpi(
-        kb3, "⏳ Pendentes", _fmt_int_br(total_pen), "Aguardando execução", "cinza"
-    )
-    render_kpi(kb4, "👥 Técnicos na Fila", str(tec_fila), "com OSs para tratar", "azul")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    sub_fila, sub_rein, sub_crit = st.tabs(
-        ["🚨 Fila Operacional", "🔄 Reincidência", "🏆 Ranking Críticos"]
-    )
-
-    with sub_fila:
-        render_section("📋 Fila Priorizada por Score")
+    with t5:
+        render_section("💾 Base de Dados Tratada & Higienizada")
         st.markdown(
-            '<div style="background:#F1F5F9;padding:12px;border-radius:6px;'
-            'font-size:13px;color:#334155;margin-bottom:16px;">'
-            "🎯 <b>Cálculo de Prioridade:</b> Score = (Não Exec. × 2) + Pendentes.<br>"
-            "<b>Classificação:</b> 🔴 Crítico (≥20) · 🟠 Alta (≥10) · 🟡 Média (≥5) · 🟢 Baixa (<5)"
-            "</div>",
-            unsafe_allow_html=True,
+            f"Abaixo estão os **{len(df):,}** registros higienizados e padronizados."
         )
-        df_fila = Motor.backoffice_fila(df)
-        if df_fila.empty:
-            render_insight("Sem OSs na fila de backoffice.", tipo="ok")
-        else:
-            classe_sel = st.multiselect(
-                "🎯 Filtrar por Prioridade:",
-                ["🔴 CRÍTICO", "🟠 ALTA", "🟡 MÉDIA", "🟢 BAIXA"],
-                default=["🔴 CRÍTICO", "🟠 ALTA"],
-            )
-            df_fila_view = (
-                df_fila[df_fila["Classificação"].isin(classe_sel)]
-                if classe_sel
-                else df_fila
-            )
-            k1, k2, k3, k4 = st.columns(4)
-            for col, classe in zip(
-                [k1, k2, k3, k4], ["🔴 CRÍTICO", "🟠 ALTA", "🟡 MÉDIA", "🟢 BAIXA"]
-            ):
-                qtd = int((df_fila["Classificação"] == classe).sum())
-                cor = {
-                    "🔴 CRÍTICO": "vermelho",
-                    "🟠 ALTA": "laranja",
-                    "🟡 MÉDIA": "amarelo",
-                    "🟢 BAIXA": "verde",
-                }[classe]
-                render_kpi(col, classe, str(qtd), "registros", cor)
-            st.markdown("<br>", unsafe_allow_html=True)
-            render_dataframe_profundo(
-                df_fila_view,
-                f"Fila Priorizada — {len(df_fila_view)} registros",
-                "🚨",
-                height=500,
-            )
-            col_dl1, col_dl2, _ = st.columns([1, 1, 3])
-            with col_dl1:
-                st.download_button(
-                    "📊 Baixar Fila (filtrada)",
-                    Utils.gerar_excel(df_fila_view, "Fila_Backoffice"),
-                    f"fila_backoffice_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                    use_container_width=True,
-                    type="primary",
-                    key="dl_fila_filt",
-                )
-            with col_dl2:
-                st.download_button(
-                    "📊 Baixar Fila (completa)",
-                    Utils.gerar_excel(df_fila, "Fila_Backoffice_Completa"),
-                    f"fila_backoffice_completa_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                    use_container_width=True,
-                    key="dl_fila_full",
-                )
-
-    with sub_rein:
-        render_section("🔄 Análise de Reincidência")
-        st.markdown(
-            '<div style="background:#F1F5F9;padding:12px;border-radius:6px;'
-            'font-size:13px;color:#334155;margin-bottom:16px;">'
-            "💡 <b>O que é reincidência:</b> Técnicos que apresentam o <b>mesmo motivo "
-            "de quebra ≥ 2 vezes</b>.</div>",
-            unsafe_allow_html=True,
-        )
-        col_conf1, _, _ = st.columns([1, 2, 2])
-        with col_conf1:
-            min_ocorr = st.number_input(
-                "Mín. Ocorrências", min_value=2, max_value=20, value=2, step=1
-            )
-        df_rein = Motor.backoffice_reincidencia(df, "_COL_BAIXA", int(min_ocorr))
-        if df_rein.empty:
-            render_insight(
-                f"✅ Nenhum caso de reincidência (≥{min_ocorr} ocorrências) encontrado.",
-                tipo="ok",
-            )
-        else:
-            kr1, kr2, kr3 = st.columns(3)
-            render_kpi(
-                kr1,
-                "🔄 Casos Reincidentes",
-                str(len(df_rein)),
-                "combinações Técnico × Motivo",
-                "vermelho",
-            )
-            render_kpi(
-                kr2,
-                "👥 Técnicos com Padrão",
-                str(df_rein["Técnico"].nunique()),
-                "reincidentes identificados",
-                "laranja",
-            )
-            render_kpi(
-                kr3,
-                "📌 Motivos Repetidos",
-                str(df_rein["Motivo"].nunique()),
-                "diferentes causas",
-                "roxo",
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
-            render_dataframe_profundo(
-                df_rein, "Casos de Reincidência", "🔄", height=500
-            )
-            top = df_rein.iloc[0]
-            render_insight(
-                f"⚠️ <b>Caso mais crítico:</b> Técnico <b>{top['Técnico']}</b> "
-                f"(Monitor: <b>{top['Monitor']}</b>) — motivo <b>'{top['Motivo']}'</b> "
-                f"em <b>{int(top['Ocorrencias'])} ocorrências</b>.",
-                tipo="critico",
-            )
-            st.download_button(
-                "📥 Baixar Reincidências",
-                Utils.gerar_excel(df_rein, "Reincidencia"),
-                f"reincidencia_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                key="dl_rein",
-            )
-
-    with sub_crit:
-        render_section("🏆 Top 15 Técnicos Críticos")
-        df_crit = Motor.backoffice_ranking_criticos(df, top_n=15)
-        if df_crit.empty:
-            render_insight("Sem dados para ranking.", tipo="alerta")
-        else:
-            c1, c2 = st.columns([1.5, 1.5])
-            with c1:
-                render_dataframe_profundo(
-                    df_crit, "Técnicos com Maior Fila", "🏆", height=500
-                )
-            with c2:
-                fig = px.bar(
-                    df_crit.head(10).sort_values("Total na Fila"),
-                    x="Total na Fila",
-                    y="Técnico",
-                    orientation="h",
-                    color="Total na Fila",
-                    color_continuous_scale="Reds",
-                    text=df_crit.head(10)
-                    .sort_values("Total na Fila")["Total na Fila"]
-                    .apply(_fmt_int_br),
-                    title="Top 10 Técnicos com Maior Fila",
-                )
-                fig.update_traces(textposition="outside")
-                fig.update_layout(
-                    height=500,
-                    margin=dict(t=50, b=10, l=10, r=10),
-                    coloraxis_showscale=False,
-                )
-                st.plotly_chart(
-                    fig, use_container_width=True, config={"displayModeBar": False}
-                )
-            st.download_button(
-                "📥 Baixar Ranking Críticos",
-                Utils.gerar_excel(df_crit, "Ranking_Criticos"),
-                f"ranking_criticos_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                key="dl_crit",
-            )
-
-
-def render_tab_base_completa(df: pd.DataFrame) -> None:
-    render_section("📋 Base Completa — Todos os Registros")
-    if df.empty:
-        render_insight("Sem dados para exibir.", tipo="alerta")
-        return
-
-    total = len(df)
-    n_exec = int((df["Status Contrato"] == "Executada").sum())
-    n_nex = int((df["Status Contrato"] == "Não Executada").sum())
-    n_pend = int((df["Status Contrato"] == "Pendente").sum())
-    n_tec = df["TÉCNICO"].nunique()
-    n_mon = df["MONITOR"].nunique()
-
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    render_kpi(k1, "Total Registros", f"{total:,}".replace(",", "."), tema="azul")
-    render_kpi(k2, "Executadas", f"{n_exec:,}".replace(",", "."), tema="verde")
-    render_kpi(k3, "Não Executadas", f"{n_nex:,}".replace(",", "."), tema="vermelho")
-    render_kpi(k4, "Pendentes", f"{n_pend:,}".replace(",", "."), tema="cinza")
-    render_kpi(k5, "Técnicos", f"{n_tec:,}".replace(",", "."), tema="laranja")
-    render_kpi(k6, "Monitores", f"{n_mon:,}".replace(",", "."), tema="amarelo")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    with st.expander("🔎 Filtros da Tabela", expanded=True):
-        fc1, fc2, fc3, fc4 = st.columns(4)
-        with fc1:
-            f_status = st.multiselect(
-                "Status",
-                ["Executada", "Não Executada", "Pendente"],
-                default=["Executada", "Não Executada", "Pendente"],
-                key="base_f_status",
-            )
-        with fc2:
-            opcoes_seg = ["Todos"] + sorted(
-                df["TIPO_SERVICO"].dropna().unique().tolist()
-            )
-            f_seg = st.selectbox("Segmento", opcoes_seg, key="base_f_seg")
-        with fc3:
-            opcoes_mon = ["Todos"] + sorted(
-                str(x)
-                for x in df["MONITOR"].dropna().unique()
-                if str(x) not in {"nan", "SEM MONITOR", "NÃO MAPEADO"}
-            )
-            f_mon = st.selectbox("Monitor", opcoes_mon, key="base_f_mon")
-        with fc4:
-            opcoes_tec = ["Todos"] + sorted(
-                str(x)
-                for x in df["TÉCNICO"].dropna().unique()
-                if str(x) not in {"nan", "NÃO MAPEADO"}
-            )
-            f_tec = st.selectbox("Técnico", opcoes_tec, key="base_f_tec")
-
-    df_view = df.copy()
-    if f_status:
-        df_view = df_view[df_view["Status Contrato"].isin(f_status)]
-    if f_seg != "Todos":
-        df_view = df_view[df_view["TIPO_SERVICO"] == f_seg]
-    if f_mon != "Todos":
-        df_view = df_view[df_view["MONITOR"] == f_mon]
-    if f_tec != "Todos":
-        df_view = df_view[df_view["TÉCNICO"] == f_tec]
-
-    st.markdown(
-        f"**Exibindo {len(df_view):,} de {total:,} registros**".replace(",", ".")
-    )
-
-    colunas_internas = [c for c in df_view.columns if str(c).startswith("_")]
-    _PRIORITY_COLS = [
-        "MONITOR",
-        "TÉCNICO",
-        "TIPO_SERVICO",
-        "Status Contrato",
-        "TOTAL DE TAREFAS",
-        "REGIÃO",
-        "FLAG_GPON",
-    ]
-    cols_priority = [c for c in _PRIORITY_COLS if c in df_view.columns]
-    cols_resto = [
-        c
-        for c in df_view.columns
-        if c not in cols_priority and c not in colunas_internas
-    ]
-    cols_exibir = cols_priority + cols_resto
-
-    df_exibir = df_view[cols_exibir].copy().reset_index(drop=True)
-    df_exibir.index = df_exibir.index + 1
-
-    _COLS_INTEIRAS = ["TOTAL DE TAREFAS", "QTD TAREFAS", "QUANTIDADE", "QTDE"]
-    for col in df_exibir.columns:
-        col_upper = str(col).upper().strip()
-        if any(k in col_upper for k in _COLS_INTEIRAS):
-            df_exibir[col] = (
-                pd.to_numeric(df_exibir[col], errors="coerce").fillna(0).astype(int)
-            )
-
-    def _colorir_status(val: Any) -> str:
-        v = str(val).strip()
-        if v == "Executada":
-            return "background-color:#DCFCE7;color:#166534;font-weight:600;"
-        if v == "Não Executada":
-            return "background-color:#FEE2E2;color:#991B1B;font-weight:600;"
-        if v == "Pendente":
-            return "background-color:#F1F5F9;color:#475569;font-weight:600;"
-        return ""
-
-    def _colorir_gpon(val: Any) -> str:
-        v = str(val).strip().upper()
-        if v == "SIM":
-            return "background-color:#FEF3C7;color:#92400E;font-weight:700;"
-        if v in {"NÃO", "NAO"}:
-            return "background-color:#F1F5F9;color:#64748B;"
-        return ""
-
-    styler = df_exibir.style.set_table_styles(
-        [
-            {
-                "selector": "th",
-                "props": [
-                    ("background-color", "#0F172A"),
-                    ("color", "#FFFFFF"),
-                    ("font-size", "0.75rem"),
-                    ("font-weight", "700"),
-                    ("text-transform", "uppercase"),
-                    ("padding", "0.5rem 0.8rem"),
-                    ("white-space", "nowrap"),
-                ],
-            },
-            {
-                "selector": "td",
-                "props": [
-                    ("font-size", "0.78rem"),
-                    ("padding", "0.4rem 0.8rem"),
-                    ("border-bottom", "1px solid #F1F5F9"),
-                    ("white-space", "nowrap"),
-                ],
-            },
-        ]
-    )
-    if "Status Contrato" in df_exibir.columns:
-        styler = styler.map(_colorir_status, subset=["Status Contrato"])
-    if "FLAG_GPON" in df_exibir.columns:
-        styler = styler.map(_colorir_gpon, subset=["FLAG_GPON"])
-    if "TIPO_SERVICO" in df_exibir.columns:
-        _CORES_SEG = {
-            "Migração": "background-color:#E0F2FE;color:#0369A1;font-weight:600;",
-            "Novos Domicílios": "background-color:#DBEAFE;color:#1E40AF;font-weight:600;",
-            "PME": "background-color:#EDE9FE;color:#6D28D9;font-weight:600;",
-            "Outros": "background-color:#F1F5F9;color:#64748B;",
-        }
-        styler = styler.map(
-            lambda v: _CORES_SEG.get(str(v), ""), subset=["TIPO_SERVICO"]
-        )
-    if "TOTAL DE TAREFAS" in df_exibir.columns:
-        styler = styler.format({"TOTAL DE TAREFAS": "{:,.0f}"})
-
-    st.dataframe(styler, use_container_width=True, hide_index=False, height=600)
-
-    col_dl1, col_dl2, _ = st.columns([1, 1, 3])
-    with col_dl1:
+        st.dataframe(df, use_container_width=True, height=400)
         st.download_button(
-            "📥 Baixar Filtrado (Excel)",
-            Utils.gerar_excel(
-                df_view[cols_exibir].reset_index(drop=True), "Base_Filtrada"
-            ),
-            f"base_filtrada_{datetime.now():%Y%m%d_%H%M}.xlsx",
-            use_container_width=True,
-            type="primary",
-            key="dl_base_filt",
-        )
-    with col_dl2:
-        st.download_button(
-            "📥 Baixar Completo (Excel)",
-            Utils.gerar_excel(
-                (
-                    df[cols_exibir].reset_index(drop=True)
-                    if cols_exibir
-                    else df.reset_index(drop=True)
-                ),
-                "Base_Completa",
-            ),
-            f"base_completa_{datetime.now():%Y%m%d_%H%M}.xlsx",
-            use_container_width=True,
-            key="dl_base_full",
+            "📥 Exportar Base Completa (Excel)",
+            data=Utils.gerar_excel(df, "Base_Tratada"),
+            file_name=f"base_tratada_quebra_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
-def render_visao_detalhada(
-    df: pd.DataFrame,
-    p_ot: float,
-    p_base: float,
-    p_pess: float,
-    meta: float,
-) -> None:
-    m = Motor.projetar(df, p_base)
+def view_analise_segmento(df: pd.DataFrame, segmento: str) -> None:
+    conf = SEGMENTOS_CONFIG[segmento]
+    df_seg = df[df["TIPO_SERVICO"] == segmento].copy()
+    regioes = df_seg["REGIÃO"].unique().tolist() if not df_seg.empty else []
+    total_seg = len(df_seg)
 
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    render_kpi(k1, "Alocado", f"{int(m['alocado']):,}".replace(",", "."), tema="azul")
-    render_kpi(k2, "Executadas", f"{int(m['exec']):,}".replace(",", "."), tema="verde")
-    render_kpi(
-        k3, "Não Exec", f"{int(m['naoexec']):,}".replace(",", "."), tema="laranja"
-    )
-    render_kpi(k4, "Pendentes", f"{int(m['pend']):,}".replace(",", "."), tema="cinza")
-    render_kpi(
-        k5,
-        "Quebra Atual",
-        f"{m['quebra_atual']:.2%}",
-        tema="vermelho" if m["quebra_atual"] > meta else "verde",
-    )
-    render_kpi(
-        k6,
-        "Proj. Base",
-        f"{m['fechamento_proj']:.2%}",
-        tema="vermelho" if m["fechamento_proj"] > meta else "roxo",
-    )
+    _render_hero_segmento(segmento, regioes, total_seg)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    t_proj, t_rank, t_causa, t_back, t_base = st.tabs(
-        [
-            "🔮 Projeções SLA",
-            "🧭 Rankings",
-            "🔍 Causas",
-            "🚨 Backoffice",
-            "📋 Base Completa",
-        ]
-    )
-
-    with t_proj:
-        render_section("🔮 Análise e Simulações de Fechamento")
-        cen = {
-            "Otimista": Motor.projetar(df, p_ot),
-            "Base": m,
-            "Pessimista": Motor.projetar(df, p_pess),
-        }
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            for n, c in cen.items():
-                render_kpi_sm(
-                    st,
-                    f"Cenário {n}",
-                    f"{c['fechamento_proj']:.2%}",
-                    sub=f"Não Exec. Projetadas: {int(c['naoexec_proj'])}",
-                    tema="vermelho" if c["fechamento_proj"] > meta else "verde",
-                )
-        with c2:
-            folga = Motor.folga_sla(df, meta)
-            render_kpi_sm(
-                st,
-                "Garantia Mínima",
-                f"{int(np.ceil(folga['precisa_executar_pendente']))} OS",
-                sub="Pendentes a executar para atingir meta",
-                tema="azul",
-            )
-            render_kpi_sm(
-                st,
-                "Folga no SLA",
-                f"{int(np.floor(folga['folga_ne_pendente']))} OS",
-                sub="OS permitidas como não executadas",
-                tema="laranja",
-            )
-
-    with t_rank:
-        t_mon, t_tec = st.tabs(["👔 Monitores", "👤 Técnicos"])
-        with t_mon:
-            df_rm = Motor.tabela_cenarios(df, "MONITOR", p_ot, p_base, p_pess, 1)
-            render_dataframe_profundo(
-                df_rm,
-                "Ranking Monitores",
-                "👔",
-                color_col="Fechamento Base",
-                meta=meta,
-                height=500,
-            )
-            if not df_rm.empty:
-                st.download_button(
-                    "📥 Baixar Monitores",
-                    Utils.gerar_excel(df_rm, "Monitores"),
-                    f"rank_monitores_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                    key="dl_rm",
-                )
-        with t_tec:
-            df_rt = Motor.tabela_cenarios(df, "TÉCNICO", p_ot, p_base, p_pess, 1)
-            render_dataframe_profundo(
-                df_rt,
-                "Ranking Técnicos",
-                "👤",
-                color_col="Fechamento Base",
-                meta=meta,
-                height=500,
-            )
-            if not df_rt.empty:
-                st.download_button(
-                    "📥 Baixar Técnicos",
-                    Utils.gerar_excel(df_rt, "Técnicos"),
-                    f"rank_tecnicos_{datetime.now():%Y%m%d_%H%M}.xlsx",
-                    key="dl_rt",
-                )
-
-    with t_causa:
-        render_tab_causas(df, meta)
-    with t_back:
-        render_tab_backoffice(df, meta)
-    with t_base:
-        render_tab_base_completa(df)
-
-
-def render_visao_segmento(
-    df_full: pd.DataFrame,
-    segmento: str,
-    p_ot: float,
-    p_base: float,
-    p_pess: float,
-    sla_meta: float,
-    min_aloc: float = 1.0,
-    top_n: int = 999_999,
-) -> None:
-    """Fluxo completo de análise por segmento (Migração ou PME) com PDF."""
-    if "TIPO_SERVICO" not in df_full.columns:
-        df_full, df_full["TIPO_SERVICO"] = classificar_tipo_servico(df_full)
-
-    regioes = (
-        [
-            str(r).strip().upper()
-            for r in df_full[Config.COL_REGIAO].dropna().unique()
-            if str(r).strip()
-        ]
-        if Config.COL_REGIAO in df_full.columns
-        else ["OUTRAS"]
-    )
-    _render_hero_segmento(segmento, regioes, len(df_full))
-
-    df_seg = df_full[df_full["TIPO_SERVICO"] == segmento].copy()
     if df_seg.empty:
-        render_insight(
-            f"Nenhum registro classificado como **{segmento}** nos filtros atuais.  \n"
-            "Verifique os critérios centralizados de classificação.",
-            tipo="info",
-        )
+        st.warning(f"⚠️ Nenhuma ordem encontrada para o segmento **{segmento}**.")
         return
 
-    m_seg = Motor.projetar(df_seg, p_base)
-    _render_card_status(segmento, m_seg, sla_meta)
-    st.markdown("")
-
-    # PDF Executivo
-    col_btn, col_desc = st.columns([1, 3])
-    with col_btn:
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes = SEGMENTOS_CONFIG[segmento]["pdf_class"].gerar(
-                df=df_seg,
-                sla_meta=sla_meta,
-                p_ot=p_ot,
-                p_base=p_base,
-                p_pess=p_pess,
-                min_aloc=min_aloc,
-                top_n=min(top_n, 15),
-            )
-        st.download_button(
-            label=f"📄 Baixar PDF — {segmento}",
-            data=pdf_bytes,
-            file_name=f"relatorio_{segmento.lower()}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-            mime="application/pdf",
-            key=f"pdf_dl_{segmento}",
-            use_container_width=True,
-            type="primary",
-        )
-    with col_desc:
-        render_insight(
-            "O PDF inclui métricas, projeções, top técnicos e plano de ação.",
-            tipo="info",
-        )
-
-    st.divider()
-
-    sub1, sub2, sub3, sub4, sub5 = st.tabs(
-        [
-            "📊 Visão Geral",
-            "🔍 Causa Raiz",
-            "👤 Técnicos",
-            "🎯 Plano de Ação",
-            "📋 Pendentes",
-        ]
+    # Controles de Parâmetros na Sidebar
+    st.sidebar.markdown(f"### ⚙️ Parâmetros — {segmento}")
+    sla_meta = st.sidebar.slider(
+        f"Meta de SLA ({segmento})",
+        0.05,
+        0.50,
+        conf["sla_default"],
+        0.01,
+        key=f"sla_{segmento}",
     )
-    with sub1:
-        _sub_visao_geral(segmento, df_seg, m_seg, p_ot, p_base, p_pess, sla_meta)
-    with sub2:
-        _sub_causa_raiz_segmento(segmento, df_seg)
-    with sub3:
-        _sub_tecnicos_segmento(segmento, df_seg, p_base, min_aloc, top_n, sla_meta)
-    with sub4:
-        _sub_plano_acao(segmento, df_seg, p_base, sla_meta)
-    with sub5:
-        _sub_pendentes(segmento, df_seg)
+
+    c_p1, c_p2, c_p3 = st.sidebar.columns(3)
+    p_ot = c_p1.number_input(
+        "Otimista",
+        0.0,
+        1.0,
+        0.15,
+        0.05,
+        key=f"ot_{segmento}",
+        help="Probabilidade de quebra nos pendentes no cenário otimista",
+    )
+    p_base = c_p2.number_input(
+        "Base",
+        0.0,
+        1.0,
+        0.30,
+        0.05,
+        key=f"base_{segmento}",
+        help="Probabilidade de quebra nos pendentes no cenário base",
+    )
+    p_pess = c_p3.number_input(
+        "Pessimista",
+        0.0,
+        1.0,
+        0.50,
+        0.05,
+        key=f"pess_{segmento}",
+        help="Probabilidade de quebra nos pendentes no cenário pessimista",
+    )
+
+    min_aloc = st.sidebar.number_input(
+        "Min. Alocado (Técnicos)",
+        1,
+        50,
+        3,
+        key=f"min_{segmento}",
+        help="Volume mínimo de OSs alocadas para considerar o técnico no ranking",
+    )
+
+    # Indicadores
+    proj = Motor.projetar(df_seg, p_base)
+    folga = Motor.folga_sla(df_seg, sla_meta)
+
+    m1, m2, m3, m4 = st.columns(4)
+    render_kpi(
+        m1,
+        "Alocado Total",
+        _fmt_int_br(proj["alocado"]),
+        "Volume de OSs",
+        "escuro",
+    )
+    render_kpi(
+        m2,
+        "Quebra Atual",
+        _fmt_pct_br(proj["quebra_atual"]),
+        f"Exec: {int(proj['exec'])} | NE: {int(proj['naoexec'])}",
+        "laranja" if proj["quebra_atual"] > sla_meta else "verde",
+    )
+    render_kpi(
+        m3,
+        "Fechamento Base",
+        _fmt_pct_br(proj["fechamento_proj"]),
+        f"Com {p_base:.0%} nos pendentes",
+        "vermelho" if proj["fechamento_proj"] > sla_meta else "azul",
+    )
+    render_kpi(
+        m4,
+        "Folga no SLA",
+        _fmt_int_br(folga["folga_ne_pendente"]),
+        "NEs toleradas no pendente",
+        "vermelho" if folga["estourado"] else "roxo",
+    )
+
+    st.markdown("---")
+    col_l, col_r = st.columns([2, 1])
+
+    with col_l:
+        render_section(f"👷 Técnicos Críticos — {segmento}")
+        tab_tec = Motor.tecnicos_criticos(
+            df_seg, segmento, p_base, float(min_aloc), top_n=15
+        )
+        render_dataframe_profundo(
+            tab_tec,
+            f"Top Técnicos em {segmento}",
+            "👷",
+            color_col="Fechamento Base",
+            meta=sla_meta,
+            height=360,
+        )
+
+    with col_r:
+        render_section("🪵 Causas Raiz da Quebra")
+        df_causa_seg = Motor.causa_raiz_segmento(
+            df_seg, segmento, "_COL_BAIXA", top_n=6
+        )
+        render_dataframe_profundo(df_causa_seg, f"Pareto {segmento}", "📌", height=360)
+
+    st.markdown("---")
+    render_section("🎯 Recomendações & Exportação")
+    c_rec1, c_rec2 = st.columns([2, 1])
+
+    with c_rec1:
+        st.markdown("##### 📋 Plano de Ação Recomendado")
+        for prioridade, texto, tipo in conf["acoes"]:
+            render_insight(f"<b>[{prioridade}]</b> {texto}", tipo)
+
+    with c_rec2:
+        st.markdown("##### 📄 Exportar Relatório Executivo")
+        st.info("Gere o PDF formatado com gráficos e tabelas para envio à diretoria.")
+        pdf_bytes = conf["pdf_class"].gerar(
+            df_seg, sla_meta, p_ot, p_base, p_pess, min_aloc, top_n=10
+        )
+        st.download_button(
+            f"📥 Baixar PDF Executivo ({segmento})",
+            data=pdf_bytes,
+            file_name=f"relatorio_executivo_{segmento.lower()}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+
+def view_auditoria_criterios(df: pd.DataFrame) -> None:
+    render_section("🔬 Auditoria de Critérios de Classificação")
+    render_painel_criterios(df)
+    st.markdown("---")
+    render_debug_criterios(df)
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SANITIZAÇÃO E SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════
-def garantir_colunas_criticas(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    if "MONITOR" not in df.columns:
-        col_mon_alt = next(
-            (
-                c
-                for c in df.columns
-                if str(c).strip().upper() in ("MONITOR", "GESTOR", "SUPERVISOR")
-            ),
-            None,
-        )
-        df["MONITOR"] = (
-            df[col_mon_alt].fillna("SEM MONITOR").astype(str).str.strip().str.upper()
-            if col_mon_alt
-            else "SEM MONITOR"
-        )
-    if "TÉCNICO" not in df.columns:
-        col_tec_alt = next(
-            (
-                c
-                for c in df.columns
-                if str(c).strip().upper()
-                in ("TÉCNICO", "TECNICO", "NOME", "NOME TÉCNICO")
-            ),
-            None,
-        )
-        df["TÉCNICO"] = (
-            df[col_tec_alt].fillna("NÃO MAPEADO").astype(str).str.strip().str.upper()
-            if col_tec_alt
-            else "NÃO MAPEADO"
-        )
-    df.loc[df["MONITOR"].isin(["", "NAN", "NONE", "NULL"]), "MONITOR"] = "SEM MONITOR"
-    df.loc[df["TÉCNICO"].isin(["", "NAN", "NONE", "NULL"]), "TÉCNICO"] = "NÃO MAPEADO"
-    return df
-
-
-def render_sidebar(df_full: pd.DataFrame) -> Dict[str, Any]:
-    with st.sidebar:
-        st.markdown("### 👁️ Selecione a Visão")
-        visao = st.radio(
-            "Módulo:",
-            [
-                "📑 Resumo Executivo (Matriz)",
-                "📈 Análise Detalhada (Projeções)",
-                "🔄 Segmento — Migração",
-                "🏢 Segmento — PME",
-                "📊 Critérios de Classificação",
-            ],
-            label_visibility="collapsed",
-        )
-
-        st.divider()
-        st.markdown("### 🎯 Filtros Globais")
-
-        monitores = ["Todos"] + sorted(
-            str(x)
-            for x in df_full["MONITOR"].dropna().unique()
-            if str(x) not in {"nan", "SEM MONITOR", "NÃO MAPEADO"}
-        )
-        sel_mon = st.selectbox("👔 Monitor", monitores)
-        df_filt = (
-            df_full if sel_mon == "Todos" else df_full[df_full["MONITOR"] == sel_mon]
-        )
-
-        tecnicos = ["Todos"] + sorted(
-            str(x)
-            for x in df_filt["TÉCNICO"].dropna().unique()
-            if str(x) not in {"nan", "NÃO MAPEADO"}
-        )
-        sel_tec = st.selectbox("👤 Técnico", tecnicos)
-        df = df_filt if sel_tec == "Todos" else df_filt[df_filt["TÉCNICO"] == sel_tec]
-
-        st.caption(f"📊 **{len(df):,}** registros após filtros".replace(",", "."))
-
-        st.divider()
-        st.subheader("🔮 Cenários de Projeção")
-        p_ot = st.slider("Otimista (%)", 0, 100, 15, 5) / 100.0
-
-        # SLA dinâmico conforme visão
-        if visao == "🔄 Segmento — Migração":
-            default_base = 25
-            default_sla = float(Config.SLA_MIGRACAO * 100)
-        elif visao == "🏢 Segmento — PME":
-            default_base = 20
-            default_sla = float(Config.SLA_PME * 100)
-        else:
-            default_base = 20
-            default_sla = float(Config.SLA_QUEBRA_MAXIMA * 100)
-
-        p_base = st.slider("Base (%)", 0, 100, default_base, 5) / 100.0
-        p_pess = st.slider("Pessimista (%)", 0, 100, 50, 5) / 100.0
-
-        st.divider()
-        meta = st.number_input("🎯 Meta SLA (%)", 0.0, 100.0, default_sla, 0.5) / 100.0
-
-        st.divider()
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            if st.button("🔄 Reiniciar", use_container_width=True):
-                st.session_state["df_memoria"] = None
-                st.rerun()
-        with col_r2:
-            if st.button("🗑️ Limpar Cache", use_container_width=True):
-                st.cache_data.clear()
-                st.session_state["df_memoria"] = None
-                st.rerun()
-
-        st.divider()
-        render_debug_criterios(df_full, expanded=False)
-
-    return {
-        "visao": visao,
-        "df": df,
-        "df_full": df_full,
-        "p_ot": p_ot,
-        "p_base": p_base,
-        "p_pess": p_pess,
-        "meta": meta,
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# FLUXO PRINCIPAL
+# CONTROLLER PRINCIPAL (MAIN)
 # ═══════════════════════════════════════════════════════════════════════
 def main() -> None:
-    if st.session_state["df_memoria"] is None:
-        render_hero_upload()
-        render_card_destaque_migracao()
+    st.sidebar.image(
+        "https://via.placeholder.com/200x60.png?text=TOTALE+OPERACIONAL",
+        width="stretch",
+    )
+    st.sidebar.title("📉 Quebra TOTALE")
 
-        render_section("📁 Importação de Dados")
-        arq = st.file_uploader("Selecione a base (Excel/CSV)", type=["xlsx", "csv"])
-
-        if arq:
-            with st.spinner("🔄 Limpando dados e classificando segmentos..."):
-                raw = DataLoader.ler_arquivo(arq.getvalue(), arq.name)
-                gs = DataLoader.buscar_gsheets()
-                df_proc = DataLoader.preparar_base(raw, gs)
-                df_proc = garantir_colunas_criticas(df_proc)
-                st.session_state["df_memoria"] = df_proc
-
-            n_susp = df_proc.attrs.get("removidos_suspensos", 0)
-            n_con = df_proc.attrs.get("removidos_contrato", 0)
-            col_atv = df_proc.attrs.get("col_status_atividade", None)
-            col_con = df_proc.attrs.get("col_contrato", None)
-            total = len(raw)
-            restou = len(df_proc)
-
-            render_section("🧹 Relatório de Limpeza da Base")
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("📥 Total Importado", f"{total:,}".replace(",", "."))
-            c2.metric(
-                "🚫 Suspensos Removidos",
-                f"{n_susp:,}".replace(",", "."),
-                delta=f"-{n_susp}" if n_susp else None,
-                delta_color="inverse",
-            )
-            c3.metric(
-                "📄 Contratos Inválidos",
-                f"{n_con:,}".replace(",", "."),
-                delta=f"-{n_con}" if n_con else None,
-                delta_color="inverse",
-            )
-            c4.metric("✅ Base Final", f"{restou:,}".replace(",", "."))
-
-            if not col_atv:
-                st.warning(
-                    "⚠️ STATUS DA ATIVIDADE não detectada — suspensos não removidos."
-                )
-            else:
-                st.success(f"✅ `{col_atv}` → **{n_susp}** suspensos removidos")
-
-            if not col_con:
-                st.warning("⚠️ CONTRATO não detectada — inválidos não removidos.")
-            else:
-                st.success(
-                    f"✅ `{col_con}` → **{n_con}** contratos inválidos removidos"
-                )
-
-            if df_proc.attrs.get("merge_aplicado"):
-                matches = df_proc.attrs.get("merge_matches", 0)
-                total_m = df_proc.attrs.get("merge_total", len(df_proc))
-                st.toast(
-                    f"✅ Merge: {matches:,}/{total_m:,}".replace(",", "."), icon="🔗"
-                )
-            else:
-                st.toast("⚠️ lista_ativos não carregada", icon="⚠️")
-
-            st.rerun()
-        return
-
-    df_full = st.session_state["df_memoria"].copy()
-    df_full = garantir_colunas_criticas(df_full)
-    st.session_state["df_memoria"] = df_full
-
-    config_user = render_sidebar(df_full)
-    visao = config_user["visao"]
-    df = config_user["df"]
-    p_ot = config_user["p_ot"]
-    p_base = config_user["p_base"]
-    p_pess = config_user["p_pess"]
-    meta = config_user["meta"]
-
-    regioes_disp = (
-        sorted(df[Config.COL_REGIAO].unique())
-        if Config.COL_REGIAO in df.columns
-        else ["OUTRAS"]
+    # Ingestão de Dados na Sidebar
+    file = st.sidebar.file_uploader(
+        "📂 Importar Base de Dados", type=["xlsx", "xls", "csv"]
     )
 
-    # Configuração dinâmica de hero
-    HEROES = {
-        "📑 Resumo Executivo (Matriz)": (
-            "📉 Super Relatório de Quebra — Resumo Executivo",
-            "Matriz Monitor × Segmento · Novos Domicílios · Migração · PME",
-            "VISÃO CONSOLIDADA",
-        ),
-        "📊 Critérios de Classificação": (
-            "📊 Super Relatório de Quebra — Critérios de Classificação",
-            "Análise de regras e volumes por TOTAL DE TAREFAS",
-            "AUDITORIA DE CRITÉRIOS",
-        ),
-        "📈 Análise Detalhada (Projeções)": (
-            "📉 Super Relatório de Quebra — Análise Detalhada",
-            "Projeções · Rankings · Causas · Backoffice · Base Completa",
-            "VISÃO OPERACIONAL",
-        ),
-    }
+    if file is not None:
+        df_raw = DataLoader.ler_arquivo(file.getvalue(), file.name)
+        if not df_raw.empty:
+            df_gs = DataLoader.buscar_gsheets()
+            st.session_state["df_memoria"] = DataLoader.preparar_base(df_raw, df_gs)
+            st.sidebar.success(f"✅ Base carregada: {len(df_raw):,} linhas")
 
-    # Renderiza hero comum para visões globais; segmentos usam hero próprio
-    if visao in HEROES:
-        titulo_visao, subtitulo_visao, badge_visao = HEROES[visao]
-        render_hero_topo_fixo(
-            titulo=titulo_visao,
-            subtitulo=subtitulo_visao,
-            regioes=list(regioes_disp),
-            total=len(df),
-            badge=badge_visao,
+    df = st.session_state["df_memoria"]
+
+    if df is None or df.empty:
+        render_hero_upload()
+        st.info(
+            "👉 Por favor, faça o upload de um arquivo **Excel (.xlsx)** ou **CSV** no menu lateral para iniciar a análise."
         )
 
-    # Roteamento
-    if visao == "📊 Critérios de Classificação":
-        render_painel_criterios(df_full)
+        # Instruções de Uso
+        st.markdown("""
+            ### ℹ️ Estrutura Esperada da Base
+            Para o correto funcionamento de todos os módulos, a base deve conter idealmente:
+            - **Status O.S. / Status Contrato:** Executada, Não Executada, Pendente
+            - **Tipo de Serviço / Pacote:** Identificação de Migração, PME, Novos Domicílios
+            - **Login do Técnico / Nome do Técnico / Monitor:** Mapeamento operacional
+            - **Cidade / Localidade:** Classificação automática por Região (LESTE, GRU, ABCDM, OUTRAS)
+            """)
         return
 
-    if df.empty:
-        render_insight(
-            "🔍 <b>Nenhum dado para os filtros selecionados.</b><br>"
-            "Ajuste os filtros na barra lateral ou clique em <b>🔄 Reiniciar</b>.",
-            tipo="alerta",
-        )
-        return
+    # Filtros Globais da Operação
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🌪️ Filtros Globais")
 
-    if visao == "📑 Resumo Executivo (Matriz)":
-        render_visao_resumo(df, meta)
-    elif visao == "📈 Análise Detalhada (Projeções)":
-        render_visao_detalhada(df, p_ot, p_base, p_pess, meta)
-    elif visao == "🔄 Segmento — Migração":
-        render_visao_segmento(df, "Migração", p_ot, p_base, p_pess, meta)
-    elif visao == "🏢 Segmento — PME":
-        render_visao_segmento(df, "PME", p_ot, p_base, p_pess, meta)
+    regioes_disponiveis = sorted(df["REGIÃO"].unique().tolist())
+    regioes_sel = st.sidebar.multiselect(
+        "Região", regioes_disponiveis, default=regioes_disponiveis
+    )
+
+    monitores_disponiveis = sorted(df["MONITOR"].unique().tolist())
+    monitores_sel = st.sidebar.multiselect(
+        "Monitor", monitores_disponiveis, default=monitores_disponiveis
+    )
+
+    # Aplicação dos filtros
+    df_filtrado = df[
+        (df["REGIÃO"].isin(regioes_sel)) & (df["MONITOR"].isin(monitores_sel))
+    ]
+
+    # Navegação Módulos
+    modulo = st.sidebar.radio(
+        "🧭 Módulo de Análise",
+        [
+            "📊 Resumo Executivo",
+            "🔍 Análise Detalhada",
+            "🔄 Segmento: Migração",
+            "🏢 Segmento: PME",
+            "🔬 Auditoria de Critérios",
+        ],
+    )
+
+    meta_sla_global = st.sidebar.slider(
+        "Meta Global de SLA", 0.05, 0.50, Config.SLA_QUEBRA_MAXIMA, 0.01
+    )
+
+    # Top Hero Fixo
+    render_hero_topo_fixo(
+        "📉 Gestão Operacional de Quebra de Agenda",
+        "Super Relatório Corporativo Unificado | TOTALE Operações",
+        regioes_sel,
+        len(df_filtrado),
+        badge=modulo,
+    )
+
+    # Roteamento de Módulos
+    if modulo == "📊 Resumo Executivo":
+        view_resumo_executivo(df_filtrado, meta_sla_global)
+    elif modulo == "🔍 Análise Detalhada":
+        view_analise_detalhada(df_filtrado, meta_sla_global)
+    elif modulo == "🔄 Segmento: Migração":
+        view_analise_segmento(df_filtrado, "Migração")
+    elif modulo == "🏢 Segmento: PME":
+        view_analise_segmento(df_filtrado, "PME")
+    elif modulo == "🔬 Auditoria de Critérios":
+        view_auditoria_criterios(df_filtrado)
 
 
 if __name__ == "__main__":
