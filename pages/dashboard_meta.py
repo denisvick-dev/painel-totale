@@ -1720,7 +1720,7 @@ def render_aba_projecao_base(
 
         render_kpi_seguro(
             d1,
-            "DIAS TRABALHADOS (O.S.)",
+            "DIAS TRAB. (O.S.)",
             f"{dias_trabalhados_os}",
             f"{pct_dias_os_top:.1f}% do mês concluído",
             "verde",
@@ -1730,11 +1730,11 @@ def render_aba_projecao_base(
             "DIAS FALTANTES (O.S.)",
             f"{dias_faltantes_os}",
             f"Dias úteis restantes no mês (seg–sáb)",
-            "vermelho",
+            "cinza",
         )
         render_kpi_seguro(
             d3,
-            "DIAS TRABALHADOS (CONSULTIVOS)",
+            "DIAS TRAB. (CONSULTIVOS)",
             f"{dias_trabalhados_cons}",
             f"{pct_dias_cons_top:.1f}% do mês concluído",
             "verde",
@@ -1744,7 +1744,7 @@ def render_aba_projecao_base(
             "DIAS FALTANTES (CONSULTIVOS)",
             f"{dias_faltantes_cons}",
             f"Dias úteis restantes no mês (seg–sáb)",
-            "vermelho",
+            "cinza",
         )
 
         # ==================== DASHBOARD DE PROJEÇÕES ====================
@@ -1820,7 +1820,7 @@ def render_aba_projecao_base(
             f"Base: {cons_atual:,} cons. em {dias_trabalhados_cons} dias".replace(
                 ",", "."
             ),
-            "laranja",
+            "azul",
         )
         cor_gap_cons: CorTema = (
             "verde"
@@ -1955,7 +1955,7 @@ def render_aba_projecao_base(
             "Falta hoje (Cons.)",
             f"{falta_cons:,}".replace(",", "."),
             f"Diferença atual até {meta_cons:,} consultivos".replace(",", "."),
-            "laranja",
+            "azul",
         )
         render_kpi_seguro(
             v4,
