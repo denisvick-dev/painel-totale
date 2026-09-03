@@ -508,6 +508,17 @@ if "DATA" in df.columns and df["DATA"].notna().any():
     st.session_state["_assinatura_datas_calendario"] = assinatura_datas
     st.session_state["_preset_calendario_aplicado"] = preset
 
+    def aplicar_dia_vigente() -> None:
+        st.session_state["calendario_preset"] = "Personalizado"
+        st.session_state["filtro_periodo"] = (hoje, hoje)
+
+    st.sidebar.button(
+        "📅 Dia vigente",
+        key="botao_dia_vigente",
+        use_container_width=True,
+        on_click=aplicar_dia_vigente,
+    )
+
     def marcar_como_personalizado():
         if st.session_state.get("calendario_preset") != "Personalizado":
             st.session_state["calendario_preset"] = "Personalizado"
