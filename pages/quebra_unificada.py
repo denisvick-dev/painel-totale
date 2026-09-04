@@ -2,8 +2,7 @@
 quebra_unificada.py
 ===================
 Análise de Quebra por Segmento (Migração / PME)
-
-Critérios centralizados em: components.criterios
+Versão com Fontes Atualizadas e render_table_html
 """
 
 from __future__ import annotations
@@ -50,6 +49,7 @@ from components.componentes import (
     render_insight,
     render_hero_migracao,
     render_hero_pme,
+    render_table_html,  # ← NOVO IMPORT
     TemaKPI,
     TipoInsight,
 )
@@ -644,7 +644,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "sombra_hero": "rgba(12, 74, 110, 0.25)",
         "sla_default": Config.SLA_MIGRACAO,
         "pdf_class": PDFExecutivoMigracao,
-        "hero_fn": render_hero_migracao,  # ← NOVO
+        "hero_fn": render_hero_migracao,
         "acoes": [
             (
                 "🔴 ALTA",
@@ -656,7 +656,11 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
                 "Confirmar certificação dos técnicos em instalação GPON.",
                 "acao",
             ),
-            ("🟡 MÉDIA", "Priorizar agendamentos de migração no início do turno.", "acao"),
+            (
+                "🟡 MÉDIA",
+                "Priorizar agendamentos de migração no início do turno.",
+                "acao",
+            ),
             (
                 "🟢 BAIXA",
                 "Validar se ordens com status 'Pendente' possuem pré-vistoria aprovada.",
@@ -665,7 +669,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         ],
     },
     "PME": {
-        "icone": "🏢",
+        "icone": "",
         "subtitulo": "Análise estratégica dedicada às Pequenas e Médias Empresas",
         "cor_primaria": "#7C3AED",
         "cor_secundaria": "#4C1D95",
@@ -673,7 +677,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "sombra_hero": "rgba(76, 29, 149, 0.25)",
         "sla_default": Config.SLA_PME,
         "pdf_class": PDFExecutivoPME,
-        "hero_fn": render_hero_pme,  # ← NOVO
+        "hero_fn": render_hero_pme,
         "acoes": [
             (
                 "🔴 ALTA",
@@ -690,6 +694,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
     },
 }
 
+
 # =====================================================================
 # COMPONENTES VISUAIS
 # =====================================================================
@@ -699,6 +704,22 @@ def _injetar_css_dinamico(segmento: str) -> None:
     st.markdown(
         f"""
 <style>
+/* Importação de Fonte Moderna (Inter) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+/* Aplicação global para os componentes customizados */
+.topo-fixo-dinamico, 
+.resultado-base, 
+.resultado-base-regiao, 
+.resultado-base-label,
+.resultado-base-count,
+.table-html-container,
+.table-html-container table,
+.table-html-container th,
+.table-html-container td {{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}}
+
 /* Sticky do topo (hero componente + resultado da base) */
 div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     position: sticky !important;
@@ -736,10 +757,42 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
 .resultado-base-count {{
     color: #64748B; font-size: 0.72rem; margin-left: auto; font-weight: 600;
 }}
+
+/* Estilos para render_table_html */
+.table-html-container {{
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}}
+.table-html-container table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}}
+.table-html-container th {{
+    background: {conf["cor_primaria"]};
+    color: white;
+    font-weight: 600;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+}}
+.table-html-container td {{
+    padding: 8px 12px;
+    border-bottom: 1px solid #F3F4F6;
+    color: #374151;
+}}
+.table-html-container tr:hover {{
+    background: #F9FAFB;
+}}
+.table-html-container tr:nth-child(even) {{
+    background: #F8FAFC;
+}}
 </style>""",
         unsafe_allow_html=True,
     )
-    
+
 
 def _html_resultado_base(regioes: List[str], total: int) -> str:
     cores_regiao = {
@@ -796,6 +849,7 @@ def _render_topo_fixo(segmento: str, regioes: List[str], total: int) -> None:
     # Fecha o wrapper sticky
     st.markdown("</div>", unsafe_allow_html=True)
 
+
 def _render_card_status(
     segmento: str,
     m_seg: Dict[str, Any],
@@ -834,10 +888,16 @@ def _render_card_status(
         (quebra_atual / (sla_meta * 2)) * 100 if sla_meta > 0 else 0,
     )
 
+    # Fonte unificada para o card
+    font_family = (
+        "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    )
+
     html = f"""
 <div style="background:white;border:1px solid #E5E7EB;border-radius:14px;
             padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);
-            margin:16px 0 24px 0;border-top:3px solid {conf['cor_primaria']};">
+            margin:16px 0 24px 0;border-top:3px solid {conf['cor_primaria']};
+            font-family: {font_family};">
     <div style="display:flex;align-items:center;justify-content:space-between;
                 flex-wrap:wrap;gap:16px;">
         <div style="display:flex;align-items:center;gap:14px;">
@@ -848,9 +908,9 @@ def _render_card_status(
                 <span style="font-size:22px;">{conf['icone']}</span>
             </div>
             <div>
-                <div style="font-family:'Manrope',sans-serif;font-size:18px;
+                <div style="font-size:18px;
                             font-weight:800;color:#1F2937;">{segmento}</div>
-                <div style="font-family:'Inter',sans-serif;font-size:12px;
+                <div style="font-size:12px;
                             color:#6B7280;font-weight:500;">Análise de Quebra</div>
             </div>
         </div>
@@ -862,7 +922,7 @@ def _render_card_status(
                              justify-content:center;width:18px;height:18px;
                              background:{cor_status};color:white;border-radius:50%;
                              font-size:11px;font-weight:800;">{status_icone}</span>
-                <span style="font-family:'Inter',sans-serif;font-size:11px;
+                <span style="font-size:11px;
                              font-weight:700;color:{cor_txt};
                              text-transform:uppercase;">{status_label}</span>
             </div>
@@ -870,14 +930,14 @@ def _render_card_status(
                         background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;">
                 <span style="font-size:10px;color:#6B7280;font-weight:600;
                              text-transform:uppercase;">Quebra Atual</span>
-                <span style="font-family:'Manrope',sans-serif;font-size:16px;
+                <span style="font-size:16px;
                              color:{cor_status};font-weight:800;">{quebra_atual:.2%}</span>
             </div>
             <div style="display:inline-flex;flex-direction:column;padding:6px 14px;
                         background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;">
                 <span style="font-size:10px;color:#6B7280;font-weight:600;
                              text-transform:uppercase;">Meta SLA</span>
-                <span style="font-family:'Manrope',sans-serif;font-size:16px;
+                <span style="font-size:16px;
                              color:{conf['cor_secundaria']};
                              font-weight:800;">{sla_meta:.2%}</span>
             </div>
@@ -902,7 +962,7 @@ def _render_card_status(
                 background:{cor_bg};border-left:3px solid {cor_status};
                 border-radius:6px;">
         <span style="font-size:16px;line-height:1;flex-shrink:0;">{icone_mensagem}</span>
-        <div style="font-family:'Inter',sans-serif;font-size:13px;color:{cor_txt};
+        <div style="font-size:13px;color:{cor_txt};
                     line-height:1.55;font-weight:500;">{mensagem}</div>
     </div>
 </div>"""
@@ -914,24 +974,43 @@ def _render_card_status(
 # =====================================================================
 def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
     MAPA = {
-        "Contrato":   [
-            "CONTRATO", "Nº CONTRATO", "NUM_CONTRATO",
-            "NUMERO CONTRATO", "NÚMERO CONTRATO",
-            "CONTRATO_ID", "COD_CONTRATO", "CÓDIGO CONTRATO",
+        "Contrato": [
+            "CONTRATO",
+            "Nº CONTRATO",
+            "NUM_CONTRATO",
+            "NUMERO CONTRATO",
+            "NÚMERO CONTRATO",
+            "CONTRATO_ID",
+            "COD_CONTRATO",
+            "CÓDIGO CONTRATO",
         ],
-        "Login":      [
-            "LOGIN DO TÉCNICO", "LOGIN DO TECNICO",
-            "LOGIN_DO_TECNICO", "LOGIN_TECNICO",
-            "LOGIN TÉCNICO", "LOGIN TECNICO",
-            "LOGIN", "USER", "USUÁRIO", "USUARIO",
-            "USERNAME", "MATRÍCULA", "MATRICULA",
+        "Login": [
+            "LOGIN DO TÉCNICO",
+            "LOGIN DO TECNICO",
+            "LOGIN_DO_TECNICO",
+            "LOGIN_TECNICO",
+            "LOGIN TÉCNICO",
+            "LOGIN TECNICO",
+            "LOGIN",
+            "USER",
+            "USUÁRIO",
+            "USUARIO",
+            "USERNAME",
+            "MATRÍCULA",
+            "MATRICULA",
         ],
-        "Técnico":    [
-            "TÉCNICO", "TECNICO", "NOME TÉCNICO",
-            "NOME_TECNICO", "NOME DO TÉCNICO",
+        "Técnico": [
+            "TÉCNICO",
+            "TECNICO",
+            "NOME TÉCNICO",
+            "NOME_TECNICO",
+            "NOME DO TÉCNICO",
         ],
-        "Monitor":    [
-            "MONITOR", "SUPERVISOR", "NOME MONITOR", "NOME_MONITOR",
+        "Monitor": [
+            "MONITOR",
+            "SUPERVISOR",
+            "NOME MONITOR",
+            "NOME_MONITOR",
         ],
         "Qtde. O.S.": ["TOTAL DE TAREFAS"],
     }
@@ -939,6 +1018,7 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
     def _achar(df: pd.DataFrame, cands: List[str]) -> Optional[str]:
         def _norm(s: str) -> str:
             import unicodedata
+
             return (
                 unicodedata.normalize("NFKD", str(s))
                 .encode("ascii", errors="ignore")
@@ -1027,7 +1107,7 @@ def _sub_visao_geral(
     )
 
     st.markdown("")
-    render_section("🔮 Projeções de Fechamento")
+    render_section(" Projeções de Fechamento")
     cen = {
         n: Motor.projetar(df_seg, p)
         for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
@@ -1121,7 +1201,8 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
 
     c_tab, c_chart = st.columns([1.2, 2])
     with c_tab:
-        render_dataframe(
+        # ✅ APLICADO render_table_html
+        render_table_html(
             df_c,
             titulo=f"Top Motivos — {segmento}",
             icone="🔍",
@@ -1201,7 +1282,8 @@ def _sub_tecnicos(
         render_insight("Não há técnicos com volume suficiente.", tipo="info")
         return
 
-    render_dataframe(
+    # ✅ APLICADO render_table_html
+    render_table_html(
         df_tec,
         titulo=f"Técnicos Críticos — {segmento}",
         icone="🚨",
@@ -1211,9 +1293,6 @@ def _sub_tecnicos(
             "Fechamento Base": "{:.2%}",
             "Fechamento Pessimista": "{:.2%}",
         },
-        color_col="Fechamento Base",
-        color_meta=sla_meta,
-        color_invertido=True,
         height=450,
     )
 
@@ -1259,7 +1338,7 @@ def _sub_plano_acao(
     p_base: float,
     sla_meta: float,
 ) -> None:
-    render_section(f"🎯 Plano de Ação — {segmento}")
+    render_section(f" Plano de Ação — {segmento}")
     folga = Motor.folga_sla(df_seg, sla_meta)
     cen = Motor.projetar(df_seg, p_base)
     excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])
@@ -1319,7 +1398,7 @@ def _sub_plano_acao(
     )
     if not df_plano.empty:
         st.download_button(
-            "📥 Exportar Plano",
+            " Exportar Plano",
             Utils.gerar_excel(df_plano, f"Plano_{segmento[:20]}"),
             f"plano_{segmento.lower()}.xlsx",
             key=f"dl_plano_{segmento}",
@@ -1327,7 +1406,7 @@ def _sub_plano_acao(
 
 
 def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"📋 Contratos Pendentes — {segmento}")
+    render_section(f" Contratos Pendentes — {segmento}")
     df_pend = _build_df_pendentes(df_seg)
     total_pend = len(df_pend)
 
@@ -1391,8 +1470,13 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
         df_view = df_view[df_view["Monitor"] == f_mon]
 
     st.markdown(f"**Exibindo {len(df_view):,} de {total_pend:,} contratos pendentes**")
-    render_dataframe(
-        df_view.reset_index(drop=True), titulo="Pendentes", icone="📋", height=480
+
+    # ✅ APLICADO render_table_html
+    render_table_html(
+        df_view.reset_index(drop=True),
+        titulo="Pendentes",
+        icone="📋",
+        height=480,
     )
 
     st.markdown("")
@@ -1406,7 +1490,7 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
         )
     with col_exp2:
         st.download_button(
-            "📥 Exportar Completo",
+            " Exportar Completo",
             Utils.gerar_excel(df_pend, "Completo"),
             f"pendentes_{segmento.lower()}_completo.xlsx",
             key=f"dl_pend_c_{segmento}",
@@ -1439,7 +1523,7 @@ def main() -> None:
 
     # ── Sidebar ────────────────────────────────────────────────────────
     with st.sidebar:
-        st.markdown("### 🔍 Escolha a Carteira")
+        st.markdown("###  Escolha a Carteira")
         segmento_selecionado = st.radio(
             "Segmento:",
             ["Migração", "PME"],
@@ -1530,7 +1614,7 @@ def main() -> None:
                 st.session_state["df_memoria"] = None
                 st.rerun()
         with col_r2:
-            if st.button("🗑️ Limpar Cache", use_container_width=True):
+            if st.button("️ Limpar Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.session_state["df_memoria"] = None
                 st.rerun()
@@ -1605,10 +1689,10 @@ def main() -> None:
 
     st.divider()
 
-    # ── Sub-abas ───────────────────────────────────────────────────────
+    # ── Sub-abas ──────────────────────────────────────────────────────
     sub1, sub2, sub3, sub4, sub5 = st.tabs(
         [
-            "📊 Visão Geral",
+            " Visão Geral",
             "🔍 Causa Raiz",
             "👤 Técnicos",
             "🎯 Plano de Ação",
