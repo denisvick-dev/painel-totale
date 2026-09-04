@@ -280,42 +280,32 @@ def criar_flag_gpon(df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[str], int]
 # ═══════════════════════════════════════════════════════════════════════
 def classificar_tipo_servico(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     """
-    Classifica cada linha em Migração / Novos Domicílios / PME / Outros.
+    Classifica cada linha em: Migração, PME, Novos Domicílios ou Outros.
 
-    Regras:
-        🔄 Migração:
-            TIPO O.S 1 contém MUDANCA DE PACOTE
-            E FLAG_GPON = Sim
-
-        🏠 Novos Domicílios:
-            Alguma coluna TIPO O.S contém ADESAO
-
-        🏢 PME:
-            É Novos Domicílios
-            E HABILIDADE DE TRABALHO contém PME(1/100)
-
-    Precedência:
-        Migração > PME > Novos Domicílios > Outros
+    Regras oficiais (prioridade):
+      1. MIGRAÇÃO  = TIPO O.S 1 contém "MUDANCA DE PACOTE"  AND  FLAG_GPON = "Sim"
+      2. PME       = é Novos Domicílios  AND  HABILIDADE contém "PME(1/100)"
+      3. NOVOS DOMICÍLIOS = algum TIPO O.S contém "ADESAO"
+      4. OUTROS    = restante
     """
+    df = df.copy()
+
+    # Garante colunas auxiliares
     df = criar_coluna_tipos_agrupados(df)
     df, _, _ = criar_flag_gpon(df)
 
     col_tipo_os_1 = detectar_col_tipo_os_1(df)
-    col_flag_gpon = detectar_col_flag_gpon(df)
-    col_hab       = detectar_col_habilidade(df)
+    col_hab = detectar_col_habilidade(df)
 
-    print(f"[criterios] TIPO O.S 1 : {col_tipo_os_1!r}")
-    print(f"[criterios] FLAG_GPON  : {col_flag_gpon!r}")
-    print(f"[criterios] HABILIDADE : {col_hab!r}")
-
+    # ── Séries normalizadas ──────────────────────────────────────────
     serie_tipo_os_1 = (
         df[col_tipo_os_1].fillna("").astype(str).map(normalizar_str)
         if col_tipo_os_1
         else pd.Series("", index=df.index, dtype=object)
     )
     serie_flag_gpon = (
-        df[col_flag_gpon].fillna("").astype(str).map(normalizar_str)
-        if col_flag_gpon
+        df["FLAG_GPON"].fillna("").astype(str).str.strip().str.upper()
+        if "FLAG_GPON" in df.columns
         else pd.Series("", index=df.index, dtype=object)
     )
     serie_habilidade = (
@@ -324,42 +314,26 @@ def classificar_tipo_servico(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]
         else pd.Series("", index=df.index, dtype=object)
     )
 
-    # ── Migração: PACOTE E FLAG_GPON = Sim ────────────────────────────
-    flag_pacote = serie_tipo_os_1.str.contains(
-        TERMO_MIGRACAO_OS, na=False, regex=False
-    )
+    # ── Máscaras ─────────────────────────────────────────────────────
+    flag_pacote   = serie_tipo_os_1.str.contains(TERMO_MIGRACAO_OS, na=False, regex=False)
     flag_gpon_sim = serie_flag_gpon.eq(VALOR_FLAG_GPON_SIM)
-    flag_migracao = flag_pacote & flag_gpon_sim
+    flag_nd       = _mask_novos_domicilios(df)
+    flag_hab_pme  = serie_habilidade.str.contains(TERMO_PME_HABILIDADE, na=False, regex=False)
 
-    # ── Novos Domicílios: algum TIPO O.S contém ADESAO ────────────────
-    def _tem_nd(tipo_set: FrozenSet[str]) -> bool:
-        if not isinstance(tipo_set, (set, frozenset)):
-            return False
-        return any(termo in val for val in tipo_set for termo in TERMOS_ND)
+    # ── Prioridade: Migração > PME > Novos Domicílios > Outros ───────
+    tipo = pd.Series("Outros", index=df.index, dtype=object)
 
-    flag_nd = df["_TIPOS_OS_SET"].map(_tem_nd).fillna(False)
+    # 3. Novos Domicílios (base)
+    tipo = tipo.where(~flag_nd, other="Novos Domicílios")
 
-    # ── PME: É ND E HABILIDADE contém PME(1/100) ──────────────────────
-    flag_hab_pme = serie_habilidade.str.contains(
-        TERMO_PME_HABILIDADE, na=False, regex=False
-    )
-    flag_pme = flag_nd & flag_hab_pme
+    # 2. PME sobrescreve ND quando HABILIDADE tem PME(1/100)
+    tipo = tipo.where(~(flag_nd & flag_hab_pme), other="PME")
 
-    # ── Resultado com precedência ─────────────────────────────────────
-    resultado = pd.Series("Outros", index=df.index, dtype=object)
-    resultado.loc[flag_nd]       = "Novos Domicílios"
-    resultado.loc[flag_pme]      = "PME"
-    resultado.loc[flag_migracao] = "Migração"
+    # 1. Migração tem prioridade máxima
+    tipo = tipo.where(~(flag_pacote & flag_gpon_sim), other="Migração")
 
-    print(f"[criterios] MUDANCA DE PACOTE : {int(flag_pacote.sum())}")
-    print(f"[criterios] FLAG_GPON = Sim   : {int(flag_gpon_sim.sum())}")
-    print(f"[criterios] HABILIDADE PME    : {int(flag_hab_pme.sum())}")
-    print(f"[criterios] Migração (AND)    : {int(flag_migracao.sum())}")
-    print(f"[criterios] PME (ND + HAB)    : {int(flag_pme.sum())}")
-    print(f"[criterios] Distribuição      : {resultado.value_counts().to_dict()}")
-
-    return df, resultado
-
+    df["TIPO_SERVICO"] = tipo
+    return df, tipo
 
 # ═══════════════════════════════════════════════════════════════════════
 # MÉTRICAS DOS CRITÉRIOS — BASEADAS EM TOTAL DE TAREFAS

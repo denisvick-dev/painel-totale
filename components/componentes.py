@@ -1738,7 +1738,17 @@ def render_table_html(
             # Cores condicionais por coluna (condicoes_colunas - para matriz)
             elif condicoes_colunas and c in condicoes_colunas:
                 try:
-                    v = float(val) if val != "—" else 0
+                    valor = str(val).strip()
+                    v = (
+                        float(
+                            valor.removesuffix("%")
+                            .replace(".", "")
+                            .replace(",", ".")
+                        )
+                        / 100
+                        if valor.endswith("%")
+                        else float(valor)
+                    ) if valor != "—" else 0
                     cfg = condicoes_colunas[c]
                     meta = cfg.get("meta", 0.20)
                     if v > meta:

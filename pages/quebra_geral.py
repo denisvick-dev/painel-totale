@@ -14,6 +14,7 @@ Critérios centralizados em: components.criterios
 from __future__ import annotations
 
 import csv
+import re
 import sys
 from datetime import datetime
 from html import escape
@@ -65,6 +66,122 @@ TemaKPI = Literal[
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# MAPEAMENTO DE DEPARA (AUXILIAR!$AA:$AB - CÓD DE BAIXA 1)
+# ═══════════════════════════════════════════════════════════════════════
+MAPA_CODIGO_NUMERICO: Dict[int, str] = {
+    # Não Executadas
+    100: "Não Executada",
+    101: "Não Executada",
+    103: "Não Executada",
+    104: "Não Executada",
+    105: "Não Executada",
+    106: "Não Executada",
+    107: "Não Executada",
+    108: "Não Executada",
+    110: "Não Executada",
+    112: "Não Executada",
+    113: "Não Executada",
+    114: "Não Executada",
+    125: "Não Executada",
+    203: "Não Executada",
+    204: "Não Executada",
+    205: "Não Executada",
+    206: "Não Executada",
+    301: "Não Executada",
+    302: "Não Executada",
+    303: "Não Executada",
+    305: "Não Executada",
+    306: "Não Executada",
+    307: "Não Executada",
+    308: "Não Executada",
+    312: "Não Executada",
+    316: "Não Executada",
+    400: "Não Executada",
+    402: "Não Executada",
+    # Executadas
+    328: "Executada",
+    408: "Executada",
+    409: "Executada",
+    425: "Executada",
+    430: "Executada",
+    440: "Executada",
+    467: "Executada",
+    470: "Executada",
+    474: "Executada",
+    475: "Executada",
+    477: "Executada",
+    500: "Executada",
+    501: "Executada",
+    502: "Executada",
+    505: "Executada",
+    506: "Executada",
+    507: "Executada",
+    509: "Executada",
+    510: "Executada",
+    514: "Executada",
+    515: "Executada",
+    516: "Executada",
+    517: "Executada",
+    518: "Executada",
+    519: "Executada",
+    520: "Executada",
+    521: "Executada",
+    522: "Executada",
+    523: "Executada",
+    524: "Executada",
+    525: "Executada",
+    526: "Executada",
+    527: "Executada",
+    530: "Executada",
+    533: "Executada",
+    534: "Executada",
+    535: "Executada",
+    536: "Executada",
+    537: "Executada",
+    538: "Executada",
+    539: "Executada",
+    540: "Executada",
+    541: "Executada",
+    542: "Executada",
+    544: "Executada",
+    545: "Executada",
+    546: "Executada",
+    547: "Executada",
+    549: "Executada",
+    551: "Executada",
+    552: "Executada",
+    553: "Executada",
+    554: "Executada",
+    555: "Executada",
+    556: "Executada",
+    557: "Executada",
+    558: "Executada",
+    560: "Executada",
+    562: "Executada",
+    563: "Executada",
+    564: "Executada",
+    565: "Executada",
+    566: "Executada",
+    567: "Executada",
+    568: "Executada",
+    569: "Executada",
+    570: "Executada",
+    574: "Executada",
+    575: "Executada",
+    580: "Executada",
+    582: "Executada",
+    584: "Executada",
+    590: "Executada",
+}
+
+MAPA_COD_BAIXA_TEXTO: Dict[str, str] = {
+    "EM ROTA": "Pendente",
+    "INICIADO": "Pendente",
+    "PENDENTE": "Pendente",
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # CONFIGURAÇÃO DA PÁGINA
 # ═══════════════════════════════════════════════════════════════════════
 st.set_page_config(
@@ -106,10 +223,12 @@ class Config:
 
     CORES_TIPO = {
         "Novos Domicílios": "#1E40AF",
+        "PME": "#7C3AED",
+        "Migração": "#0369A1",
         "Quebra Geral": "#78350F",
         "Outros": "#64748B",
     }
-    ORDEM_TIPOS = ["Novos Domicílios"]
+    ORDEM_TIPOS = ["Novos Domicílios", "PME", "Migração"]
 
 
 CORES_REGIAO: Dict[str, Dict[str, str]] = {
@@ -264,13 +383,152 @@ class Utils:
         return None
 
     @staticmethod
-    def classificar_status(serie: pd.Series) -> pd.Series:
-        s = serie.fillna("").astype(str).str.strip().str.upper()
-        exe = s == "EXECUTADA"
-        nex = s.isin(["NÃO EXECUTADA", "NAO EXECUTADA"])
+    def classificar_status_excel(df: pd.DataFrame) -> pd.Series:
+        """
+        Implementa a fórmula Excel exata de Status Contrato:
+        =SE(E(N2="";OU(F2="Liberado no Sistema NETSMS";F2="Cancelado no Sistema NETSMS"));"Cancelado";
+         SE(E(N2<>"";OU(F2="Liberado no Sistema NETSMS";F2="Cancelado no Sistema NETSMS"));"Não Executada";
+         SE(D2="cancelado";"Cancelado";
+         SE(D2="suspenso";"Suspenso";
+         SE(D2="não concluído";"Não Executada";
+         SEERRO(PROCV(AG2;Auxiliar!$AA:$AB;2;0);"Pendente"))))))
+        """
+        col_inicio = Utils.buscar_coluna(
+            df,
+            [
+                "INÍCIO",
+                "INICIO",
+                "DATA INÍCIO",
+                "DT INICIO",
+                "HORA INICIO",
+                "INICIO DA ATIVIDADE",
+            ],
+        )
+        col_fechamento_ext = Utils.buscar_coluna(
+            df,
+            [
+                "MOTIVO DE FECHAMENTO EXTERNO",
+                "MOTIVO FECHAMENTO EXTERNO",
+                "FECHAMENTO EXTERNO",
+                "MOTIVO DE FECHAMENTO",
+            ],
+        )
+        col_status_atv = Utils.buscar_coluna(
+            df,
+            [
+                "STATUS DA ATIVIDADE",
+                "STATUS ATIVIDADE",
+                "STATUS_ATIVIDADE",
+                "STATUS ATIVIDADE 1",
+            ],
+        )
+        col_cod_baixa = Utils.buscar_coluna(
+            df,
+            [
+                "CÓD DE BAIXA 1",
+                "COD DE BAIXA 1",
+                "CÓD. DE BAIXA 1",
+                "CÓD.BAIXA",
+                "COD.BAIXA",
+                "COD BAIXA",
+                "MOTIVO DE BAIXA",
+            ],
+        )
+        col_status_os = Utils.buscar_coluna(
+            df, ["STATUS DA O.S 1", "STATUS OS 1", "STATUS CONTRATO", "STATUS DA OS"]
+        )
+
+        s_inicio = (
+            df[col_inicio].fillna("").astype(str).str.strip()
+            if col_inicio
+            else pd.Series("", index=df.index)
+        )
+        s_fechamento = (
+            df[col_fechamento_ext].fillna("").astype(str).str.strip().str.upper()
+            if col_fechamento_ext
+            else pd.Series("", index=df.index)
+        )
+        s_status_atv = (
+            df[col_status_atv].fillna("").astype(str).str.strip().str.lower()
+            if col_status_atv
+            else pd.Series("", index=df.index)
+        )
+        s_cod_baixa = (
+            df[col_cod_baixa].fillna("").astype(str).str.strip()
+            if col_cod_baixa
+            else pd.Series("", index=df.index)
+        )
+
+        fechamento_alvo = [
+            "LIBERADO NO SISTEMA NETSMS",
+            "CANCELADO NO SISTEMA NETSMS",
+        ]
+
+        cond_f2 = s_fechamento.isin(fechamento_alvo)
+        inicio_vazio = s_inicio.isin(["", "NAN", "NONE", "NULL", "NAT", "NA"])
+
+        # Condição 1: N2="" e (F2="Liberado..." ou F2="Cancelado...") -> "Cancelado"
+        cond1 = inicio_vazio & cond_f2
+
+        # Condição 2: N2<>"" e (F2="Liberado..." ou F2="Cancelado...") -> "Não Executada"
+        cond2 = (~inicio_vazio) & cond_f2
+
+        # Condição 3: D2="cancelado" -> "Cancelado"
+        cond3 = s_status_atv.eq("cancelado")
+
+        # Condição 4: D2="suspenso" -> "Suspenso"
+        cond4 = s_status_atv.isin(["suspenso", "suspensa"])
+
+        # Condição 5: D2="não concluído" -> "Não Executada"
+        cond5 = s_status_atv.isin(
+            ["não concluído", "nao concluido", "não concluida", "nao concluida"]
+        )
+
+        # Condição 6 (Lookup PROCV na coluna AG2 / Cód de Baixa 1):
+        def traduzir_cod_baixa(val: str) -> str:
+            if not val or str(val).strip().upper() in ["NAN", "NONE", "NULL", ""]:
+                return "Pendente"
+            val_upper = str(val).strip().upper()
+
+            if val_upper in MAPA_COD_BAIXA_TEXTO:
+                return MAPA_COD_BAIXA_TEXTO[val_upper]
+
+            match = re.match(r"^(\d+)", val_upper)
+            if match:
+                cod_num = int(match.group(1))
+                if cod_num in MAPA_CODIGO_NUMERICO:
+                    return MAPA_CODIGO_NUMERICO[cod_num]
+
+            return "Pendente"
+
+        status_procv = s_cod_baixa.apply(traduzir_cod_baixa)
+
+        condicoes = [cond1, cond2, cond3, cond4, cond5]
+        resultados = [
+            "Cancelado",
+            "Não Executada",
+            "Cancelado",
+            "Suspenso",
+            "Não Executada",
+        ]
+
+        # Se não houver colunas da fórmula Excel, fallback para a coluna STATUS DA O.S 1
+        if (
+            not any([col_inicio, col_fechamento_ext, col_status_atv, col_cod_baixa])
+            and col_status_os
+        ):
+            s = df[col_status_os].fillna("").astype(str).str.strip().str.upper()
+            exe = s.eq("EXECUTADA")
+            nex = s.isin(["NÃO EXECUTADA", "NAO EXECUTADA"])
+            return pd.Series(
+                np.select(
+                    [exe, nex], ["Executada", "Não Executada"], default="Pendente"
+                ),
+                index=df.index,
+            )
+
         return pd.Series(
-            np.select([exe, nex], ["Executada", "Não Executada"], default="Pendente"),
-            index=serie.index,
+            np.select(condicoes, resultados, default=status_procv), index=df.index
         )
 
     @staticmethod
@@ -280,15 +538,16 @@ class Utils:
             df.to_excel(w, index=False, sheet_name=aba[:31])
             ws = w.sheets[aba[:31]]
 
-            # Habilitar linhas de grade explicitamente
             ws.views.sheetView[0].showGridLines = True
 
-            # Estilos OpenPyXL
             header_fill = PatternFill("solid", fgColor="0F172A")
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             border_thin = Side(border_style="thin", color="CBD5E1")
             cell_border = Border(
-                left=border_thin, right=border_thin, top=border_thin, bottom=border_thin
+                left=border_thin,
+                right=border_thin,
+                top=border_thin,
+                bottom=border_thin,
             )
             align_center = Alignment(horizontal="center", vertical="center")
             align_left = Alignment(horizontal="left", vertical="center")
@@ -298,7 +557,6 @@ class Utils:
                 cell.font = header_font
                 cell.alignment = align_center
 
-            # Formatando as linhas de dados com tipos corretos de dados no Excel
             for row in range(2, ws.max_row + 1):
                 for col in range(1, ws.max_column + 1):
                     cell = ws.cell(row=row, column=col)
@@ -476,22 +734,18 @@ class DataLoader:
         df.columns = df.columns.astype(str).str.strip().str.upper()
         df.attrs["total_importado"] = len(df)
 
-        # 1. Remover Suspensos
+        # 1. Aplicar Fórmula do Status Contrato
+        df["Status Contrato"] = Utils.classificar_status_excel(df)
+
+        # 2. Remover Suspensos e Cancelados do Fluxo Operacional
         col_atv = detectar_col_status_atividade(df)
-        n_susp = 0
-        if col_atv:
-            serie_atv = df[col_atv].fillna("").astype(str).str.strip().str.upper()
-            mask_susp = (
-                serie_atv.str.contains("SUSP", na=False)
-                | serie_atv.eq("SUSPENSO")
-                | serie_atv.eq("SUSPENSA")
-            )
-            n_susp = int(mask_susp.sum())
-            df = df[~mask_susp].copy()
+        n_susp = int(df["Status Contrato"].isin(["Suspenso", "Cancelado"]).sum())
+        df = df[~df["Status Contrato"].isin(["Suspenso", "Cancelado"])].copy()
+
         df.attrs["col_status_atividade"] = col_atv
         df.attrs["removidos_suspensos"] = n_susp
 
-        # 2. Remover Contratos Inválidos
+        # 3. Remover Contratos Inválidos
         col_con = detectar_col_contrato(df)
         n_invalidos = 0
         if col_con:
@@ -511,11 +765,11 @@ class DataLoader:
 
         if df.empty:
             st.warning(
-                "⚠️ Base ficou vazia após remoção de suspensos e contratos inválidos."
+                "⚠️ Base ficou vazia após remoção de suspensos, cancelados e contratos inválidos."
             )
             return pd.DataFrame()
 
-        # 3. Total de Tarefas
+        # 4. Total de Tarefas
         col_tot = Utils.buscar_coluna(df, ["TOTAL DE TAREFAS", "QTD TAREFAS"])
         if col_tot:
             s_num = (
@@ -529,7 +783,7 @@ class DataLoader:
         else:
             df["TOTAL DE TAREFAS"] = pd.Series(1, index=df.index, dtype="int64")
 
-        # 4. Merge com lista_ativos
+        # 5. Merge com lista_ativos
         col_login = Utils.buscar_coluna(
             df,
             ["LOGIN DO TÉCNICO", "LOGIN DO TECNICO", "LOGIN", "USUÁRIO", "MATRÍCULA"],
@@ -596,7 +850,7 @@ class DataLoader:
             "SEM MONITOR"
         )
 
-        # 5. Regiões
+        # 6. Regiões
         col_cid = Utils.buscar_coluna(df, ["CIDADE", "LOCALIDADE"])
         cidade = (
             df[col_cid].fillna("").astype(str).str.strip().str.upper()
@@ -633,15 +887,7 @@ class DataLoader:
             default="OUTRAS",
         )
 
-        # 6. Status Contrato
-        col_status = Utils.buscar_coluna(
-            df, ["STATUS DA O.S 1", "STATUS OS 1", "STATUS CONTRATO"]
-        )
-        df["Status Contrato"] = (
-            Utils.classificar_status(df[col_status]) if col_status else "Pendente"
-        )
-
-        # 7. Classificação centralizada
+        # 7. Classificação centralizada de serviço
         df, df["TIPO_SERVICO"] = classificar_tipo_servico(df)
 
         # 8. Motivo de Baixa
@@ -788,7 +1034,6 @@ class Motor:
         p_ot: float = 0.15,
         p_pess: float = 0.50,
     ) -> pd.DataFrame:
-        # Suporte para "TODOS" ou segmento específico
         if segmento and segmento != "TODOS" and "TIPO_SERVICO" in df.columns:
             df_seg = df[df["TIPO_SERVICO"] == segmento].copy()
         else:
@@ -1011,12 +1256,16 @@ class Motor:
     def matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return pd.DataFrame()
-        df_valid = df[df["TIPO_SERVICO"] != "Outros"].copy()
+
+        # Considera apenas os segmentos oficiais (exclui "Outros")
+        df_valid = df[df["TIPO_SERVICO"].isin(Config.ORDEM_TIPOS)].copy()
         if df_valid.empty:
             return pd.DataFrame()
 
         df_valid["_executadas"] = np.where(
-            df_valid["Status Contrato"] == "Executada", df_valid["TOTAL DE TAREFAS"], 0
+            df_valid["Status Contrato"] == "Executada",
+            df_valid["TOTAL DE TAREFAS"],
+            0,
         )
         df_valid["_nao_executadas"] = np.where(
             df_valid["Status Contrato"] == "Não Executada",
@@ -1035,17 +1284,21 @@ class Motor:
         )
         grp["denominador"] = grp["executados"] + grp["nao_executados"]
         grp["pct"] = np.where(
-            grp["denominador"] > 0, grp["nao_executados"] / grp["denominador"], 0.0
+            grp["denominador"] > 0,
+            grp["nao_executados"] / grp["denominador"],
+            0.0,
         )
 
         pivot = grp.pivot_table(
             index="MONITOR", columns="TIPO_SERVICO", values="pct", fill_value=0.0
         )
+        # Garante ordem e presença das 3 colunas
         for t in Config.ORDEM_TIPOS:
             if t not in pivot.columns:
                 pivot[t] = 0.0
         pivot = pivot[Config.ORDEM_TIPOS]
 
+        # Quebra Geral e Total Tarefas por monitor
         exec_tot = df_valid.groupby("MONITOR")["_executadas"].sum()
         ne_tot = df_valid.groupby("MONITOR")["_nao_executadas"].sum()
         tar_tot = df_valid.groupby("MONITOR")["TOTAL DE TAREFAS"].sum()
@@ -1061,16 +1314,17 @@ class Motor:
         pivot["Total Tarefas"] = df_tot["tar"].astype(int)
         pivot = pivot.reset_index().rename(columns={"MONITOR": "Monitor"})
 
-        total_row: Dict[str, Any] = {"Monitor": "Total Geral"}
+        # ── Linha TOTAL GERAL (única) ────────────────────────────────────
+        total_row: Dict[str, Any] = {"Monitor": "TOTAL GERAL"}
         for tipo in Config.ORDEM_TIPOS:
             sub = df_valid[df_valid["TIPO_SERVICO"] == tipo]
             ex = sub["_executadas"].sum()
             ne = sub["_nao_executadas"].sum()
-            total_row[tipo] = ne / (ex + ne) if (ex + ne) > 0 else 0.0
+            total_row[tipo] = (ne / (ex + ne)) if (ex + ne) > 0 else 0.0
 
         ex_g = df_valid["_executadas"].sum()
         ne_g = df_valid["_nao_executadas"].sum()
-        total_row["Quebra Geral"] = ne_g / (ex_g + ne_g) if (ex_g + ne_g) > 0 else 0.0
+        total_row["Quebra Geral"] = (ne_g / (ex_g + ne_g)) if (ex_g + ne_g) > 0 else 0.0
         total_row["Total Tarefas"] = int(df_valid["TOTAL DE TAREFAS"].sum())
 
         return pd.concat([pivot, pd.DataFrame([total_row])], ignore_index=True)
@@ -1143,7 +1397,6 @@ def render_dataframe_profundo(
         if col in df_disp.columns:
             fmt_dict[col] = "{:,.0f}"
 
-    # Configurar cores condicionais
     condicao_cores = None
     if color_col and color_col in df_disp.columns:
         condicao_cores = {
@@ -1152,16 +1405,6 @@ def render_dataframe_profundo(
             "acima_meta": {"bg": "#FEE2E2", "text": "#991B1B", "bold": True},
             "perto_meta": {"bg": "#FEF9C3", "text": "#854D0E", "bold": True},
             "abaixo_meta": {"bg": "#DCFCE7", "text": "#166534", "bold": True},
-        }
-
-    # Destacar coluna Quebra Atual
-    destaque_col = None
-    if "Quebra Atual" in df_disp.columns:
-        destaque_col = {
-            "coluna": "Quebra Atual",
-            "bg": "#1E293B",
-            "text": "#FFFFFF",
-            "bold": True,
         }
 
     render_table_html(
@@ -1173,27 +1416,36 @@ def render_dataframe_profundo(
     )
 
 
-def estilizar_matriz(df: pd.DataFrame, meta: float):
-    """Prepara dados para render_table_html na matriz."""
+def estilizar_matriz(df: pd.DataFrame, meta_padrao: float = 0.20):
+    """Prepara dados e regras de cores personalizadas por coluna na Matriz."""
     cols_pct = [c for c in df.columns if c not in ("Monitor", "Total Tarefas")]
 
     fmt: Dict[str, Any] = {c: _fmt_pct_br for c in cols_pct}
     if "Total Tarefas" in df.columns:
         fmt["Total Tarefas"] = _fmt_int_br
 
-    # Configurar cores por coluna de porcentagem
-    condicoes = {}
+    # 🎯 Metas diferenciadas por coluna
+    METAS_COLUNAS: Dict[str, float] = {
+        "NOVOS DOMICÍLIOS": 0.20,
+        "Novos Domicílios": 0.20,
+        "PME": 0.20,
+        "MIGRAÇÃO": 0.25,
+        "Migração": 0.25,
+        "QUEBRA GERAL": 0.20,
+        "Quebra Geral": 0.20,
+    }
+
+    # Configuração de regras de cores condicionais por coluna
+    condicoes: Dict[str, Dict[str, Any]] = {}
     for col in cols_pct:
+        meta_col = METAS_COLUNAS.get(col, meta_padrao)
         condicoes[col] = {
-            "meta": meta,
+            "meta": meta_col,
             "acima_meta": {"bg": "#FEE2E2", "text": "#991B1B", "bold": True},
             "abaixo_meta": {"bg": "#D1FAE5", "text": "#065F46", "bold": True},
         }
 
-    # Estilo especial para Total Geral
-    linha_total = {"coluna": "Monitor", "valor": "TOTAL GERAL"}
-
-    return df, fmt, condicoes, linha_total
+    return df, fmt, condicoes
 
 
 def render_dataframe(
@@ -1206,7 +1458,6 @@ def render_dataframe(
     color_invertido: bool = False,
     height: int = 400,
 ) -> None:
-    """Wrapper de compatibilidade."""
     render_dataframe_profundo(df, titulo, icone, color_col, color_meta, height)
 
 
@@ -1317,15 +1568,19 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
         st.warning("⚠️ Dados insuficientes para montar a Matriz Executiva.")
         return
 
-    df_proc, fmt, condicoes, linha_total = estilizar_matriz(df_matriz, meta_sla)
+    df_proc, fmt, condicoes = estilizar_matriz(df_matriz, meta_sla)
 
+    # Renderiza a tabela com formatação visual e cores por meta
     render_table_html(
         df_proc,
         fmt=fmt,
-        linha_total=bool(linha_total),
+        condicoes_colunas=condicoes,
+        linha_destaque={"coluna": "Monitor", "valor": "TOTAL GERAL"},
+        height=460,
     )
 
-    c1, c2 = st.columns([1, 1])
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, _ = st.columns([1, 1])
     with c1:
         st.download_button(
             "📥 Baixar Matriz (Excel)",
@@ -1334,7 +1589,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-
+        
 
 def view_analise_detalhada(
     df: pd.DataFrame,
