@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
-from typing import Any, Callable, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -52,10 +52,14 @@ TipoStatus = Literal["ativo", "inativo", "pendente", "sucesso", "erro"]
 TendenciaDelta = Literal["up", "down", "flat"]
 
 CellFormatter = Union[str, Callable[[Any], str]]
-FmtDict = dict[str, Union[CellFormatter, None]]
+FmtDict = Dict[str, Union[CellFormatter, None]]
 
-ColorRule = tuple[Callable[[Any], bool], str]
-ColorMapDict = dict[str, list[ColorRule]]
+ColorRule = Tuple[Callable[[Any], bool], str]
+ColorMapDict = Dict[str, List[ColorRule]]
+
+# Configuração de cores condicionais para tabelas
+CondicaoCoresConfig = Dict[str, Any]
+LinhaDestaqueConfig = Dict[str, Any]
 
 
 # ====================================================
@@ -102,7 +106,7 @@ SB_TEXTO_LINK = "#1F2937"  # Texto escuro dos links
 SB_TEXTO_MUTED = "#64748B"  # Cinza para labels secundários
 SB_BORDA_SUTIL = "#D9E0E9"  # Linhas divisórias discretas
 
-_TEMA_CORES: dict[str, str] = {
+_TEMA_CORES: Dict[str, str] = {
     "azul": COR_PRIMARIA,
     "verde": COR_SUCESSO,
     "vermelho": COR_ALERTA,
@@ -111,7 +115,7 @@ _TEMA_CORES: dict[str, str] = {
     "roxo": COR_ROXO,
 }
 
-_INSIGHT_CONFIG: dict[str, tuple[str, str, str, str]] = {
+_INSIGHT_CONFIG: Dict[str, Tuple[str, str, str, str]] = {
     "ok": ("#D1FAE5", "#065F46", "#059669", "✅"),
     "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
     "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
@@ -119,7 +123,7 @@ _INSIGHT_CONFIG: dict[str, tuple[str, str, str, str]] = {
     "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", ""),
 }
 
-_STATUS_CONFIG: dict[str, tuple[str, str, str]] = {
+_STATUS_CONFIG: Dict[str, Tuple[str, str, str]] = {
     "ativo": ("#D1FAE5", "#065F46", "#10B981"),
     "inativo": ("#F1F5F9", "#475569", "#94A3B8"),
     "pendente": ("#FEF3C7", "#92400E", "#F59E0B"),
@@ -1041,7 +1045,7 @@ def _markdown_inline_para_html(texto: str) -> str:
     return texto
 
 
-def _detectar_colunas_numericas(df: pd.DataFrame) -> list[str]:
+def _detectar_colunas_numericas(df: pd.DataFrame) -> List[str]:
     return df.select_dtypes(include=["number"]).columns.tolist()
 
 
@@ -1094,17 +1098,15 @@ def render_hero_totale_2(
 
 
 def render_hero_migracao(
-    titulo: str = "Migração — Quebra de Agenda",
+    titulo: str = "🔄 Migração — Quebra de Agenda",
     subtitulo: str = "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
-    icone: str = "🔄",
 ) -> None:
     """Hero Específico: Gradiente Azul para painéis de Migração."""
     if not titulo:
         return
-    html_icone = f'<div class="hero-icon-box">{icone}</div>' if icone else ""
     html = (
         f'<div class="hero-migracao"><div class="hero-t1-content">'
-        f'<h1 class="hero-alt-title">{html_icone}<span>{titulo}</span></h1>'
+        f'<h1 class="hero-alt-title"><span>{titulo}</span></h1>'
         f'<p class="hero-alt-sub">{subtitulo}</p>'
         f"</div></div>"
     )
@@ -1112,17 +1114,15 @@ def render_hero_migracao(
 
 
 def render_hero_pme(
-    titulo: str = "PME — Quebra de Agenda",
+    titulo: str = "🏢 PME — Quebra de Agenda",
     subtitulo: str = "Análise estratégica dedicada às Pequenas e Médias Empresas",
-    icone: str = "🏢",
 ) -> None:
     """Hero Específico: Gradiente Roxo para painéis PME."""
     if not titulo:
         return
-    html_icone = f'<div class="hero-icon-box">{icone}</div>' if icone else ""
     html = (
         f'<div class="hero-pme"><div class="hero-t1-content">'
-        f'<h1 class="hero-alt-title">{html_icone}<span>{titulo}</span></h1>'
+        f'<h1 class="hero-alt-title"><span>{titulo}</span></h1>'
         f'<p class="hero-alt-sub">{subtitulo}</p>'
         f"</div></div>"
     )
@@ -1597,7 +1597,7 @@ def render_sidebar_filtro(
 
 
 # ====================================================
-# TABELAS HTML CORPORATIVAS
+# TABELAS HTML CORPORATIVAS (ATUALIZADO)
 # ====================================================
 def render_table_html(
     df: pd.DataFrame,
@@ -1607,11 +1607,36 @@ def render_table_html(
     height: int = 420,
     fmt: FmtDict | None = None,
     color_rules: ColorMapDict | None = None,
-    num_cols: list[str] | None = None,
+    num_cols: List[str] | None = None,
     max_cols: int = 20,
     linha_total: bool = False,
+    # Novos parâmetros para compatibilidade com quebra.py
+    condicao_cores: CondicaoCoresConfig | None = None,
+    destaque_col: Dict[str, Any] | None = None,
+    condicoes_colunas: Dict[str, Any] | None = None,
+    linha_destaque: Dict[str, Any] | None = None,
+    hide_index: bool = True,
 ) -> None:
-    """Renderiza uma tabela HTML corporativa com formatação e cores."""
+    """
+    Renderiza uma tabela HTML corporativa com formatação e cores condicionais.
+
+    Parâmetros:
+    - df: DataFrame pandas
+    - titulo: Título opcional da tabela
+    - icone: Ícone para o título
+    - max_rows: Máximo de linhas a exibir
+    - height: Altura máxima do container com scroll
+    - fmt: Dicionário de formatação por coluna
+    - color_rules: Regras de cores antigas (legado)
+    - num_cols: Colunas numéricas para totais
+    - max_cols: Máximo de colunas
+    - linha_total: Se True, adiciona linha de total
+    - condicao_cores: Config para cores condicionais por meta (acima/perto/abaixo)
+    - destaque_col: Config para destacar coluna específica (ex: Quebra Atual)
+    - condicoes_colunas: Config de cores por coluna (para matriz)
+    - linha_destaque: Config para destacar linha específica (ex: TOTAL GERAL)
+    - hide_index: Se True, esconde o índice
+    """
     if not isinstance(df, pd.DataFrame) or df.empty:
         render_empty_state(
             "Sem dados na tabela", "Ajuste os filtros para visualizar registros."
@@ -1632,6 +1657,7 @@ def render_table_html(
     )
     df_show = df_show.fillna("—")
 
+    # Aplicar formatação
     display = pd.DataFrame(index=df_show.index)
     for c in cols:
         s = df_show[c]
@@ -1644,20 +1670,109 @@ def render_table_html(
         else:
             display[c] = s
 
+    # Gerar linhas HTML com estilos condicionais
     html_rows = []
-    for _, row in display.iterrows():
+    for idx, row in display.iterrows():
         cells = []
+        is_linha_destaque = False
+
+        # Verificar se é linha de destaque (ex: TOTAL GERAL)
+        if linha_destaque:
+            col_check = linha_destaque.get("coluna")
+            val_check = linha_destaque.get("valor")
+            if (
+                col_check
+                and val_check
+                and str(row.get(col_check, "")).upper() == str(val_check).upper()
+            ):
+                is_linha_destaque = True
+
         for c in cols:
             val = row[c]
-            style = ""
-            if color_rules and c in color_rules:
+            style_parts = []
+
+            # Estilo para linha de destaque (TOTAL GERAL)
+            if is_linha_destaque:
+                if c == col_check:
+                    style_parts.append(
+                        "background:linear-gradient(90deg,#012869 0%,#1E40AF 100%);color:white;font-weight:800;text-align:left;padding-left:16px;"
+                    )
+                else:
+                    style_parts.append(
+                        "background-color:#F8FAFC;font-weight:700;text-align:left;padding-left:16px;border-right:2px solid #E2E8F0;"
+                    )
+            # Destaque de coluna específica (ex: Quebra Atual)
+            elif destaque_col and c == destaque_col.get("coluna"):
+                if val != "—":
+                    try:
+                        float(val)
+                        style_parts.append(
+                            f"background-color:{destaque_col.get('bg', '#1E293B')};color:{destaque_col.get('text', '#FFFFFF')};font-weight:{'800' if destaque_col.get('bold', True) else '500'};"
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
+            # Cores condicionais por meta (condicao_cores)
+            elif condicao_cores and c == condicao_cores.get("coluna"):
+                try:
+                    v = float(val) if val != "—" else 0
+                    meta = condicao_cores.get("meta", 0.20)
+                    if v > meta:
+                        cfg = condicao_cores.get("acima_meta", {})
+                        style_parts.append(
+                            f"background-color:{cfg.get('bg', '#FEE2E2')};color:{cfg.get('text', '#991B1B')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                        )
+                    elif v > meta * 0.85:
+                        cfg = condicao_cores.get("perto_meta", {})
+                        style_parts.append(
+                            f"background-color:{cfg.get('bg', '#FEF9C3')};color:{cfg.get('text', '#854D0E')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                        )
+                    else:
+                        cfg = condicao_cores.get("abaixo_meta", {})
+                        style_parts.append(
+                            f"background-color:{cfg.get('bg', '#DCFCE7')};color:{cfg.get('text', '#166534')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+            # Cores condicionais por coluna (condicoes_colunas - para matriz)
+            elif condicoes_colunas and c in condicoes_colunas:
+                try:
+                    v = float(val) if val != "—" else 0
+                    cfg = condicoes_colunas[c]
+                    meta = cfg.get("meta", 0.20)
+                    if v > meta:
+                        acima = cfg.get("acima_meta", {})
+                        style_parts.append(
+                            f"background-color:{acima.get('bg', '#FEE2E2')};color:{acima.get('text', '#991B1B')};font-weight:{'800' if acima.get('bold', True) else '500'};text-align:center;"
+                        )
+                    else:
+                        abaixo = cfg.get("abaixo_meta", {})
+                        style_parts.append(
+                            f"background-color:{abaixo.get('bg', '#D1FAE5')};color:{abaixo.get('text', '#065F46')};font-weight:{'800' if abaixo.get('bold', True) else '500'};text-align:center;"
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+            # Regras de cores legadas (color_rules)
+            elif color_rules and c in color_rules:
                 for rule, color in color_rules[c]:
                     if rule(val):
-                        style = f"color:{color};font-weight:600;"
+                        style_parts.append(f"color:{color};font-weight:600;")
                         break
+
+            # Alinhamento para colunas numéricas
+            if c in num_set and val != "—":
+                style_parts.append(
+                    "text-align:right;font-variant-numeric:tabular-nums;"
+                )
+
+            style = "".join(style_parts)
             cells.append(f'<td style="{style}">{val}</td>')
+
         html_rows.append(f'<tr>{"".join(cells)}</tr>')
 
+    # Linha de total
     if linha_total and not df_show.empty:
         total_cells = []
         for c in cols:

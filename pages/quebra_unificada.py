@@ -49,26 +49,24 @@ from components.componentes import (
     render_insight,
     render_hero_migracao,
     render_hero_pme,
-    render_table_html,  # ← NOVO IMPORT
+    render_table_html,
+    render_section_header,
     TemaKPI,
     TipoInsight,
 )
+
+# ── Importa classes do módulo principal quebra.py ────────────────────
 from old.quebra import (
     Config,
     Motor,
     Utils,
-    aplicar_estilo,
-    render_dataframe,
-    render_section,
 )
 
 # ═══════════════════════════════════════════════════════
 # ✅ IMPORT CENTRALIZADO DE CRITÉRIOS
 # ═══════════════════════════════════════════════════════
 from components.criterios import (
-    # Classificação principal
     classificar_tipo_servico,
-    # UI centralizada
     render_debug_criterios,
 )
 
@@ -81,7 +79,6 @@ st.set_page_config(
     layout="wide",
 )
 _aplicar_estilo_global()
-aplicar_estilo()
 
 if "df_memoria" not in st.session_state:
     st.session_state["df_memoria"] = None
@@ -426,7 +423,6 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 1 * cm))
 
-        # ── 1. Cenários ────────────────────────────────────────────────
         el.append(Paragraph("1 ─ Cenários de Fechamento", s["MIG_Secao"]))
         cenarios = []
         for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
@@ -449,7 +445,6 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 0.5 * cm))
 
-        # ── 2. Técnicos ────────────────────────────────────────────────
         el.append(Paragraph("2 ─ Técnicos Críticos", s["MIG_Secao"]))
         df_tec = Motor.tecnicos_criticos(
             df, "Migração", p_base, float(min_aloc), int(top_n)
@@ -479,7 +474,6 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 0.5 * cm))
 
-        # ── 3. Causas ──────────────────────────────────────────────────
         el.append(Paragraph("3 ─ Principais Causas de Quebra", s["MIG_Secao"]))
         df_causa = Motor.causa_raiz_segmento(df, "Migração", "_COL_BAIXA", top_n=8)
         el.append(cls._tab(df_causa, limite=8))
@@ -569,7 +563,6 @@ class PDFExecutivoPME(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 1 * cm))
 
-        # ── 1. Cenários ────────────────────────────────────────────────
         el.append(Paragraph("1. Cenários de Fechamento", s["PME_Secao"]))
         cenarios = []
         for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
@@ -593,7 +586,6 @@ class PDFExecutivoPME(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 0.5 * cm))
 
-        # ── 2. Técnicos ────────────────────────────────────────────────
         el.append(Paragraph("2. Técnicos Críticos", s["PME_Secao"]))
         df_tec = Motor.tecnicos_criticos(df, "PME", p_base, float(min_aloc), int(top_n))
         cols_tec = [
@@ -621,7 +613,6 @@ class PDFExecutivoPME(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 0.5 * cm))
 
-        # ── 3. Causas ──────────────────────────────────────────────────
         el.append(Paragraph("3. Principais Causas de Quebra (Pareto)", s["PME_Secao"]))
         df_causa = Motor.causa_raiz_segmento(df, "PME", "_COL_BAIXA", top_n=8)
         el.append(cls._tab(df_causa, limite=8, larguras=[9.0, 4.5, 4.5, 4.5]))
@@ -669,7 +660,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         ],
     },
     "PME": {
-        "icone": "",
+        "icone": "🏢",
         "subtitulo": "Análise estratégica dedicada às Pequenas e Médias Empresas",
         "cor_primaria": "#7C3AED",
         "cor_secundaria": "#4C1D95",
@@ -704,10 +695,8 @@ def _injetar_css_dinamico(segmento: str) -> None:
     st.markdown(
         f"""
 <style>
-/* Importação de Fonte Moderna (Inter) */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* Aplicação global para os componentes customizados */
 .topo-fixo-dinamico, 
 .resultado-base, 
 .resultado-base-regiao, 
@@ -720,7 +709,6 @@ def _injetar_css_dinamico(segmento: str) -> None:
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
 }}
 
-/* Sticky do topo (hero componente + resultado da base) */
 div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     position: sticky !important;
     top: 0.75rem !important;
@@ -758,7 +746,6 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     color: #64748B; font-size: 0.72rem; margin-left: auto; font-weight: 600;
 }}
 
-/* Estilos para render_table_html */
 .table-html-container {{
     border: 1px solid #E5E7EB;
     border-radius: 12px;
@@ -833,20 +820,16 @@ def _render_topo_fixo(segmento: str, regioes: List[str], total: int) -> None:
     conf = SEGMENTOS_CONFIG[segmento]
     hero_fn = conf["hero_fn"]
 
-    # Abre o wrapper sticky
     st.markdown('<div class="topo-fixo-dinamico">', unsafe_allow_html=True)
 
-    # Hero oficial do Design System (cores das imagens)
+    # Hero oficial do Design System (sem parâmetro icone)
     hero_fn(
         titulo=f"{segmento} — Quebra de Agenda",
         subtitulo=conf["subtitulo"],
-        icone=conf["icone"],
     )
 
-    # Faixa de regiões / volume
     st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
 
-    # Fecha o wrapper sticky
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -888,7 +871,6 @@ def _render_card_status(
         (quebra_atual / (sla_meta * 2)) * 100 if sla_meta > 0 else 0,
     )
 
-    # Fonte unificada para o card
     font_family = (
         "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     )
@@ -966,7 +948,7 @@ def _render_card_status(
                     line-height:1.55;font-weight:500;">{mensagem}</div>
     </div>
 </div>"""
-    st.markdown(html.replace(".", ","), unsafe_allow_html=True)
+    st.markdown(html, unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -1016,9 +998,9 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
     }
 
     def _achar(df: pd.DataFrame, cands: List[str]) -> Optional[str]:
-        def _norm(s: str) -> str:
-            import unicodedata
+        import unicodedata
 
+        def _norm(s: str) -> str:
             return (
                 unicodedata.normalize("NFKD", str(s))
                 .encode("ascii", errors="ignore")
@@ -1031,13 +1013,11 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 
         cols_norm = {_norm(c): c for c in df.columns}
 
-        # 1) Match exato normalizado
         for cand in cands:
             cn = _norm(cand)
             if cn in cols_norm:
                 return cols_norm[cn]
 
-        # 2) Match parcial (contém)
         for cand in cands:
             cn = _norm(cand)
             for col_norm, col_real in cols_norm.items():
@@ -1082,6 +1062,17 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 # =====================================================================
 # SUB-ABAS
 # =====================================================================
+def render_section(titulo: str) -> None:
+    """Wrapper para render_section_header com ícone automático."""
+    partes = titulo.strip().split(" ", 1)
+    primeiro_char = partes[0][0] if partes[0] else ""
+    if len(partes) == 2 and not primeiro_char.isascii():
+        icon, title = partes[0], partes[1]
+    else:
+        icon, title = "📊", titulo
+    render_section_header(icon, title)
+
+
 def _sub_visao_geral(
     segmento: str,
     df_seg: pd.DataFrame,
@@ -1201,7 +1192,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
 
     c_tab, c_chart = st.columns([1.2, 2])
     with c_tab:
-        # ✅ APLICADO render_table_html
         render_table_html(
             df_c,
             titulo=f"Top Motivos — {segmento}",
@@ -1282,7 +1272,6 @@ def _sub_tecnicos(
         render_insight("Não há técnicos com volume suficiente.", tipo="info")
         return
 
-    # ✅ APLICADO render_table_html
     render_table_html(
         df_tec,
         titulo=f"Técnicos Críticos — {segmento}",
@@ -1471,7 +1460,6 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
 
     st.markdown(f"**Exibindo {len(df_view):,} de {total_pend:,} contratos pendentes**")
 
-    # ✅ APLICADO render_table_html
     render_table_html(
         df_view.reset_index(drop=True),
         titulo="Pendentes",
@@ -1510,18 +1498,14 @@ def main() -> None:
 
     df_full = st.session_state["df_memoria"].copy()
 
-    # ── Status Contrato ────────────────────────────────────────────────
     if "Status Contrato" not in df_full.columns:
         col_s = Utils.buscar_coluna(df_full, ["STATUS DA O.S 1", "STATUS OS 1"])
         df_full["Status Contrato"] = (
             Utils.classificar_status(df_full[col_s]) if col_s else "Pendente"
         )
 
-    # ── ✅ Classificação centralizada ─────────────────────────────────
-    # (Migração = MUDANCA DE PACOTE + FLAG_GPON auto-gerada)
     df_full, df_full["TIPO_SERVICO"] = classificar_tipo_servico(df_full)
 
-    # ── Sidebar ────────────────────────────────────────────────────────
     with st.sidebar:
         st.markdown("###  Escolha a Carteira")
         segmento_selecionado = st.radio(
@@ -1620,14 +1604,12 @@ def main() -> None:
                 st.rerun()
 
         st.divider()
-        # ✅ Debug centralizado
         render_debug_criterios(df_full, expanded=False)
 
     if df.empty:
         render_insight("Nenhum dado para os filtros selecionados.", tipo="alerta")
         return
 
-    # ── CSS dinâmico ───────────────────────────────────────────────────
     _injetar_css_dinamico(segmento_selecionado)
 
     regioes = (
@@ -1641,7 +1623,6 @@ def main() -> None:
     )
     _render_topo_fixo(segmento_selecionado, regioes, len(df))
 
-    # ── Filtra pelo segmento selecionado ──────────────────────────────
     df_seg = df[df["TIPO_SERVICO"] == segmento_selecionado].copy()
     if df_seg.empty:
         render_insight(
@@ -1656,7 +1637,6 @@ def main() -> None:
     _render_card_status(segmento_selecionado, m_seg, sla_meta)
     st.markdown("")
 
-    # ── Geração e download do PDF ──────────────────────────────────────
     col_btn, col_desc = st.columns([1, 3])
     with col_btn:
         with st.spinner("Gerando PDF..."):
@@ -1689,7 +1669,6 @@ def main() -> None:
 
     st.divider()
 
-    # ── Sub-abas ──────────────────────────────────────────────────────
     sub1, sub2, sub3, sub4, sub5 = st.tabs(
         [
             " Visão Geral",
