@@ -26,3 +26,4 @@ xlsxwriter
 fastapi
 starlette<1.4.0
 gdown
+holidays

@@ -15,6 +15,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+# Tenta importar a biblioteca holidays para descontar feriados corretamente.
+try:
+    import holidays
+
+    TEM_HOLIDAYS = True
+except ImportError:
+    TEM_HOLIDAYS = False
+
 from components.componentes import (
     aplicar_estilo,
     render_hero_totale_2,
@@ -165,14 +173,13 @@ def render_tabela_os(
     max_rows: int = 200,
     col_os: str = "Qtde. de O.S.",
     col_proj: str = "Projeção",
-    col_faixa: str = "Faixa",
 ) -> None:
     """
     Tabela HTML corporativa com:
     - fontes Plus Jakarta / IBM Plex
     - O.S. cinza destacado
     - Projeção fundo escuro
-    - Faixa colorida (F1/F2/F3)
+    - Faixas coloridas (F1/F2/F3) para as colunas Faixa e Faixa Projetada
     """
     if df is None or df.empty:
         render_insight("Nenhum dado disponível.", "info")
@@ -181,7 +188,6 @@ def render_tabela_os(
     df_show = df.head(max_rows).copy()
     cols = list(df_show.columns)
 
-    # Formatação numérica
     def _fmt(val: Any, col: str) -> str:
         if pd.isna(val):
             return "—"
@@ -200,7 +206,9 @@ def render_tabela_os(
         elif col == col_proj:
             classes.append("col-proj")
             classes.append("num")
-        elif col == col_faixa:
+        elif (
+            "Faixa" in col
+        ):  # Aplica estilização tanto na 'Faixa' atual quanto na 'Faixa Projetada'
             classes.append(_classe_faixa(val))
         elif col.startswith("Meta"):
             classes.append("num")
@@ -238,11 +246,11 @@ def render_tabela_os(
 
 
 # ====================================================
-# 3. CÁLCULO DE CALENDÁRIO
+# 3. CÁLCULO DE CALENDÁRIO COM FERIADOS
 # ====================================================
 @dataclass
 class InfoCalendario:
-    """Informações de dias úteis (Seg–Sáb) do mês de referência."""
+    """Informações de dias úteis (Seg–Sáb, excluindo domingos e feriados)."""
 
     ano: int
     mes: int
@@ -250,6 +258,7 @@ class InfoCalendario:
     total_dias_uteis: int
     dias_passados: int
     dias_faltantes: int
+    feriados_usados: bool
 
     @classmethod
     def calcular(
@@ -263,12 +272,34 @@ class InfoCalendario:
         ultimo = np.datetime64(datetime.date(ano, mes, ultimo_dia_num))
         ref = np.datetime64(data_ref)
 
-        mask = "1111110"  # Seg a Sáb
+        mask = "1111110"  # Seg a Sáb (Domingo é 0)
+
+        # Trata os feriados (necessário 'pip install holidays')
+        lista_feriados = []
+        feriados_usados = False
+        if TEM_HOLIDAYS:
+            feriados_br = holidays.BR(years=ano)
+            # Converte os feriados do mês/ano para o formato datetime64 do numpy
+            lista_feriados = [
+                np.datetime64(data) for data in feriados_br.keys() if data.month == mes
+            ]
+            feriados_usados = True
+
         total = int(
-            np.busday_count(primeiro, ultimo + np.timedelta64(1, "D"), weekmask=mask)
+            np.busday_count(
+                primeiro,
+                ultimo + np.timedelta64(1, "D"),
+                weekmask=mask,
+                holidays=lista_feriados,
+            )
         )
         passados = int(
-            np.busday_count(primeiro, ref + np.timedelta64(1, "D"), weekmask=mask)
+            np.busday_count(
+                primeiro,
+                ref + np.timedelta64(1, "D"),
+                weekmask=mask,
+                holidays=lista_feriados,
+            )
         )
         faltantes = max(0, total - passados)
 
@@ -279,6 +310,7 @@ class InfoCalendario:
             total_dias_uteis=total,
             dias_passados=passados,
             dias_faltantes=faltantes,
+            feriados_usados=feriados_usados,
         )
 
 
@@ -380,14 +412,15 @@ class ProcessadorDados:
         qtde["Meta | 2500"] = qtde["Qtde. de O.S."] - 2500
         qtde["Meta | 3000"] = qtde["Qtde. de O.S."] - 3000
         qtde["Meta | 3500"] = qtde["Qtde. de O.S."] - 3500
-        # .div evita TypeError Series[Any] / int
+
         qtde["Projeção"] = (
             (qtde["Qtde. de O.S."] + media.mul(float(dias_faltantes)))
             .round(0)
             .astype(int)
         )
+        # Classifica a Faixa baseada na Projeção Final
+        qtde["Faixa Projetada"] = qtde["Projeção"].map(definir_faixa_supervisor)
 
-        # Ordem amigável
         cols = [
             self.COL_SUPERVISOR,
             "Qtde. de O.S.",
@@ -396,6 +429,7 @@ class ProcessadorDados:
             "Meta | 3000",
             "Meta | 3500",
             "Projeção",
+            "Faixa Projetada",
         ]
         return qtde[cols].sort_values("Qtde. de O.S.", ascending=False)
 
@@ -423,11 +457,14 @@ class ProcessadorDados:
         qtde["Meta | 9000"] = qtde["Qtde. de O.S."] - 9000
         qtde["Meta | 10000"] = qtde["Qtde. de O.S."] - 10000
         qtde["Meta | 11000"] = qtde["Qtde. de O.S."] - 11000
+
         qtde["Projeção"] = (
             (qtde["Qtde. de O.S."] + media.mul(float(dias_faltantes)))
             .round(0)
             .astype(int)
         )
+        # Classifica a Faixa baseada na Projeção Final
+        qtde["Faixa Projetada"] = qtde["Projeção"].map(definir_faixa_projeto)
 
         cols = [
             self.COL_PROJETO,
@@ -437,6 +474,7 @@ class ProcessadorDados:
             "Meta | 10000",
             "Meta | 11000",
             "Projeção",
+            "Faixa Projetada",
         ]
         return qtde[cols].sort_values("Qtde. de O.S.", ascending=False)
 
@@ -489,7 +527,9 @@ class Componentes:
             )
         else:
             media_total = 0.0
+
         projecao_total = int(round(proc.total_filtrado + media_total * dias_faltantes))
+
         render_kpi(
             c1,
             "Total O.S. (Geral)",
@@ -508,7 +548,9 @@ class Componentes:
             c5,
             "Projeção O.S.",
             f"{projecao_total:,}".replace(",", "."),
-            f"+{max(0, projecao_total - proc.total_filtrado):,} até o fim do período".replace(",", "."),
+            f"+{max(0, projecao_total - proc.total_filtrado):,} até o fim do período".replace(
+                ",", "."
+            ),
             tema="azul",
         )
 
@@ -693,7 +735,7 @@ def main() -> None:
             "e metas por supervisor e projeto"
         ),
         badge_texto="Acompanhamento em tempo real da quantidade de O.S. executadas por supervisores e projetos",
-        badge_tipo="info"
+        badge_tipo="info",
     )
 
     if "dados_prod" not in st.session_state:
@@ -739,9 +781,18 @@ def main() -> None:
     )
     cal = InfoCalendario.calcular(data_ref)
 
+    # Aviso caso a biblioteca holidays não esteja instalada
+    if not cal.feriados_usados:
+        st.sidebar.warning(
+            "⚠️ Biblioteca `holidays` não encontrada. "
+            "Os feriados não estão sendo descontados do cálculo de projeção. "
+            "(Instale com `pip install holidays`)"
+        )
+
     render_insight(
         f"Período: **{cal.data_ref.strftime('%m/%Y')}** · "
-        f"Dias úteis: **{cal.dias_passados}/{cal.total_dias_uteis}** · "
+        f"Dias úteis (Seg-Sáb{', exceto feriados' if cal.feriados_usados else ''}): "
+        f"**{cal.dias_passados}/{cal.total_dias_uteis}** · "
         f"Restam **{cal.dias_faltantes}** dia(s) útil(is).",
         "info",
     )
