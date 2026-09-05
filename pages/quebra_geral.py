@@ -1645,23 +1645,39 @@ def view_analise_detalhada(
 # FLUXO PRINCIPAL APLICAÇÃO (STREAMLIT)
 # ═══════════════════════════════════════════════════════════════════════
 def main() -> None:
-    st.sidebar.title("⚙️ Painel de Controle")
+    df = st.session_state.get("df_memoria")
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Carregar Base de Dados (CSV/XLSX)", type=["csv", "xlsx"]
+    # --- Reserva o espaço do hero NO TOPO ---
+    hero_area = st.container()
+
+    # --- Upload na área principal ---
+    uploaded_file = st.file_uploader(
+        "Carregar Base de Dados (CSV/XLSX)",
+        type=["csv", "xlsx"],
+        help="200MB por arquivo • CSV, XLSX",
     )
 
     if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        raw_df = DataLoader.ler_arquivo(file_bytes, uploaded_file.name)
-        df_gs = DataLoader.buscar_gsheets()
-        st.session_state["df_memoria"] = DataLoader.preparar_base(raw_df, df_gs)
+        file_id = (uploaded_file.name, uploaded_file.size)
 
-    df = st.session_state["df_memoria"]
+        if st.session_state.get("arquivo_processado") != file_id:
+            with st.spinner("Processando base de dados..."):
+                try:
+                    file_bytes = uploaded_file.getvalue()
+                    raw_df = DataLoader.ler_arquivo(file_bytes, uploaded_file.name)
+                    df_gs = DataLoader.buscar_gsheets()
+                    st.session_state["df_memoria"] = DataLoader.preparar_base(raw_df, df_gs)
+                    st.session_state["arquivo_processado"] = file_id
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar o arquivo: {e}")
+                    return
 
+        df = st.session_state.get("df_memoria")
+
+    # --- Sem dados: preenche o hero lá em cima e para ---
     if df is None or df.empty:
-        render_hero_upload()
-        st.info("👈 Por favor, faça o upload de uma base de dados para começar.")
+        with hero_area:
+            render_hero_upload()
         return
 
     # Filtros na Barra Lateral
