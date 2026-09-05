@@ -1616,6 +1616,7 @@ def render_table_html(
     condicoes_colunas: Dict[str, Any] | None = None,
     linha_destaque: Dict[str, Any] | None = None,
     hide_index: bool = True,
+    **kwargs: Any,
 ) -> None:
     """
     Renderiza uma tabela HTML corporativa com formatação e cores condicionais.
