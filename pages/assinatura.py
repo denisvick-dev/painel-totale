@@ -309,17 +309,17 @@ with st.sidebar:
 
     with st.expander("👤 Nome", expanded=False):
         x_nome = st.slider("X (horizontal)", 0, IMG_WIDTH, 55, key="xn")
-        y_nome = st.slider("Y (vertical)", 0, IMG_HEIGHT, 70, key="yn")
-        tamanho_nome = st.slider("Tamanho da fonte", 6, 40, 18, key="tn")
+        y_nome = st.slider("Y (vertical)", 0, IMG_HEIGHT, 63, key="yn")
+        tamanho_nome = st.slider("Tamanho da fonte", 6, 40, 19, key="tn")
 
     with st.expander("💼 Cargo", expanded=False):
-        x_cargo = st.slider("X (horizontal)", 0, IMG_WIDTH, 55, key="xc")
-        y_cargo = st.slider("Y (vertical)", 0, IMG_HEIGHT, 91, key="yc")
-        tamanho_cargo = st.slider("Tamanho da fonte", 6, 30, 13, key="tc")
+        x_cargo = st.slider("X (horizontal)", 0, IMG_WIDTH, 56, key="xc")
+        y_cargo = st.slider("Y (vertical)", 0, IMG_HEIGHT, 87, key="yc")
+        tamanho_cargo = st.slider("Tamanho da fonte", 6, 30, 14, key="tc")
 
     with st.expander("📱 Telefones", expanded=False):
-        x_telefone = st.slider("X (horizontal)", 0, IMG_WIDTH, 270, key="xt")
-        y_telefone = st.slider("Y (vertical)", 0, IMG_HEIGHT, 90, key="yt")
+        x_telefone = st.slider("X (horizontal)", 0, IMG_WIDTH, 292, key="xt")
+        y_telefone = st.slider("Y (vertical)", 0, IMG_HEIGHT, 82, key="yt")
         tamanho_telefone = st.slider("Tamanho da fonte", 6, 30, 15, key="tt")
 
     st.divider()

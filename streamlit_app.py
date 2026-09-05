@@ -496,6 +496,7 @@ def main() -> None:
     aplicar_estilo()
     aplicar_sidebar_corp()
     GerenciadorEstilos.injetar_css_global()
+    st.sidebar.subheader("🔁 Status | Atualização de Dados")
 
     # 3. Status operacional
     dados_prod = st.session_state.get("dados_prod")
