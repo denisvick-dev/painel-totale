@@ -1511,23 +1511,39 @@ def _sub_visao_geral(
 def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
     """
     Sub-aba de Causa Raiz:
-    - Tabela 100% de largura renderizada no topo.
-    - Gráfico de Pareto expandido (fontes grandes e sem cortes) logo abaixo.
+    - Inclui 'SEM REGISTRO' e todos os motivos no cálculo do Pareto.
+    - Tabela 100% de largura no topo.
+    - Gráfico de Pareto expandido (fontes grandes) logo abaixo.
     """
     render_section(f"🔍 Causa Raiz — {segmento}")
-    col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", "_COL_BAIXA"))
-    if col_baixa not in df_seg.columns:
-        col_baixa = "_COL_BAIXA" if "_COL_BAIXA" in df_seg.columns else ""
-    df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=8) if col_baixa else pd.DataFrame()
 
-    if df_c.empty:
+    # 1. Identificar a coluna de baixa
+    col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", ""))
+    if not col_baixa or col_baixa not in df_seg.columns:
+        col_baixa = "_COL_BAIXA" if "_COL_BAIXA" in df_seg.columns else ""
+
+    if not col_baixa:
+        cands = ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"]
+        for c in cands:
+            if c in df_seg.columns:
+                col_baixa = c
+                break
+
+    if not col_baixa:
         render_insight(
             "Coluna de código/motivo de baixa não identificada.", tipo="alerta"
         )
         return
 
+    # Gera o Pareto INCLUINDO "SEM REGISTRO" (sem nenhum filtro de exclusão)
+    df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=8)
+
+    if df_c.empty:
+        render_insight("Não há motivos de quebra para compor o Pareto.", tipo="info")
+        return
+
     # =========================================================================
-    # 1. TABELA CORPORATIVA (Ocupando 100% da tela)
+    # 1. TABELA CORPORATIVA (100% de largura)
     # =========================================================================
     render_table_html(
         df_c,
@@ -1542,7 +1558,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         height=380,
     )
 
-    # Espaço visual de respiro
     st.markdown("<br><br>", unsafe_allow_html=True)
 
     # =========================================================================
@@ -1581,7 +1596,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         )
     )
 
-    # Configuração de Layout e Tipografia
     fig.update_layout(
         title=dict(
             text=f"Pareto de Motivos — {segmento} (com % Acumulado)",
@@ -1599,10 +1613,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
             side="right",
             tickformat=".0%",
             tickfont=dict(size=13),
-            range=[
-                0,
-                1.18,
-            ],  # Range maior para evitar que rótulos de 100% fiquem cortados
+            range=[0, 1.18],
             gridcolor="rgba(226, 232, 240, 0.4)",
         ),
         legend=dict(
@@ -1618,9 +1629,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
             tickfont=dict(size=13, color="#374151"),
             tickangle=-35,
         ),
-        margin=dict(
-            l=40, r=40, t=90, b=160
-        ),  # Margem inferior aumentada para textos longos
+        margin=dict(l=40, r=40, t=90, b=160),
         plot_bgcolor="rgba(248, 250, 252, 0.5)",
         paper_bgcolor="rgba(0, 0, 0, 0)",
     )
@@ -1638,7 +1647,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
 
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    # Insights automáticos
+    # Insight
     if len(df_c) >= 2:
         t1, t2 = df_c.iloc[0], df_c.iloc[1]
         render_insight(
@@ -1893,8 +1902,9 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
         )
         return
 
+    # Busca registros "SEM REGISTRO" ou em branco para detalhamento
     serie_baixa = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
-    mask_sr = serie_baixa.eq("SEM REGISTRO") | serie_baixa.eq("SEM_REGISTRO")
+    mask_sr = serie_baixa.isin(["SEM REGISTRO", "SEM_REGISTRO", "", "NAN", "NONE"])
     df_sr = df_seg[mask_sr].copy()
 
     total_sr = len(df_sr)
@@ -1925,7 +1935,7 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
     st.markdown("")
     if df_sr.empty:
         render_insight(
-            "Nenhum contrato com motivo de baixa 'SEM REGISTRO' encontrado neste segmento.",
+            "Nenhum contrato com motivo de baixa 'SEM REGISTRO' ou em branco encontrado neste segmento.",
             tipo="ok",
         )
         return
