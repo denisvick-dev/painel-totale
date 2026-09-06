@@ -3,6 +3,8 @@ quebra_unificada.py
 ===================
 Análise de Quebra por Segmento (Novos Domicílios / Migração / PME)
 Inclui aba dedicada para contratos com MOTIVO DE BAIXA = SEM REGISTRO.
+- Layout vertical: Tabela 100% largura e Gráficos de Pareto expandidos.
+- Tipografia e fontes aumentadas para alta visibilidade.
 """
 
 from __future__ import annotations
@@ -77,6 +79,7 @@ except (ImportError, AttributeError):
             render_table_html,
         )
     except (ImportError, AttributeError):
+
         def render_table_html(df: pd.DataFrame, **kwargs: Any) -> None:
             st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -85,6 +88,7 @@ except (ImportError, AttributeError):
 
         def render_hero_pme(titulo: str = "", subtitulo: str = "") -> None:
             st.markdown(f"## 🏢 {titulo}\n*{subtitulo}*")
+
 
 # ── Import do módulo principal ────────────────────────────────────────
 from pages.quebra_geral import (
@@ -120,12 +124,14 @@ SLA_NOVOS_DOMICILIOS_DEFAULT: float = 0.20
 SLA_MIGRACAO_DEFAULT: float = 0.25
 SLA_PME_DEFAULT: float = 0.20
 
+
 def _fmt_int(v: Any) -> str:
     """Formata número inteiro no padrão brasileiro (1.234)."""
     try:
         return f"{int(float(v)):,}".replace(",", ".")
     except (TypeError, ValueError):
         return "0"
+
 
 # =====================================================================
 # PDF EXECUTIVO — BASE COMPARTILHADA
@@ -195,12 +201,28 @@ class _PDFExecutivoBase:
                 t.setStyle(
                     TableStyle(
                         [
-                            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(cls.COR_LINHA_ALT)),
-                            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor(cls.COR_SUBTEXTO)),
+                            (
+                                "BACKGROUND",
+                                (0, 0),
+                                (-1, -1),
+                                colors.HexColor(cls.COR_LINHA_ALT),
+                            ),
+                            (
+                                "TEXTCOLOR",
+                                (0, 0),
+                                (-1, -1),
+                                colors.HexColor(cls.COR_SUBTEXTO),
+                            ),
                             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
                             ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
                             ("FONTSIZE", (0, 0), (-1, -1), 8),
-                            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor(cls.COR_LINHA)),
+                            (
+                                "BOX",
+                                (0, 0),
+                                (-1, -1),
+                                0.5,
+                                colors.HexColor(cls.COR_LINHA),
+                            ),
                             ("TOPPADDING", (0, 0), (-1, -1), 8),
                             ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
                         ]
@@ -258,7 +280,13 @@ class _PDFExecutivoBase:
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, 0), 6.5),
-                ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor(cls.COR_SECUNDARIA)),
+                (
+                    "LINEBELOW",
+                    (0, 0),
+                    (-1, 0),
+                    1.5,
+                    colors.HexColor(cls.COR_SECUNDARIA),
+                ),
                 ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
                 ("FONTSIZE", (0, 1), (-1, -1), 6.5),
                 ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -277,7 +305,11 @@ class _PDFExecutivoBase:
                         "BACKGROUND",
                         (0, i),
                         (-1, i),
-                        colors.white if i % 2 == 1 else colors.HexColor(cls.COR_LINHA_ALT),
+                        (
+                            colors.white
+                            if i % 2 == 1
+                            else colors.HexColor(cls.COR_LINHA_ALT)
+                        ),
                     )
                 )
 
@@ -287,22 +319,35 @@ class _PDFExecutivoBase:
                     try:
                         val = float(row[cor_col_quebra])
                         if val > sla_meta:
-                            bg_c, tx_c = colors.HexColor("#FEE2E2"), colors.HexColor(cls.COR_CRITICO)
+                            bg_c, tx_c = colors.HexColor("#FEE2E2"), colors.HexColor(
+                                cls.COR_CRITICO
+                            )
                         elif val > sla_meta * 0.85:
-                            bg_c, tx_c = colors.HexColor("#FEF9C3"), colors.HexColor(cls.COR_ALERTA)
+                            bg_c, tx_c = colors.HexColor("#FEF9C3"), colors.HexColor(
+                                cls.COR_ALERTA
+                            )
                         else:
-                            bg_c, tx_c = colors.HexColor("#DCFCE7"), colors.HexColor(cls.COR_OK)
+                            bg_c, tx_c = colors.HexColor("#DCFCE7"), colors.HexColor(
+                                cls.COR_OK
+                            )
                         style += [
                             ("BACKGROUND", (col_idx, row_i), (col_idx, row_i), bg_c),
                             ("TEXTCOLOR", (col_idx, row_i), (col_idx, row_i), tx_c),
-                            ("FONTNAME", (col_idx, row_i), (col_idx, row_i), "Helvetica-Bold"),
+                            (
+                                "FONTNAME",
+                                (col_idx, row_i),
+                                (col_idx, row_i),
+                                "Helvetica-Bold",
+                            ),
                         ]
                     except Exception:
                         pass
             tab.setStyle(TableStyle(style))
             return tab
 
-        wrapper = Table([[_interna()]], colWidths=[cls.LARGURA_UTIL * cm], hAlign="CENTER")
+        wrapper = Table(
+            [[_interna()]], colWidths=[cls.LARGURA_UTIL * cm], hAlign="CENTER"
+        )
         wrapper.setStyle(
             TableStyle(
                 [
@@ -848,7 +893,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "icone": "🏠",
         "subtitulo": "Análise estratégica dedicada à adesão de novos clientes e domicílios",
         "cor_primaria": "#0A2F6B",
-        "cor_secundaria": "#011D4E",
+        "cor_secundaria": "#1D4ED8",
         "grad_hero": "linear-gradient(135deg, #011D4E 0%, #0A2F6B 55%, #1D4ED8 100%)",
         "sombra_hero": "rgba(10, 47, 107, 0.25)",
         "sla_default": SLA_NOVOS_DOMICILIOS_DEFAULT,
@@ -881,7 +926,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "icone": "🔄",
         "subtitulo": "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
         "cor_primaria": "#0369A1",
-        "cor_secundaria": "#0C4A6E",
+        "cor_secundaria": "#0284C7",
         "grad_hero": "linear-gradient(135deg, #0C4A6E 0%, #0369A1 55%, #0284C7 100%)",
         "sombra_hero": "rgba(12, 74, 110, 0.25)",
         "sla_default": SLA_MIGRACAO_DEFAULT,
@@ -914,7 +959,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "icone": "🏢",
         "subtitulo": "Análise estratégica dedicada às Pequenas e Médias Empresas",
         "cor_primaria": "#7C3AED",
-        "cor_secundaria": "#4C1D95",
+        "cor_secundaria": "#A855F7",
         "grad_hero": "linear-gradient(135deg, #4C1D95 0%, #7C3AED 55%, #A855F7 100%)",
         "sombra_hero": "rgba(76, 29, 149, 0.25)",
         "sla_default": SLA_PME_DEFAULT,
@@ -992,6 +1037,48 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
 .resultado-base-count {{
     color: #FFFFFF; font-size: 0.78rem; margin-left: auto; font-weight: 700;
 }}
+
+/* Sugestões de Dashboards Styling */
+.card-sugestao {{
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 1.25rem;
+    height: 100%;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}}
+.card-sugestao:hover {{
+    transform: translateY(-4px);
+    box-shadow: 0 12px 20px -8px rgba(0,0,0,0.08);
+    border-color: {conf["cor_primaria"]}40;
+}}
+.card-sugestao-titulo {{
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1E293B;
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}}
+.card-sugestao-desc {{
+    font-size: 0.85rem;
+    color: #64748B;
+    line-height: 1.5;
+}}
+.card-sugestao-badge {{
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: #F1F5F9;
+    color: #475569;
+    border-radius: 4px;
+    margin-top: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}}
 </style>""",
         unsafe_allow_html=True,
     )
@@ -1066,7 +1153,9 @@ def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -
         icone_mensagem = "🚨"
 
     pct_barra = min(100.0, (quebra_atual / (sla_meta * 2)) * 100 if sla_meta > 0 else 0)
-    font_family = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    font_family = (
+        "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    )
 
     html = f"""
 <div style="background:white;border:1px solid #E5E7EB;border-radius:14px;
@@ -1146,16 +1235,36 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 
     MAPA = {
         "Contrato": [
-            "CONTRATO", "Nº CONTRATO", "NUM_CONTRATO", "NUMERO CONTRATO",
-            "NÚMERO CONTRATO", "CONTRATO_ID", "COD_CONTRATO", "CÓDIGO CONTRATO",
+            "CONTRATO",
+            "Nº CONTRATO",
+            "NUM_CONTRATO",
+            "NUMERO CONTRATO",
+            "NÚMERO CONTRATO",
+            "CONTRATO_ID",
+            "COD_CONTRATO",
+            "CÓDIGO CONTRATO",
         ],
         "Login": [
-            "LOGIN DO TÉCNICO", "LOGIN DO TECNICO", "LOGIN_DO_TECNICO",
-            "LOGIN_TECNICO", "LOGIN TÉCNICO", "LOGIN TECNICO", "LOGIN",
-            "USER", "USUÁRIO", "USUARIO", "USERNAME", "MATRÍCULA", "MATRICULA",
+            "LOGIN DO TÉCNICO",
+            "LOGIN DO TECNICO",
+            "LOGIN_DO_TECNICO",
+            "LOGIN_TECNICO",
+            "LOGIN TÉCNICO",
+            "LOGIN TECNICO",
+            "LOGIN",
+            "USER",
+            "USUÁRIO",
+            "USUARIO",
+            "USERNAME",
+            "MATRÍCULA",
+            "MATRICULA",
         ],
         "Técnico": [
-            "TÉCNICO", "TECNICO", "NOME TÉCNICO", "NOME_TECNICO", "NOME DO TÉCNICO",
+            "TÉCNICO",
+            "TECNICO",
+            "NOME TÉCNICO",
+            "NOME_TECNICO",
+            "NOME DO TÉCNICO",
         ],
         "Monitor": ["MONITOR", "SUPERVISOR", "NOME MONITOR", "NOME_MONITOR"],
         "Qtde. O.S.": ["TOTAL DE TAREFAS"],
@@ -1197,7 +1306,9 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 
     df_p = df_seg[mask].copy()
     if df_p.empty:
-        return pd.DataFrame(columns=["Contrato", "Login", "Técnico", "Monitor", "Qtde. O.S."])
+        return pd.DataFrame(
+            columns=["Contrato", "Login", "Técnico", "Monitor", "Qtde. O.S."]
+        )
 
     df_out = pd.DataFrame(index=df_p.index)
     for nome, cands in MAPA.items():
@@ -1340,8 +1451,69 @@ def _sub_visao_geral(
         tema="cinza",
     )
 
+    # ── Nova Seção: Sugestões de Dashboard ────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_section("💡 Estratégias & Sugestões para Dashboards de Controle")
+
+    st.markdown("""
+        Para otimizar o monitoramento diário da operação de campo e garantir o cumprimento do SLA de quebra, 
+        recomenda-se a implementação dos seguintes painéis e alertas inteligentes em seus sistemas de BI (Power BI/Looker):
+        """)
+
+    s_col1, s_col2, s_col3 = st.columns(3)
+
+    with s_col1:
+        st.markdown(
+            f"""
+            <div class="card-sugestao">
+                <div class="card-sugestao-titulo">🚨 Alertas Ativos e Push</div>
+                <div class="card-sugestao-desc">
+                    Notificações automáticas via Telegram/Teams quando um supervisor atingir <b>80% da sua cota de quebras permitida</b> no dia. 
+                    Permite ação preditiva antes do estouro do SLA de novos domicílios.
+                </div>
+                <span class="card-sugestao-badge">Tempo Real</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with s_col2:
+        st.markdown(
+            """
+            <div class="card-sugestao">
+                <div class="card-sugestao-titulo">🗺️ Heatmap Geográfico</div>
+                <div class="card-sugestao-desc">
+                    Cruzamento de geolocalização das quebras com motivos de "Sem Viabilidade" ou "Ausência de Cliente". 
+                    Identifica gargalos estruturais em rotas de atendimento em regiões como Leste ou ABCDM.
+                </div>
+                <span class="card-sugestao-badge">Geográfico</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with s_col3:
+        st.markdown(
+            """
+            <div class="card-sugestao">
+                <div class="card-sugestao-titulo">👤 Scorecard de Técnicos</div>
+                <div class="card-sugestao-desc">
+                    Ranking dinâmico de performance técnica correlacionando a quebra com a antiguidade da carteira. 
+                    Útil para direcionar reciclagens operacionais e apoiar feedbacks de supervisores (Monitores).
+                </div>
+                <span class="card-sugestao-badge">Pessoas / RH</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
 def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
+    """
+    Sub-aba de Causa Raiz:
+    - Tabela 100% de largura renderizada no topo.
+    - Gráfico de Pareto expandido (fontes grandes e sem cortes) logo abaixo.
+    """
     render_section(f"🔍 Causa Raiz — {segmento}")
     col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", "_COL_BAIXA"))
     if col_baixa not in df_seg.columns:
@@ -1349,65 +1521,124 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
     df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=8) if col_baixa else pd.DataFrame()
 
     if df_c.empty:
-        render_insight("Coluna de código/motivo de baixa não identificada.", tipo="alerta")
+        render_insight(
+            "Coluna de código/motivo de baixa não identificada.", tipo="alerta"
+        )
         return
 
-    c_tab, c_chart = st.columns([1.2, 2])
-    with c_tab:
-        render_table_html(
-            df_c,
-            fmt={"% do Total": "{:.2%}", "Acumulado": "{:.2%}"},
-            height=350,
-        )
-    with c_chart:
-        cor_bar = SEGMENTOS_CONFIG[segmento]["cor_primaria"]
-        cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
-        fig = go.Figure()
-        fig.add_trace(
-            go.Bar(
-                x=df_c["Motivo de Baixa"],
-                y=df_c["Volume"],
-                name="Volume",
-                marker_color=cor_bar,
-                text=df_c["Volume"],
-                textposition="outside",
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df_c["Motivo de Baixa"],
-                y=df_c["Acumulado"],
-                name="Acumulado %",
-                yaxis="y2",
-                mode="lines+markers",
-                line=dict(color=cor_linha, width=2),
-                marker=dict(size=7),
-            )
-        )
-        fig.update_layout(
-            title=f"Pareto de Motivos — {segmento}",
-            yaxis=dict(title="Volume"),
-            yaxis2=dict(
-                title="Acumulado %",
-                overlaying="y",
-                side="right",
-                tickformat=".0%",
-                range=[0, 1.1],
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            height=380,
-            xaxis=dict(tickangle=-30),
-        )
-        fig.add_hline(
-            y=0.8,
-            line_dash="dot",
-            line_color="#F59E0B",
-            yref="y2",
-            annotation_text="80%",
-            annotation_position="top right",
-        )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    # =========================================================================
+    # 1. TABELA CORPORATIVA (Ocupando 100% da tela)
+    # =========================================================================
+    render_table_html(
+        df_c,
+        fmt={
+            "Volume": "{:,.0f}",
+            "% do Total": "{:.2%}",
+            "Acumulado": "{:.2%}",
+        },
+        num_cols=(
+            ["Volume", "% do Total", "Acumulado"] if "Volume" in df_c.columns else None
+        ),
+        height=380,
+    )
 
+    # Espaço visual de respiro
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # =========================================================================
+    # 2. GRÁFICO DE PARETO EXPANDIDO COM FONTES GRANDES
+    # =========================================================================
+    cor_bar = SEGMENTOS_CONFIG[segmento]["cor_primaria"]
+    cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
+    fig = go.Figure()
+
+    # Trace de Barras para Volumes Absolutos
+    fig.add_trace(
+        go.Bar(
+            x=df_c["Motivo de Baixa"],
+            y=df_c["Volume"],
+            name="Volume",
+            marker_color=cor_bar,
+            text=df_c["Volume"],
+            textposition="outside",
+            textfont=dict(size=14, color="#1F2937", family="Inter"),
+        )
+    )
+
+    # Trace de Linha para Porcentagem Acumulada
+    fig.add_trace(
+        go.Scatter(
+            x=df_c["Motivo de Baixa"],
+            y=df_c["Acumulado"],
+            name="Acumulado %",
+            yaxis="y2",
+            mode="lines+markers+text",
+            line=dict(color=cor_linha, width=3),
+            marker=dict(size=10, symbol="circle-dot"),
+            text=[f"{v:.1%}" for v in df_c["Acumulado"]],
+            textposition="top center",
+            textfont=dict(size=13, color="#1F2937", family="Inter"),
+        )
+    )
+
+    # Configuração de Layout e Tipografia
+    fig.update_layout(
+        title=dict(
+            text=f"Pareto de Motivos — {segmento} (com % Acumulado)",
+            font=dict(size=20, color="#1F2937", family="Inter"),
+        ),
+        font=dict(size=14, family="Inter"),
+        yaxis=dict(
+            title=dict(text="Volume", font=dict(size=15, weight="bold")),
+            tickfont=dict(size=13),
+            gridcolor="#E2E8F0",
+        ),
+        yaxis2=dict(
+            title=dict(text="Acumulado %", font=dict(size=15, weight="bold")),
+            overlaying="y",
+            side="right",
+            tickformat=".0%",
+            tickfont=dict(size=13),
+            range=[
+                0,
+                1.18,
+            ],  # Range maior para evitar que rótulos de 100% fiquem cortados
+            gridcolor="rgba(226, 232, 240, 0.4)",
+        ),
+        legend=dict(
+            font=dict(size=14),
+            orientation="h",
+            yanchor="bottom",
+            y=1.03,
+            xanchor="right",
+            x=1,
+        ),
+        height=580,
+        xaxis=dict(
+            tickfont=dict(size=13, color="#374151"),
+            tickangle=-35,
+        ),
+        margin=dict(
+            l=40, r=40, t=90, b=160
+        ),  # Margem inferior aumentada para textos longos
+        plot_bgcolor="rgba(248, 250, 252, 0.5)",
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+    )
+
+    fig.add_hline(
+        y=0.8,
+        line_dash="dash",
+        line_color="#F59E0B",
+        line_width=2,
+        yref="y2",
+        annotation_text="80% Limiar de Pareto",
+        annotation_position="top right",
+        annotation_font=dict(size=13, color="#F59E0B"),
+    )
+
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+    # Insights automáticos
     if len(df_c) >= 2:
         t1, t2 = df_c.iloc[0], df_c.iloc[1]
         render_insight(
@@ -1451,7 +1682,9 @@ def _sub_tecnicos(
     )
 
     df_plot = df_tec.head(10).sort_values("Fechamento Base")
-    cores = ["#EF4444" if v > sla_meta else "#10B981" for v in df_plot["Fechamento Base"]]
+    cores = [
+        "#EF4444" if v > sla_meta else "#10B981" for v in df_plot["Fechamento Base"]
+    ]
     fig = go.Figure(
         go.Bar(
             y=df_plot["TÉCNICO"],
@@ -1460,6 +1693,7 @@ def _sub_tecnicos(
             marker_color=cores,
             text=[f"{v:.1%}" for v in df_plot["Fechamento Base"]],
             textposition="outside",
+            textfont=dict(size=13, weight="bold"),
         )
     )
     fig.add_vline(
@@ -1467,12 +1701,17 @@ def _sub_tecnicos(
         line_dash="dash",
         line_color="#DC2626",
         annotation_text=f"Meta {sla_meta:.0%}",
+        annotation_font=dict(size=13, color="#DC2626"),
     )
     fig.update_layout(
-        title="Quebra Projetada por Técnico",
-        xaxis_tickformat=".1%",
-        height=max(300, len(df_plot) * 36),
-        margin=dict(t=40, b=20, l=10, r=60),
+        title=dict(
+            text="Quebra Projetada por Técnico", font=dict(size=18, family="Inter")
+        ),
+        font=dict(size=13, family="Inter"),
+        xaxis=dict(tickformat=".1%", tickfont=dict(size=13)),
+        yaxis=dict(tickfont=dict(size=13)),
+        height=max(360, len(df_plot) * 42),
+        margin=dict(t=50, b=30, l=10, r=70),
     )
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -1639,12 +1878,19 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
 def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
     render_section(f"⚠️ Motivo de Baixa: Sem Registro — {segmento}")
 
-    col_baixa = "_COL_BAIXA" if "_COL_BAIXA" in df_seg.columns else Utils.buscar_coluna(
-        df_seg, ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"]
+    col_baixa = (
+        "_COL_BAIXA"
+        if "_COL_BAIXA" in df_seg.columns
+        else Utils.buscar_coluna(
+            df_seg,
+            ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"],
+        )
     )
 
     if not col_baixa or col_baixa not in df_seg.columns:
-        render_insight("Coluna de motivo de baixa não encontrada na base.", tipo="alerta")
+        render_insight(
+            "Coluna de motivo de baixa não encontrada na base.", tipo="alerta"
+        )
         return
 
     serie_baixa = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
@@ -1678,10 +1924,25 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
 
     st.markdown("")
     if df_sr.empty:
-        render_insight("Nenhum contrato com motivo de baixa 'SEM REGISTRO' encontrado neste segmento.", tipo="ok")
+        render_insight(
+            "Nenhum contrato com motivo de baixa 'SEM REGISTRO' encontrado neste segmento.",
+            tipo="ok",
+        )
         return
 
-    cols_padrao = [c for c in ["CONTRATO", "TÉCNICO", "MONITOR", "REGIÃO", "Status Contrato", col_baixa, "TOTAL DE TAREFAS"] if c in df_sr.columns]
+    cols_padrao = [
+        c
+        for c in [
+            "CONTRATO",
+            "TÉCNICO",
+            "MONITOR",
+            "REGIÃO",
+            "Status Contrato",
+            col_baixa,
+            "TOTAL DE TAREFAS",
+        ]
+        if c in df_sr.columns
+    ]
     df_view = df_sr[cols_padrao].copy()
 
     render_table_html(df_view.reset_index(drop=True), height=480)
@@ -1759,7 +2020,7 @@ def main() -> None:
             st.slider("Otimista (%)", 0, 100, 15, 5, key=f"pot_{segmento_selecionado}")
             / 100.0
         )
-        
+
         default_pbase = 25 if segmento_selecionado == "Migração" else 20
         p_base = (
             st.slider(

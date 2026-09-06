@@ -462,7 +462,7 @@ class GerenciadorNavegacao:
             "QUEBRA": [
                 st.Page("pages/quebra_geral.py", title="Geral", icon="📉"),
                 st.Page(
-                    "pages/quebra_unificada.py", title="Visão PME & Migração", icon="📉"
+                    "pages/quebra_unificada.py", title="Visão Segmentos", icon="📉"
                 ),
             ],
             "UTILITÁRIOS": [
