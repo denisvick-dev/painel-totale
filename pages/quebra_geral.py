@@ -1727,4 +1727,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    st.dataframe(st.session_state.get("df_memoria"), use_container_width=True, height=500)

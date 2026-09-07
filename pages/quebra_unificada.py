@@ -19,6 +19,7 @@ for _p in (_DIR, _ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+import textwrap
 from datetime import datetime
 from html import escape
 from io import BytesIO
@@ -28,6 +29,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -1329,6 +1331,39 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 
 
 # =====================================================================
+# SIMULAÇÃO DE EXPURGO DO MAIOR OFENSOR
+# =====================================================================
+def _calcular_quebra_expurgada(
+    df_seg: pd.DataFrame, m_seg: Dict[str, Any], segmento: str
+) -> Optional[Dict[str, Any]]:
+    """Calcula o impacto na quebra caso o maior ofensor seja expurgado."""
+    df_c = _causa_raiz_segmento(df_seg, segmento, top_n=1)
+    if df_c.empty:
+        return None
+
+    top_row = df_c.iloc[0]
+    motivo = str(top_row["Motivo de Baixa"])
+    volume = float(top_row["Volume"])
+
+    naoexec = float(m_seg["naoexec"])
+    alocado = float(m_seg["alocado"])
+
+    # Expurgo: remove do numerador (NE) e do denominador (Alocado)
+    if alocado > volume:
+        quebra_expurgada = max(0.0, (naoexec - volume) / (alocado - volume))
+    else:
+        quebra_expurgada = 0.0
+
+    return {
+        "motivo": motivo,
+        "volume": int(volume),
+        "quebra_atual": float(m_seg["quebra_atual"]),
+        "quebra_expurgada": quebra_expurgada,
+        "impacto_abs": float(m_seg["quebra_atual"]) - quebra_expurgada,
+    }
+
+
+# =====================================================================
 # SUB-ABAS
 # =====================================================================
 def render_section(titulo: str) -> None:
@@ -1451,61 +1486,75 @@ def _sub_visao_geral(
         tema="cinza",
     )
 
-    # ── Nova Seção: Sugestões de Dashboard ────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    render_section("💡 Estratégias & Sugestões para Dashboards de Controle")
+    # ── Simulação de Impacto (Expurgo do Maior Ofensor) ──────────────
+    sim = _calcular_quebra_expurgada(df_seg, m_seg, segmento)
+    if sim:
+        st.markdown("<br>", unsafe_allow_html=True)
+        render_section("🔮 Simulação de Expurgo do Maior Ofensor")
 
-    st.markdown("""
-        Para otimizar o monitoramento diário da operação de campo e garantir o cumprimento do SLA de quebra, 
-        recomenda-se a implementação dos seguintes painéis e alertas inteligentes em seus sistemas de BI (Power BI/Looker):
-        """)
+        dentro_sla_apos = sim["quebra_expurgada"] <= sla_meta
+        if dentro_sla_apos:
+            bg_grad = "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)"
+            border_color = "#10B981"
+            badge_bg = "#10B981"
+            status_text = "DENTRO DA META SLA"
+            call_to_action = (
+                f"🎯 <b>Alvo Estratégico Prático:</b> Atuar diretamente na causa raiz "
+                f"<b>'{escape(sim['motivo'])}'</b> resolve o desvio de SLA deste segmento!"
+            )
+        else:
+            bg_grad = "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)"
+            border_color = "#F59E0B"
+            badge_bg = "#F59E0B"
+            status_text = "AINDA FORA DA META SLA"
+            call_to_action = (
+                f"⚠️ <b>Aviso:</b> Eliminar <b>'{escape(sim['motivo'])}'</b> ajuda "
+                f"significativamente, mas ações complementares em outros motivos ainda "
+                f"serão necessárias para atingir a meta de {sla_meta:.0%}."
+            )
 
-    s_col1, s_col2, s_col3 = st.columns(3)
+        html_sim = f"""
+<div style="background:{bg_grad};border:1px solid {border_color};border-radius:14px;padding:20px 24px;box-shadow:0 4px 15px rgba(0,0,0,0.05);font-family:'Inter',sans-serif;margin:8px 0 20px 0;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:24px;">🔮</span>
+      <div>
+        <h4 style="margin:0;color:#1E293B;font-size:16px;font-weight:800;">Cenário Hipotético: Expurgando a Maior Ofensora</h4>
+        <p style="margin:2px 0 0 0;color:#475569;font-size:12px;">Simulação matemática desconsiderando o motivo mais recorrente de quebra</p>
+      </div>
+    </div>
+    <span style="background:{badge_bg};color:#FFFFFF;font-size:10px;font-weight:700;padding:4px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:0.05em;">{status_text}</span>
+  </div>
 
-    with s_col1:
-        st.markdown(
-            f"""
-            <div class="card-sugestao">
-                <div class="card-sugestao-titulo">🚨 Alertas Ativos e Push</div>
-                <div class="card-sugestao-desc">
-                    Notificações automáticas via Telegram/Teams quando um supervisor atingir <b>80% da sua cota de quebras permitida</b> no dia. 
-                    Permite ação preditiva antes do estouro do SLA de novos domicílios.
-                </div>
-                <span class="card-sugestao-badge">Tempo Real</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+  <div style="background:rgba(255,255,255,0.65);border-radius:10px;padding:14px;border:1px dashed rgba(0,0,0,0.08);margin-bottom:16px;">
+    <div style="font-size:11px;text-transform:uppercase;color:#64748B;font-weight:700;letter-spacing:0.03em;">Maior Ofensora Identificada</div>
+    <div style="font-size:16px;color:#0F172A;font-weight:700;margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span style="color:#DC2626;">❌ {escape(sim['motivo'])}</span>
+      <span style="background:#FEE2E2;color:#991B1B;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">{sim['volume']:,} ocorrências</span>
+    </div>
+  </div>
 
-    with s_col2:
-        st.markdown(
-            """
-            <div class="card-sugestao">
-                <div class="card-sugestao-titulo">🗺️ Heatmap Geográfico</div>
-                <div class="card-sugestao-desc">
-                    Cruzamento de geolocalização das quebras com motivos de "Sem Viabilidade" ou "Ausência de Cliente". 
-                    Identifica gargalos estruturais em rotas de atendimento em regiões como Leste ou ABCDM.
-                </div>
-                <span class="card-sugestao-badge">Geográfico</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:16px;">
+    <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
+      <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Quebra Atual</div>
+      <div style="font-size:24px;color:#64748B;font-weight:800;margin-top:4px;">{sim['quebra_atual']:.2%}</div>
+    </div>
+    <div style="background:white;border-radius:8px;padding:12px;border:2px solid {border_color};text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
+      <div style="font-size:10px;color:#1F2937;text-transform:uppercase;font-weight:700;">Quebra com Expurgo</div>
+      <div style="font-size:26px;color:{border_color};font-weight:900;margin-top:4px;">{sim['quebra_expurgada']:.2%}</div>
+    </div>
+    <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
+      <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Redução Absoluta</div>
+      <div style="font-size:24px;color:#2563EB;font-weight:800;margin-top:4px;">📉 −{sim['impacto_abs']:.2%}</div>
+    </div>
+  </div>
 
-    with s_col3:
-        st.markdown(
-            """
-            <div class="card-sugestao">
-                <div class="card-sugestao-titulo">👤 Scorecard de Técnicos</div>
-                <div class="card-sugestao-desc">
-                    Ranking dinâmico de performance técnica correlacionando a quebra com a antiguidade da carteira. 
-                    Útil para direcionar reciclagens operacionais e apoiar feedbacks de supervisores (Monitores).
-                </div>
-                <span class="card-sugestao-badge">Pessoas / RH</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+  <div style="font-size:13px;color:#1E293B;line-height:1.5;font-weight:500;">
+    {call_to_action}
+  </div>
+</div>
+"""
+        st.markdown(html_sim, unsafe_allow_html=True)
 
 
 def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
@@ -1517,7 +1566,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
     """
     render_section(f"🔍 Causa Raiz — {segmento}")
 
-    # 1. Identificar a coluna de baixa
     col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", ""))
     if not col_baixa or col_baixa not in df_seg.columns:
         col_baixa = "_COL_BAIXA" if "_COL_BAIXA" in df_seg.columns else ""
@@ -1535,7 +1583,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         )
         return
 
-    # Gera o Pareto INCLUINDO "SEM REGISTRO" (sem nenhum filtro de exclusão)
     df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=8)
 
     if df_c.empty:
@@ -1567,7 +1614,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
     cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
     fig = go.Figure()
 
-    # Trace de Barras para Volumes Absolutos
     fig.add_trace(
         go.Bar(
             x=df_c["Motivo de Baixa"],
@@ -1580,7 +1626,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         )
     )
 
-    # Trace de Linha para Porcentagem Acumulada
     fig.add_trace(
         go.Scatter(
             x=df_c["Motivo de Baixa"],
@@ -1647,7 +1692,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
 
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    # Insight
     if len(df_c) >= 2:
         t1, t2 = df_c.iloc[0], df_c.iloc[1]
         render_insight(
@@ -1902,7 +1946,6 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
         )
         return
 
-    # Busca registros "SEM REGISTRO" ou em branco para detalhamento
     serie_baixa = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
     mask_sr = serie_baixa.isin(["SEM REGISTRO", "SEM_REGISTRO", "", "NAN", "NONE"])
     df_sr = df_seg[mask_sr].copy()
@@ -1983,11 +2026,9 @@ def main() -> None:
 
     df_full = st.session_state["df_memoria"].copy()
 
-    # ── Aplica fórmula Excel de Status Contrato caso ausente ──────────
     if "Status Contrato" not in df_full.columns:
         df_full["Status Contrato"] = Utils.classificar_status_excel(df_full)
 
-    # ── Reclassifica tipo de serviço (idempotente) ────────────────────
     if "TIPO_SERVICO" not in df_full.columns:
         df_full, df_full["TIPO_SERVICO"] = classificar_tipo_servico(df_full)
 
@@ -2108,7 +2149,6 @@ def main() -> None:
         )
         return
 
-    # Propaga _COL_BAIXA para o df_seg
     if "_COL_BAIXA" in df_full.attrs:
         df_seg.attrs["_COL_BAIXA"] = df_full.attrs["_COL_BAIXA"]
 
