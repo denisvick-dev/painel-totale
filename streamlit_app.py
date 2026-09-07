@@ -442,13 +442,15 @@ class GerenciadorNavegacao:
                 st.Page(
                     "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
                 ),
-                st.Page("robo_local.py", title="Robô Local", icon="🤖"),
+                st.Page("robo/main.py", title="Robô Local", icon="🤖"),
             ],
             "CENTRAL DE PERFORMANCE": [
                 st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
                 st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡"),
                 st.Page("pages/consultivo.py", title="Consultivos", icon="📋"),
-                st.Page("pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"),
+                st.Page(
+                    "pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"
+                ),
             ],
             "COMPILADO": [
                 st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷"),

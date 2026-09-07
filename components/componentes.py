@@ -13,11 +13,10 @@ Uso em qualquer página:
 
 from __future__ import annotations
 
-import logging
 import re
 import textwrap
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Tuple, Union
 from zoneinfo import ZoneInfo
 from html import escape
 
@@ -27,7 +26,7 @@ import plotly.io as pio
 import streamlit as st
 import streamlit.components.v1 as components
 
-logger = logging.getLogger(__name__)
+_PLOTLY_CONFIGURADO = False
 
 # ====================================================
 # TIPOS LITERAIS E ALIASES
@@ -146,7 +145,15 @@ _PLOTLY_COLORWAY = [
 # PLOTLY GLOBAL SETUP
 # ====================================================
 def _configurar_plotly_global() -> None:
-    """Configura o tema global do Plotly com identidade corporativa."""
+    """Configura o tema global do Plotly com identidade corporativa.
+
+    A configuração é feita uma única vez por processo para evitar trabalho
+    desnecessário em cada rerun do Streamlit.
+    """
+    global _PLOTLY_CONFIGURADO
+    if _PLOTLY_CONFIGURADO:
+        return
+
     template = go.layout.Template(
         layout=go.Layout(
             font=dict(family=FONTE_TEXTO, size=12, color=COR_TEXTO_2),
@@ -193,6 +200,7 @@ def _configurar_plotly_global() -> None:
     )
     pio.templates["corporativo"] = template
     pio.templates.default = "plotly_white+corporativo"
+    _PLOTLY_CONFIGURADO = True
 
 
 # ====================================================
@@ -303,6 +311,29 @@ def _get_global_css() -> str:
         .kpi-card .kpi-label {{ font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }}
         .kpi-card .kpi-value {{ font-size: 1.85rem; font-weight: 700; margin: 4px 0; }}
         .kpi-card .kpi-sub {{ font-size: 12px; color: #94A3B8; }}
+        .kpi-card-sm {{
+            background: #FFFFFF; border-radius: var(--radius-sm); padding: 12px 16px;
+            box-shadow: var(--shadow-sm); border: 1px solid #F3F4F6;
+        }}
+        .kpi-card-sm .kpi-label {{ font-size: 11px; font-weight: 600; color: #64748B; }}
+        .kpi-card-sm .kpi-value {{ font-size: 1.35rem; font-weight: 700; margin-top: 2px; }}
+        .kpi-delta-card, .kpi-card-delta {{
+            background: #FFFFFF; border-radius: var(--radius-md); padding: 14px 18px;
+            border-top: 3px solid var(--cor-primaria); box-shadow: var(--shadow-sm);
+        }}
+        .kpi-delta-header {{ display:flex; justify-content:space-between; gap:8px; align-items:center; }}
+        .kpi-delta-label {{ font-size:11px; font-weight:600; color:#64748B; text-transform:uppercase; }}
+        .kpi-delta-indicator {{ font-size:11px; font-weight:700; }}
+        .kpi-delta-up {{ color:#059669; }}
+        .kpi-delta-down {{ color:#DC2626; }}
+        .kpi-delta-flat {{ color:#64748B; }}
+        .kpi-delta-value {{ font-size:1.55rem; font-weight:700; margin-top:5px; }}
+        .hero-totale-2 {{ background:linear-gradient(135deg,#012869 0%,#0A3A8A 100%); padding:2rem 2.5rem; border-radius:12px; color:#FFF; }}
+        .hero-t2-title {{ font-family:var(--font-titulo); font-size:2rem; margin:0; color:#FFF; }}
+        .hero-t2-sub {{ margin:.6rem 0 0; opacity:.82; }}
+        .hero-t2-badge {{ display:inline-block; margin-top:10px; padding:4px 10px; border-radius:10px; font-size:11px; font-weight:700; }}
+        .badge-laranja {{ background:#F37C04; color:#FFF; }}
+        .badge-azul {{ background:#DBEAFE; color:#1E40AF; }}
 
         /* Tabelas */
         .corp-table-wrap {{ width: 100%; overflow: auto; border: 1px solid var(--cor-borda); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: #FFFFFF; }}
@@ -351,24 +382,119 @@ def _detectar_colunas_numericas(df: pd.DataFrame) -> List[str]:
 
 def _fmt_br(valor: float, casas: int = 1) -> str:
     """Formata número no padrão brasileiro (1.234,56)."""
-    return f"{valor:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    try:
+        casas = max(0, int(casas))
+        numero = float(valor)
+        if not pd.notna(numero):
+            return "—"
+        return (
+            f"{numero:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
+    except (TypeError, ValueError):
+        return "—"
 
 
 def _safe_float(val: Any) -> float:
-    """Extrai e converte segurança strings numéricas e porcentagens para float."""
+    """Converte valores numéricos brasileiros/internacionais com segurança.
+
+    Aceita números, percentuais e strings como ``"1.234,56"`` ou
+    ``"1,234.56"``. Valores inválidos retornam ``0.0``.
+    """
+    if val is None:
+        return 0.0
+    try:
+        if bool(pd.isna(val)):
+            return 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+    if isinstance(val, bool):
+        return float(val)
+
     if isinstance(val, (int, float)):
         return float(val)
+
+    s_val = str(val).strip()
+    if not s_val or s_val in {"—", "-", "nan", "None"}:
+        return 0.0
+
+    percentual = s_val.endswith("%")
+    s_val = s_val.rstrip("%").strip()
+
+    # Remove símbolos monetários e espaços, preservando sinais/separadores.
+    s_val = re.sub(r"[^0-9,.-]", "", s_val)
+    if not s_val:
+        return 0.0
+
     try:
-        s_val = str(val).strip()
-        if s_val == "—" or not s_val:
-            return 0.0
-        if s_val.endswith("%"):
-            return (
-                float(s_val.removesuffix("%").replace(".", "").replace(",", ".")) / 100
-            )
-        return float(s_val.replace(".", "").replace(",", "."))
+        if "," in s_val and "." in s_val:
+            # O último separador é tratado como decimal.
+            ultimo_sep = max(s_val.rfind(","), s_val.rfind("."))
+            inteiro = re.sub(r"[,.]", "", s_val[:ultimo_sep])
+            decimal = re.sub(r"[^0-9]", "", s_val[ultimo_sep + 1 :])
+            numero = float(f"{inteiro}.{decimal}")
+        elif "," in s_val:
+            partes = s_val.split(",")
+            if len(partes) == 2 and len(partes[1]) <= 2:
+                numero = float(f"{partes[0].replace('.', '')}.{partes[1]}")
+            else:
+                numero = float(s_val.replace(",", ""))
+        elif "." in s_val:
+            partes = s_val.split(".")
+            if len(partes) == 2 and len(partes[1]) <= 2:
+                numero = float(s_val)
+            else:
+                numero = float(s_val.replace(".", ""))
+        else:
+            numero = float(s_val)
+
+        return numero / 100 if percentual else numero
     except (ValueError, TypeError):
         return 0.0
+
+
+# ====================================================
+# ESTADO DE SESSÃO
+# ====================================================
+def inicializar_estado(defaults: Dict[str, Any]) -> None:
+    """Inicializa chaves do ``st.session_state`` sem sobrescrever valores.
+
+    Útil para filtros, DataFrames carregados e preferências que precisam
+    sobreviver aos reruns provocados por widgets do Streamlit.
+    """
+    for chave, valor in defaults.items():
+        if chave not in st.session_state:
+            st.session_state[chave] = valor
+
+
+def estado_get(chave: str, padrao: Any = None) -> Any:
+    """Obtém um valor do estado da sessão sem lançar ``KeyError``."""
+    return st.session_state.get(chave, padrao)
+
+
+def estado_set(chave: str, valor: Any) -> Any:
+    """Atualiza uma chave do estado e devolve o valor gravado."""
+    st.session_state[chave] = valor
+    return valor
+
+
+def limpar_estado(*chaves: str) -> None:
+    """Remove chaves específicas do estado da sessão."""
+    for chave in chaves:
+        st.session_state.pop(chave, None)
+
+
+def resetar_estado(prefixo: str = "") -> None:
+    """Remove chaves string do session_state pelo prefixo."""
+
+    chaves_para_remover = [
+        chave
+        for chave in st.session_state.keys()
+        if isinstance(chave, str) and chave.startswith(prefixo)
+    ]
+
+    for chave in chaves_para_remover:
+        del st.session_state[chave]
 
 
 # ====================================================
@@ -416,8 +542,8 @@ def render_hero_migracao(
     html = textwrap.dedent(f"""
         <div class="hero-migracao" style="background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
         <div class="hero-t1-content">
-        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{titulo}</h1>
-        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{subtitulo}</p>
+        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{escape(titulo)}</h1>
+        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{escape(subtitulo)}</p>
         </div></div>
     """)
     st.markdown(html, unsafe_allow_html=True)
@@ -431,8 +557,8 @@ def render_hero_pme(
     html = textwrap.dedent(f"""
         <div class="hero-pme" style="background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
         <div class="hero-t1-content">
-        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{titulo}</h1>
-        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{subtitulo}</p>
+        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{escape(titulo)}</h1>
+        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{escape(subtitulo)}</p>
         </div></div>
     """)
     st.markdown(html, unsafe_allow_html=True)
@@ -506,6 +632,7 @@ def render_metric_delta(
     icones = {"up": "▲", "down": "▼", "flat": "▬"}
     classes = {"up": "kpi-delta-up", "down": "kpi-delta-down", "flat": "kpi-delta-flat"}
 
+    tendencia = tendencia if tendencia in icones else "flat"
     classe = classes[tendencia]
     if inverter_cor:
         classe = (
@@ -575,7 +702,13 @@ def render_section_header(
         <h2 style="font-family:var(--font-titulo);font-size:22px;font-weight:800;color:{COR_PRIMARIA};margin:0;display:flex;align-items:center;">
         {f'<span style="margin-right:10px;">{icone}</span>' if icone else ''}{escape(titulo)}
         </h2>
-        {f'<span style="margin-left:10px;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:#FFF7ED;color:#C2410C;border:1px solid #FDBA74;">{escape(badge)}</span>' if badge else ''}
+        {(
+            f'<span style="margin-left:10px;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;'
+            f'background:{_TEMA_CORES.get(badge_tipo, "#FFF7ED")}1A;'
+            f'color:{_TEMA_CORES.get(badge_tipo, "#C2410C")};'
+            f'border:1px solid {_TEMA_CORES.get(badge_tipo, "#FDBA74")}66;">'
+            f'{escape(badge)}</span>'
+        ) if badge else ''}
         </div>
         {f'<div style="font-family:var(--font-titulo);font-size:18px;color:{COR_PRIMARIA};font-weight:bold;">{escape(subtitulo)}</div>' if subtitulo else ''}
         <div style="height:3px;width:45px;background:{cor_accent};border-radius:2px;margin-top:10px;"></div>
@@ -606,6 +739,10 @@ def render_table_html(
     **kwargs: Any,
 ) -> None:
     """Renderiza uma tabela HTML corporativa e responsiva."""
+    max_rows = max(1, int(max_rows))
+    max_cols = max(1, int(max_cols))
+    height = max(120, int(height))
+
     if not isinstance(df, pd.DataFrame) or df.empty:
         render_empty_state("Sem dados na tabela", "Ajuste os filtros.")
         return
@@ -739,11 +876,9 @@ def render_table_html(
         for c in cols:
             if c in num_set:
                 try:
-                    total = pd.to_numeric(
-                        df_show[c].replace(r"[^\d.-]", "", regex=True), errors="coerce"
-                    ).sum()
+                    total = df_show[c].map(_safe_float).sum()
                     total_cells.append(f'<td class="num">{_fmt_br(total)}</td>')
-                except:
+                except (TypeError, ValueError):
                     total_cells.append("<td>—</td>")
             else:
                 total_cells.append("<td><strong>TOTAL</strong></td>")
@@ -759,6 +894,60 @@ def render_table_html(
         </table></div>
     """)
     st.markdown(html, unsafe_allow_html=True)
+
+
+# ====================================================
+# DATAFRAME / UTILITÁRIOS DE UI
+# ====================================================
+def render_dataframe(
+    df: pd.DataFrame,
+    *,
+    height: int = 420,
+    use_container_width: bool = True,
+    hide_index: bool = True,
+    key: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Renderiza ``st.dataframe`` com validação e parâmetros compatíveis.
+
+    Esta função é uma alternativa para tabelas que precisam de ordenação,
+    seleção, busca nativa e melhor desempenho que HTML para grandes volumes.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        render_empty_state("Sem dados", "Não há registros para exibir.")
+        return
+
+    st.dataframe(
+        df,
+        height=height,
+        use_container_width=use_container_width,
+        hide_index=hide_index,
+        key=key,
+        **kwargs,
+    )
+
+
+def validar_dataframe(
+    df: Any,
+    colunas_obrigatorias: List[str] | None = None,
+) -> Tuple[bool, str]:
+    """Valida um DataFrame e informa de forma amigável o problema encontrado."""
+    if not isinstance(df, pd.DataFrame):
+        return False, "O objeto informado não é um pandas.DataFrame."
+
+    if df.empty:
+        return False, "O DataFrame está vazio."
+
+    faltantes = [c for c in (colunas_obrigatorias or []) if c not in df.columns]
+    if faltantes:
+        return False, f"Colunas obrigatórias ausentes: {', '.join(faltantes)}."
+
+    return True, ""
+
+
+def formatar_numero_br(valor: Any, casas: int = 1) -> str:
+    """Formata qualquer valor numérico usando a convenção brasileira."""
+    return _fmt_br(_safe_float(valor), casas)
 
 
 # ====================================================
@@ -1095,14 +1284,6 @@ def aplicar_sidebar_corp(
     st.sidebar.markdown(html, unsafe_allow_html=True)
 
 
-from datetime import datetime
-from html import escape
-import textwrap
-from typing import Dict, Literal, Tuple, Union
-from zoneinfo import ZoneInfo
-import streamlit as st
-
-
 def render_sidebar_status(
     status: TipoStatus = "ativo",
     label: str = "Sistema",
@@ -1158,7 +1339,8 @@ def render_sidebar_status(
         "sucesso": ("#D1FAE5", "#065F46", "OK"),
         "erro": ("#FEE2E2", "#991B1B", "Erro"),
     }
-    tag_bg, tag_fg, tag_txt_padrao = tag_cfg.get(status, tag_cfg["inativo"])
+    status = status if status in tag_cfg else "inativo"
+    tag_bg, tag_fg, tag_txt_padrao = tag_cfg[status]
 
     # Define o texto final da tag (customizado ou padrão)
     tag_txt = (
@@ -1205,20 +1387,21 @@ def render_sidebar_status(
     cls_extra = " sb-status-card-compacto" if compacto else ""
 
     # ── Renderização HTML ────────────────────────────────────
-    html = textwrap.dedent(f"""
-        <div class="sb-status-card{cls_extra}">
-            <div class="sb-status-row">
-                <span class="sb-status-dot sb-status-dot-{status}"></span>
-                <span class="sb-status-label">{escape(label)}</span>
-                <span class="sb-status-tag" style="background:{tag_bg};color:{tag_fg};">
-                    {tag_txt}
-                </span>
-            </div>
-            {desc_html}
-            {meta_html}
-            {atualizacao_html}
-        </div>
-    """)
+    html = textwrap.dedent(f"""\
+    <div class="sb-status-card{cls_extra}">
+    <div class="sb-status-row">
+        <span class="sb-status-dot sb-status-dot-{status}"></span>
+        <span class="sb-status-label">{escape(label)}</span>
+        <span class="sb-status-tag" style="background:{tag_bg};color:{tag_fg};">
+        {tag_txt}
+        </span>
+    </div>
+    {desc_html}
+    {meta_html}
+    {atualizacao_html}
+    </div>
+    """).strip()
+
     st.sidebar.markdown(html, unsafe_allow_html=True)
 
 
@@ -1549,3 +1732,31 @@ def render_sidebar_brand(
         </div>
     """)
     st.sidebar.markdown(html, unsafe_allow_html=True)
+
+
+__all__ = [
+    "aplicar_estilo",
+    "inicializar_estado",
+    "estado_get",
+    "estado_set",
+    "limpar_estado",
+    "resetar_estado",
+    "render_hero_totale_1",
+    "render_hero_totale_2",
+    "render_hero_migracao",
+    "render_hero_pme",
+    "render_hero",
+    "render_kpi",
+    "render_kpi_sm",
+    "render_metric_delta",
+    "render_insight",
+    "render_empty_state",
+    "render_section_header",
+    "render_table_html",
+    "render_dataframe",
+    "validar_dataframe",
+    "formatar_numero_br",
+    "aplicar_sidebar_corp",
+    "render_sidebar_status",
+    "render_sidebar_brand",
+]

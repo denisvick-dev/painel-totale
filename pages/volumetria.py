@@ -14,6 +14,7 @@ import textwrap
 import unicodedata
 from io import BytesIO
 from typing import Any, Dict, List, Literal, Optional
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,13 @@ from components.componentes import (
     render_kpi as render_kpi_corp,
     render_kpi_sm,
     render_section_header,
+    render_sidebar_status,
 )
+
+# ==========================================================
+# ROBÔ DE MONITORAMENTO AUTOMÁTICO
+# ==========================================================
+from robo.robo_local import renderizar_robo_local
 
 # ==========================================================
 # CONFIGURAÇÃO DE PÁGINA
@@ -80,29 +87,46 @@ class Config:
 
 
 CORES_REGIAO: Dict[str, Dict[str, str]] = {
-    "LESTE":  {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
-    "GRU":    {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
-    "ABCDM":  {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
+    "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
+    "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
+    "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
     "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
 }
 
 RENOMEAR_COLUNAS: Dict[str, str] = {
-    "TÉCNICO": "Técnico", "MONITOR": "Monitor", "REGIÃO": "Região",
-    "STATUS CONTRATO": "Status", "TOTAL DE TAREFAS": "Total de O.S.",
-    "Executada": "Executadas", "Não Executada": "Não Exec.",
-    "Pendente": "Pendentes", "Baixadas": "Baixadas",
-    "Total Alocado": "Total Alocado", "Taxa Execução": "Taxa Exec.",
-    "Taxa Quebra": "Taxa Quebra", "Projeção": "Projeção",
-    "Nao_Executadas": "Não Exec.", "Executadas": "Executadas",
-    "Pendentes": "Pendentes", "Total_Alocado": "Total Alocado",
-    "Técnicos": "Técnicos", "OS/Técnico": "OS/Técnico",
+    "TÉCNICO": "Técnico",
+    "MONITOR": "Monitor",
+    "REGIÃO": "Região",
+    "STATUS CONTRATO": "Status",
+    "TOTAL DE TAREFAS": "Total de O.S.",
+    "Executada": "Executadas",
+    "Não Executada": "Não Exec.",
+    "Pendente": "Pendentes",
+    "Baixadas": "Baixadas",
+    "Total Alocado": "Total Alocado",
+    "Taxa Execução": "Taxa Exec.",
+    "Taxa Quebra": "Taxa Quebra",
+    "Projeção": "Projeção",
+    "Nao_Executadas": "Não Exec.",
+    "Executadas": "Executadas",
+    "Pendentes": "Pendentes",
+    "Total_Alocado": "Total Alocado",
+    "Técnicos": "Técnicos",
+    "OS/Técnico": "OS/Técnico",
     "Exec/Técnico": "Exec/Técnico",
 }
 
 COLUNAS_INTEIRAS = [
-    "Executada", "Não Executada", "Pendente", "Baixadas",
-    "Total Alocado", "Projeção", "Executadas", "Não Exec.",
-    "Pendentes", "Técnicos",
+    "Executada",
+    "Não Executada",
+    "Pendente",
+    "Baixadas",
+    "Total Alocado",
+    "Projeção",
+    "Executadas",
+    "Não Exec.",
+    "Pendentes",
+    "Técnicos",
 ]
 
 
@@ -114,7 +138,11 @@ class Utils:
     def remover_acentos(valor) -> str:
         if pd.isna(valor):
             return ""
-        return unicodedata.normalize("NFKD", str(valor)).encode("ASCII", "ignore").decode("ASCII")
+        return (
+            unicodedata.normalize("NFKD", str(valor))
+            .encode("ASCII", "ignore")
+            .decode("ASCII")
+        )
 
     @staticmethod
     def normalizar_chave(serie: pd.Series) -> pd.Series:
@@ -182,9 +210,15 @@ class Utils:
             if c in ag.columns:
                 ag[c] = pd.to_numeric(ag[c], errors="coerce").fillna(0).astype(int)
         ag["Baixadas"] = ag["Executadas"] + ag["Nao_Executadas"]
-        ag["Taxa Execução"] = np.where(ag["Baixadas"] > 0, ag["Executadas"] / ag["Baixadas"], 0.0)
-        ag["Taxa Quebra"] = np.where(ag["Baixadas"] > 0, ag["Nao_Executadas"] / ag["Baixadas"], 0.0)
-        ag["Projeção"] = (ag["Total_Alocado"] * ag["Taxa Execução"]).round(0).astype(int)
+        ag["Taxa Execução"] = np.where(
+            ag["Baixadas"] > 0, ag["Executadas"] / ag["Baixadas"], 0.0
+        )
+        ag["Taxa Quebra"] = np.where(
+            ag["Baixadas"] > 0, ag["Nao_Executadas"] / ag["Baixadas"], 0.0
+        )
+        ag["Projeção"] = (
+            (ag["Total_Alocado"] * ag["Taxa Execução"]).round(0).astype(int)
+        )
         return ag
 
 
@@ -205,9 +239,13 @@ class DataLoader:
             return pd.read_excel(BytesIO(file_bytes))
         if nome.endswith(".csv"):
             try:
-                return pd.read_csv(BytesIO(file_bytes), sep=None, engine="python", encoding="utf-8-sig")
+                return pd.read_csv(
+                    BytesIO(file_bytes), sep=None, engine="python", encoding="utf-8-sig"
+                )
             except UnicodeDecodeError:
-                return pd.read_csv(BytesIO(file_bytes), sep=None, engine="python", encoding="latin1")
+                return pd.read_csv(
+                    BytesIO(file_bytes), sep=None, engine="python", encoding="latin1"
+                )
         raise ValueError("Formato não suportado. Use .xlsx, .xls ou .csv.")
 
     @staticmethod
@@ -223,11 +261,13 @@ class DataLoader:
             col_mon = Utils.buscar_coluna(raw, ["MONITOR", "GESTOR"])
             if not col_login:
                 return pd.DataFrame()
-            df_gs = pd.DataFrame({
-                "__LOGIN_KEY": Utils.normalizar_login(raw[col_login]),
-                "__TEC_GS": raw[col_tec] if col_tec else "",
-                "__MON_GS": raw[col_mon] if col_mon else "",
-            })
+            df_gs = pd.DataFrame(
+                {
+                    "__LOGIN_KEY": Utils.normalizar_login(raw[col_login]),
+                    "__TEC_GS": raw[col_tec] if col_tec else "",
+                    "__MON_GS": raw[col_mon] if col_mon else "",
+                }
+            )
             return df_gs.drop_duplicates("__LOGIN_KEY")
         except Exception:
             return pd.DataFrame()
@@ -237,14 +277,18 @@ class DataLoader:
         df = df.copy()
         diag = {"Inicial": len(df)}
 
-        col_con = Utils.buscar_coluna(df, ["CONTRATO", "Nº CONTRATO", "NUMERO CONTRATO", "NUM CONTRATO"])
+        col_con = Utils.buscar_coluna(
+            df, ["CONTRATO", "Nº CONTRATO", "NUMERO CONTRATO", "NUM CONTRATO"]
+        )
         if col_con:
             valida = Utils.contrato_valido(df[col_con])
             rem = (~valida).sum()
             df = df[valida].copy()
             diag["Removidos por contrato vazio"] = int(rem)
             if rem > 0:
-                st.toast(f"🗑️ {rem} linha(s) removida(s) por contrato vazio.", icon="⚠️")
+                st.toast(
+                    f"🗑️ {rem} linha(s) removida(s) por contrato vazio.", icon="⚠️"
+                )
         else:
             st.warning("⚠️ Coluna de contrato não encontrada.")
 
@@ -282,24 +326,54 @@ class DataLoader:
 
         tec_gs = df["__TEC_GS"].where(df["__TEC_GS"].notna(), "")
         mon_gs = df["__MON_GS"].where(df["__MON_GS"].notna(), "")
-        df[Config.COL_TECNICO] = tec_gs.mask(tec_gs.astype(str).str.strip().eq(""), base_tec)
-        df[Config.COL_MONITOR] = mon_gs.mask(mon_gs.astype(str).str.strip().eq(""), base_mon)
+        df[Config.COL_TECNICO] = tec_gs.mask(
+            tec_gs.astype(str).str.strip().eq(""), base_tec
+        )
+        df[Config.COL_MONITOR] = mon_gs.mask(
+            mon_gs.astype(str).str.strip().eq(""), base_mon
+        )
         df[Config.COL_TECNICO] = df[Config.COL_TECNICO].where(
-            df[Config.COL_TECNICO].notna() & df[Config.COL_TECNICO].astype(str).str.strip().ne(""),
+            df[Config.COL_TECNICO].notna()
+            & df[Config.COL_TECNICO].astype(str).str.strip().ne(""),
             "NÃO MAPEADO",
         )
         df[Config.COL_MONITOR] = df[Config.COL_MONITOR].where(
-            df[Config.COL_MONITOR].notna() & df[Config.COL_MONITOR].astype(str).str.strip().ne(""),
+            df[Config.COL_MONITOR].notna()
+            & df[Config.COL_MONITOR].astype(str).str.strip().ne(""),
             "SEM MONITOR",
         )
 
         col_cid = Utils.buscar_coluna(df, ["CIDADE", "LOCALIDADE"])
-        cidade = Utils.normalizar_chave(df[col_cid]) if col_cid else pd.Series("", index=df.index)
+        cidade = (
+            Utils.normalizar_chave(df[col_cid])
+            if col_cid
+            else pd.Series("", index=df.index)
+        )
         df[Config.COL_REGIAO] = np.select(
             [
                 cidade.isin(["SAO PAULO"]),
-                cidade.isin(["GUARULHOS", "ARUJA", "MOGI DAS CRUZES", "SUZANO", "ITAQUAQUECETUBA", "FERRAZ DE VASCONCELOS", "POA"]),
-                cidade.isin(["SANTO ANDRE", "SAO BERNARDO DO CAMPO", "SAO CAETANO DO SUL", "DIADEMA", "MAUA", "RIBEIRAO PIRES", "RIO GRANDE DA SERRA"]),
+                cidade.isin(
+                    [
+                        "GUARULHOS",
+                        "ARUJA",
+                        "MOGI DAS CRUZES",
+                        "SUZANO",
+                        "ITAQUAQUECETUBA",
+                        "FERRAZ DE VASCONCELOS",
+                        "POA",
+                    ]
+                ),
+                cidade.isin(
+                    [
+                        "SANTO ANDRE",
+                        "SAO BERNARDO DO CAMPO",
+                        "SAO CAETANO DO SUL",
+                        "DIADEMA",
+                        "MAUA",
+                        "RIBEIRAO PIRES",
+                        "RIO GRANDE DA SERRA",
+                    ]
+                ),
             ],
             ["LESTE", "GRU", "ABCDM"],
             default="OUTRAS",
@@ -316,9 +390,14 @@ class DataLoader:
 def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
     if df.empty:
         return {
-            "total": 0, "executadas": 0, "nao_executadas": 0,
-            "pendentes": 0, "baixadas": 0, "taxa": 0.0,
-            "quebra": 0.0, "projecao": 0,
+            "total": 0,
+            "executadas": 0,
+            "nao_executadas": 0,
+            "pendentes": 0,
+            "baixadas": 0,
+            "taxa": 0.0,
+            "quebra": 0.0,
+            "projecao": 0,
         }
     k_tot = int(round(df[Config.COL_TOTAL].sum()))
     k_exe = int(df[df[Config.COL_STATUS] == "Executada"][Config.COL_TOTAL].sum())
@@ -328,9 +407,14 @@ def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
     k_tx = k_exe / k_bai if k_bai > 0 else 0.0
     k_proj = int(k_exe + k_tx * k_pen)
     return {
-        "total": k_tot, "executadas": k_exe, "nao_executadas": k_nex,
-        "pendentes": k_pen, "baixadas": k_bai, "taxa": k_tx,
-        "quebra": 1.0 - k_tx, "projecao": k_proj,
+        "total": k_tot,
+        "executadas": k_exe,
+        "nao_executadas": k_nex,
+        "pendentes": k_pen,
+        "baixadas": k_bai,
+        "taxa": k_tx,
+        "quebra": 1.0 - k_tx,
+        "projecao": k_proj,
     }
 
 
@@ -347,9 +431,15 @@ def calcular_volumetria_por_tecnico(kpis: Dict[str, Any], n: int) -> Dict[str, A
     ating = exe_t / meta if meta else 0.0
     proj_ating = proj_t / meta if meta else 0.0
     return {
-        "n": n, "os_tec": os_t, "exe_tec": exe_t, "nex_tec": nex_t,
-        "pen_tec": pen_t, "bai_tec": bai_t, "proj_tec": proj_t,
-        "atingimento": ating, "atingiu_meta": exe_t >= meta,
+        "n": n,
+        "os_tec": os_t,
+        "exe_tec": exe_t,
+        "nex_tec": nex_t,
+        "pen_tec": pen_t,
+        "bai_tec": bai_t,
+        "proj_tec": proj_t,
+        "atingimento": ating,
+        "atingiu_meta": exe_t >= meta,
         "gap_meta": exe_t - meta,
         "projecao_atingimento": proj_ating,
         "projecao_gap_meta": proj_t - meta,
@@ -360,7 +450,9 @@ def calcular_volumetria_por_tecnico(kpis: Dict[str, Any], n: int) -> Dict[str, A
 def calcular_volumetria(df: pd.DataFrame, grupos: List[str]) -> pd.DataFrame:
     tabela = (
         df.groupby(grupos + [Config.COL_STATUS], observed=True)[Config.COL_TOTAL]
-        .sum().unstack(Config.COL_STATUS, fill_value=0).reset_index()
+        .sum()
+        .unstack(Config.COL_STATUS, fill_value=0)
+        .reset_index()
     )
     for s in Config.STATUS_ORDEM:
         if s not in tabela.columns:
@@ -368,15 +460,27 @@ def calcular_volumetria(df: pd.DataFrame, grupos: List[str]) -> pd.DataFrame:
         tabela[s] = tabela[s].astype(int)
     tabela["Baixadas"] = tabela["Executada"] + tabela["Não Executada"]
     tabela["Total Alocado"] = tabela["Baixadas"] + tabela["Pendente"]
-    tabela["Taxa Execução"] = np.where(tabela["Baixadas"] > 0, tabela["Executada"] / tabela["Baixadas"], 0.0)
+    tabela["Taxa Execução"] = np.where(
+        tabela["Baixadas"] > 0, tabela["Executada"] / tabela["Baixadas"], 0.0
+    )
     tabela["Taxa Quebra"] = 1.0 - tabela["Taxa Execução"]
-    tabela["Projeção"] = (tabela["Executada"] + tabela["Taxa Execução"] * tabela["Pendente"]).astype(int)
+    tabela["Projeção"] = (
+        tabela["Executada"] + tabela["Taxa Execução"] * tabela["Pendente"]
+    ).astype(int)
     if Config.COL_TECNICO in df.columns:
-        n_tec = df.groupby(grupos, observed=True)[Config.COL_TECNICO].nunique().reset_index(name="Técnicos")
+        n_tec = (
+            df.groupby(grupos, observed=True)[Config.COL_TECNICO]
+            .nunique()
+            .reset_index(name="Técnicos")
+        )
         tabela = tabela.merge(n_tec, on=grupos, how="left")
         tabela["Técnicos"] = tabela["Técnicos"].fillna(0).astype(int)
-        tabela["OS/Técnico"] = np.where(tabela["Técnicos"] > 0, tabela["Total Alocado"] / tabela["Técnicos"], 0.0)
-        tabela["Exec/Técnico"] = np.where(tabela["Técnicos"] > 0, tabela["Executada"] / tabela["Técnicos"], 0.0)
+        tabela["OS/Técnico"] = np.where(
+            tabela["Técnicos"] > 0, tabela["Total Alocado"] / tabela["Técnicos"], 0.0
+        )
+        tabela["Exec/Técnico"] = np.where(
+            tabela["Técnicos"] > 0, tabela["Executada"] / tabela["Técnicos"], 0.0
+        )
     return tabela.sort_values("Total Alocado", ascending=False)
 
 
@@ -398,7 +502,9 @@ def gerar_excel(df: pd.DataFrame, nome_aba: str) -> bytes:
         for i, col in enumerate(export.columns, 1):
             valores = export[col].head(500).astype(str)
             maior = max([len(str(col))] + [len(v) for v in valores], default=10)
-            ws.column_dimensions[get_column_letter(i)].width = min(max(maior + 2, 12), 40)
+            ws.column_dimensions[get_column_letter(i)].width = min(
+                max(maior + 2, 12), 40
+            )
 
     output.seek(0)
     return output.getvalue()
@@ -412,10 +518,18 @@ def _agrupar_tecnicos(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     base = df.copy()
-    base[Config.COL_TOTAL] = pd.to_numeric(base[Config.COL_TOTAL], errors="coerce").fillna(0).clip(lower=0)
-    base["__EXEC"] = np.where(base[Config.COL_STATUS].eq("Executada"), base[Config.COL_TOTAL], 0)
-    base["__NAO_EXEC"] = np.where(base[Config.COL_STATUS].eq("Não Executada"), base[Config.COL_TOTAL], 0)
-    base["__PEND"] = np.where(base[Config.COL_STATUS].eq("Pendente"), base[Config.COL_TOTAL], 0)
+    base[Config.COL_TOTAL] = (
+        pd.to_numeric(base[Config.COL_TOTAL], errors="coerce").fillna(0).clip(lower=0)
+    )
+    base["__EXEC"] = np.where(
+        base[Config.COL_STATUS].eq("Executada"), base[Config.COL_TOTAL], 0
+    )
+    base["__NAO_EXEC"] = np.where(
+        base[Config.COL_STATUS].eq("Não Executada"), base[Config.COL_TOTAL], 0
+    )
+    base["__PEND"] = np.where(
+        base[Config.COL_STATUS].eq("Pendente"), base[Config.COL_TOTAL], 0
+    )
 
     grupos = [Config.COL_TECNICO, Config.COL_MONITOR, Config.COL_REGIAO]
     ag = (
@@ -432,7 +546,9 @@ def _agrupar_tecnicos(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def criar_visao_tecnicos_escalados(df: pd.DataFrame) -> pd.DataFrame:
-    df_at = df[pd.to_numeric(df[Config.COL_TOTAL], errors="coerce").fillna(0) >= 1].copy()
+    df_at = df[
+        pd.to_numeric(df[Config.COL_TOTAL], errors="coerce").fillna(0) >= 1
+    ].copy()
     ag = _agrupar_tecnicos(df_at)
     if ag.empty:
         return pd.DataFrame()
@@ -444,7 +560,9 @@ def criar_visao_tecnicos_escalados(df: pd.DataFrame) -> pd.DataFrame:
     return ag.reset_index(drop=True)
 
 
-def criar_visao_tecnicos_montados(df: pd.DataFrame, total_montados: int) -> pd.DataFrame:
+def criar_visao_tecnicos_montados(
+    df: pd.DataFrame, total_montados_fixo: int
+) -> pd.DataFrame:
     ag = _agrupar_tecnicos(df)
     if ag.empty:
         return pd.DataFrame()
@@ -453,14 +571,20 @@ def criar_visao_tecnicos_montados(df: pd.DataFrame, total_montados: int) -> pd.D
     ct = RENOMEAR_COLUNAS.get("Taxa Execução", "Taxa Exec.")
     if ct in ag.columns:
         ag = ag.sort_values(ct, ascending=False)
-    ag.attrs["total_montados_fixo"] = total_montados
+    ag.attrs["total_montados_fixo"] = total_montados_fixo
     return ag.reset_index(drop=True)
 
 
 def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
     cm = RENOMEAR_COLUNAS.get("MONITOR", "Monitor")
     cr = RENOMEAR_COLUNAS.get("REGIÃO", "Região")
-    ce, cn, cp, cb, ct2 = "Executadas", "Não Exec.", "Pendentes", "Baixadas", "Total Alocado"
+    ce, cn, cp, cb, ct2 = (
+        "Executadas",
+        "Não Exec.",
+        "Pendentes",
+        "Baixadas",
+        "Total Alocado",
+    )
     cta = RENOMEAR_COLUNAS.get("Taxa Execução", "Taxa Exec.")
     cpr = RENOMEAR_COLUNAS.get("Projeção", "Projeção")
     agg: Dict[str, Any] = {}
@@ -471,7 +595,12 @@ def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
     gc = [c for c in [cm, cr] if c in df_tec.columns]
     if not gc:
         return pd.DataFrame()
-    res = df_tec.groupby(gc, observed=True).agg(agg).reset_index().rename(columns={col_tec: "Técnicos"})
+    res = (
+        df_tec.groupby(gc, observed=True)
+        .agg(agg)
+        .reset_index()
+        .rename(columns={col_tec: "Técnicos"})
+    )
     if cb in res.columns and ce in res.columns:
         res[cta] = np.where(res[cb] > 0, res[ce] / res[cb], 0.0)
     return res.sort_values("Técnicos", ascending=False).reset_index(drop=True)
@@ -482,7 +611,8 @@ def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
 # ==========================================================
 def aplicar_estilo_pagina():
     """Aplica CSS específico da Volumetria, complementando o CSS Global do componentes.py."""
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
     /* ── CARD DE TÉCNICOS ── */
     .tec-card {{
@@ -647,7 +777,9 @@ def aplicar_estilo_pagina():
         display: flex; align-items: center; gap: 5px;
     }}
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 # ==========================================================
@@ -662,9 +794,9 @@ def render_resultado_base(regioes: List[str], total: int):
     html_content = (
         f'<div class="resultado-base">'
         f'<span class="resultado-base-label">📋 Resultado da Base:</span>'
-        f'{badges}'
+        f"{badges}"
         f'<span class="resultado-base-count">{total:,} registros</span>'
-        f'</div>'
+        f"</div>"
     )
     st.markdown(html_content, unsafe_allow_html=True)
 
@@ -697,7 +829,7 @@ def render_card_tecnicos(
         head_fg = "#FFFBEB"
         accent = "#F59E0B"
         icon_bg = "rgba(255,255,255,0.15)"
-        icon_emoji = "🟡"
+        icon_emoji = ""
         fill_ok, fill_nok = "#10B981", "#EF4444"
 
     meta = Config.META_EXECUTADAS_TECNICO
@@ -764,9 +896,10 @@ def render_card_tecnicos(
     </div>
     """).strip()
 
-    # Compactar HTML para evitar quebras de linha que confundem o parser do Streamlit
     card_html = re.sub(r"\n\s*\n", "\n", card_html)
-    card_html = "\n".join(line.strip() for line in card_html.splitlines() if line.strip()).strip()
+    card_html = "\n".join(
+        line.strip() for line in card_html.splitlines() if line.strip()
+    ).strip()
     col.markdown(card_html, unsafe_allow_html=True)
 
 
@@ -783,7 +916,7 @@ def render_faixa_diferenca(n_esc: int, n_mon: int, vol_esc: Dict, vol_mon: Dict)
         f'<span class="diff-strip-right">'
         f'Exec/téc: Escalados <strong>{_fmt_br(vol_esc["exe_tec"])}</strong>'
         f'&nbsp;×&nbsp;Montados <strong>{_fmt_br(vol_mon["exe_tec"])}</strong>'
-        f'</span></div>'
+        f"</span></div>"
     )
     st.markdown(html_content, unsafe_allow_html=True)
 
@@ -833,7 +966,10 @@ def render_dataframe(
             }
 
     if adicionar_totais and len(df_d):
-        tr: Dict[str, Any] = {c: (0 if pd.api.types.is_numeric_dtype(df_d[c]) else "") for c in df_d.columns}
+        tr: Dict[str, Any] = {
+            c: (0 if pd.api.types.is_numeric_dtype(df_d[c]) else "")
+            for c in df_d.columns
+        }
         cn2 = df_d.columns[1] if len(df_d.columns) > 1 else df_d.columns[0]
         tr[cn2] = "TOTAL GERAL"
         for c in [ce, cn, cp, cb, ct, cpr, "Técnicos"]:
@@ -856,89 +992,183 @@ def render_dataframe(
     data = pd.Timestamp.now().strftime("%d/%m/%Y")
     header_html = (
         f'<div style="background:{COR_PRIMARIA};padding:16px 24px;border-radius:12px 12px 0 0;'
-        f'color:#F9FAFB;margin-bottom:0;border-bottom:2px solid {COR_SECUNDARIA};'
+        f"color:#F9FAFB;margin-bottom:0;border-bottom:2px solid {COR_SECUNDARIA};"
         f'font-family:{FONTE_TITULO};">'
         f'<span style="font-weight:700;font-size:0.85rem;letter-spacing:1.2px;">'
-        f'{icone}  {titulo.upper()} — {data}</span></div>'
+        f"{icone}  {titulo.upper()} — {data}</span></div>"
     )
     st.markdown(header_html, unsafe_allow_html=True)
 
     sty = df_d.style
 
     def fp(v):
-        if v == "" or v is None or pd.isna(v): return ""
-        try: return f"{float(v)*100:.1f}%".replace(".", ",")
-        except (ValueError, TypeError): return str(v)
+        if v == "" or v is None or pd.isna(v):
+            return ""
+        try:
+            return f"{float(v)*100:.1f}%".replace(".", ",")
+        except (ValueError, TypeError):
+            return str(v)
 
     def fi(v):
-        if v == "" or v is None or pd.isna(v): return ""
-        try: return f"{int(v):,}".replace(",", ".")
-        except (ValueError, TypeError): return str(v)
+        if v == "" or v is None or pd.isna(v):
+            return ""
+        try:
+            return f"{int(v):,}".replace(",", ".")
+        except (ValueError, TypeError):
+            return str(v)
 
     def fd(v):
-        if v == "" or v is None or pd.isna(v): return ""
-        try: return f"{float(v):.1f}".replace(".", ",")
-        except (ValueError, TypeError): return str(v)
+        if v == "" or v is None or pd.isna(v):
+            return ""
+        try:
+            return f"{float(v):.1f}".replace(".", ",")
+        except (ValueError, TypeError):
+            return str(v)
 
     fm: Dict[str, Any] = {}
-    if cta in df_d.columns: fm[cta] = fp
-    if cq in df_d.columns: fm[cq] = fp
+    if cta in df_d.columns:
+        fm[cta] = fp
+    if cq in df_d.columns:
+        fm[cq] = fp
     for c in [ce, cn, cp, cb, ct, cpr, "Técnicos"]:
-        if c in df_d.columns: fm[c] = fi
+        if c in df_d.columns:
+            fm[c] = fi
     for c in ["OS/Técnico", "Exec/Técnico"]:
-        if c in df_d.columns: fm[c] = fd
+        if c in df_d.columns:
+            fm[c] = fd
     if fm:
         sty = sty.format(fm)
 
     if cta in df_d.columns:
+
         def _ct(v):
-            if v == "" or pd.isna(v): return ""
+            if v == "" or pd.isna(v):
+                return ""
             try:
                 vv = float(v)
                 p = ranking.get(vv, 0.5)
-                if p <= 0.2: bg, fg = "#D1FAE5", "#047857"
-                elif p <= 0.4: bg, fg = "#ECFDF5", "#059669"
-                elif p <= 0.6: bg, fg = "#FEF3C7", "#B45309"
-                elif p <= 0.8: bg, fg = "#FFEDD5", "#C2410C"
-                else: bg, fg = "#FEE2E2", "#B91C1C"
+                if p <= 0.2:
+                    bg, fg = "#D1FAE5", "#047857"
+                elif p <= 0.4:
+                    bg, fg = "#ECFDF5", "#059669"
+                elif p <= 0.6:
+                    bg, fg = "#FEF3C7", "#B45309"
+                elif p <= 0.8:
+                    bg, fg = "#FFEDD5", "#C2410C"
+                else:
+                    bg, fg = "#FEE2E2", "#B91C1C"
                 return f"background-color:{bg};color:{fg};font-weight:700;text-align:center;"
-            except (ValueError, TypeError): return ""
+            except (ValueError, TypeError):
+                return ""
+
         sty = sty.map(_ct, subset=[cta])
 
     if cq in df_d.columns:
+
         def _cq(v):
-            if v == "" or pd.isna(v): return ""
+            if v == "" or pd.isna(v):
+                return ""
             try:
                 vv = float(v)
-                if vv >= 0.25: return "color:#B91C1C;font-weight:600;"
-                elif vv >= 0.15: return "color:#B45309;font-weight:600;"
+                if vv >= 0.25:
+                    return "color:#B91C1C;font-weight:600;"
+                elif vv >= 0.15:
+                    return "color:#B45309;font-weight:600;"
                 return "color:#047857;font-weight:600;"
-            except (ValueError, TypeError): return ""
+            except (ValueError, TypeError):
+                return ""
+
         sty = sty.map(_cq, subset=[cq])
 
     if ce in df_d.columns:
-        sty = sty.set_properties(**{"background-color": "#FEF9C3", "color": "#854D0E", "font-weight": "700"}, subset=[ce])
+        sty = sty.set_properties(
+            **{"background-color": "#FEF9C3", "color": "#854D0E", "font-weight": "700"},
+            subset=[ce],
+        )
     if ct in df_d.columns:
-        sty = sty.set_properties(**{"background-color": "#D1FAE5", "color": "#065F46", "font-weight": "700"}, subset=[ct])
+        sty = sty.set_properties(
+            **{"background-color": "#D1FAE5", "color": "#065F46", "font-weight": "700"},
+            subset=[ct],
+        )
     if cpr in df_d.columns:
-        # AQUI: Alterado de "background" para "background-color"
-        sty = sty.set_properties(**{"background-color": "#1E293B", "color": "#FFFFFF", "font-weight": "800"}, subset=[cpr])
-        
+        sty = sty.set_properties(
+            **{"background-color": "#1E293B", "color": "#FFFFFF", "font-weight": "800"},
+            subset=[cpr],
+        )
+
     def _et(row):
         for v in row:
             if isinstance(v, str) and "TOTAL GERAL" in str(v).upper():
-                return ["background-color:#E2E8F0;font-weight:800;color:#0F172A;border-top:2px solid #64748B;"] * len(row)
+                return [
+                    "background-color:#E2E8F0;font-weight:800;color:#0F172A;border-top:2px solid #64748B;"
+                ] * len(row)
         return [""] * len(row)
+
     sty = sty.apply(_et, axis=1)
 
-    sty = sty.set_table_styles([
-        {"selector": "thead th", "props": [("background-color", COR_PRIMARIA), ("color", "#F1F5F9"), ("font-weight", "600"), ("text-align", "center"), ("padding", "13px 12px"), ("border", "none"), ("font-size", "0.72rem"), ("text-transform", "uppercase"), ("letter-spacing", "1px"), ("font-family", FONTE_TITULO)]},
-        {"selector": "tbody td", "props": [("padding", "12px 15px"), ("border-bottom", "1px solid #F1F5F9"), ("font-size", "0.85rem"), ("text-align", "center"), ("color", "#334155"), ("font-variant-numeric", "tabular-nums"), ("font-family", FONTE_TEXTO)]},
-        {"selector": "tbody td:nth-child(1)", "props": [("text-align", "left"), ("font-weight", "600"), ("color", "#475569"), ("padding-left", "18px")]},
-        {"selector": "tbody td:nth-child(2)", "props": [("text-align", "left"), ("font-weight", "600"), ("color", "#0F172A"), ("padding-left", "15px")]},
-        {"selector": "tbody tr:nth-child(even) td", "props": [("background-color", "#FAFBFC")]},
-        {"selector": "", "props": [("border-radius", "0 0 12px 12px"), ("overflow", "hidden"), ("box-shadow", "0 4px 16px rgba(15,23,42,0.1)"), ("border", "1px solid #E2E8F0"), ("border-top", "none")]},
-    ])
+    sty = sty.set_table_styles(
+        [
+            {
+                "selector": "thead th",
+                "props": [
+                    ("background-color", COR_PRIMARIA),
+                    ("color", "#F1F5F9"),
+                    ("font-weight", "600"),
+                    ("text-align", "center"),
+                    ("padding", "13px 12px"),
+                    ("border", "none"),
+                    ("font-size", "0.72rem"),
+                    ("text-transform", "uppercase"),
+                    ("letter-spacing", "1px"),
+                    ("font-family", FONTE_TITULO),
+                ],
+            },
+            {
+                "selector": "tbody td",
+                "props": [
+                    ("padding", "12px 15px"),
+                    ("border-bottom", "1px solid #F1F5F9"),
+                    ("font-size", "0.85rem"),
+                    ("text-align", "center"),
+                    ("color", "#334155"),
+                    ("font-variant-numeric", "tabular-nums"),
+                    ("font-family", FONTE_TEXTO),
+                ],
+            },
+            {
+                "selector": "tbody td:nth-child(1)",
+                "props": [
+                    ("text-align", "left"),
+                    ("font-weight", "600"),
+                    ("color", "#475569"),
+                    ("padding-left", "18px"),
+                ],
+            },
+            {
+                "selector": "tbody td:nth-child(2)",
+                "props": [
+                    ("text-align", "left"),
+                    ("font-weight", "600"),
+                    ("color", "#0F172A"),
+                    ("padding-left", "15px"),
+                ],
+            },
+            {
+                "selector": "tbody tr:nth-child(even) td",
+                "props": [("background-color", "#FAFBFC")],
+            },
+            {
+                "selector": "",
+                "props": [
+                    ("border-radius", "0 0 12px 12px"),
+                    ("overflow", "hidden"),
+                    ("box-shadow", "0 4px 16px rgba(15,23,42,0.1)"),
+                    ("border", "1px solid #E2E8F0"),
+                    ("border-top", "none"),
+                ],
+            },
+        ]
+    )
 
     st.dataframe(sty, use_container_width=True, hide_index=True, height=height)
 
@@ -950,7 +1180,7 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     render_section_header(
         titulo="Detalhamento por Técnico",
         subtitulo="Comparativo entre técnicos escalados na base e o total fixo digitado.",
-        icone="🧑‍🔧",
+        icone="‍🔧",
         badge="Detalhamento",
         badge_tipo="azul",
     )
@@ -962,22 +1192,29 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     nm = total_montados_fixo
     dif = max(0, nm - ne)
 
-    a1, a2 = st.tabs(["🟢 Escalados — Base Importada", "🟡 Montados — Valor Fixo"])
+    a1, a2 = st.tabs([" Escalados — Base Importada", " Montados — Valor Fixo"])
 
     with a1:
         st.markdown(
-            '<div class="visao-badge badge-escalados">🟢 Visão 1 · Escalados · Fonte: Base Importada</div>'
+            '<div class="visao-badge badge-escalados"> Visão 1 · Escalados · Fonte: Base Importada</div>'
             '<p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">'
-            'Técnicos com ao menos <strong>1 O.S. alocada</strong> na base importada.</p>',
+            "Técnicos com ao menos <strong>1 O.S. alocada</strong> na base importada.</p>",
             unsafe_allow_html=True,
         )
         if df_esc.empty:
             render_insight("Nenhum técnico escalado encontrado.", "alerta")
         else:
-            render_dataframe(df_esc, titulo=f"Técnicos Escalados ({ne})", icone="🟢", height=520)
+            render_dataframe(
+                df_esc, titulo=f"Técnicos Escalados ({ne})", icone="🟢", height=520
+            )
             c1, _ = st.columns([1, 5])
             with c1:
-                st.download_button("📥 Baixar Escalados", gerar_excel(df_esc, "Escalados"), "tecnicos_escalados.xlsx", use_container_width=True)
+                st.download_button(
+                    "📥 Baixar Escalados",
+                    gerar_excel(df_esc, "Escalados"),
+                    "tecnicos_escalados.xlsx",
+                    use_container_width=True,
+                )
             with st.expander("📊 Resumo por Monitor — Escalados"):
                 r = _resumo_por_monitor(df_esc, ct)
                 if not r.empty:
@@ -987,17 +1224,27 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
         st.markdown(
             f'<div class="visao-badge badge-montados">🟡 Visão 2 · Montados · Fixo: {nm}</div>'
             f'<p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">'
-            f'Todos os técnicos da base. Diferença de <strong>{dif}</strong> indica montados sem rota.</p>',
+            f"Todos os técnicos da base. Diferença de <strong>{dif}</strong> indica montados sem rota.</p>",
             unsafe_allow_html=True,
         )
         if df_mon.empty:
             render_insight("Nenhum técnico encontrado.", "alerta")
         else:
             nb = df_mon[ct].nunique() if ct in df_mon.columns else 0
-            render_dataframe(df_mon, titulo=f"Técnicos Montados (fixo: {nm} | base: {nb})", icone="🟡", height=520)
+            render_dataframe(
+                df_mon,
+                titulo=f"Técnicos Montados (fixo: {nm} | base: {nb})",
+                icone="🟡",
+                height=520,
+            )
             c3, _ = st.columns([1, 5])
             with c3:
-                st.download_button("📥 Baixar Montados", gerar_excel(df_mon, "Montados"), "tecnicos_montados.xlsx", use_container_width=True)
+                st.download_button(
+                    "📥 Baixar Montados",
+                    gerar_excel(df_mon, "Montados"),
+                    "tecnicos_montados.xlsx",
+                    use_container_width=True,
+                )
             with st.expander("📊 Resumo por Monitor — Montados"):
                 r = _resumo_por_monitor(df_mon, ct)
                 if not r.empty:
@@ -1009,14 +1256,24 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
 # ==========================================================
 def plot_status_pie(df):
     res = df.groupby(Config.COL_STATUS)[Config.COL_TOTAL].sum()
-    fig = go.Figure(data=[go.Pie(
-        labels=res.index, values=res.values, hole=0.5,
-        marker=dict(colors=[Config.CORES_STATUS.get(s) for s in res.index]),
-        textinfo="label+percent", textfont_size=13,
-    )])
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=res.index,
+                values=res.values,
+                hole=0.5,
+                marker=dict(colors=[Config.CORES_STATUS.get(s) for s in res.index]),
+                textinfo="label+percent",
+                textfont_size=13,
+            )
+        ]
+    )
     fig.update_layout(
-        height=370, margin=dict(t=40, b=10, l=10, r=10),
-        title=dict(text="Distribuição de Status", font=dict(size=15, family=FONTE_TITULO)),
+        height=370,
+        margin=dict(t=40, b=10, l=10, r=10),
+        title=dict(
+            text="Distribuição de Status", font=dict(size=15, family=FONTE_TITULO)
+        ),
         showlegend=False,
     )
     return fig
@@ -1025,19 +1282,29 @@ def plot_status_pie(df):
 def plot_ranking_monitor(df):
     tab = calcular_volumetria(df, [Config.COL_MONITOR]).nlargest(15, "Total Alocado")
     fig = px.bar(
-        tab, x="Taxa Execução", y=Config.COL_MONITOR, orientation="h",
-        color="Taxa Execução", color_continuous_scale="RdYlGn",
+        tab,
+        x="Taxa Execução",
+        y=Config.COL_MONITOR,
+        orientation="h",
+        color="Taxa Execução",
+        color_continuous_scale="RdYlGn",
         range_color=[0.4, 0.9],
         text=tab["Taxa Execução"].apply(lambda v: f"{v:.0%}"),
     )
     fig.add_vline(
-        x=Config.META_EXECUCAO, line_dash="dash", line_color=COR_PRIMARIA,
-        annotation_text=f"Meta {Config.META_EXECUCAO:.0%}", annotation_position="top",
+        x=Config.META_EXECUCAO,
+        line_dash="dash",
+        line_color=COR_PRIMARIA,
+        annotation_text=f"Meta {Config.META_EXECUCAO:.0%}",
+        annotation_position="top",
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(
         height=420,
-        title=dict(text="Taxa de Execução por Monitor (Top 15)", font=dict(size=15, family=FONTE_TITULO)),
+        title=dict(
+            text="Taxa de Execução por Monitor (Top 15)",
+            font=dict(size=15, family=FONTE_TITULO),
+        ),
         margin=dict(l=10, r=10, t=50, b=10),
         yaxis=dict(autorange="reversed"),
     )
@@ -1045,16 +1312,34 @@ def plot_ranking_monitor(df):
 
 
 def plot_comparativo(vol_esc, vol_mon):
-    df_p = pd.DataFrame([
-        {"Métrica": "O.S./Téc.", "Visão": "Escalados", "Valor": vol_esc["os_tec"]},
-        {"Métrica": "O.S./Téc.", "Visão": "Montados", "Valor": vol_mon["os_tec"]},
-        {"Métrica": "Exec./Téc.", "Visão": "Escalados", "Valor": vol_esc["exe_tec"]},
-        {"Métrica": "Exec./Téc.", "Visão": "Montados", "Valor": vol_mon["exe_tec"]},
-        {"Métrica": "Projeção/Téc.", "Visão": "Escalados", "Valor": vol_esc["proj_tec"]},
-        {"Métrica": "Projeção/Téc.", "Visão": "Montados", "Valor": vol_mon["proj_tec"]},
-    ])
+    df_p = pd.DataFrame(
+        [
+            {"Métrica": "O.S./Téc.", "Visão": "Escalados", "Valor": vol_esc["os_tec"]},
+            {"Métrica": "O.S./Téc.", "Visão": "Montados", "Valor": vol_mon["os_tec"]},
+            {
+                "Métrica": "Exec./Téc.",
+                "Visão": "Escalados",
+                "Valor": vol_esc["exe_tec"],
+            },
+            {"Métrica": "Exec./Téc.", "Visão": "Montados", "Valor": vol_mon["exe_tec"]},
+            {
+                "Métrica": "Projeção/Téc.",
+                "Visão": "Escalados",
+                "Valor": vol_esc["proj_tec"],
+            },
+            {
+                "Métrica": "Projeção/Téc.",
+                "Visão": "Montados",
+                "Valor": vol_mon["proj_tec"],
+            },
+        ]
+    )
     fig = px.bar(
-        df_p, x="Métrica", y="Valor", color="Visão", barmode="group",
+        df_p,
+        x="Métrica",
+        y="Valor",
+        color="Visão",
+        barmode="group",
         color_discrete_map={"Escalados": "#10B981", "Montados": "#F59E0B"},
         text=df_p["Valor"].apply(lambda v: f"{v:.1f}"),
         title="Produtividade por Técnico — Escalados × Montados",
@@ -1062,25 +1347,34 @@ def plot_comparativo(vol_esc, vol_mon):
     )
     meta = Config.META_EXECUTADAS_TECNICO
     fig.add_hline(
-        y=meta, line_dash="dash", line_width=3, line_color="#DC2626",
-        annotation_text=f"🎯 META: {meta:.1f} Exec./Téc.",
+        y=meta,
+        line_dash="dash",
+        line_width=3,
+        line_color="#DC2626",
+        annotation_text=f" META: {meta:.1f} Exec./Téc.",
         annotation_position="top right",
         annotation_font=dict(size=13, color="#DC2626"),
     )
     fig.add_annotation(
-        x="Projeção/Téc.", y=max(meta, df_p["Valor"].max()) * 1.08,
+        x="Projeção/Téc.",
+        y=max(meta, df_p["Valor"].max()) * 1.08,
         text=(
             f"<b>PROJEÇÃO × META</b><br>"
             f"Escalados: {vol_esc['proj_tec']:.1f} ({vol_esc['projecao_atingimento']:.0%})<br>"
             f"Montados: {vol_mon['proj_tec']:.1f} ({vol_mon['projecao_atingimento']:.0%})"
         ),
-        showarrow=False, xanchor="center", yanchor="bottom",
-        bgcolor="rgba(255,255,255,0.94)", bordercolor="#DC2626", borderwidth=1,
+        showarrow=False,
+        xanchor="center",
+        yanchor="bottom",
+        bgcolor="rgba(255,255,255,0.94)",
+        bordercolor="#DC2626",
+        borderwidth=1,
         font=dict(size=12, color="#0F172A"),
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(
-        height=430, margin=dict(t=70, b=20, l=10, r=10),
+        height=430,
+        margin=dict(t=70, b=20, l=10, r=10),
         yaxis_title="Média / técnico",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
@@ -1101,11 +1395,21 @@ def main():
         subtitulo="Análise executiva de performance e projeções operacionais",
     )
 
+    # Inicialização de estado
     if "base_data" not in st.session_state:
         st.session_state.base_data = None
 
-    # ── SIDEBAR ──────────────────────────────────────────
+    # ── SIDEBAR COM ROBÔ INTEGRADO ──────────────────────────────────────────
     with st.sidebar:
+        # ★ ROBÔ DE MONITORAMENTO AUTOMÁTICO ★
+        renderizar_robo_local(
+            etl_fn=None,  # Processamento é feito internamente
+            pasta_padrao=None,  # Usa Downloads por padrão
+            colunas_esperadas=None,
+        )
+
+        st.divider()
+
         st.header("⚙️ Configurações")
         if st.button("🔄 Reiniciar Painel", use_container_width=True):
             st.session_state.base_data = None
@@ -1118,7 +1422,7 @@ def main():
         st.markdown(
             '<div class="montados-box">'
             '<div class="montados-box-title">🟡 Técnicos Montados</div>'
-            '</div>',
+            "</div>",
             unsafe_allow_html=True,
         )
 
@@ -1126,7 +1430,9 @@ def main():
         if st.session_state.base_data is not None:
             sug = int(st.session_state.base_data[Config.COL_TECNICO].nunique())
 
-        if st.session_state.base_data is not None and not st.session_state.get("_montados_init"):
+        if st.session_state.base_data is not None and not st.session_state.get(
+            "_montados_init"
+        ):
             st.session_state.input_montados = sug
             st.session_state._montados_init = True
         if "input_montados" not in st.session_state:
@@ -1134,7 +1440,9 @@ def main():
 
         total_montados_fixo: int = st.number_input(
             "Nº fixo de técnicos montados",
-            min_value=0, max_value=9999, step=1,
+            min_value=0,
+            max_value=9999,
+            step=1,
             help="Número fixo de técnicos montados na escala do dia.",
             key="input_montados",
         )
@@ -1142,7 +1450,7 @@ def main():
         st.markdown(
             f'<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;'
             f'padding:8px 12px;margin-top:4px;font-size:0.8rem;color:#92400E;font-weight:600;">'
-            f'📋 Montados: <strong>{total_montados_fixo}</strong></div>',
+            f"📋 Montados: <strong>{total_montados_fixo}</strong></div>",
             unsafe_allow_html=True,
         )
         st.divider()
@@ -1153,39 +1461,65 @@ def main():
             st.write(f"🗑️ **Vazios:** {diag.get('Removidos por contrato vazio', 0)}")
             st.write(f"📈 **Processadas:** {diag.get('Final', 0)}")
 
-    # ── UPLOAD ───────────────────────────────────────────
+    # ── CARREGAR DADOS (ROBÔ OU UPLOAD MANUAL) ───────────────────────────────
     if st.session_state.base_data is None:
         render_section_header(
             titulo="Importação de Dados",
-            subtitulo="Envie a base consolidada de O.S. do dia para iniciar a análise.",
-            icone="📁",
-            badge="Excel ou CSV",
+            subtitulo="Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.",
+            icone="",
+            badge="Excel, CSV ou Auto",
             badge_tipo="azul",
         )
-        u = st.file_uploader("Selecione a base (Excel/CSV)", type=["xlsx", "xls", "csv"])
-        if u:
-            try:
-                with st.spinner("Processando..."):
-                    arquivo = DataLoader.ler_arquivo(u.getvalue(), u.name)
-                    if arquivo.empty:
-                        render_insight("O arquivo não possui registros.", "critico")
-                        return
 
-                    st.session_state.base_data = DataLoader.preparar_base(
-                        arquivo,
-                        DataLoader.buscar_hierarquia_gsheets(),
+        # Verifica se o robô já carregou dados
+        df_robo = st.session_state.get("df_memoria")
+
+        if df_robo is not None and not df_robo.empty:
+            st.success("✅ **Dados carregados automaticamente pelo robô!**")
+            if st.button(
+                "🚀 Processar Dados do Robô", use_container_width=True, type="primary"
+            ):
+                try:
+                    with st.spinner("Processando base..."):
+                        st.session_state.base_data = DataLoader.preparar_base(
+                            df_robo,
+                            DataLoader.buscar_hierarquia_gsheets(),
+                        )
+                        st.rerun()
+                except Exception as exc:
+                    render_insight(f"Erro ao processar: {exc}", "critico")
+                    st.exception(exc)
+        else:
+            # Upload manual como fallback
+            u = st.file_uploader(
+                "Ou selecione a base manualmente (Excel/CSV)",
+                type=["xlsx", "xls", "csv"],
+            )
+            if u:
+                try:
+                    with st.spinner("Processando..."):
+                        arquivo = DataLoader.ler_arquivo(u.getvalue(), u.name)
+                        if arquivo.empty:
+                            render_insight("O arquivo não possui registros.", "critico")
+                            return
+
+                        st.session_state.base_data = DataLoader.preparar_base(
+                            arquivo,
+                            DataLoader.buscar_hierarquia_gsheets(),
+                        )
+                        st.rerun()
+                except Exception as exc:
+                    render_insight(
+                        f"Não foi possível processar o arquivo: {exc}", "critico"
                     )
-                    st.rerun()
-            except Exception as exc:
-                render_insight(f"Não foi possível processar o arquivo: {exc}", "critico")
-                st.exception(exc)
+                    st.exception(exc)
         return
 
     df_full = st.session_state.base_data
 
-    # ── FILTROS ──────────────────────────────────────────
+    # ─ FILTROS ──────────────────────────────────────────
     with st.sidebar:
-        st.header("🎯 Filtros")
+        st.header(" Filtros")
         mons = sorted(df_full[Config.COL_MONITOR].dropna().astype(str).unique())
         sel_m = st.multiselect("Monitor", mons, default=mons)
         regs = sorted(df_full[Config.COL_REGIAO].dropna().astype(str).unique())
@@ -1224,18 +1558,45 @@ def main():
     kpis = calcular_kpis(df)
 
     c1, c2, c3, c4 = st.columns(4)
-    render_kpi_corp(c1, "Total Alocado", f"{kpis['total']:,}", f"{kpis['pendentes']:,} pendentes", "azul")
-    render_kpi_corp(c2, "Executadas", f"{kpis['executadas']:,}", f"Taxa: {kpis['taxa']:.1%}", "verde")
-    render_kpi_corp(c3, "Projeção Final", f"{kpis['projecao']:,}", "Baseado na taxa atual", "cinza")
-    render_kpi_corp(c4, "Meta", f"{Config.META_EXECUCAO:.0%}", "Referência corporativa", "laranja")
+    render_kpi_corp(
+        c1,
+        "Total Alocado",
+        f"{kpis['total']:,}",
+        f"{kpis['pendentes']:,} pendentes",
+        "azul",
+    )
+    render_kpi_corp(
+        c2,
+        "Executadas",
+        f"{kpis['executadas']:,}",
+        f"Taxa: {kpis['taxa']:.1%}",
+        "verde",
+    )
+    render_kpi_corp(
+        c3, "Projeção Final", f"{kpis['projecao']:,}", "Baseado na taxa atual", "cinza"
+    )
+    render_kpi_corp(
+        c4, "Meta", f"{Config.META_EXECUCAO:.0%}", "Referência corporativa", "laranja"
+    )
 
     # KPIs secundários compactos
     st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
     s1, s2, s3 = st.columns(3)
-    render_kpi_sm(s1, "Não Executadas", f"{kpis['nao_executadas']:,}", f"Quebra: {kpis['quebra']:.1%}", "vermelho")
+    render_kpi_sm(
+        s1,
+        "Não Executadas",
+        f"{kpis['nao_executadas']:,}",
+        f"Quebra: {kpis['quebra']:.1%}",
+        "vermelho",
+    )
     render_kpi_sm(s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul")
-    render_kpi_sm(s3, "Pendentes", f"{kpis['pendentes']:,}",
-                  f"{kpis['pendentes']/kpis['total']:.1%} do total" if kpis["total"] else "0%", "cinza")
+    render_kpi_sm(
+        s3,
+        "Pendentes",
+        f"{kpis['pendentes']:,}",
+        f"{kpis['pendentes']/kpis['total']:.1%} do total" if kpis["total"] else "0%",
+        "cinza",
+    )
 
     # ==========================================================
     # ★ CARDS DE TÉCNICOS ★
@@ -1256,14 +1617,24 @@ def main():
 
     p1, p2 = st.columns(2)
     render_card_tecnicos(
-        p1, titulo="Técnicos Escalados", tag="Painel 1 · Importação",
+        p1,
+        titulo="Técnicos Escalados",
+        tag="Painel 1 · Importação",
         fonte="Base importada (técnicos com ≥ 1 O.S.)",
-        n_tecnicos=n_escalados, vol=vol_esc, kpis=kpis, variante="escalados",
+        n_tecnicos=n_escalados,
+        vol=vol_esc,
+        kpis=kpis,
+        variante="escalados",
     )
     render_card_tecnicos(
-        p2, titulo="Técnicos Montados", tag="Painel 2 · Valor Fixo",
+        p2,
+        titulo="Técnicos Montados",
+        tag="Painel 2 · Valor Fixo",
         fonte="Número digitado no painel lateral",
-        n_tecnicos=n_montados, vol=vol_mon, kpis=kpis, variante="montados",
+        n_tecnicos=n_montados,
+        vol=vol_mon,
+        kpis=kpis,
+        variante="montados",
     )
 
     render_faixa_diferenca(n_escalados, n_montados, vol_esc, vol_mon)
@@ -1274,52 +1645,132 @@ def main():
     render_section_header(
         titulo="Médias por Técnico — Escalados × Montados",
         subtitulo="Produtividade média em cada visão. Verde = Escalados; Amarelo = Montados.",
-        icone="📊",
+        icone="",
         badge="Produtividade",
         badge_tipo="verde",
     )
 
     m1, m2, m3, m4 = st.columns(4)
-    render_kpi_sm(m1, "OS / Escalado", _fmt_br(vol_esc["os_tec"]), f"{n_escalados:,} escalados", "verde")
-    render_kpi_sm(m2, "OS / Montado", _fmt_br(vol_mon["os_tec"]), f"{n_montados:,} montados", "laranja")
-    render_kpi_sm(m3, "Exec / Escalado", _fmt_br(vol_esc["exe_tec"]), f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "verde")
-    render_kpi_sm(m4, "Exec / Montado", _fmt_br(vol_mon["exe_tec"]), f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}", "laranja")
+    render_kpi_sm(
+        m1,
+        "OS / Escalado",
+        _fmt_br(vol_esc["os_tec"]),
+        f"{n_escalados:,} escalados",
+        "verde",
+    )
+    render_kpi_sm(
+        m2,
+        "OS / Montado",
+        _fmt_br(vol_mon["os_tec"]),
+        f"{n_montados:,} montados",
+        "laranja",
+    )
+    render_kpi_sm(
+        m3,
+        "Exec / Escalado",
+        _fmt_br(vol_esc["exe_tec"]),
+        f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}",
+        "verde",
+    )
+    render_kpi_sm(
+        m4,
+        "Exec / Montado",
+        _fmt_br(vol_mon["exe_tec"]),
+        f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}",
+        "laranja",
+    )
 
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
     m5, m6, m7, m8 = st.columns(4)
-    render_kpi_sm(m5, "Pend / Escalado", _fmt_br(vol_esc["pen_tec"]), "Média de pendências", "azul")
-    render_kpi_sm(m6, "Pend / Montado", _fmt_br(vol_mon["pen_tec"]), "Média de pendências", "cinza")
-    render_kpi_sm(m7, "Proj / Escalado", _fmt_br(vol_esc["proj_tec"]), "Projeção média final", "azul")
-    render_kpi_sm(m8, "Proj / Montado", _fmt_br(vol_mon["proj_tec"]), "Projeção média final", "cinza")
+    render_kpi_sm(
+        m5,
+        "Pend / Escalado",
+        _fmt_br(vol_esc["pen_tec"]),
+        "Média de pendências",
+        "azul",
+    )
+    render_kpi_sm(
+        m6,
+        "Pend / Montado",
+        _fmt_br(vol_mon["pen_tec"]),
+        "Média de pendências",
+        "cinza",
+    )
+    render_kpi_sm(
+        m7,
+        "Proj / Escalado",
+        _fmt_br(vol_esc["proj_tec"]),
+        "Projeção média final",
+        "azul",
+    )
+    render_kpi_sm(
+        m8,
+        "Proj / Montado",
+        _fmt_br(vol_mon["proj_tec"]),
+        "Projeção média final",
+        "cinza",
+    )
 
     # Tabela comparativa
-    medias = pd.DataFrame({
-        "Indicador": [
-            "Técnicos", "OS / Técnico", "Executadas / Técnico",
-            "Não Executadas / Técnico", "Pendentes / Técnico",
-            "Baixadas / Técnico", "Projeção / Técnico",
-            "Atingimento da Meta (Exec.)", "Projeção × Meta",
-        ],
-        "Escalados": [
-            n_escalados, vol_esc["os_tec"], vol_esc["exe_tec"],
-            vol_esc["nex_tec"], vol_esc["pen_tec"], vol_esc["bai_tec"],
-            vol_esc["proj_tec"], vol_esc["atingimento"], vol_esc["projecao_atingimento"],
-        ],
-        "Montados": [
-            n_montados, vol_mon["os_tec"], vol_mon["exe_tec"],
-            vol_mon["nex_tec"], vol_mon["pen_tec"], vol_mon["bai_tec"],
-            vol_mon["proj_tec"], vol_mon["atingimento"], vol_mon["projecao_atingimento"],
-        ],
-    })
-    medias["Diferença (Montados - Escalados)"] = medias["Montados"] - medias["Escalados"]
+    medias = pd.DataFrame(
+        {
+            "Indicador": [
+                "Técnicos",
+                "OS / Técnico",
+                "Executadas / Técnico",
+                "Não Executadas / Técnico",
+                "Pendentes / Técnico",
+                "Baixadas / Técnico",
+                "Projeção / Técnico",
+                "Atingimento da Meta (Exec.)",
+                "Projeção × Meta",
+            ],
+            "Escalados": [
+                n_escalados,
+                vol_esc["os_tec"],
+                vol_esc["exe_tec"],
+                vol_esc["nex_tec"],
+                vol_esc["pen_tec"],
+                vol_esc["bai_tec"],
+                vol_esc["proj_tec"],
+                vol_esc["atingimento"],
+                vol_esc["projecao_atingimento"],
+            ],
+            "Montados": [
+                n_montados,
+                vol_mon["os_tec"],
+                vol_mon["exe_tec"],
+                vol_mon["nex_tec"],
+                vol_mon["pen_tec"],
+                vol_mon["bai_tec"],
+                vol_mon["proj_tec"],
+                vol_mon["atingimento"],
+                vol_mon["projecao_atingimento"],
+            ],
+        }
+    )
+    medias["Diferença (Montados - Escalados)"] = (
+        medias["Montados"] - medias["Escalados"]
+    )
 
     st.dataframe(
-        medias.style.format({
-            "Escalados": lambda x: f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            "Montados": lambda x: f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            "Diferença (Montados - Escalados)": lambda x: f"{x:+,.1f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        }),
-        use_container_width=True, hide_index=True,
+        medias.style.format(
+            {
+                "Escalados": lambda x: f"{x:,.1f}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", "."),
+                "Montados": lambda x: f"{x:,.1f}".replace(",", "X")
+                .replace(".", ",")
+                .replace("X", "."),
+                "Diferença (Montados - Escalados)": lambda x: f"{x:+,.1f}".replace(
+                    ",", "X"
+                )
+                .replace(".", ",")
+                .replace("X", "."),
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
     )
 
     st.plotly_chart(plot_comparativo(vol_esc, vol_mon), use_container_width=True)
@@ -1340,18 +1791,27 @@ def main():
     render_section_header(
         titulo="Análises Detalhadas",
         subtitulo="Explore os dados agrupados por equipe, técnico ou monitor individualmente.",
-        icone="🔎",
+        icone="",
         badge="Detalhamento",
         badge_tipo="laranja",
     )
 
-    t1, t2, t3, t4 = st.tabs(["👥 Equipes", "🧑‍🔧 Técnicos", "🔍 Detalhe Monitor", "📋 Base"])
+    t1, t2, t3, t4 = st.tabs(
+        ["👥 Equipes", "🧑‍🔧 Técnicos", "🔍 Detalhe Monitor", " Base"]
+    )
 
     with t1:
         te = calcular_volumetria(df, [Config.COL_REGIAO, Config.COL_MONITOR])
-        render_dataframe(te, titulo="Volumetria por Equipe", icone="👥",
-                        color_col="Taxa Execução", color_meta=Config.META_EXECUCAO)
-        st.download_button("📥 Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx")
+        render_dataframe(
+            te,
+            titulo="Volumetria por Equipe",
+            icone="👥",
+            color_col="Taxa Execução",
+            color_meta=Config.META_EXECUCAO,
+        )
+        st.download_button(
+            " Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx"
+        )
 
     with t2:
         renderizar_volumetria_tecnicos(df, total_montados_fixo)
@@ -1359,15 +1819,30 @@ def main():
     with t3:
         md = st.selectbox("Monitor", sel_m, key="monitor_detalhe")
         tt = calcular_volumetria(df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO])
-        tt = tt.sort_values(["Executada", "Taxa Execução", "Total Alocado"],
-                           ascending=[False, False, False]).reset_index(drop=True)
-        render_dataframe(tt, titulo=f"Técnicos — {md}", icone="🧑‍🔧",
-                        color_col="Taxa Execução", color_meta=Config.META_EXECUCAO, height=500)
-        st.download_button("📥 Baixar Técnicos", gerar_excel(tt, "Tecnicos"), f"tecnicos_{md}.xlsx")
+        tt = tt.sort_values(
+            ["Executada", "Taxa Execução", "Total Alocado"],
+            ascending=[False, False, False],
+        ).reset_index(drop=True)
+        render_dataframe(
+            tt,
+            titulo=f"Técnicos — {md}",
+            icone="🧑‍",
+            color_col="Taxa Execução",
+            color_meta=Config.META_EXECUCAO,
+            height=500,
+        )
+        st.download_button(
+            "📥 Baixar Técnicos", gerar_excel(tt, "Tecnicos"), f"tecnicos_{md}.xlsx"
+        )
 
     with t4:
-        render_dataframe(df.head(500), titulo="Base de Dados (prévia — 500 linhas)",
-                        icone="📋", badge=f"{len(df)} total", height=600)
+        render_dataframe(
+            df.head(500),
+            titulo="Base de Dados (prévia — 500 linhas)",
+            icone="",
+            badge=f"{len(df)} total",
+            height=600,
+        )
 
 
 if __name__ == "__main__":
