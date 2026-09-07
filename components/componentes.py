@@ -6,22 +6,7 @@ visualizações gráficas padronizadas e Design System do Sidebar TOTALE.
 
 Uso em qualquer página:
     from componentes import (
-        aplicar_estilo,
-        # Sidebar
-        aplicar_sidebar_corp,
-        render_sidebar_info, render_sidebar_section,
-        render_sidebar_status, render_sidebar_footer_info,
-        render_sidebar_divider, render_sidebar_spacer,
-        # UI
-        render_kpi, render_kpi_sm, render_metric_delta,
-        render_insight, render_status_pill, render_empty_state,
-        render_section_header, render_divider, render_progress_bar,
-        render_sidebar_brand, render_table_html,
-        # Gráficos e Heros
-        render_grafico_linhas, render_grafico_barras,
-        render_grafico_rosca, render_grafico_gauge, render_grafico_funnel,
-        render_hero_totale_1, render_hero_totale_2,
-        render_hero_migracao, render_hero_pme
+        aplicar_estilo, aplicar_sidebar_corp, render_kpi, render_table_html, ...
     )
     aplicar_estilo()
 """
@@ -30,9 +15,11 @@ from __future__ import annotations
 
 import logging
 import re
+import textwrap
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
+from html import escape
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -50,6 +37,17 @@ TipoInsight = Literal["ok", "info", "alerta", "critico", "acao"]
 TipoBadge = Literal["laranja", "azul", "verde", "vermelho", "cinza", "roxo"]
 TipoStatus = Literal["ativo", "inativo", "pendente", "sucesso", "erro"]
 TendenciaDelta = Literal["up", "down", "flat"]
+TipoTemaBrand = Literal["gradiente", "clean", "minimalista"]
+TipoAmbiente = Literal[
+    "produção",
+    "homologação",
+    "desenvolvimento",
+    "producao",
+    "homologacao",
+    "prod",
+    "homo",
+    "dev",
+]
 
 CellFormatter = Union[str, Callable[[Any], str]]
 FmtDict = Dict[str, Union[CellFormatter, None]]
@@ -57,7 +55,6 @@ FmtDict = Dict[str, Union[CellFormatter, None]]
 ColorRule = Tuple[Callable[[Any], bool], str]
 ColorMapDict = Dict[str, List[ColorRule]]
 
-# Configuração de cores condicionais para tabelas
 CondicaoCoresConfig = Dict[str, Any]
 LinhaDestaqueConfig = Dict[str, Any]
 
@@ -95,16 +92,16 @@ COR_BORDA = "#E2E8F0"
 COR_FUNDO = "#F8FAFC"
 COR_FUNDO_2 = "#F1F5F9"
 
-# ─ Sidebar (tema claro, conforme imagem de referência) ──────────────────
-SB_FUNDO = "#EEF2F7"  # Fundo geral da sidebar (cinza-azulado claro)
-SB_FUNDO_LINK = "#FFFFFF"  # Fundo dos botões de navegação
+# ─ Sidebar
+SB_FUNDO = "#EEF2F7"
+SB_FUNDO_LINK = "#FFFFFF"
 SB_FUNDO_LINK_HOVER = "#F8FAFC"
-SB_FUNDO_ATIVO = "#FFF7ED"  # Bege/laranja bem claro para item ativo
-SB_BORDA_ATIVA = "#F37C04"  # Borda laranja à esquerda do ativo
-SB_TITULO_SECAO = "#012869"  # Azul corporativo para títulos de seção
-SB_TEXTO_LINK = "#1F2937"  # Texto escuro dos links
-SB_TEXTO_MUTED = "#64748B"  # Cinza para labels secundários
-SB_BORDA_SUTIL = "#D9E0E9"  # Linhas divisórias discretas
+SB_FUNDO_ATIVO = "#FFF7ED"
+SB_BORDA_ATIVA = "#F37C04"
+SB_TITULO_SECAO = "#012869"
+SB_TEXTO_LINK = "#1F2937"
+SB_TEXTO_MUTED = "#64748B"
+SB_BORDA_SUTIL = "#D9E0E9"
 
 _TEMA_CORES: Dict[str, str] = {
     "azul": COR_PRIMARIA,
@@ -204,8 +201,8 @@ def _configurar_plotly_global() -> None:
 def _injetar_fontes_no_head_pai() -> None:
     """Injeta as fontes Google no <head> pai com preconnect e retry."""
     urls_js = ", ".join(f'"{u}"' for u in _GOOGLE_FONTS_URLS)
-    components.html(
-        f"""<script>
+    js = textwrap.dedent(f"""
+        <script>
         (function () {{
             let d;
             try {{ d = window.parent.document; }} catch (e) {{ return; }}
@@ -221,9 +218,9 @@ def _injetar_fontes_no_head_pai() -> None:
             add('preconnect', 'https://fonts.gstatic.com', true);
             [{urls_js}].forEach(u => add('stylesheet', u, false));
         }})();
-        </script>""",
-        height=0,
-    )
+        </script>
+    """)
+    components.html(js, height=0)
 
 
 @st.cache_data
@@ -233,788 +230,91 @@ def _get_global_css() -> str:
         f'<link rel="stylesheet" href="{url}">' for url in _GOOGLE_FONTS_URLS
     )
 
-    return f"""{links_html}
-    <style>
-    /* ═══ DUPLA GARANTIA DE FONTES E MATERIAL ICONS ══ */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
-    @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+    css = textwrap.dedent(f"""
+        {links_html}
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
+        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+        @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
-    /* ═══ VARIÁVEIS CSS ═══ */
-    :root {{
-        --font-titulo: {FONTE_TITULO};
-        --font-texto: {FONTE_TEXTO};
-        --font-codigo: {FONTE_CODIGO};
-        --cor-primaria: {COR_PRIMARIA};
-        --cor-secundaria: {COR_SECUNDARIA};
-        --cor-sucesso: {COR_SUCESSO};
-        --cor-alerta: {COR_ALERTA};
-        --cor-borda: {COR_BORDA};
-        --cor-fundo: {COR_FUNDO};
-        --radius-sm: 6px;
-        --radius-md: 8px;
-        --radius-lg: 12px;
-        --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-        --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-        --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
-    }}
+        :root {{
+            --font-titulo: {FONTE_TITULO};
+            --font-texto: {FONTE_TEXTO};
+            --font-codigo: {FONTE_CODIGO};
+            --cor-primaria: {COR_PRIMARIA};
+            --cor-secundaria: {COR_SECUNDARIA};
+            --cor-sucesso: {COR_SUCESSO};
+            --cor-alerta: {COR_ALERTA};
+            --cor-borda: {COR_BORDA};
+            --cor-fundo: {COR_FUNDO};
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+        }}
 
-    /* ═══ TIPOGRAFIA BASE ═══ */
-    html, body, p, label, li, a, button, input, select, textarea, [class*="st-"] {{
-        font-family: var(--font-texto) !important;
-    }}
-    h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, [data-testid="stMetricValue"] {{
-        font-family: var(--font-titulo) !important;
-        font-weight: 700;
-        letter-spacing: -0.3px;
-    }}
-    code, pre, kbd, samp {{
-        font-family: var(--font-codigo) !important;
-    }}
+        html, body, p, label, li, a, button, input, select, textarea, [class*="st-"] {{ font-family: var(--font-texto) !important; }}
+        h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, [data-testid="stMetricValue"] {{ font-family: var(--font-titulo) !important; font-weight: 700; letter-spacing: -0.3px; }}
+        code, pre, kbd, samp {{ font-family: var(--font-codigo) !important; }}
 
-    /* ═══ ÍCONES MATERIAL ══ */
-    [data-testid="stIconMaterial"],
-    .material-icons,
-    .material-symbols-rounded,
-    .material-symbols-outlined {{
-        font-family: "Material Symbols Rounded", "Material Icons" !important;
-        font-weight: normal !important;
-        font-style: normal !important;
-        font-size: 20px !important;
-        line-height: 1 !important;
-        letter-spacing: normal !important;
-        text-transform: none !important;
-        white-space: nowrap !important;
-        font-feature-settings: "liga" 1 !important;
-        font-variant-ligatures: normal !important;
-        -webkit-font-smoothing: antialiased !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        overflow: hidden !important;
-    }}
+        /* Icones */
+        [data-testid="stIconMaterial"], .material-icons, .material-symbols-rounded, .material-symbols-outlined {{
+            font-family: "Material Symbols Rounded", "Material Icons" !important;
+            font-weight: normal !important; font-style: normal !important; font-size: 20px !important;
+            line-height: 1 !important; text-transform: none !important; white-space: nowrap !important;
+            font-feature-settings: "liga" 1 !important; -webkit-font-smoothing: antialiased !important;
+            display: inline-flex !important; align-items: center !important; justify-content: center !important;
+        }}
 
-    /* ═══ LAYOUT CORE ═══ */
-    .main .block-container {{
-        padding-top: 1rem;
-        max-width: 1400px;
-    }}
+        .main .block-container {{ padding-top: 1rem; max-width: 1400px; }}
 
-    /* ═══════════════════════════════════════════════════
-       SIDEBAR — TEMA CLARO CORPORATIVO (TOTALE)
-       ═══════════════════════════════════════════════════ */
-    section[data-testid="stSidebar"] {{
-        background-color: {SB_FUNDO} !important;
-        border-right: 1px solid {SB_BORDA_SUTIL} !important;
-        box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
-    }}
+        /* Sidebar Base */
+        section[data-testid="stSidebar"] {{
+            background-color: {SB_FUNDO} !important; border-right: 1px solid {SB_BORDA_SUTIL} !important;
+            box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
+        }}
+        section[data-testid="stSidebar"] > div:first-child, section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{ background: transparent !important; }}
+        
+        /* Scrollbar */
+        section[data-testid="stSidebar"] ::-webkit-scrollbar {{ width: 5px !important; background: transparent !important; }}
+        section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ background: {SB_BORDA_SUTIL} !important; border-radius: 20px !important; }}
+        section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ background: {SB_TEXTO_MUTED} !important; }}
 
-    section[data-testid="stSidebar"] > div:first-child,
-    section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{
-        background: transparent !important;
-    }}
+        /* Menu */
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
+            background-color: {SB_FUNDO_LINK} !important; border: 1px solid {SB_BORDA_SUTIL} !important;
+            border-left: 3px solid transparent !important; border-radius: 6px !important; margin: 3px 10px !important;
+            padding: 8px 12px !important; box-shadow: 0 1px 2px rgba(1, 40, 105, 0.04) !important;
+            transition: all 0.18s ease !important; display: flex !important; flex-direction: column !important;
+            align-items: center !important; justify-content: center !important; gap: 2px !important; min-height: 58px !important;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{ background-color: {SB_FUNDO_LINK_HOVER} !important; border-color: {COR_BORDA} !important; transform: translateX(2px); }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{ background-color: {SB_FUNDO_ATIVO} !important; border-left: 3px solid {SB_BORDA_ATIVA} !important; border-color: {SB_BORDA_SUTIL} !important; box-shadow: 0 2px 6px rgba(243, 124, 4, 0.12) !important; }}
+        
+        /* Heros e Visuals Gerais continuam idênticos ao original */
+        .hero-totale-1 {{ background: linear-gradient(to right, rgb(1,40,105) 0%, rgb(243,124,4) 100%); padding: 3rem 2.5rem; border-radius: var(--radius-md); color: #FFFFFF; position: relative; overflow: hidden; box-shadow: var(--shadow-md); }}
+        .hero-totale-1::after {{ content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%); transform: rotate(25deg); animation: feixeLuz 6s infinite ease-in-out; }}
+        @keyframes feixeLuz {{ 0% {{ left: -60%; }} 30%, 100% {{ left: 130%; }} }}
+        
+        .kpi-card {{ background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%); border-radius: var(--radius-md); padding: 20px 24px; box-shadow: var(--shadow-sm); border-top: 1px solid #F3F4F6; transition: transform 0.2s ease, box-shadow 0.2s ease; }}
+        .kpi-card:hover {{ transform: translateY(-2px); box-shadow: var(--shadow-md); }}
+        .kpi-card .kpi-label {{ font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }}
+        .kpi-card .kpi-value {{ font-size: 1.85rem; font-weight: 700; margin: 4px 0; }}
+        .kpi-card .kpi-sub {{ font-size: 12px; color: #94A3B8; }}
 
-    /* Scrollbar minimalista */
-    section[data-testid="stSidebar"] ::-webkit-scrollbar {{
-        width: 5px !important;
-        background: transparent !important;
-    }}
-    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{
-        background: {SB_BORDA_SUTIL} !important;
-        border-radius: 20px !important;
-    }}
-    section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{
-        background: {SB_TEXTO_MUTED} !important;
-    }}
-
-    /* Títulos de seção (categorias) */
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3,
-    section[data-testid="stSidebar"] h4,
-    section[data-testid="stSidebar"] .sidebar-section-title {{
-        color: {SB_TITULO_SECAO} !important;
-        font-family: var(--font-titulo) !important;
-        font-weight: 800 !important;
-        font-size: 11px !important;
-        letter-spacing: 1.2px !important;
-        text-transform: uppercase !important;
-        border-bottom: none !important;
-        padding: 18px 14px 6px 14px !important;
-        margin: 0 !important;
-        background: transparent !important;
-        text-align: left !important;
-    }}
-
-    /* Cabeçalhos NATIVOS de agrupamento no Menu */
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span[data-testid="stSidebarNavSeparator"] ~ span,
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li div {{
-        color: {SB_TITULO_SECAO} !important;
-        font-family: var(--font-titulo) !important;
-        font-weight: 800 !important;
-        font-size: 11px !important;
-        letter-spacing: 1.2px !important;
-        text-transform: uppercase !important;
-        background: transparent !important;
-        border: none !important;
-        margin-top: 14px !important;
-        padding: 0 14px 4px 14px !important;
-        text-align: left !important;
-        display: block !important;
-    }}
-
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] {{
-        padding-top: 4px !important;
-    }}
-
-    /* Botões de páginas — ícone acima do texto */
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
-        background-color: {SB_FUNDO_LINK} !important;
-        border: 1px solid {SB_BORDA_SUTIL} !important;
-        border-left: 3px solid transparent !important;
-        border-radius: 6px !important;
-        margin: 3px 10px !important;
-        padding: 8px 12px !important;
-        box-shadow: 0 1px 2px rgba(1, 40, 105, 0.04) !important;
-        transition: all 0.18s ease !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 2px !important;
-        min-height: 58px !important;
-    }}
-
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a svg,
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span:first-child {{
-        width: 16px !important;
-        height: 16px !important;
-        margin: 0 !important;
-        flex-shrink: 0 !important;
-    }}
-
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{
-        background-color: {SB_FUNDO_LINK_HOVER} !important;
-        border-color: {COR_BORDA} !important;
-        transform: translateX(2px);
-    }}
-
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a span {{
-        color: {SB_TEXTO_LINK} !important;
-        font-family: var(--font-texto) !important;
-        font-weight: 600 !important;
-        font-size: 13px !important;
-        background: transparent !important;
-        text-align: left !important;
-        line-height: 1 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        white-space: nowrap !important;
-        display: inline-block !important;
-        vertical-align: middle !important;
-    }}
-
-    /* Página Ativa — destaque laranja */
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{
-        background-color: {SB_FUNDO_ATIVO} !important;
-        border-left: 3px solid {SB_BORDA_ATIVA} !important;
-        border-color: {SB_BORDA_SUTIL} !important;
-        border-left-color: {SB_BORDA_ATIVA} !important;
-        box-shadow: 0 2px 6px rgba(243, 124, 4, 0.12) !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] span {{
-        color: {COR_PRIMARIA} !important;
-        font-weight: 700 !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] svg {{
-        fill: {COR_SECUNDARIA} !important;
-        color: {COR_SECUNDARIA} !important;
-    }}
-
-    /* Esconde linha separadora nativa */
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] div[data-testid="stSidebarNavSeparator"] {{
-        display: none !important;
-    }}
-
-    /* Textos genéricos e labels */
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
-    section[data-testid="stSidebar"] span {{
-        color: {SB_TEXTO_LINK} !important;
-        font-weight: 500 !important;
-        background: transparent !important;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       EXPANDERS NO SIDEBAR — CORREÇÃO DO CARACTERE "a"
-       ═══════════════════════════════════════════════════ */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] {{
-        background-color: {SB_FUNDO_LINK} !important;
-        border: 1px solid {SB_BORDA_SUTIL} !important;
-        border-radius: 8px !important;
-        margin: 8px 10px !important;
-        overflow: hidden !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-        background-color: {SB_FUNDO_LINK_HOVER} !important;
-        position: relative !important;
-        padding: 10px 14px 10px 36px !important;
-        transition: background-color 0.2s ease;
-        list-style: none !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::before {{
-        content: "▸" !important;
-        display: block !important;
-        position: absolute !important;
-        left: 14px !important;
-        top: 50% !important;
-        color: {COR_PRIMARIA} !important;
-        font-family: Arial, sans-serif !important;
-        font-size: 18px !important;
-        line-height: 1 !important;
-        transform: translateY(-50%) !important;
-        visibility: visible !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"][open] > summary::before,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] details[open] > summary::before {{
-        content: "▾" !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::-webkit-details-marker {{
-        display: none !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary .material-icons,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary .material-symbols-rounded,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {{
-        display: none !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
-        background-color: {COR_FUNDO_2} !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary span,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary svg {{
-        color: {COR_PRIMARIA} !important;
-        fill: {COR_PRIMARIA} !important;
-        font-weight: 700 !important;
-        font-family: var(--font-titulo) !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stExpanderDetails"] {{
-        padding: 14px !important;
-        background: transparent !important;
-    }}
-    /* Desativa ligaturas de fonte que podem causar caracteres fantasmas */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary * {{
-        font-feature-settings: "liga" 0 !important;
-        font-variant-ligatures: none !important;
-    }}
-
-    /* Sliders */
-    section[data-testid="stSidebar"] [data-testid="stSlider"] {{
-        padding-top: 8px !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stThumbValue"],
-    section[data-testid="stSidebar"] [data-testid="stSlider"] [data-testid="stTickBar"] {{
-        color: {COR_PRIMARIA} !important;
-        font-family: var(--font-codigo) !important;
-        font-weight: 600 !important;
-        font-size: 13px !important;
-    }}
-
-    /* Checkboxes */
-    section[data-testid="stSidebar"] [data-testid="stCheckbox"] label span {{
-        color: {SB_TEXTO_LINK} !important;
-        font-weight: 600 !important;
-    }}
-
-    /* Divisores */
-    section[data-testid="stSidebar"] hr {{
-        background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 50%, transparent 100%) !important;
-        height: 1px !important;
-        border: none !important;
-        margin: 14px 10px !important;
-    }}
-
-    /* Botões primários no sidebar */
-    section[data-testid="stSidebar"] .stButton button {{
-        background: {COR_SECUNDARIA} !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 6px !important;
-        font-weight: 700 !important;
-        font-family: var(--font-titulo) !important;
-        font-size: 13px !important;
-        letter-spacing: 0.3px !important;
-        width: 100% !important;
-        padding: 8px 14px !important;
-        transition: all 0.2s ease !important;
-        box-shadow: 0 2px 4px rgba(243, 124, 4, 0.25) !important;
-    }}
-    section[data-testid="stSidebar"] .stButton button:hover {{
-        background: {COR_SECUNDARIA_HOVER} !important;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(243, 124, 4, 0.35) !important;
-    }}
-
-    /* Inputs e Selects */
-    section[data-testid="stSidebar"] input,
-    section[data-testid="stSidebar"] select,
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div,
-    section[data-testid="stSidebar"] [data-baseweb="base-input"] {{
-        background-color: {SB_FUNDO_LINK} !important;
-        color: {SB_TEXTO_LINK} !important;
-        border: 1px solid {SB_BORDA_SUTIL} !important;
-        border-radius: 6px !important;
-        font-family: var(--font-texto) !important;
-    }}
-    section[data-testid="stSidebar"] input:focus,
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div:focus-within {{
-        border-color: {COR_SECUNDARIA} !important;
-        box-shadow: 0 0 0 2px rgba(243, 124, 4, 0.15) !important;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       HEROS CORPORATIVOS
-       ═══════════════════════════════════════════════════ */
-    .hero-totale-1 {{
-        background: linear-gradient(to right, rgb(1,40,105) 0%, rgb(243,124,4) 100%);
-        padding: 3rem 2.5rem;
-        border-radius: var(--radius-md);
-        color: #FFFFFF;
-        position: relative;
-        overflow: hidden;
-        box-shadow: var(--shadow-md);
-    }}
-    .hero-totale-1::after {{
-        content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%;
-        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%);
-        transform: rotate(25deg);
-        animation: feixeLuz 6s infinite ease-in-out;
-    }}
-    @keyframes feixeLuz {{ 0% {{ left: -60%; }} 30%, 100% {{ left: 130%; }} }}
-    .hero-t1-content {{ position: relative; z-index: 1; }}
-
-    .hero-totale-2 {{
-        background: linear-gradient(to right, rgb(243,124,4) 0%, rgb(1,40,105) 100%);
-        padding: 2.5rem 2rem;
-        border-radius: var(--radius-md);
-        color: #FFFFFF;
-        position: relative;
-        overflow: hidden;
-        box-shadow: var(--shadow-md);
-    }}
-    .hero-totale-2::after {{
-        content: ''; position: absolute; top: -50%; left: -60%; width: 25%; height: 200%;
-        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%);
-        transform: rotate(25deg);
-        animation: feixeLuzLeve 8s infinite ease-in-out;
-    }}
-    @keyframes feixeLuzLeve {{ 0% {{ left: -60%; }} 25%, 100% {{ left: 130%; }} }}
-    .hero-t2-badge {{
-        display: inline-block; padding: 5px 14px; border-radius: 12px;
-        font-size: 11px; font-weight: bold; text-transform: uppercase; margin-top: 16px;
-        font-family: var(--font-codigo);
-    }}
-    .badge-laranja {{ background-color: #FFFFFF; color: rgb(243,124,4); }}
-    .badge-azul {{ background-color: rgb(1,40,105); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.4); }}
-
-    /* ═══════════════════════════════════════════════════
-       HEROS ESPECÍFICOS (MIGRAÇÃO E PME) — RÉPLICA DA IMAGEM
-       ═══════════════════════════════════════════════════ */
-    .hero-migracao {{
-        background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%);
-        padding: 2.2rem 2.5rem;
-        border-radius: 16px;
-        color: #FFFFFF;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 4px 20px rgba(2, 75, 122, 0.2);
-    }}
-    .hero-migracao::after {{
-        content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%;
-        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%);
-        transform: rotate(25deg);
-        animation: feixeLuz 7s infinite ease-in-out;
-    }}
-
-    .hero-pme {{
-        background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%);
-        padding: 2.2rem 2.5rem;
-        border-radius: 16px;
-        color: #FFFFFF;
-        position: relative;
-        overflow: hidden;
-        box-shadow: 0 4px 20px rgba(74, 29, 150, 0.2);
-    }}
-    .hero-pme::after {{
-        content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%;
-        background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0) 100%);
-        transform: rotate(25deg);
-        animation: feixeLuz 7s infinite ease-in-out;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       TIPOGRAFIA DOS HEROS
-       ═══════════════════════════════════════════════════ */
-    .hero-totale-1 .hero-t1-title,
-    .hero-totale-2 .hero-t2-title {{
-        font-family: var(--font-titulo) !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.5px;
-        margin: 0;
-        color: #FFFFFF !important;
-        line-height: 1.15;
-    }}
-
-    .hero-migracao .hero-alt-title,
-    .hero-pme .hero-alt-title,
-    .hero-alt-title {{
-        font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif !important;
-        font-weight: 800 !important;
-        font-size: 2.1rem !important;
-        letter-spacing: -0.6px !important;
-        margin: 0 !important;
-        color: #FFFFFF !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 14px !important;
-        line-height: 1.2 !important;
-    }}
-
-    /* Container do ícone quadrado escuro igual ao da imagem */
-    .hero-alt-title .hero-icon-box {{
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.28);
-        border: 1.5px solid rgba(255, 255, 255, 0.35);
-        border-radius: 6px;
-        width: 38px;
-        height: 38px;
-        font-size: 20px;
-        flex-shrink: 0;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-    }}
-
-    .hero-totale-1 .hero-t1-title {{ font-size: 2.8rem; }}
-    .hero-totale-2 .hero-t2-title {{ font-size: 2.4rem; }}
-
-    .hero-totale-1 .hero-t1-sub,
-    .hero-totale-2 .hero-t2-sub {{
-        font-family: var(--font-texto) !important;
-        font-weight: 500 !important;
-        letter-spacing: 0;
-        margin: 0.75rem 0 0 0;
-        color: rgba(255, 255, 255, 0.95) !important;
-        line-height: 1.45;
-        opacity: 0.95;
-    }}
-
-    .hero-migracao .hero-alt-sub,
-    .hero-pme .hero-alt-sub,
-    .hero-alt-sub {{
-        font-family: 'IBM Plex Sans', 'Inter', sans-serif !important;
-        font-weight: 400 !important;
-        font-size: 0.95rem !important;
-        letter-spacing: 0px !important;
-        margin: 1rem 0 0 0 !important;
-        color: rgba(255, 255, 255, 0.88) !important;
-        line-height: 1.4 !important;
-    }}
-
-    .hero-totale-1 .hero-t1-sub {{ font-size: 1.25rem; }}
-    .hero-totale-2 .hero-t2-sub {{ font-size: 1.1rem; }}
-
-    /* ═══════════════════════════════════════════════════
-       KPIs CORPORATIVOS
-       ═══════════════════════════════════════════════════ */
-    .kpi-card {{
-        background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
-        border-radius: var(--radius-md);
-        padding: 20px 24px;
-        box-shadow: var(--shadow-sm);
-        border-top: 1px solid #F3F4F6;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    .kpi-card:hover {{
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-md);
-    }}
-    .kpi-card .kpi-label {{
-        font-size: 12px; font-weight: 600; color: #64748B;
-        text-transform: uppercase; letter-spacing: 0.5px;
-    }}
-    .kpi-card .kpi-value {{
-        font-size: 1.85rem; font-weight: 700; margin: 4px 0;
-    }}
-    .kpi-card .kpi-sub {{ font-size: 12px; color: #94A3B8; }}
-
-    .kpi-card-delta {{
-        background: #FFFFFF;
-        border-radius: var(--radius-md);
-        padding: 18px 22px;
-        box-shadow: var(--shadow-sm);
-        border-top: 3px solid;
-        transition: all 0.2s ease;
-    }}
-    .kpi-card-delta:hover {{
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-md);
-    }}
-    .kpi-card-delta .kpi-delta-header {{
-        display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 8px;
-    }}
-    .kpi-card-delta .kpi-delta-label {{
-        font-size: 11px; font-weight: 700; color: #64748B;
-        text-transform: uppercase; letter-spacing: 0.6px;
-    }}
-    .kpi-card-delta .kpi-delta-value {{
-        font-family: var(--font-titulo);
-        font-size: 1.9rem; font-weight: 800;
-        line-height: 1.15; margin-bottom: 6px;
-        letter-spacing: -0.5px;
-    }}
-    .kpi-card-delta .kpi-delta-indicator {{
-        display: inline-flex; align-items: center; gap: 4px;
-        font-size: 12px; font-weight: 700;
-        padding: 3px 8px; border-radius: 12px;
-    }}
-    .kpi-delta-up   {{ background: #D1FAE5; color: #065F46; }}
-    .kpi-delta-down {{ background: #FEE2E2; color: #991B1B; }}
-    .kpi-delta-flat {{ background: #F1F5F9; color: #475569; }}
-
-    .kpi-card-sm {{
-        background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
-        border-radius: var(--radius-sm);
-        padding: 10px 14px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-        border: 1px solid var(--cor-borda);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }}
-    .kpi-card-sm:hover {{
-        transform: translateY(-1px);
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.07);
-    }}
-    .kpi-card-sm .kpi-label {{
-        font-size: 10.5px; font-weight: 600; color: #64748B;
-        text-transform: uppercase; letter-spacing: 0.4px;
-        margin-bottom: 2px;
-        display: flex; align-items: center; justify-content: space-between;
-    }}
-    .kpi-card-sm .kpi-value {{
-        font-family: var(--font-titulo) !important;
-        font-size: 1.25rem; font-weight: 700;
-        line-height: 1.2; letter-spacing: -0.2px;
-    }}
-    .kpi-card-sm .kpi-sub {{
-        font-size: 10.5px; color: #94A3B8;
-        margin-top: 2px; font-weight: 500;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       STATUS PILLS
-       ══════════════════════════════════════════════════ */
-    .status-pill {{
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 3px 10px; border-radius: 12px;
-        font-size: 11px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.5px;
-        border: 1px solid;
-    }}
-    .status-pill::before {{
-        content: ''; width: 6px; height: 6px; border-radius: 50%;
-        background: currentColor;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       PROGRESS BAR CORPORATIVA
-       ═══════════════════════════════════════════════════ */
-    .progress-container {{
-        background: #FFFFFF;
-        border-radius: var(--radius-md);
-        padding: 14px 18px;
-        border: 1px solid var(--cor-borda);
-        box-shadow: var(--shadow-sm);
-    }}
-    .progress-header {{
-        display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 8px;
-    }}
-    .progress-label {{
-        font-size: 12px; font-weight: 700; color: #374151;
-        text-transform: uppercase; letter-spacing: 0.4px;
-    }}
-    .progress-value {{
-        font-family: var(--font-titulo);
-        font-size: 14px; font-weight: 800; color: #0F172A;
-        font-variant-numeric: tabular-nums;
-    }}
-    .progress-track {{
-        background: #F1F5F9;
-        border-radius: 999px;
-        height: 10px; overflow: hidden;
-    }}
-    .progress-fill {{
-        height: 100%; border-radius: 999px;
-        transition: width 0.5s ease;
-        position: relative;
-    }}
-    .progress-fill::after {{
-        content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
-        animation: progressShine 2s infinite;
-    }}
-    @keyframes progressShine {{
-        0% {{ transform: translateX(-100%); }}
-        100% {{ transform: translateX(100%); }}
-    }}
-    .progress-footer {{
-        margin-top: 6px;
-        font-size: 11px; color: #6B7280; font-weight: 500;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       EMPTY STATE
-       ═══════════════════════════════════════════════════ */
-    .empty-state {{
-        text-align: center;
-        padding: 48px 24px;
-        background: #FAFBFC;
-        border: 2px dashed var(--cor-borda);
-        border-radius: var(--radius-lg);
-        color: #64748B;
-    }}
-    .empty-state-icon {{ font-size: 48px; margin-bottom: 12px; opacity: 0.6; }}
-    .empty-state-title {{
-        font-family: var(--font-titulo);
-        font-size: 16px; font-weight: 700;
-        color: #374151; margin-bottom: 6px;
-    }}
-    .empty-state-msg {{
-        font-size: 13px; color: #6B7280; line-height: 1.5;
-        max-width: 400px; margin: 0 auto;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       DIVIDER CORPORATIVO
-       ═══════════════════════════════════════════════════ */
-    .corp-divider {{
-        display: flex; align-items: center; gap: 12px;
-        margin: 24px 0 16px 0;
-    }}
-    .corp-divider-line {{
-        flex: 1; height: 1px;
-        background: linear-gradient(90deg, transparent, var(--cor-borda), transparent);
-    }}
-    .corp-divider-text {{
-        font-family: var(--font-titulo);
-        font-size: 11px; font-weight: 800;
-        color: #94A3B8; text-transform: uppercase;
-        letter-spacing: 1.2px;
-    }}
-
-    /* ══════════════════════════════════════════════════
-       TABELAS CORPORATIVAS
-       ═══════════════════════════════════════════════════ */
-    .corp-table-wrap {{
-        width: 100%; overflow: auto;
-        border: 1px solid var(--cor-borda);
-        border-radius: var(--radius-md);
-        box-shadow: var(--shadow-sm);
-        background: #FFFFFF;
-    }}
-    table.corp-table {{
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-    }}
-    .corp-table thead th {{
-        font-family: var(--font-titulo) !important;
-        font-weight: 700; font-size: 11px;
-        text-transform: uppercase; color: #1F2937;
-        background: #F8FAFC; padding: 10px 14px;
-        border-bottom: 2px solid var(--cor-borda);
-        text-align: left;
-        position: sticky; top: 0; z-index: 2;
-        white-space: nowrap;
-    }}
-    .corp-table tbody td {{
-        font-weight: 500; font-size: 11px; color: #374151;
-        padding: 8px 14px;
-        border-bottom: 1px solid #F3F4F6;
-        white-space: nowrap;
-    }}
-    .corp-table tbody tr:hover td {{ background: #F8FAFC !important; }}
-    .corp-table td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-    .corp-table tr.total-row td {{
-        background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important;
-        color: #FFFFFF !important;
-        font-weight: 800 !important;
-        border-top: 2px solid var(--cor-secundaria) !important;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       COMPONENTES CUSTOMIZADOS SIDEBAR (TOTALE UI)
-       ═══════════════════════════════════════════════════ */
-    .sidebar-section-title {{
-        color: {SB_TITULO_SECAO} !important;
-        font-weight: 800 !important;
-        font-size: 11px !important;
-        letter-spacing: 1.2px !important;
-        text-transform: uppercase !important;
-        padding: 18px 14px 6px 14px !important;
-        margin: 0 !important;
-        font-family: var(--font-titulo) !important;
-    }}
-    .user-profile-box {{
-        padding: 12px 14px;
-        border-radius: 8px;
-        background: {SB_FUNDO_LINK};
-        border: 1px solid {SB_BORDA_SUTIL};
-        margin: 8px 10px 16px 10px;
-        box-shadow: 0 1px 3px rgba(1, 40, 105, 0.05);
-    }}
-    .user-profile-name {{
-        color: {COR_PRIMARIA};
-        font-size: 13.5px;
-        font-weight: 700;
-        font-family: var(--font-titulo) !important;
-    }}
-    .user-profile-email {{
-        color: {SB_TEXTO_MUTED};
-        font-size: 11px;
-        margin-top: 2px;
-    }}
-
-    .status-container {{
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 12.5px;
-        color: {SB_TEXTO_LINK};
-        padding: 6px 14px;
-        font-weight: 600;
-    }}
-    .status-pill-dot {{
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        box-shadow: 0 0 6px currentColor;
-    }}
-
-    /* ═══════════════════════════════════════════════════
-       CORREÇÃO FINAL - REMOVE CARACTERES FANTASMAS GLOBAIS
-       ═══════════════════════════════════════════════════ */
-    section[data-testid="stSidebar"] details summary {{
-        list-style-type: none !important;
-        list-style-position: outside !important;
-    }}
-    section[data-testid="stSidebar"] details summary::-webkit-details-marker {{
-        display: inline-block !important;
-    }}
-    </style>
-    """
+        /* Tabelas */
+        .corp-table-wrap {{ width: 100%; overflow: auto; border: 1px solid var(--cor-borda); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: #FFFFFF; }}
+        table.corp-table {{ width: 100%; border-collapse: separate; border-spacing: 0; }}
+        .corp-table thead th {{ font-family: var(--font-titulo) !important; font-weight: 700; font-size: 11px; text-transform: uppercase; color: #1F2937; background: #F8FAFC; padding: 10px 14px; border-bottom: 2px solid var(--cor-borda); text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }}
+        .corp-table tbody td {{ font-weight: 500; font-size: 11px; color: #374151; padding: 8px 14px; border-bottom: 1px solid #F3F4F6; white-space: nowrap; }}
+        .corp-table tbody tr:hover td {{ background: #F8FAFC !important; }}
+        .corp-table td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
+        .corp-table tr.total-row td {{ background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important; color: #FFFFFF !important; font-weight: 800 !important; border-top: 2px solid var(--cor-secundaria) !important; }}
+        </style>
+    """)
+    return css
 
 
 def _injetar_css_global() -> None:
@@ -1054,83 +354,92 @@ def _fmt_br(valor: float, casas: int = 1) -> str:
     return f"{valor:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _safe_float(val: Any) -> float:
+    """Extrai e converte segurança strings numéricas e porcentagens para float."""
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        s_val = str(val).strip()
+        if s_val == "—" or not s_val:
+            return 0.0
+        if s_val.endswith("%"):
+            return (
+                float(s_val.removesuffix("%").replace(".", "").replace(",", ".")) / 100
+            )
+        return float(s_val.replace(".", "").replace(",", "."))
+    except (ValueError, TypeError):
+        return 0.0
+
+
 # ====================================================
 # HEROS CORPORATIVOS
 # ====================================================
 def render_hero_totale_1(
-    titulo: str = "Portal TOTALE",
-    subtitulo: str = "Painéis de Produção e Gestão Estratégica",
+    titulo: str = "Portal TOTALE", subtitulo: str = "Painéis de Produção"
 ) -> None:
-    """Hero Principal: Gradiente Azul para Laranja."""
     if not titulo:
         return
-    html = (
-        f'<div class="hero-totale-1"><div class="hero-t1-content">'
-        f'<h1 class="hero-t1-title">{titulo}</h1>'
-        f'<p class="hero-t1-sub">{subtitulo}</p>'
-        f"</div></div>"
-    )
+    html = textwrap.dedent(f"""
+        <div class="hero-totale-1"><div class="hero-t1-content">
+        <h1 class="hero-t1-title">{escape(titulo)}</h1>
+        <p class="hero-t1-sub">{escape(subtitulo)}</p>
+        </div></div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero_totale_2(
-    titulo: str,
-    subtitulo: str = "",
-    badge_texto: str = "",
-    badge_tipo: str = "laranja",
+    titulo: str, subtitulo: str = "", badge_texto: str = "", badge_tipo: str = "laranja"
 ) -> None:
-    """Hero Secundário: Gradiente Laranja para Azul com Badge."""
     if not titulo:
         return
     cls_badge = "badge-laranja" if badge_tipo.lower() == "laranja" else "badge-azul"
     html_badge = (
-        f'<span class="hero-t2-badge {cls_badge}">{badge_texto}</span>'
+        f'<span class="hero-t2-badge {cls_badge}">{escape(badge_texto)}</span>'
         if badge_texto
         else ""
     )
-    html = (
-        f'<div class="hero-totale-2"><div class="hero-t2-container">'
-        f'<h1 class="hero-t2-title">{titulo}</h1>'
-        f'<p class="hero-t2-sub">{subtitulo}</p>{html_badge}'
-        f"</div></div>"
-    )
+    html = textwrap.dedent(f"""
+        <div class="hero-totale-2"><div class="hero-t2-container">
+        <h1 class="hero-t2-title">{escape(titulo)}</h1>
+        <p class="hero-t2-sub">{escape(subtitulo)}</p>{html_badge}
+        </div></div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero_migracao(
-    titulo: str = "🔄 Migração — Quebra de Agenda",
-    subtitulo: str = "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
+    titulo: str = "🔄 Migração", subtitulo: str = "Análise estratégica"
 ) -> None:
-    """Hero Específico: Gradiente Azul para painéis de Migração."""
     if not titulo:
         return
-    html = (
-        f'<div class="hero-migracao"><div class="hero-t1-content">'
-        f'<h1 class="hero-alt-title"><span>{titulo}</span></h1>'
-        f'<p class="hero-alt-sub">{subtitulo}</p>'
-        f"</div></div>"
-    )
+    html = textwrap.dedent(f"""
+        <div class="hero-migracao" style="background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
+        <div class="hero-t1-content">
+        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{titulo}</h1>
+        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{subtitulo}</p>
+        </div></div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero_pme(
-    titulo: str = "🏢 PME — Quebra de Agenda",
-    subtitulo: str = "Análise estratégica dedicada às Pequenas e Médias Empresas",
+    titulo: str = "🏢 PME", subtitulo: str = "Pequenas e Médias Empresas"
 ) -> None:
-    """Hero Específico: Gradiente Roxo para painéis PME."""
     if not titulo:
         return
-    html = (
-        f'<div class="hero-pme"><div class="hero-t1-content">'
-        f'<h1 class="hero-alt-title"><span>{titulo}</span></h1>'
-        f'<p class="hero-alt-sub">{subtitulo}</p>'
-        f"</div></div>"
-    )
+    html = textwrap.dedent(f"""
+        <div class="hero-pme" style="background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
+        <div class="hero-t1-content">
+        <h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{titulo}</h1>
+        <p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{subtitulo}</p>
+        </div></div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
-    """Função legada — aponta para hero_totale_1."""
+    """Função legada."""
     extra = f" · {badge}" if badge else ""
     render_hero_totale_1(titulo, f"{subtitulo}{extra}".strip(" ·"))
 
@@ -1141,17 +450,17 @@ def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
 def render_kpi(
     col: Any, label: str, valor: str, sub: str = "", tema: TemaKPI = "azul"
 ) -> None:
-    """Renderiza um cartão KPI padrão."""
     cor = _resolver_cor_tema(tema)
-    renderer = col.markdown if hasattr(col, "markdown") else st.markdown
-    html = (
-        f'<div class="kpi-card" style="border-left: 4px solid {cor};">'
-        f'<div class="kpi-label">{label}</div>'
-        f'<div class="kpi-value" style="color:{cor};">{valor}</div>'
-        f'<div class="kpi-sub">{sub}</div>'
-        f"</div>"
+    html = textwrap.dedent(f"""
+        <div class="kpi-card" style="border-left: 4px solid {cor};">
+        <div class="kpi-label">{escape(label)}</div>
+        <div class="kpi-value" style="color:{cor};">{escape(str(valor))}</div>
+        <div class="kpi-sub">{escape(sub)}</div>
+        </div>
+    """)
+    (col.markdown if hasattr(col, "markdown") else st.markdown)(
+        html, unsafe_allow_html=True
     )
-    renderer(html, unsafe_allow_html=True)
 
 
 def render_kpi_sm(
@@ -1162,23 +471,22 @@ def render_kpi_sm(
     tema: TemaKPI = "azul",
     icone: str = "",
 ) -> None:
-    """Renderiza um cartão KPI compacto."""
     cor = _resolver_cor_tema(tema)
-    renderer = col.markdown if hasattr(col, "markdown") else st.markdown
     html_icone = (
         f'<span style="font-size:13px; margin-left:4px;">{icone}</span>'
         if icone
         else ""
     )
-    html_sub = f'<div class="kpi-sub">{sub}</div>' if sub else ""
-    html = (
-        f'<div class="kpi-card-sm" style="border-left: 3px solid {cor};">'
-        f'<div class="kpi-label"><span>{label}</span>{html_icone}</div>'
-        f'<div class="kpi-value" style="color:{cor};">{valor}</div>'
-        f"{html_sub}"
-        f"</div>"
+    html = textwrap.dedent(f"""
+        <div class="kpi-card-sm" style="border-left: 3px solid {cor};">
+        <div class="kpi-label"><span>{escape(label)}</span>{html_icone}</div>
+        <div class="kpi-value" style="color:{cor};">{escape(str(valor))}</div>
+        {f'<div class="kpi-sub">{escape(sub)}</div>' if sub else ''}
+        </div>
+    """)
+    (col.markdown if hasattr(col, "markdown") else st.markdown)(
+        html, unsafe_allow_html=True
     )
-    renderer(html, unsafe_allow_html=True)
 
 
 def render_metric_delta(
@@ -1191,155 +499,66 @@ def render_metric_delta(
     tema: TemaKPI = "azul",
     inverter_cor: bool = False,
 ) -> None:
-    """Renderiza um KPI com indicador de variação (Delta)."""
     cor = _resolver_cor_tema(tema)
-    renderer = col.markdown if hasattr(col, "markdown") else st.markdown
-
     if tendencia is None:
-        if delta > 0.01:
-            tendencia = "up"
-        elif delta < -0.01:
-            tendencia = "down"
-        else:
-            tendencia = "flat"
+        tendencia = "up" if delta > 0.01 else "down" if delta < -0.01 else "flat"
 
     icones = {"up": "▲", "down": "▼", "flat": "▬"}
     classes = {"up": "kpi-delta-up", "down": "kpi-delta-down", "flat": "kpi-delta-flat"}
 
+    classe = classes[tendencia]
     if inverter_cor:
-        if tendencia == "up":
-            classe = "kpi-delta-down"
-        elif tendencia == "down":
-            classe = "kpi-delta-up"
-        else:
-            classe = "kpi-delta-flat"
-    else:
-        classe = classes[tendencia]
+        classe = (
+            "kpi-delta-down"
+            if tendencia == "up"
+            else "kpi-delta-up" if tendencia == "down" else "kpi-delta-flat"
+        )
 
     delta_txt = f"{'+' if delta > 0 else ''}{_fmt_br(delta)}{delta_sufixo}"
 
-    html = (
-        f'<div class="kpi-card-delta" style="border-top-color:{cor};">'
-        f'<div class="kpi-delta-header">'
-        f'<span class="kpi-delta-label">{label}</span>'
-        f'<span class="kpi-delta-indicator {classe}">{icones[tendencia]} {delta_txt}</span>'
-        f"</div>"
-        f'<div class="kpi-delta-value" style="color:{cor};">{valor}</div>'
-        f"</div>"
+    html = textwrap.dedent(f"""
+        <div class="kpi-card-delta" style="border-top-color:{cor};">
+        <div class="kpi-delta-header">
+        <span class="kpi-delta-label">{escape(label)}</span>
+        <span class="kpi-delta-indicator {classe}">{icones[tendencia]} {delta_txt}</span>
+        </div>
+        <div class="kpi-delta-value" style="color:{cor};">{escape(str(valor))}</div>
+        </div>
+    """)
+    (col.markdown if hasattr(col, "markdown") else st.markdown)(
+        html, unsafe_allow_html=True
     )
-    renderer(html, unsafe_allow_html=True)
 
 
 # ====================================================
-# INSIGHTS & ALERTAS
+# INSIGHTS & UTILS
 # ====================================================
 def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
-    """Renderiza uma caixa de alerta/insight com ícone e cor semântica."""
     if not msg:
         return
     bg, texto, borda, icone = _INSIGHT_CONFIG.get(tipo, _INSIGHT_CONFIG["info"])
-    msg_html = _markdown_inline_para_html(msg)
-    html = (
-        f'<div style="background:{bg};color:{texto};border-left:4px solid {borda};'
-        f'padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;">'
-        f'<span style="margin-right:8px;">{icone}</span>{msg_html}'
-        f"</div>"
-    )
+    msg_html = _markdown_inline_para_html(escape(msg))
+    html = textwrap.dedent(f"""
+        <div style="background:{bg};color:{texto};border-left:4px solid {borda};padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;">
+        <span style="margin-right:8px;">{icone}</span>{msg_html}
+        </div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
-
-
-def render_status_pill(texto: str, tipo: TipoStatus = "ativo") -> str:
-    """Retorna HTML de uma pílula de status (para uso inline ou em tabelas)."""
-    bg, cor_texto, borda = _STATUS_CONFIG.get(tipo, _STATUS_CONFIG["ativo"])
-    return (
-        f'<span class="status-pill" style="background:{bg};color:{cor_texto};border-color:{borda};">'
-        f"{texto}</span>"
-    )
 
 
 def render_empty_state(
-    titulo: str = "Nenhum dado disponível",
-    mensagem: str = "Não há registros para exibir com os filtros atuais.",
-    icone: str = "📭",
+    titulo: str = "Sem dados", mensagem: str = "", icone: str = "📭"
 ) -> None:
-    """Renderiza um placeholder elegante para telas sem dados."""
-    html = (
-        f'<div class="empty-state">'
-        f'<div class="empty-state-icon">{icone}</div>'
-        f'<div class="empty-state-title">{titulo}</div>'
-        f'<div class="empty-state-msg">{mensagem}</div>'
-        f"</div>"
-    )
+    html = textwrap.dedent(f"""
+        <div class="empty-state" style="text-align:center;padding:48px 24px;background:#FAFBFC;border:2px dashed var(--cor-borda);border-radius:12px;">
+        <div class="empty-state-icon" style="font-size:48px;opacity:0.6;">{icone}</div>
+        <div class="empty-state-title" style="font-weight:700;color:#374151;margin-top:12px;">{escape(titulo)}</div>
+        <div class="empty-state-msg" style="color:#6B7280;font-size:13px;">{escape(mensagem)}</div>
+        </div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
-def render_divider(titulo: str = "") -> None:
-    """Divisor corporativo elegante, com texto opcional no centro."""
-    if titulo:
-        html = (
-            f'<div class="corp-divider">'
-            f'<div class="corp-divider-line"></div>'
-            f'<span class="corp-divider-text">{titulo}</span>'
-            f'<div class="corp-divider-line"></div>'
-            f"</div>"
-        )
-    else:
-        html = (
-            f'<div class="corp-divider">'
-            f'<div class="corp-divider-line"></div>'
-            f"</div>"
-        )
-    st.markdown(html, unsafe_allow_html=True)
-
-
-def render_progress_bar(
-    label: str,
-    valor: float,
-    meta: float,
-    unidade: str = "",
-    mostrar_meta: bool = True,
-) -> None:
-    """Renderiza uma barra de progresso corporativa contra uma meta."""
-    percentual = (valor / meta * 100) if meta > 0 else 0
-    percentual_bar = min(percentual, 100)
-
-    if percentual >= 100:
-        cor = COR_SUCESSO
-        gradiente = "linear-gradient(90deg, #059669 0%, #10B981 100%)"
-    elif percentual >= 70:
-        cor = COR_ATENCAO
-        gradiente = "linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)"
-    else:
-        cor = COR_ALERTA
-        gradiente = "linear-gradient(90deg, #DC2626 0%, #EF4444 100%)"
-
-    footer_txt = ""
-    if mostrar_meta:
-        footer_txt = (
-            f'<div class="progress-footer">'
-            f"{_fmt_br(valor)}{unidade} de {_fmt_br(meta)}{unidade} · "
-            f'<strong style="color:{cor}">{_fmt_br(percentual, 1)}%</strong> da meta'
-            f"</div>"
-        )
-
-    html = (
-        f'<div class="progress-container">'
-        f'<div class="progress-header">'
-        f'<span class="progress-label">{label}</span>'
-        f'<span class="progress-value" style="color:{cor};">{_fmt_br(percentual, 1)}%</span>'
-        f"</div>"
-        f'<div class="progress-track">'
-        f'<div class="progress-fill" style="width:{percentual_bar}%;background:{gradiente};"></div>'
-        f"</div>"
-        f"{footer_txt}"
-        f"</div>"
-    )
-    st.markdown(html, unsafe_allow_html=True)
-
-
-# ====================================================
-# HEADERS & BRANDING
-# ====================================================
 def render_section_header(
     titulo: str,
     subtitulo: str = "",
@@ -1348,256 +567,25 @@ def render_section_header(
     badge_tipo: TipoBadge = "laranja",
     cor_accent: str = COR_SECUNDARIA,
 ) -> None:
-    """Renderiza um cabeçalho de seção com título, subtítulo, ícone e badge."""
     if not titulo:
         return
-
-    html_icone = (
-        f'<span style="margin-right: 10px; font-size: 1.2em; display: inline-flex; align-items: center;">{icone}</span>'
-        if icone
-        else ""
-    )
-
-    html_badge = ""
-    if badge:
-        _cores_badge = {
-            "laranja": ("#FFF7ED", "#C2410C", "#FDBA74"),
-            "azul": ("#EFF6FF", "#1D4ED8", "#93C5FD"),
-            "verde": ("#ECFDF5", "#047857", "#6EE7B7"),
-            "vermelho": ("#FEF2F2", "#B91C1C", "#FCA5A5"),
-            "cinza": ("#F8FAFC", "#475569", "#CBD5E1"),
-            "roxo": ("#F5F3FF", "#6D28D9", "#C4B5FD"),
-        }
-        bg, texto, borda = _cores_badge.get(badge_tipo, _cores_badge["laranja"])
-        html_badge = (
-            f'<span style="background-color: {bg}; color: {texto}; border: 1px solid {borda}; '
-            f"padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; "
-            f"font-family: {FONTE_TEXTO}; text-transform: uppercase; letter-spacing: 0.5px; "
-            f"margin-left: 10px; display: inline-flex; align-items: center; align-self: center; "
-            f'line-height: 1.2;">{badge}</span>'
-        )
-
-    html_sub = (
-        f'<div style="font-family: {FONTE_TITULO}; font-size: 18px; color: {COR_PRIMARIA}; margin-top: 5px; font-weight: bold;">{subtitulo}</div>'
-        if subtitulo
-        else ""
-    )
-
-    html = (
-        f'<div style="margin-top: 2.2rem; margin-bottom: 1.6rem; width: 100%;">'
-        f'<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0;">'
-        f'<h2 style="font-family: {FONTE_TITULO}; font-size: 22px; font-weight: 800; color: {COR_PRIMARIA}; margin: 0; padding: 0; line-height: 1.25; display: flex; align-items: center;">'
-        f"{html_icone}{titulo}"
-        f"</h2>"
-        f"{html_badge}"
-        f"</div>"
-        f"{html_sub}"
-        f'<div style="height: 3px; width: 45px; background: {cor_accent}; border-radius: 2px; margin-top: 10px; margin-bottom: 5px;"></div>'
-        f"</div>"
-    )
+    html = textwrap.dedent(f"""
+        <div style="margin-top:2.2rem; margin-bottom:1.6rem;">
+        <div style="display:flex;align-items:center;flex-wrap:wrap;">
+        <h2 style="font-family:var(--font-titulo);font-size:22px;font-weight:800;color:{COR_PRIMARIA};margin:0;display:flex;align-items:center;">
+        {f'<span style="margin-right:10px;">{icone}</span>' if icone else ''}{escape(titulo)}
+        </h2>
+        {f'<span style="margin-left:10px;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;background:#FFF7ED;color:#C2410C;border:1px solid #FDBA74;">{escape(badge)}</span>' if badge else ''}
+        </div>
+        {f'<div style="font-family:var(--font-titulo);font-size:18px;color:{COR_PRIMARIA};font-weight:bold;">{escape(subtitulo)}</div>' if subtitulo else ''}
+        <div style="height:3px;width:45px;background:{cor_accent};border-radius:2px;margin-top:10px;"></div>
+        </div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
 
 
-def render_sidebar_brand(
-    empresa: str = "TOTALE",
-    segmento: str = "Sistemas & Energia",
-    logo_svg: str | None = None,
-) -> None:
-    """Renderiza logo + nome + segmento da empresa na sidebar."""
-    if not logo_svg:
-        logo_svg = (
-            '<svg width="34" height="34" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.15));">'
-            '<circle cx="50" cy="50" r="44" stroke="rgba(1, 40, 105, 0.15)" stroke-width="6"/>'
-            '<path d="M50 12 A 38 38 0 0 1 88 50" stroke="#F37C04" stroke-width="10" stroke-linecap="round"/>'
-            '<path d="M50 88 A 38 38 0 0 1 12 50" stroke="#012869" stroke-width="8" stroke-linecap="round"/>'
-            '<circle cx="50" cy="50" r="10" fill="#F37C04"/>'
-            "</svg>"
-        )
-
-    html = (
-        f'<div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 8px 10px 12px 10px; border-bottom: 1px solid {SB_BORDA_SUTIL};">'
-        f'<div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center;">{logo_svg}</div>'
-        f'<div style="display: flex; flex-direction: column; justify-content: center;">'
-        f'<span style="font-family: {FONTE_TITULO}; font-size: 20px; font-weight: 800; color: {COR_PRIMARIA}; letter-spacing: 0.8px; line-height: 1;">{empresa}</span>'
-        f'<span style="font-family: {FONTE_TEXTO}; font-size: 10px; font-weight: 600; color: {COR_SECUNDARIA}; letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px; opacity: 0.95;">{segmento}</span>'
-        f"</div></div>"
-    )
-    st.sidebar.markdown(html, unsafe_allow_html=True)
-
-
 # ====================================================
-# COMPONENTES DE INTERFACE DO SIDEBAR (TOTALE UI)
-# ====================================================
-def aplicar_sidebar_corp() -> None:
-    """Injeta a folha de estilo do sidebar após a configuração da página."""
-    st.markdown(_get_sidebar_css(), unsafe_allow_html=True)
-
-
-@st.cache_data(ttl=3600)
-def _get_sidebar_css() -> str:
-    """Retorna os ajustes específicos do sidebar corporativo claro."""
-    return f"""
-    <style>
-    section[data-testid="stSidebar"] {{
-        background: linear-gradient(180deg, #F4F6F9 0%, {SB_FUNDO} 100%) !important;
-        border-right: 1px solid {SB_BORDA_SUTIL} !important;
-        box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a {{
-        background: {SB_FUNDO_LINK} !important;
-        border: 1px solid {SB_BORDA_SUTIL} !important;
-        border-left: 3px solid transparent !important;
-        border-radius: 6px !important;
-        margin: 3px 10px !important;
-        min-height: 36px !important;
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {{
-        background: {SB_FUNDO_LINK_HOVER} !important;
-        border-color: #B8C4D3 !important;
-        transform: translateX(2px);
-    }}
-    section[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] {{
-        background: {SB_FUNDO_ATIVO} !important;
-        border-left-color: {SB_BORDA_ATIVA} !important;
-    }}
-    section[data-testid="stSidebar"] .stButton > button {{
-        background: {COR_PRIMARIA} !important;
-        color: #FFFFFF !important;
-        border: 0 !important;
-    }}
-    section[data-testid="stSidebar"] .stButton > button:hover {{
-        background: {COR_SECUNDARIA} !important;
-    }}
-    /* CORREÇÃO EXPANDER - Remove caracteres fantasmas */
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::before,
-    section[data-testid="stSidebar"] [data-testid="stExpander"] summary::after {{
-        content: "" !important;
-        display: none !important;
-    }}
-    </style>
-    """
-
-
-def render_sidebar_info(
-    user_name: str,
-    email: str = "",
-    role: str = "",
-    avatar: str = "",
-) -> None:
-    """Gera o bloco identificador de perfil do usuário logado na plataforma."""
-    with st.sidebar:
-        st.markdown(
-            f"""
-            <div class="user-profile-box">
-                <div class="user-profile-name">{avatar} {user_name}</div>
-                {f'<div class="user-profile-email">{role}</div>' if role else ''}
-                <div class="user-profile-email">{email}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-def render_sidebar_section(title: str) -> None:
-    """Cria um título de agrupamento/categoria corporativa textual no menu."""
-    with st.sidebar:
-        st.markdown(
-            f'<p class="sidebar-section-title">{title}</p>',
-            unsafe_allow_html=True,
-        )
-
-
-def render_sidebar_status(
-    label: str = "Sistema operacional",
-    tipo: Literal["success", "warning", "danger", "info"] = "success",
-    sistema_ok: Optional[bool] = None,
-    mensagem: Optional[str] = None,
-    ultima_atualizacao: Optional[datetime] = None,
-) -> None:
-    """Exibe indicadores de status da aplicação em formato micro-pill brilhante."""
-    cores_status = {
-        "success": "#10B981",
-        "warning": "#F59E0B",
-        "danger": "#EF4444",
-        "info": "#3B82F6",
-    }
-    if sistema_ok is not None:
-        tipo = "success" if sistema_ok else "danger"
-    label = mensagem or label
-    cor = cores_status.get(tipo, cores_status["success"])
-    with st.sidebar:
-        st.markdown(
-            f"""
-            <div class="status-container">
-                <div class="status-pill-dot" style="background-color: {cor}; color: {cor};"></div>
-                <span>{label}</span>
-                {f'<small>{ultima_atualizacao.strftime("%H:%M")}</small>' if ultima_atualizacao else ''}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-def render_sidebar_divider() -> None:
-    """Gera uma linha horizontal divisória fina ultra sutil alinhada ao tema."""
-    with st.sidebar:
-        st.markdown(
-            f'<hr style="margin: 14px 10px; border: 0; border-top: 1px solid {SB_BORDA_SUTIL};">',
-            unsafe_allow_html=True,
-        )
-
-
-def render_sidebar_spacer(height: int = 15) -> None:
-    """Cria um bloco espaçador vertical transparente milimétrico."""
-    with st.sidebar:
-        st.markdown(f'<div style="height: {height}px;"></div>', unsafe_allow_html=True)
-
-
-def render_sidebar_footer_info(versao: str = "v3.1.0") -> None:
-    """Renderiza as informações consolidadas de compliance no rodapé operacional."""
-    agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
-    with st.sidebar:
-        render_sidebar_divider()
-        st.markdown(
-            f"""
-            <div style="font-size: 11px; color: {SB_TEXTO_MUTED}; line-height: 1.6; padding: 4px 14px 12px 14px;">
-                <div>🕒 {agora} BRT</div>
-                <div>🚀 Versão {versao}</div>
-                <div style="margin-top: 6px; font-weight: 700; color: {COR_PRIMARIA}; font-size: 10px; letter-spacing: 0.5px; font-family: {FONTE_TITULO};">© TOTALE TECNOLOGIA</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-
-def get_hora_atual_brt() -> str:
-    """Retorna a hora atual no fuso de Sao Paulo."""
-    return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%H:%M:%S")
-
-
-def get_data_atual_br() -> str:
-    """Retorna a data atual no formato brasileiro."""
-    return datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y")
-
-
-def render_sidebar_filtro(
-    label: str,
-    options: list,
-    key: str,
-    default: Any = None,
-    multi: bool = False,
-) -> Any:
-    """Abstração otimizada do st.selectbox respeitando a estilização unificada corporativa."""
-    with st.sidebar:
-        if multi:
-            defaults = default if isinstance(default, list) else []
-            return st.multiselect(label, options=options, default=defaults, key=key)
-        index = options.index(default) if default in options else 0
-        return st.selectbox(label, options=options, index=index, key=key)
-
-
-# ====================================================
-# TABELAS HTML CORPORATIVAS (ATUALIZADO)
+# TABELAS HTML CORPORATIVAS
 # ====================================================
 def render_table_html(
     df: pd.DataFrame,
@@ -1610,7 +598,6 @@ def render_table_html(
     num_cols: List[str] | None = None,
     max_cols: int = 20,
     linha_total: bool = False,
-    # Novos parâmetros para compatibilidade com quebra.py
     condicao_cores: CondicaoCoresConfig | None = None,
     destaque_col: Dict[str, Any] | None = None,
     condicoes_colunas: Dict[str, Any] | None = None,
@@ -1618,30 +605,9 @@ def render_table_html(
     hide_index: bool = True,
     **kwargs: Any,
 ) -> None:
-    """
-    Renderiza uma tabela HTML corporativa com formatação e cores condicionais.
-
-    Parâmetros:
-    - df: DataFrame pandas
-    - titulo: Título opcional da tabela
-    - icone: Ícone para o título
-    - max_rows: Máximo de linhas a exibir
-    - height: Altura máxima do container com scroll
-    - fmt: Dicionário de formatação por coluna
-    - color_rules: Regras de cores antigas (legado)
-    - num_cols: Colunas numéricas para totais
-    - max_cols: Máximo de colunas
-    - linha_total: Se True, adiciona linha de total
-    - condicao_cores: Config para cores condicionais por meta (acima/perto/abaixo)
-    - destaque_col: Config para destacar coluna específica (ex: Quebra Atual)
-    - condicoes_colunas: Config de cores por coluna (para matriz)
-    - linha_destaque: Config para destacar linha específica (ex: TOTAL GERAL)
-    - hide_index: Se True, esconde o índice
-    """
+    """Renderiza uma tabela HTML corporativa e responsiva."""
     if not isinstance(df, pd.DataFrame) or df.empty:
-        render_empty_state(
-            "Sem dados na tabela", "Ajuste os filtros para visualizar registros."
-        )
+        render_empty_state("Sem dados na tabela", "Ajuste os filtros.")
         return
 
     cols = list(df.columns[:max_cols])
@@ -1649,7 +615,7 @@ def render_table_html(
 
     if titulo:
         st.markdown(
-            f'<div style="font-weight:700;font-size:16px;color:{COR_PRIMARIA};margin-bottom:8px;">{icone} {titulo}</div>',
+            f'<div style="font-weight:700;font-size:16px;color:{COR_PRIMARIA};margin-bottom:8px;">{icone} {escape(titulo)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1658,7 +624,7 @@ def render_table_html(
     )
     df_show = df_show.fillna("—")
 
-    # Aplicar formatação
+    # Applica formatação de forma vetorizada onde possível
     display = pd.DataFrame(index=df_show.index)
     for c in cols:
         s = df_show[c]
@@ -1669,32 +635,32 @@ def render_table_html(
             elif isinstance(f, str):
                 display[c] = s.map(lambda v, _f=f: _f.format(v) if v != "—" else "—")
         else:
-            display[c] = s
+            display[c] = s.astype(str)
 
-    # Gerar linhas HTML com estilos condicionais
+    # Renderiza Linhas HTML
     html_rows = []
-    for idx, row in display.iterrows():
-        cells = []
-        is_linha_destaque = False
 
-        # Verificar se é linha de destaque (ex: TOTAL GERAL)
-        if linha_destaque:
-            col_check = linha_destaque.get("coluna")
-            val_check = linha_destaque.get("valor")
-            if (
-                col_check
-                and val_check
-                and str(row.get(col_check, "")).upper() == str(val_check).upper()
-            ):
-                is_linha_destaque = True
+    # Pre-computa linha destaque config
+    destaque_coluna_alvo = linha_destaque.get("coluna") if linha_destaque else None
+    destaque_valor_alvo = (
+        str(linha_destaque.get("valor")).upper() if linha_destaque else None
+    )
+
+    for _, row in display.iterrows():
+        cells = []
+        is_linha_destaque = (
+            destaque_coluna_alvo
+            and str(row.get(destaque_coluna_alvo, "")).upper() == destaque_valor_alvo
+        )
 
         for c in cols:
-            val = row[c]
+            val_raw = row[c]
+            val = escape(str(val_raw)) if val_raw != "—" else "—"
             style_parts = []
 
-            # Estilo para linha de destaque (TOTAL GERAL)
+            # Lógica de destaque da linha inteira (ex: TOTAL GERAL)
             if is_linha_destaque:
-                if c == col_check:
+                if c == destaque_coluna_alvo:
                     style_parts.append(
                         "background:linear-gradient(90deg,#012869 0%,#1E40AF 100%);color:white;font-weight:800;text-align:left;padding-left:16px;"
                     )
@@ -1702,78 +668,62 @@ def render_table_html(
                     style_parts.append(
                         "background-color:#F8FAFC;font-weight:700;text-align:left;padding-left:16px;border-right:2px solid #E2E8F0;"
                     )
-            # Destaque de coluna específica (ex: Quebra Atual)
+
+            # Lógica de destaque de Coluna Específica (fundo colorido)
             elif destaque_col and c == destaque_col.get("coluna"):
-                if val != "—":
-                    try:
-                        float(val)
-                        style_parts.append(
-                            f"background-color:{destaque_col.get('bg', '#1E293B')};color:{destaque_col.get('text', '#FFFFFF')};font-weight:{'800' if destaque_col.get('bold', True) else '500'};"
-                        )
-                    except (ValueError, TypeError):
-                        pass
+                if val_raw != "—":
+                    bg_col = destaque_col.get("bg", "#1E293B")
+                    txt_col = destaque_col.get("text", "#FFFFFF")
+                    b_weight = "800" if destaque_col.get("bold", True) else "500"
+                    style_parts.append(
+                        f"background-color:{bg_col};color:{txt_col};font-weight:{b_weight};"
+                    )
 
-            # Cores condicionais por meta (condicao_cores)
+            # Lógica de Heatmap condicional (abaixo/acima de meta - Condição Cores)
             elif condicao_cores and c == condicao_cores.get("coluna"):
-                try:
-                    v = float(val) if val != "—" else 0
-                    meta = condicao_cores.get("meta", 0.20)
-                    if v > meta:
-                        cfg = condicao_cores.get("acima_meta", {})
-                        style_parts.append(
-                            f"background-color:{cfg.get('bg', '#FEE2E2')};color:{cfg.get('text', '#991B1B')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                        )
-                    elif v > meta * 0.85:
-                        cfg = condicao_cores.get("perto_meta", {})
-                        style_parts.append(
-                            f"background-color:{cfg.get('bg', '#FEF9C3')};color:{cfg.get('text', '#854D0E')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                        )
-                    else:
-                        cfg = condicao_cores.get("abaixo_meta", {})
-                        style_parts.append(
-                            f"background-color:{cfg.get('bg', '#DCFCE7')};color:{cfg.get('text', '#166534')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                        )
-                except (ValueError, TypeError):
-                    pass
+                v = _safe_float(val_raw)
+                meta = condicao_cores.get("meta", 0.20)
+                if v > meta:
+                    cfg = condicao_cores.get("acima_meta", {})
+                    style_parts.append(
+                        f"background-color:{cfg.get('bg', '#FEE2E2')};color:{cfg.get('text', '#991B1B')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                    )
+                elif v > meta * 0.85:
+                    cfg = condicao_cores.get("perto_meta", {})
+                    style_parts.append(
+                        f"background-color:{cfg.get('bg', '#FEF9C3')};color:{cfg.get('text', '#854D0E')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                    )
+                else:
+                    cfg = condicao_cores.get("abaixo_meta", {})
+                    style_parts.append(
+                        f"background-color:{cfg.get('bg', '#DCFCE7')};color:{cfg.get('text', '#166534')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
+                    )
 
-            # Cores condicionais por coluna (condicoes_colunas - para matriz)
+            # Condições Colunas (usado em matriz)
             elif condicoes_colunas and c in condicoes_colunas:
-                try:
-                    valor = str(val).strip()
-                    v = (
-                        float(
-                            valor.removesuffix("%")
-                            .replace(".", "")
-                            .replace(",", ".")
-                        )
-                        / 100
-                        if valor.endswith("%")
-                        else float(valor)
-                    ) if valor != "—" else 0
-                    cfg = condicoes_colunas[c]
-                    meta = cfg.get("meta", 0.20)
-                    if v > meta:
-                        acima = cfg.get("acima_meta", {})
-                        style_parts.append(
-                            f"background-color:{acima.get('bg', '#FEE2E2')};color:{acima.get('text', '#991B1B')};font-weight:{'800' if acima.get('bold', True) else '500'};text-align:center;"
-                        )
-                    else:
-                        abaixo = cfg.get("abaixo_meta", {})
-                        style_parts.append(
-                            f"background-color:{abaixo.get('bg', '#D1FAE5')};color:{abaixo.get('text', '#065F46')};font-weight:{'800' if abaixo.get('bold', True) else '500'};text-align:center;"
-                        )
-                except (ValueError, TypeError):
-                    pass
+                v = _safe_float(val_raw)
+                cfg = condicoes_colunas[c]
+                meta = cfg.get("meta", 0.20)
+                if v > meta:
+                    acima = cfg.get("acima_meta", {})
+                    style_parts.append(
+                        f"background-color:{acima.get('bg', '#FEE2E2')};color:{acima.get('text', '#991B1B')};font-weight:{'800' if acima.get('bold', True) else '500'};text-align:center;"
+                    )
+                else:
+                    abaixo = cfg.get("abaixo_meta", {})
+                    style_parts.append(
+                        f"background-color:{abaixo.get('bg', '#D1FAE5')};color:{abaixo.get('text', '#065F46')};font-weight:{'800' if abaixo.get('bold', True) else '500'};text-align:center;"
+                    )
 
-            # Regras de cores legadas (color_rules)
+            # Legado Color Rules
             elif color_rules and c in color_rules:
                 for rule, color in color_rules[c]:
-                    if rule(val):
+                    if rule(val_raw):
                         style_parts.append(f"color:{color};font-weight:600;")
                         break
 
-            # Alinhamento para colunas numéricas
-            if c in num_set and val != "—":
+            # Alinhamento Numérico
+            if c in num_set and val_raw != "—" and not is_linha_destaque:
                 style_parts.append(
                     "text-align:right;font-variant-numeric:tabular-nums;"
                 )
@@ -1781,25 +731,821 @@ def render_table_html(
             style = "".join(style_parts)
             cells.append(f'<td style="{style}">{val}</td>')
 
-        html_rows.append(f'<tr>{"".join(cells)}</tr>')
+        html_rows.append(f"<tr>{''.join(cells)}</tr>")
 
-    # Linha de total
+    # Linha Total
     if linha_total and not df_show.empty:
         total_cells = []
         for c in cols:
             if c in num_set:
-                total = df_show[c].sum()
-                total_cells.append(f'<td class="num">{_fmt_br(total)}</td>')
+                try:
+                    total = pd.to_numeric(
+                        df_show[c].replace(r"[^\d.-]", "", regex=True), errors="coerce"
+                    ).sum()
+                    total_cells.append(f'<td class="num">{_fmt_br(total)}</td>')
+                except:
+                    total_cells.append("<td>—</td>")
             else:
                 total_cells.append("<td><strong>TOTAL</strong></td>")
         html_rows.append(f'<tr class="total-row">{"".join(total_cells)}</tr>')
 
-    headers_html = "".join(f"<th>{c}</th>" for c in cols)
-    html = (
-        f'<div class="corp-table-wrap" style="max-height:{height}px;overflow-y:auto;">'
-        f'<table class="corp-table">'
-        f"<thead><tr>{headers_html}</tr></thead>"
-        f'<tbody>{"".join(html_rows)}</tbody>'
-        f"</table></div>"
-    )
+    headers_html = "".join(f"<th>{escape(c)}</th>" for c in cols)
+
+    html = textwrap.dedent(f"""
+        <div class="corp-table-wrap" style="max-height:{height}px;overflow-y:auto;">
+        <table class="corp-table">
+        <thead><tr>{headers_html}</tr></thead>
+        <tbody>{"".join(html_rows)}</tbody>
+        </table></div>
+    """)
     st.markdown(html, unsafe_allow_html=True)
+
+
+# ====================================================
+# SIDEBAR CORPORATIVA
+# ====================================================
+def aplicar_sidebar_corp(
+    logo_url: str = "",
+    nome_empresa: str = "TOTALE",
+    subtitulo: str = "Inteligência Corporativa",
+    versao: str = "",
+    ambiente: Literal["produção", "homologação", "desenvolvimento"] = "produção",
+    mostrar_data: bool = True,
+    divider: bool = True,
+) -> None:
+    """
+    Configura e renderiza o cabeçalho corporativo completo da sidebar.
+
+    Parameters
+    ----------
+    logo_url : str
+        URL da imagem do logotipo. Se vazio, usa ícone Material Symbols.
+    nome_empresa : str
+        Nome exibido no topo da sidebar.
+    subtitulo : str
+        Linha secundária abaixo do nome.
+    versao : str
+        Tag de versão (ex: ``"v2.4.1"``). Se vazio, omite o badge.
+    ambiente : str
+        ``"produção"`` | ``"homologação"`` | ``"desenvolvimento"``.
+        Controla a cor do badge de ambiente.
+    mostrar_data : bool
+        Exibe a data/hora atual (fuso de São Paulo) no rodapé do header.
+    divider : bool
+        Insere um separador horizontal após o header.
+
+    Exemplo
+    -------
+    >>> aplicar_sidebar_corp(
+    ...     nome_empresa="TOTALE",
+    ...     subtitulo="Painel de Produção",
+    ...     versao="v3.1.0",
+    ...     ambiente="produção",
+    ... )
+    """
+
+    # ── CSS adicional específico da sidebar ──────────────────
+    css_sidebar = textwrap.dedent(f"""
+        <style>
+        /* ── Header Corporativo da Sidebar ── */
+        .sb-corp-header {{
+            padding: 20px 16px 14px;
+            margin: -10px -16px 0;
+            background: linear-gradient(160deg, {COR_PRIMARIA} 0%, #0A3A8A 60%, #124DB5 100%);
+            border-radius: 0 0 14px 14px;
+            position: relative;
+            overflow: hidden;
+        }}
+        .sb-corp-header::before {{
+            content: '';
+            position: absolute;
+            top: -40%;
+            right: -25%;
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, rgba(243,124,4,0.18) 0%, transparent 70%);
+            border-radius: 50%;
+        }}
+        .sb-corp-header::after {{
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            left: -15%;
+            width: 90px;
+            height: 90px;
+            background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+            border-radius: 50%;
+        }}
+        .sb-corp-logo-row {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            z-index: 1;
+        }}
+        .sb-corp-logo-img {{
+            width: 36px;
+            height: 36px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.12);
+            padding: 4px;
+        }}
+        .sb-corp-logo-icon {{
+            width: 36px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.12);
+            border-radius: 8px;
+            font-size: 22px;
+            color: {COR_SECUNDARIA};
+        }}
+        .sb-corp-nome {{
+            font-family: {FONTE_TITULO} !important;
+            font-size: 18px;
+            font-weight: 800;
+            color: #FFFFFF;
+            letter-spacing: -0.3px;
+            line-height: 1.15;
+        }}
+        .sb-corp-sub {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255,255,255,0.65);
+            margin-top: 2px;
+            letter-spacing: 0.3px;
+        }}
+        .sb-corp-badges {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            position: relative;
+            z-index: 1;
+        }}
+        .sb-badge {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 9.5px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            line-height: 1.5;
+        }}
+        .sb-badge-versao {{
+            background: rgba(255,255,255,0.14);
+            color: rgba(255,255,255,0.85);
+            border: 1px solid rgba(255,255,255,0.15);
+        }}
+        .sb-badge-prod {{
+            background: rgba(5,150,105,0.2);
+            color: #6EE7B7;
+            border: 1px solid rgba(5,150,105,0.3);
+        }}
+        .sb-badge-homo {{
+            background: rgba(245,158,11,0.2);
+            color: #FCD34D;
+            border: 1px solid rgba(245,158,11,0.3);
+        }}
+        .sb-badge-dev {{
+            background: rgba(139,92,246,0.2);
+            color: #C4B5FD;
+            border: 1px solid rgba(139,92,246,0.3);
+        }}
+        .sb-corp-data {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 10px;
+            color: rgba(255,255,255,0.45);
+            margin-top: 8px;
+            position: relative;
+            z-index: 1;
+        }}
+        .sb-corp-divider {{
+            border: none;
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%);
+            margin: 14px 10px 10px;
+        }}
+
+        /* ── Status Card da Sidebar ── */
+        .sb-status-card {{
+            background: #FFFFFF;
+            border: 1px solid {SB_BORDA_SUTIL};
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin: 6px 10px;
+            box-shadow: 0 1px 4px rgba(1,40,105,0.04);
+        }}
+        .sb-status-card-compacto {{
+            padding: 8px 12px;
+            margin: 4px 10px;
+        }}
+        .sb-status-row {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .sb-status-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            position: relative;
+        }}
+        .sb-status-dot::after {{
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            opacity: 0.25;
+        }}
+        .sb-status-dot-ativo {{ background: {COR_SUCESSO}; }}
+        .sb-status-dot-ativo::after {{ background: {COR_SUCESSO}; }}
+        .sb-status-dot-inativo {{ background: {COR_NEUTRO}; }}
+        .sb-status-dot-inativo::after {{ background: {COR_NEUTRO}; }}
+        .sb-status-dot-pendente {{ background: {COR_ATENCAO}; }}
+        .sb-status-dot-pendente::after {{ background: {COR_ATENCAO}; animation: sbPulse 2s infinite; }}
+        .sb-status-dot-sucesso {{ background: {COR_SUCESSO}; }}
+        .sb-status-dot-sucesso::after {{ background: {COR_SUCESSO}; }}
+        .sb-status-dot-erro {{ background: {COR_ALERTA}; }}
+        .sb-status-dot-erro::after {{ background: {COR_ALERTA}; animation: sbPulse 1.2s infinite; }}
+        @keyframes sbPulse {{
+            0%, 100% {{ transform: scale(1); opacity: 0.25; }}
+            50% {{ transform: scale(1.6); opacity: 0; }}
+        }}
+        .sb-status-label {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 12px;
+            font-weight: 600;
+            color: {COR_TEXTO};
+            flex: 1;
+        }}
+        .sb-status-tag {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 7px;
+            border-radius: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }}
+        .sb-status-desc {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 10.5px;
+            color: {COR_TEXTO_3};
+            margin-top: 6px;
+            line-height: 1.45;
+        }}
+        .sb-status-meta {{
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #F1F5F9;
+        }}
+        .sb-status-meta-row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .sb-status-meta-key {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 10px;
+            color: {COR_TEXTO_3};
+            font-weight: 500;
+        }}
+        .sb-status-meta-val {{
+            font-family: {FONTE_CODIGO} !important;
+            font-size: 10px;
+            color: {COR_TEXTO_2};
+            font-weight: 500;
+        }}
+        .sb-status-atualizacao {{
+            font-family: {FONTE_TEXTO} !important;
+            font-size: 9.5px;
+            color: {SB_TEXTO_MUTED};
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+        </style>
+    """)
+    st.sidebar.markdown(css_sidebar, unsafe_allow_html=True)
+
+    # ── Badge de ambiente ────────────────────────────────────
+    amb_map = {
+        "produção": ("sb-badge-prod", "PROD"),
+        "homologação": ("sb-badge-homo", "HOMO"),
+        "desenvolvimento": ("sb-badge-dev", "DEV"),
+    }
+    amb_cls, amb_txt = amb_map.get(ambiente, amb_map["produção"])
+
+    badges_html = f'<span class="sb-badge {amb_cls}">{amb_txt}</span>'
+    if versao:
+        badges_html += f'<span class="sb-badge sb-badge-versao">{escape(versao)}</span>'
+
+    # ── Logo ─────────────────────────────────────────────────
+    if logo_url:
+        logo_html = (
+            f'<img class="sb-corp-logo-img" src="{escape(logo_url)}" alt="logo">'
+        )
+    else:
+        logo_html = (
+            '<span class="sb-corp-logo-icon">'
+            '<span class="material-symbols-rounded">dashboard</span>'
+            "</span>"
+        )
+
+    # ── Data/hora ────────────────────────────────────────────
+    data_html = ""
+    if mostrar_data:
+        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        data_html = (
+            f'<div class="sb-corp-data">'
+            f'<span class="material-symbols-rounded" '
+            f'style="font-size:12px;vertical-align:middle;margin-right:2px;">schedule</span>'
+            f'{agora.strftime("%d/%m/%Y · %H:%M")}'
+            f"</div>"
+        )
+
+    # ── Divider ──────────────────────────────────────────────
+    divider_html = '<hr class="sb-corp-divider">' if divider else ""
+
+    # ── Renderização ─────────────────────────────────────────
+    html = textwrap.dedent(f"""
+        <div class="sb-corp-header">
+            <div class="sb-corp-logo-row">
+                {logo_html}
+                <div>
+                    <div class="sb-corp-nome">{escape(nome_empresa)}</div>
+                    <div class="sb-corp-sub">{escape(subtitulo)}</div>
+                </div>
+            </div>
+            <div class="sb-corp-badges">{badges_html}</div>
+            {data_html}
+        </div>
+        {divider_html}
+    """)
+    st.sidebar.markdown(html, unsafe_allow_html=True)
+
+
+from datetime import datetime
+from html import escape
+import textwrap
+from typing import Dict, Literal, Tuple, Union
+from zoneinfo import ZoneInfo
+import streamlit as st
+
+
+def render_sidebar_status(
+    status: TipoStatus = "ativo",
+    label: str = "Sistema",
+    descricao: str = "",
+    tag_customizada: str = "",
+    ultima_atualizacao: str | datetime | None = None,
+    dados: Dict[str, str] | None = None,
+    compacto: bool = False,
+) -> None:
+    """Renderiza um cartão de status na sidebar com indicador visual pulsante
+
+    e suporte a tags customizadas.
+
+    Parameters
+    ----------
+    status : TipoStatus
+        ``"ativo"`` | ``"inativo"`` | ``"pendente"`` | ``"sucesso"`` | ``"erro"``.
+        Controla a cor e a animação do indicador visual.
+    label : str
+        Texto principal do status (ex: ``"Base de Dados"``, ``"Robô Local"``).
+    descricao : str
+        Linha explicativa opcional exibida abaixo do label.
+    tag_customizada : str
+        Texto personalizado para a etiqueta no canto superior direito
+        (ex: ``"EM DIA"``, ``"SINC"``, ``"98% SLA"``). Se vazio, utiliza
+        o rótulo padrão do status (``"Online"``, ``"Pendente"``, etc.).
+    ultima_atualizacao : str | datetime | None
+        Timestamp da última atualização. Se ``datetime``, formata
+        automaticamente no fuso de São Paulo. Se ``None``, omite.
+    dados : dict | None
+        Pares chave-valor adicionais exibidos como metadados
+        (ex: ``{"Linhas": "12.450", "Tamanho": "1.2 MB"}``).
+    compacto : bool
+        Se ``True``, reduz o padding e omite a descrição/metadados.
+
+    Exemplo
+    -------
+    >>> render_sidebar_status(
+    ...     status="ativo",
+    ...     label="Sincronismo ETL",
+    ...     tag_customizada="EM DIA",
+    ...     descricao="Base carregada via Robô Local",
+    ...     dados={"Arquivo": "Atividades-2024.csv", "Linhas": "45.100"},
+    ...     ultima_atualizacao=datetime.now(),
+    ... )
+    """
+
+    # ── Cores e texto padrão do tag de status ────────────────
+    tag_cfg: Dict[str, Tuple[str, str, str]] = {
+        "ativo": ("#D1FAE5", "#065F46", "Online"),
+        "inativo": ("#F1F5F9", "#475569", "Offline"),
+        "pendente": ("#FEF3C7", "#92400E", "Pendente"),
+        "sucesso": ("#D1FAE5", "#065F46", "OK"),
+        "erro": ("#FEE2E2", "#991B1B", "Erro"),
+    }
+    tag_bg, tag_fg, tag_txt_padrao = tag_cfg.get(status, tag_cfg["inativo"])
+
+    # Define o texto final da tag (customizado ou padrão)
+    tag_txt = (
+        escape(tag_customizada.strip()) if tag_customizada.strip() else tag_txt_padrao
+    )
+
+    # ── Timestamp ────────────────────────────────────────────
+    atualizacao_html = ""
+    if ultima_atualizacao is not None:
+        if isinstance(ultima_atualizacao, datetime):
+            ts = (
+                ultima_atualizacao
+                if ultima_atualizacao.tzinfo
+                else ultima_atualizacao.replace(tzinfo=ZoneInfo("America/Sao_Paulo"))
+            )
+            ts_str = ts.strftime("%d/%m %H:%M:%S")
+        else:
+            ts_str = str(ultima_atualizacao)
+        atualizacao_html = (
+            f'<div class="sb-status-atualizacao">'
+            f'<span class="material-symbols-rounded" style="font-size:11px;">update</span>'
+            f"Atualizado em {escape(ts_str)}"
+            f"</div>"
+        )
+
+    # ── Descrição ────────────────────────────────────────────
+    desc_html = ""
+    if descricao and not compacto:
+        desc_html = f'<div class="sb-status-desc">{escape(descricao)}</div>'
+
+    # ── Metadados ────────────────────────────────────────────
+    meta_html = ""
+    if dados and not compacto:
+        rows = "".join(
+            f'<div class="sb-status-meta-row">'
+            f'<span class="sb-status-meta-key">{escape(k)}</span>'
+            f'<span class="sb-status-meta-val">{escape(str(v))}</span>'
+            f"</div>"
+            for k, v in dados.items()
+        )
+        meta_html = f'<div class="sb-status-meta">{rows}</div>'
+
+    # ── Classe compacto ──────────────────────────────────────
+    cls_extra = " sb-status-card-compacto" if compacto else ""
+
+    # ── Renderização HTML ────────────────────────────────────
+    html = textwrap.dedent(f"""
+        <div class="sb-status-card{cls_extra}">
+            <div class="sb-status-row">
+                <span class="sb-status-dot sb-status-dot-{status}"></span>
+                <span class="sb-status-label">{escape(label)}</span>
+                <span class="sb-status-tag" style="background:{tag_bg};color:{tag_fg};">
+                    {tag_txt}
+                </span>
+            </div>
+            {desc_html}
+            {meta_html}
+            {atualizacao_html}
+        </div>
+    """)
+    st.sidebar.markdown(html, unsafe_allow_html=True)
+
+
+# ====================================================
+# BRAND / LOGO SIDEBAR
+# ====================================================
+def render_sidebar_brand(
+    titulo: str = "TOTALE",
+    subtitulo: str = "Inteligência Corporativa",
+    logo: str = "",
+    tema: TipoTemaBrand = "gradiente",
+    ambiente: TipoAmbiente | None = "produção",
+    versao: str = "",
+    badge_custom: str = "",
+    link_url: str = "",
+    mostrar_data: bool = False,
+    divider: bool = True,
+    compacto: bool = False,
+) -> None:
+    """Renderiza a marca/cabeçalho corporativo na sidebar com suporte a logos,
+
+    badges e temas visuais.
+
+    Parameters
+    ----------
+    titulo : str
+        Nome principal da aplicação ou empresa (ex: ``"TOTALE"``, ``"TOTALE BI"``).
+    subtitulo : str
+        Slogan, departamento ou módulo (ex: ``"Mesa de Operações"``, ``"Portal Saúde"``).
+    logo : str
+        - URL web (``"https://..."``) ou caminho de imagem.
+        - Nome de ícone Material Symbols (ex: ``"insights"``, ``"account_balance"``, ``"token"``).
+        - Se vazio, renderiza um ícone corporativo padrão.
+    tema : TipoTemaBrand
+        - ``"gradiente"``: Fundo midnight navy corporativo com brilho de luz e alto contraste.
+        - ``"clean"``: Card branco refinado com borda e sombra sutil.
+        - ``"minimalista"``: Layout plano sem caixa de fundo, perfeito para sidebars enxutas.
+    ambiente : TipoAmbiente | None
+        Exibe badge de ambiente (``"produção"`` / ``"homologação"`` / ``"desenvolvimento"``).
+        Se ``None``, não renderiza badge de ambiente.
+    versao : str
+        Tag de versão do sistema (ex: ``"v3.2.0"``).
+    badge_custom : str
+        Texto de um badge extra personalizado (ex: ``"BETA"``, ``"PREMIUM"``, ``"PME"``).
+    link_url : str
+        URL opcional para transformar a marca em um link clicável (ex: ``"/"`` ou portal corporativo).
+    mostrar_data : bool
+        Exibe timestamp no fuso de São Paulo.
+    divider : bool
+        Renderiza uma linha divisória elegante abaixo do bloco da marca.
+    compacto : bool
+        Reduz espaçamentos e fontes para otimizar espaço vertical na sidebar.
+
+    Exemplo
+    -------
+    >>> render_sidebar_brand(
+    ...     titulo="TOTALE SAÚDE",
+    ...     subtitulo="Auditoria & Faturamento",
+    ...     logo="medical_services",
+    ...     ambiente="produção",
+    ...     versao="v2.5.1",
+    ... )
+    """
+    # ── 1. Mapeamento de Ambientes ───────────────────────────
+    amb_map: Dict[str, Tuple[str, str, str]] = {
+        "produção": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
+        "producao": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
+        "prod": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
+        "homologação": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
+        "homologacao": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
+        "homo": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
+        "desenvolvimento": ("#7C3AED", "rgba(139,92,246,0.18)", "DEV"),
+        "dev": ("#7C3AED", "rgba(139,92,246,0.18)", "DEV"),
+    }
+
+    # ── 2. Renderização do Logo ──────────────────────────────
+    logo_is_url = bool(
+        re.match(r"^(https?://|data:image/|/|\./)", logo.strip().lower())
+    )
+
+    if logo and logo_is_url:
+        logo_html = f'<img src="{escape(logo)}" class="sb-brand-logo-img" alt="logo" />'
+    else:
+        icone_nome = logo if logo else "token"
+        logo_html = f"""
+            <div class="sb-brand-logo-icon">
+                <span class="material-symbols-rounded">{escape(icone_nome)}</span>
+            </div>
+        """
+
+    # ── 3. Badges ────────────────────────────────────────────
+    badges_parts: List[str] = []
+
+    if ambiente:
+        amb_key = str(ambiente).strip().lower()
+        cor_txt, cor_bg, label_amb = amb_map.get(
+            amb_key, ("#059669", "rgba(5,150,105,0.18)", "PROD")
+        )
+        badges_parts.append(
+            f'<span class="sb-brand-badge" style="background:{cor_bg};color:{cor_txt};border-color:{cor_txt}40;">{label_amb}</span>'
+        )
+
+    if versao:
+        badges_parts.append(
+            f'<span class="sb-brand-badge sb-brand-badge-version">{escape(versao)}</span>'
+        )
+
+    if badge_custom:
+        badges_parts.append(
+            f'<span class="sb-brand-badge sb-brand-badge-custom">{escape(badge_custom)}</span>'
+        )
+
+    badges_html = (
+        f'<div class="sb-brand-badges-row">{"".join(badges_parts)}</div>'
+        if badges_parts
+        else ""
+    )
+
+    # ── 4. Data / Horário ────────────────────────────────────
+    data_html = ""
+    if mostrar_data:
+        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        data_html = f"""
+            <div class="sb-brand-date">
+                <span class="material-symbols-rounded">schedule</span>
+                {agora.strftime("%d/%m/%Y · %H:%M")}
+            </div>
+        """
+
+    # ── 5. Divider ───────────────────────────────────────────
+    divider_html = '<div class="sb-brand-divider"></div>' if divider else ""
+
+    # ── 6. CSS Inline do Brand Component ─────────────────────
+    css = textwrap.dedent(f"""
+        <style>
+        .sb-brand-wrapper {{
+            margin: {("-4px -8px 8px -8px" if compacto else "0 0 12px 0")};
+            font-family: {FONTE_TEXTO};
+        }}
+        .sb-brand-link {{
+            text-decoration: none !important;
+            color: inherit !important;
+            display: block;
+        }}
+        
+        /* TEMAS */
+        .sb-brand-card-gradiente {{
+            background: linear-gradient(145deg, {COR_PRIMARIA} 0%, #0A3A8A 65%, #0F52BA 100%);
+            border-radius: {("10px" if compacto else "14px")};
+            padding: {("12px 14px" if compacto else "16px 16px 14px")};
+            color: #FFFFFF;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 14px rgba(1, 40, 105, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        .sb-brand-card-gradiente::before {{
+            content: ''; position: absolute; top: -30px; right: -30px; width: 90px; height: 90px;
+            background: radial-gradient(circle, rgba(243,124,4,0.3) 0%, transparent 70%); border-radius: 50%;
+        }}
+        
+        .sb-brand-card-clean {{
+            background: #FFFFFF;
+            border-radius: {("10px" if compacto else "14px")};
+            padding: {("12px 14px" if compacto else "14px 16px")};
+            color: {COR_TEXTO};
+            box-shadow: 0 2px 8px rgba(1, 40, 105, 0.05);
+            border: 1px solid {SB_BORDA_SUTIL};
+        }}
+
+        .sb-brand-card-minimalista {{
+            background: transparent;
+            padding: {("4px 4px" if compacto else "8px 6px")};
+            color: {COR_TEXTO};
+        }}
+
+        /* HEADER ROW */
+        .sb-brand-header {{
+            display: flex;
+            align-items: center;
+            gap: {("10px" if compacto else "12px")};
+            position: relative;
+            z-index: 1;
+        }}
+
+        /* LOGO */
+        .sb-brand-logo-img {{
+            width: {("32px" if compacto else "40px")};
+            height: {("32px" if compacto else "40px")};
+            object-fit: contain;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.12);
+            padding: 2px;
+            flex-shrink: 0;
+        }}
+        .sb-brand-logo-icon {{
+            width: {("32px" if compacto else "40px")};
+            height: {("32px" if compacto else "40px")};
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            background: rgba(243, 124, 4, 0.15);
+            color: {COR_SECUNDARIA};
+            border: 1px solid rgba(243, 124, 4, 0.3);
+        }}
+        .sb-brand-card-gradiente .sb-brand-logo-icon {{
+            background: rgba(255, 255, 255, 0.14);
+            color: #FFFFFF;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }}
+        .sb-brand-logo-icon span {{
+            font-size: {("20px" if compacto else "24px")} !important;
+        }}
+
+        /* TEXTOS */
+        .sb-brand-title {{
+            font-family: {FONTE_TITULO} !important;
+            font-size: {("15px" if compacto else "17px")};
+            font-weight: 800;
+            line-height: 1.15;
+            letter-spacing: -0.3px;
+        }}
+        .sb-brand-card-gradiente .sb-brand-title {{ color: #FFFFFF; }}
+        .sb-brand-card-clean .sb-brand-title,
+        .sb-brand-card-minimalista .sb-brand-title {{ color: {COR_PRIMARIA}; }}
+
+        .sb-brand-sub {{
+            font-size: {("10.5px" if compacto else "11.5px")};
+            font-weight: 500;
+            margin-top: 2px;
+            letter-spacing: 0.2px;
+            opacity: 0.75;
+        }}
+
+        /* BADGES */
+        .sb-brand-badges-row {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: {("8px" if compacto else "10px")};
+            position: relative;
+            z-index: 1;
+            flex-wrap: wrap;
+        }}
+        .sb-brand-badge {{
+            font-size: 9.5px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            border: 1px solid transparent;
+            line-height: 1.3;
+        }}
+        .sb-brand-badge-version {{
+            background: rgba(100, 116, 139, 0.12);
+            color: #64748B;
+            border-color: rgba(100, 116, 139, 0.2);
+        }}
+        .sb-brand-card-gradiente .sb-brand-badge-version {{
+            background: rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.9);
+            border-color: rgba(255, 255, 255, 0.2);
+        }}
+        .sb-brand-badge-custom {{
+            background: rgba(243, 124, 4, 0.15);
+            color: {COR_SECUNDARIA};
+            border-color: rgba(243, 124, 4, 0.3);
+        }}
+        .sb-brand-card-gradiente .sb-brand-badge-custom {{
+            background: {COR_SECUNDARIA};
+            color: #FFFFFF;
+            border-color: transparent;
+        }}
+
+        /* DATA */
+        .sb-brand-date {{
+            font-size: 9.5px;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            opacity: 0.6;
+            font-family: {FONTE_CODIGO};
+        }}
+        .sb-brand-date span {{ font-size: 11px !important; }}
+
+        /* DIVIDER */
+        .sb-brand-divider {{
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%);
+            margin: {("10px 0 6px" if compacto else "14px 0 10px")};
+        }}
+        </style>
+    """)
+
+    card_class = f"sb-brand-card-{tema}"
+    sub_html = (
+        f'<div class="sb-brand-sub">{escape(subtitulo)}</div>' if subtitulo else ""
+    )
+
+    corpo_card = f"""
+        <div class="sb-brand-header">
+            {logo_html}
+            <div>
+                <div class="sb-brand-title">{escape(titulo)}</div>
+                {sub_html}
+            </div>
+        </div>
+        {badges_html}
+        {data_html}
+    """
+
+    if link_url:
+        corpo_card = (
+            f'<a href="{escape(link_url)}" class="sb-brand-link">{corpo_card}</a>'
+        )
+
+    html = textwrap.dedent(f"""
+        {css}
+        <div class="sb-brand-wrapper">
+            <div class="{card_class}">
+                {corpo_card}
+            </div>
+            {divider_html}
+        </div>
+    """)
+    st.sidebar.markdown(html, unsafe_allow_html=True)

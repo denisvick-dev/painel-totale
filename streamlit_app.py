@@ -442,6 +442,7 @@ class GerenciadorNavegacao:
                 st.Page(
                     "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
                 ),
+                st.Page("robo_local.py", title="Robô Local", icon="🤖"),
             ],
             "CENTRAL DE PERFORMANCE": [
                 st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
@@ -501,9 +502,9 @@ def main() -> None:
     # 3. Status operacional
     dados_prod = st.session_state.get("dados_prod")
     if dados_prod is not None:
-        render_sidebar_status(label="Bases Atualizadas", tipo="success")
+        render_sidebar_status(label="Bases Atualizadas", status="ativo")
     else:
-        render_sidebar_status(label="Aguardando Sincronismo", tipo="warning")
+        render_sidebar_status(label="Aguardando Sincronismo", status="pendente")
 
     # 4. Navegação nativa
     paginas = GerenciadorNavegacao._definir_paginas()

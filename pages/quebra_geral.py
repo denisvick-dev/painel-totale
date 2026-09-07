@@ -4,16 +4,16 @@ quebra.py
 Super Relatório Corporativo Unificado | Quebra Operacional TOTALE
 
 Módulos integrados:
+  • Robô Auto-Sincronizador (Monitor de Pasta Local / Downloads)
   • Resumo Executivo (Matriz Monitor × Segmento)
   • Análise Detalhada (Projeções, Rankings, Causas, Backoffice, Base)
   • Auditoria de Critérios de Classificação
-
-Critérios centralizados em: components.criterios
 """
 
 from __future__ import annotations
 
 import csv
+import os
 import re
 import sys
 from datetime import datetime
@@ -43,11 +43,19 @@ from components.componentes import (
     FONTE_TITULO,
     aplicar_estilo,
     render_section_header,
+    render_sidebar_brand,
+    render_sidebar_status,
     render_table_html,
 )
 from components.componentes import render_insight as _render_insight_global
 from components.componentes import render_kpi as _render_kpi_global
 from components.componentes import render_kpi_sm as _render_kpi_sm_global
+
+# ── Robô de Sincronismo Local ───────────────────────────────────────
+try:
+    from robo_local import renderizar_robo_local
+except ImportError:
+    from robo_local import renderizar_robo_local  # Fallback local
 
 # ── Critérios centralizados ─────────────────────────────────────────
 from components.criterios import (
@@ -270,9 +278,6 @@ _MAPA_TEMA_GLOBAL: Dict[str, str] = {
     "escuro": "cinza",
 }
 
-FONTE_CARD_TITULO = '"Poppins", "Manrope", sans-serif'
-FONTE_CARD_TEXTO = '"Inter", "Roboto", sans-serif'
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # WRAPPERS DE INTERFACE (UI)
@@ -334,9 +339,6 @@ def render_section(titulo: str) -> None:
     render_section_header(icon, title)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# UTILITÁRIOS OPERACIONAIS
-# ═══════════════════════════════════════════════════════════════════════
 def _fmt_pct_br(v: Any) -> str:
     try:
         val = float(v) * 100
@@ -352,9 +354,10 @@ def _fmt_int_br(v: Any) -> str:
         return "0"
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# UTILITÁRIOS OPERACIONAIS
+# ═══════════════════════════════════════════════════════════════════════
 class Utils:
-    """Utilitários de manipulação, busca de colunas e exportação."""
-
     @staticmethod
     def buscar_coluna(df: pd.DataFrame, palavras: list) -> Optional[str]:
         if df is None or df.empty:
@@ -384,15 +387,6 @@ class Utils:
 
     @staticmethod
     def classificar_status_excel(df: pd.DataFrame) -> pd.Series:
-        """
-        Implementa a fórmula Excel exata de Status Contrato:
-        =SE(E(N2="";OU(F2="Liberado no Sistema NETSMS";F2="Cancelado no Sistema NETSMS"));"Cancelado";
-         SE(E(N2<>"";OU(F2="Liberado no Sistema NETSMS";F2="Cancelado no Sistema NETSMS"));"Não Executada";
-         SE(D2="cancelado";"Cancelado";
-         SE(D2="suspenso";"Suspenso";
-         SE(D2="não concluído";"Não Executada";
-         SEERRO(PROCV(AG2;Auxiliar!$AA:$AB;2;0);"Pendente"))))))
-        """
         col_inicio = Utils.buscar_coluna(
             df,
             [
@@ -459,32 +453,18 @@ class Utils:
             else pd.Series("", index=df.index)
         )
 
-        fechamento_alvo = [
-            "LIBERADO NO SISTEMA NETSMS",
-            "CANCELADO NO SISTEMA NETSMS",
-        ]
-
+        fechamento_alvo = ["LIBERADO NO SISTEMA NETSMS", "CANCELADO NO SISTEMA NETSMS"]
         cond_f2 = s_fechamento.isin(fechamento_alvo)
         inicio_vazio = s_inicio.isin(["", "NAN", "NONE", "NULL", "NAT", "NA"])
 
-        # Condição 1: N2="" e (F2="Liberado..." ou F2="Cancelado...") -> "Cancelado"
         cond1 = inicio_vazio & cond_f2
-
-        # Condição 2: N2<>"" e (F2="Liberado..." ou F2="Cancelado...") -> "Não Executada"
         cond2 = (~inicio_vazio) & cond_f2
-
-        # Condição 3: D2="cancelado" -> "Cancelado"
         cond3 = s_status_atv.eq("cancelado")
-
-        # Condição 4: D2="suspenso" -> "Suspenso"
         cond4 = s_status_atv.isin(["suspenso", "suspensa"])
-
-        # Condição 5: D2="não concluído" -> "Não Executada"
         cond5 = s_status_atv.isin(
             ["não concluído", "nao concluido", "não concluida", "nao concluida"]
         )
 
-        # Condição 6 (Lookup PROCV na coluna AG2 / Cód de Baixa 1):
         def traduzir_cod_baixa(val: str) -> str:
             if not val or str(val).strip().upper() in ["NAN", "NONE", "NULL", ""]:
                 return "Pendente"
@@ -502,7 +482,6 @@ class Utils:
             return "Pendente"
 
         status_procv = s_cod_baixa.apply(traduzir_cod_baixa)
-
         condicoes = [cond1, cond2, cond3, cond4, cond5]
         resultados = [
             "Cancelado",
@@ -512,7 +491,6 @@ class Utils:
             "Não Executada",
         ]
 
-        # Se não houver colunas da fórmula Excel, fallback para a coluna STATUS DA O.S 1
         if (
             not any([col_inicio, col_fechamento_ext, col_status_atv, col_cod_baixa])
             and col_status_os
@@ -537,17 +515,13 @@ class Utils:
         with pd.ExcelWriter(out, engine="openpyxl") as w:
             df.to_excel(w, index=False, sheet_name=aba[:31])
             ws = w.sheets[aba[:31]]
-
             ws.views.sheetView[0].showGridLines = True
 
             header_fill = PatternFill("solid", fgColor="0F172A")
             header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
             border_thin = Side(border_style="thin", color="CBD5E1")
             cell_border = Border(
-                left=border_thin,
-                right=border_thin,
-                top=border_thin,
-                bottom=border_thin,
+                left=border_thin, right=border_thin, top=border_thin, bottom=border_thin
             )
             align_center = Alignment(horizontal="center", vertical="center")
             align_left = Alignment(horizontal="left", vertical="center")
@@ -562,7 +536,6 @@ class Utils:
                     cell = ws.cell(row=row, column=col)
                     cell.border = cell_border
                     val = cell.value
-
                     col_name = str(ws.cell(1, col).value).upper()
 
                     try:
@@ -600,16 +573,6 @@ class Utils:
                                     )
                                 )
                                 cell.number_format = "#,##0"
-                            elif any(
-                                x in col_name for x in ["PROBAB", "PROJ", "FECHAMENTO"]
-                            ):
-                                v_flt = float(
-                                    str(val).replace("%", "").replace(",", ".").strip()
-                                )
-                                if v_flt > 1.0:
-                                    v_flt = v_flt / 100.0
-                                cell.value = v_flt
-                                cell.number_format = "0.0%"
                     except Exception:
                         pass
 
@@ -669,25 +632,23 @@ class DataLoader:
 
             conn = st.connection("gsheets", type=GSheetsConnection)
             raw = conn.read(
-                spreadsheet=Config.URL_LISTA_ATIVOS,
-                worksheet=Config.WORKSHEET_ATIVOS,
+                spreadsheet=Config.URL_LISTA_ATIVOS, worksheet=Config.WORKSHEET_ATIVOS
             )
             if raw is not None and not raw.empty:
                 return DataLoader._processar_lista_ativos(raw)
         except Exception:
             pass
+
         for url in (
-            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}"
-            f"/gviz/tq?tqx=out:csv&sheet={Config.WORKSHEET_ATIVOS}",
-            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}"
-            f"/export?format=csv&gid=0",
+            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}/gviz/tq?tqx=out:csv&sheet={Config.WORKSHEET_ATIVOS}",
+            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}/export?format=csv&gid=0",
         ):
             try:
                 raw = pd.read_csv(url)
                 if raw is not None and not raw.empty:
                     return DataLoader._processar_lista_ativos(raw)
-            except Exception as e:
-                st.warning(f"⚠️ Falha ao carregar lista_ativos: {e}")
+            except Exception:
+                continue
         return pd.DataFrame()
 
     @staticmethod
@@ -725,9 +686,8 @@ class DataLoader:
         return raw.drop_duplicates(subset=["Login"], keep="last").reset_index(drop=True)
 
     @staticmethod
-    @st.cache_data(show_spinner=False)
     def preparar_base(df: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
-        if df.empty:
+        if df is None or df.empty:
             return pd.DataFrame()
 
         df = df.copy()
@@ -764,9 +724,6 @@ class DataLoader:
         df.attrs["removidos_contrato"] = n_invalidos
 
         if df.empty:
-            st.warning(
-                "⚠️ Base ficou vazia após remoção de suspensos, cancelados e contratos inválidos."
-            )
             return pd.DataFrame()
 
         # 4. Total de Tarefas
@@ -789,8 +746,6 @@ class DataLoader:
             ["LOGIN DO TÉCNICO", "LOGIN DO TECNICO", "LOGIN", "USUÁRIO", "MATRÍCULA"],
         )
         df.attrs["merge_aplicado"] = False
-        df.attrs["merge_matches"] = 0
-        df.attrs["merge_total"] = len(df)
 
         if col_login and not df_gs.empty and "Login" in df_gs.columns:
             df[col_login] = (
@@ -896,18 +851,11 @@ class DataLoader:
         )
         df["_COL_BAIXA"] = df[col_cod].astype(str) if col_cod else ""
 
-        # 9. Data Agenda
-        col_data = Utils.buscar_coluna(df, ["DATA", "DT AGENDA", "DATA AGENDA"])
-        df["_DATA_AGENDA"] = (
-            pd.to_datetime(df[col_data], errors="coerce", dayfirst=True)
-            if col_data
-            else pd.NaT
-        )
         return df
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MOTOR ANALÍTICO (BUSINESS LOGIC)
+# MOTOR ANALÍTICO COMPLETO (BUSINESS LOGIC)
 # ═══════════════════════════════════════════════════════════════════════
 class Motor:
     """Cálculos vetorizados de projeções, SLA, causas e rankings."""
@@ -1034,11 +982,11 @@ class Motor:
         p_ot: float = 0.15,
         p_pess: float = 0.50,
     ) -> pd.DataFrame:
-        if segmento and segmento != "TODOS" and "TIPO_SERVICO" in df.columns:
-            df_seg = df[df["TIPO_SERVICO"] == segmento].copy()
-        else:
-            df_seg = df.copy()
-
+        df_seg = (
+            df[df["TIPO_SERVICO"] == segmento].copy()
+            if segmento and segmento != "TODOS" and "TIPO_SERVICO" in df.columns
+            else df.copy()
+        )
         if df_seg.empty:
             return pd.DataFrame()
         tab = Motor.tabela_cenarios(df_seg, "TÉCNICO", p_ot, p_base, p_pess, min_aloc)
@@ -1059,7 +1007,7 @@ class Motor:
 
     @staticmethod
     def causa_raiz(df: pd.DataFrame, col_baixa: str, top_n: int = 8) -> pd.DataFrame:
-        df_nex = df[df["Status Contrato"] == "Não Executada"]
+        df_nex = df[df["Status Contrato"] == "Não Executada"].copy()
         if df_nex.empty or col_baixa not in df_nex.columns:
             return pd.DataFrame()
         df_nex = Motor._normalizar_baixa(df_nex, col_baixa)
@@ -1172,24 +1120,27 @@ class Motor:
             ["🔴 CRÍTICO", "🟠 ALTA", "🟡 MÉDIA"],
             default="🟢 BAIXA",
         )
-        pivot = pivot.sort_values("Prioridade", ascending=False).reset_index(drop=True)
-        return pivot[
-            [
-                "Classificação",
-                "MONITOR",
-                "TÉCNICO",
-                "TIPO_SERVICO",
-                "Não Executada",
-                "Pendente",
-                "Total Fila",
-                "Prioridade",
+        return (
+            pivot.sort_values("Prioridade", ascending=False)
+            .reset_index(drop=True)[
+                [
+                    "Classificação",
+                    "MONITOR",
+                    "TÉCNICO",
+                    "TIPO_SERVICO",
+                    "Não Executada",
+                    "Pendente",
+                    "Total Fila",
+                    "Prioridade",
+                ]
             ]
-        ].rename(
-            columns={
-                "MONITOR": "Monitor",
-                "TÉCNICO": "Técnico",
-                "TIPO_SERVICO": "Segmento",
-            }
+            .rename(
+                columns={
+                    "MONITOR": "Monitor",
+                    "TÉCNICO": "Técnico",
+                    "TIPO_SERVICO": "Segmento",
+                }
+            )
         )
 
     @staticmethod
@@ -1257,7 +1208,6 @@ class Motor:
         if df.empty:
             return pd.DataFrame()
 
-        # Considera apenas os segmentos oficiais (exclui "Outros")
         df_valid = df[df["TIPO_SERVICO"].isin(Config.ORDEM_TIPOS)].copy()
         if df_valid.empty:
             return pd.DataFrame()
@@ -1284,21 +1234,17 @@ class Motor:
         )
         grp["denominador"] = grp["executados"] + grp["nao_executados"]
         grp["pct"] = np.where(
-            grp["denominador"] > 0,
-            grp["nao_executados"] / grp["denominador"],
-            0.0,
+            grp["denominador"] > 0, grp["nao_executados"] / grp["denominador"], 0.0
         )
 
         pivot = grp.pivot_table(
             index="MONITOR", columns="TIPO_SERVICO", values="pct", fill_value=0.0
         )
-        # Garante ordem e presença das 3 colunas
         for t in Config.ORDEM_TIPOS:
             if t not in pivot.columns:
                 pivot[t] = 0.0
         pivot = pivot[Config.ORDEM_TIPOS]
 
-        # Quebra Geral e Total Tarefas por monitor
         exec_tot = df_valid.groupby("MONITOR")["_executadas"].sum()
         ne_tot = df_valid.groupby("MONITOR")["_nao_executadas"].sum()
         tar_tot = df_valid.groupby("MONITOR")["TOTAL DE TAREFAS"].sum()
@@ -1314,16 +1260,13 @@ class Motor:
         pivot["Total Tarefas"] = df_tot["tar"].astype(int)
         pivot = pivot.reset_index().rename(columns={"MONITOR": "Monitor"})
 
-        # ── Linha TOTAL GERAL (única) ────────────────────────────────────
         total_row: Dict[str, Any] = {"Monitor": "TOTAL GERAL"}
         for tipo in Config.ORDEM_TIPOS:
             sub = df_valid[df_valid["TIPO_SERVICO"] == tipo]
-            ex = sub["_executadas"].sum()
-            ne = sub["_nao_executadas"].sum()
+            ex, ne = sub["_executadas"].sum(), sub["_nao_executadas"].sum()
             total_row[tipo] = (ne / (ex + ne)) if (ex + ne) > 0 else 0.0
 
-        ex_g = df_valid["_executadas"].sum()
-        ne_g = df_valid["_nao_executadas"].sum()
+        ex_g, ne_g = df_valid["_executadas"].sum(), df_valid["_nao_executadas"].sum()
         total_row["Quebra Geral"] = (ne_g / (ex_g + ne_g)) if (ex_g + ne_g) > 0 else 0.0
         total_row["Total Tarefas"] = int(df_valid["TOTAL DE TAREFAS"].sum())
 
@@ -1333,6 +1276,34 @@ class Motor:
 # ═══════════════════════════════════════════════════════════════════════
 # COMPONENTES VISUAIS AVANÇADOS
 # ═══════════════════════════════════════════════════════════════════════
+def estilizar_matriz(df: pd.DataFrame, meta_padrao: float = 0.20):
+    cols_pct = [c for c in df.columns if c not in ("Monitor", "Total Tarefas")]
+    fmt: Dict[str, Any] = {c: _fmt_pct_br for c in cols_pct}
+    if "Total Tarefas" in df.columns:
+        fmt["Total Tarefas"] = _fmt_int_br
+
+    METAS_COLUNAS: Dict[str, float] = {
+        "NOVOS DOMICÍLIOS": 0.20,
+        "Novos Domicílios": 0.20,
+        "PME": 0.20,
+        "MIGRAÇÃO": 0.25,
+        "Migração": 0.25,
+        "QUEBRA GERAL": 0.20,
+        "Quebra Geral": 0.20,
+    }
+
+    condicoes: Dict[str, Dict[str, Any]] = {}
+    for col in cols_pct:
+        meta_col = METAS_COLUNAS.get(col, meta_padrao)
+        condicoes[col] = {
+            "meta": meta_col,
+            "acima_meta": {"bg": "#FEE2E2", "text": "#991B1B", "bold": True},
+            "abaixo_meta": {"bg": "#D1FAE5", "text": "#065F46", "bold": True},
+        }
+
+    return df, fmt, condicoes
+
+
 def render_dataframe_profundo(
     df: pd.DataFrame,
     titulo: str,
@@ -1363,18 +1334,11 @@ def render_dataframe_profundo(
         "Pendente",
         "Alocado",
         "Considerado",
-        "Qtd Não Executadas",
         "Volume",
-        "Total NE",
-        "Vol. Motivo",
         "Total Fila",
         "Prioridade",
-        "Ocorrencias",
-        "Total na Fila",
-        "Qtd OS",
         "TOTAL DE TAREFAS",
         "Total Tarefas",
-        "Qtde. O.S.",
     ]
     for col in _COLS_INT:
         if col in df_disp.columns:
@@ -1389,8 +1353,6 @@ def render_dataframe_profundo(
         "Fechamento Pessimista",
         "% do Total",
         "Acumulado",
-        "% no Segmento",
-        "% do Motivo",
     ]
     fmt_dict: dict[str, Any] = {c: "{:.2%}" for c in fmt_cols if c in df_disp.columns}
     for col in _COLS_INT:
@@ -1416,77 +1378,31 @@ def render_dataframe_profundo(
     )
 
 
-def estilizar_matriz(df: pd.DataFrame, meta_padrao: float = 0.20):
-    """Prepara dados e regras de cores personalizadas por coluna na Matriz."""
-    cols_pct = [c for c in df.columns if c not in ("Monitor", "Total Tarefas")]
-
-    fmt: Dict[str, Any] = {c: _fmt_pct_br for c in cols_pct}
-    if "Total Tarefas" in df.columns:
-        fmt["Total Tarefas"] = _fmt_int_br
-
-    # 🎯 Metas diferenciadas por coluna
-    METAS_COLUNAS: Dict[str, float] = {
-        "NOVOS DOMICÍLIOS": 0.20,
-        "Novos Domicílios": 0.20,
-        "PME": 0.20,
-        "MIGRAÇÃO": 0.25,
-        "Migração": 0.25,
-        "QUEBRA GERAL": 0.20,
-        "Quebra Geral": 0.20,
-    }
-
-    # Configuração de regras de cores condicionais por coluna
-    condicoes: Dict[str, Dict[str, Any]] = {}
-    for col in cols_pct:
-        meta_col = METAS_COLUNAS.get(col, meta_padrao)
-        condicoes[col] = {
-            "meta": meta_col,
-            "acima_meta": {"bg": "#FEE2E2", "text": "#991B1B", "bold": True},
-            "abaixo_meta": {"bg": "#D1FAE5", "text": "#065F46", "bold": True},
-        }
-
-    return df, fmt, condicoes
-
-
-def render_dataframe(
-    df: pd.DataFrame,
-    titulo: str,
-    icone: str,
-    fmt: Optional[Dict[str, str]] = None,
-    color_col: Optional[str] = None,
-    color_meta: float = 0.20,
-    color_invertido: bool = False,
-    height: int = 400,
-) -> None:
-    render_dataframe_profundo(df, titulo, icone, color_col, color_meta, height)
-
-
 # ═══════════════════════════════════════════════════════════════════════
-# HEROS E HEADERS DINÂMICOS
+# HEROS E CABEÇALHOS
 # ═══════════════════════════════════════════════════════════════════════
-def html_resultado_base(regioes: List[str], total: int) -> str:
+def html_resultado_base(regioes: List[str], total: int, origem: str = "") -> str:
     badges = "".join(
         [
-            f'<span style="padding:0.3rem 0.9rem;border-radius:999px;'
-            f"font-size:0.82rem;font-weight:700;border:2px solid;"
-            f'background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};'
-            f'color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};'
-            f'border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]};">'
-            f"{r}</span>"
+            f'<span style="padding:0.3rem 0.9rem;border-radius:999px;font-size:0.82rem;font-weight:700;border:2px solid;'
+            f'background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};'
+            f'border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]};">{r}</span>'
             for r in sorted(regioes)
         ]
     )
     total_fmt = f"{total:,}".replace(",", ".")
+    tag_origem = (
+        f'<span style="color:#6EE7B7;font-size:0.78rem;font-weight:600;margin-left:8px;">• {escape(origem)}</span>'
+        if origem
+        else ""
+    )
+
     return (
         '<div style="background:linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%);'
-        "padding:1rem 1.5rem;border-radius:0.75rem;margin-bottom:1.5rem;"
-        "display:flex;align-items:center;flex-wrap:wrap;gap:0.6rem;"
-        'box-shadow:0 4px 12px rgba(0,0,0,0.15);">'
-        '<span style="color:#94A3B8;font-size:0.8rem;font-weight:700;'
-        'text-transform:uppercase;letter-spacing:0.08em;">📋 Resultado da Base:</span>'
-        f"{badges}"
-        '<span style="color:#FFFFFF;font-size:0.78rem;margin-left:auto;'
-        f'font-weight:700;">{total_fmt} registros</span>'
+        'padding:1rem 1.5rem;border-radius:0.75rem;margin-bottom:1.5rem;display:flex;align-items:center;flex-wrap:wrap;gap:0.6rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);">'
+        f'<span style="color:#94A3B8;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">📋 Base Ativa:</span>'
+        f"{badges}{tag_origem}"
+        f'<span style="color:#FFFFFF;font-size:0.78rem;margin-left:auto;font-weight:700;">{total_fmt} registros</span>'
         "</div>"
     )
 
@@ -1497,33 +1413,21 @@ def render_hero_topo_fixo(
     regioes: List[str],
     total: int,
     badge: str = "",
+    origem: str = "",
 ) -> None:
-    badge_html = ""
-    if badge:
-        badge_html = (
-            f'<span style="display:inline-block;background:rgba(255,255,255,0.20);'
-            f"padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;"
-            f"margin-top:10px;letter-spacing:0.6px;text-transform:uppercase;"
-            f'color:white;border:1px solid rgba(255,255,255,0.30);">'
-            f"{badge}</span>"
-        )
-    resultado_html = html_resultado_base(regioes, total) if total > 0 else ""
+    badge_html = (
+        f'<span style="display:inline-block;background:rgba(255,255,255,0.20);padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;margin-top:10px;letter-spacing:0.6px;text-transform:uppercase;color:white;border:1px solid rgba(255,255,255,0.30);">{badge}</span>'
+        if badge
+        else ""
+    )
+    resultado_html = html_resultado_base(regioes, total, origem) if total > 0 else ""
+
     st.markdown(
         f'<div style="background:rgba(248,250,252,0.95);padding:0.5rem 0;border-radius:14px;">'
-        f'<div style="background:linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);'
-        f"padding:28px 40px;border-radius:14px;color:white;"
-        f"box-shadow:0 10px 40px rgba(1,40,105,0.20);margin-bottom:12px;"
-        f'position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.10);">'
-        f'<div style="position:absolute;top:50%;right:-100px;transform:translateY(-50%);'
-        f"width:420px;height:420px;background:radial-gradient(circle at center,"
-        f"rgba(255,180,90,0.35) 0%, rgba(243,124,4,0.20) 35%,"
-        f"rgba(232,93,4,0.08) 60%, transparent 78%);"
-        f'border-radius:50%;pointer-events:none;filter:blur(2px);"></div>'
+        f'<div style="background:linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);padding:28px 40px;border-radius:14px;color:white;box-shadow:0 10px 40px rgba(1,40,105,0.20);margin-bottom:12px;position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.10);">'
         f'<div style="position:relative;z-index:2;">'
-        f'<h1 style="margin:0;font-size:30px;font-weight:800;color:white!important;'
-        f'letter-spacing:-0.5px;text-shadow:0 2px 4px rgba(0,0,0,0.45);">{titulo}</h1>'
-        f'<p style="margin:6px 0 0 0;font-size:14px;opacity:0.95;'
-        f'color:#F8FAFC;text-shadow:0 1px 3px rgba(0,0,0,0.40);">{subtitulo}</p>'
+        f'<h1 style="margin:0;font-size:30px;font-weight:800;color:white!important;letter-spacing:-0.5px;text-shadow:0 2px 4px rgba(0,0,0,0.45);">{titulo}</h1>'
+        f'<p style="margin:6px 0 0 0;font-size:14px;opacity:0.95;color:#F8FAFC;text-shadow:0 1px 3px rgba(0,0,0,0.40);">{subtitulo}</p>'
         f"{badge_html}</div></div>"
         f"{resultado_html}</div>",
         unsafe_allow_html=True,
@@ -1532,45 +1436,27 @@ def render_hero_topo_fixo(
 
 def render_hero_upload() -> None:
     st.markdown(
-        '<div style="background:linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);'
-        "padding:32px 44px;border-radius:14px;color:white;"
-        "box-shadow:0 10px 40px rgba(1,40,105,0.25);margin-bottom:24px;"
-        'position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.10);">'
-        '<div style="position:absolute;top:50%;right:-100px;transform:translateY(-50%);'
-        "width:420px;height:420px;background:radial-gradient(circle at center,"
-        "rgba(255,180,90,0.35) 0%, rgba(243,124,4,0.20) 35%,"
-        "rgba(232,93,4,0.08) 60%, transparent 78%);"
-        'border-radius:50%;pointer-events:none;filter:blur(2px);"></div>'
+        '<div style="background:linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);padding:32px 44px;border-radius:14px;color:white;box-shadow:0 10px 40px rgba(1,40,105,0.25);margin-bottom:24px;position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.10);">'
         '<div style="position:relative;z-index:2;">'
-        '<h1 style="margin:0;font-size:34px;font-weight:800;color:white!important;'
-        'letter-spacing:-0.8px;text-shadow:0 2px 4px rgba(0,0,0,0.45);">'
-        "📉 Gestão de Quebra de Agenda</h1>"
-        '<p style="margin:8px 0 0 0;font-size:15px;opacity:0.95;'
-        'color:#F8FAFC;text-shadow:0 1px 3px rgba(0,0,0,0.40);">'
-        "Importe a base para gerar o Super Relatório Consolidado</p>"
-        '<span style="display:inline-block;background:rgba(255,255,255,0.20);'
-        "padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;"
-        "margin-top:12px;letter-spacing:0.6px;text-transform:uppercase;"
-        'color:white;border:1px solid rgba(255,255,255,0.30);">SISTEMA TOTALE</span>'
+        '<h1 style="margin:0;font-size:34px;font-weight:800;color:white!important;letter-spacing:-0.8px;text-shadow:0 2px 4px rgba(0,0,0,0.45);">📉 Gestão de Quebra de Agenda</h1>'
+        '<p style="margin:8px 0 0 0;font-size:15px;opacity:0.95;color:#F8FAFC;text-shadow:0 1px 3px rgba(0,0,0,0.40);">Importe a base ou ative o Robô Local para sincronização automática</p>'
+        '<span style="display:inline-block;background:rgba(255,255,255,0.20);padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;margin-top:12px;letter-spacing:0.6px;text-transform:uppercase;color:white;border:1px solid rgba(255,255,255,0.30);">SISTEMA TOTALE</span>'
         "</div></div>",
         unsafe_allow_html=True,
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# VISUALIZAÇÃO DOS MÓDULOS DE NAVEGAÇÃO
+# VISUALIZAÇÃO DOS MÓDULOS
 # ═══════════════════════════════════════════════════════════════════════
 def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
     render_section("📊 Matriz de Quebra por Monitor e Segmento")
-
     df_matriz = Motor.matriz_resumo(df)
     if df_matriz.empty:
         st.warning("⚠️ Dados insuficientes para montar a Matriz Executiva.")
         return
 
     df_proc, fmt, condicoes = estilizar_matriz(df_matriz, meta_sla)
-
-    # Renderiza a tabela com formatação visual e cores por meta
     render_table_html(
         df_proc,
         fmt=fmt,
@@ -1589,7 +1475,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-        
+
 
 def view_analise_detalhada(
     df: pd.DataFrame,
@@ -1642,53 +1528,71 @@ def view_analise_detalhada(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# FLUXO PRINCIPAL APLICAÇÃO (STREAMLIT)
+# FLUXO PRINCIPAL DA APLICAÇÃO
 # ═══════════════════════════════════════════════════════════════════════
 def main() -> None:
-    df = st.session_state.get("df_memoria")
+    # ── 1. Marca Corporativa no Topo da Sidebar ───────────────────────
+    render_sidebar_brand(
+        titulo="TOTALE",
+        subtitulo="Quebra Operacional",
+        logo="monitoring",
+        ambiente="produção",
+        versao="v3.4.0",
+        mostrar_data=True,
+    )
 
-    # --- Reserva o espaço do hero NO TOPO ---
+    # ── 2. Robô Auto-Sincronizador na Sidebar ─────────────────────────
+    renderizar_robo_local(
+        etl_fn=DataLoader.preparar_base,
+        gsheets_fn=DataLoader.buscar_gsheets,
+    )
+
+    # ── 3. Upload Manual de Contingência na Área Central ──────────────
     hero_area = st.container()
 
-    # --- Upload na área principal ---
     uploaded_file = st.file_uploader(
         "Carregar Base de Dados (CSV/XLSX)",
         type=["csv", "xlsx"],
-        help="200MB por arquivo • CSV, XLSX",
+        help="Caso prefira não usar o Robô, carregue a base manualmente.",
     )
 
     if uploaded_file is not None:
         file_id = (uploaded_file.name, uploaded_file.size)
-
         if st.session_state.get("arquivo_processado") != file_id:
-            with st.spinner("Processando base de dados..."):
+            with st.spinner("Processando upload manual..."):
                 try:
                     file_bytes = uploaded_file.getvalue()
                     raw_df = DataLoader.ler_arquivo(file_bytes, uploaded_file.name)
                     df_gs = DataLoader.buscar_gsheets()
-                    st.session_state["df_memoria"] = DataLoader.preparar_base(raw_df, df_gs)
+                    st.session_state["df_memoria"] = DataLoader.preparar_base(
+                        raw_df, df_gs
+                    )
                     st.session_state["arquivo_processado"] = file_id
+                    st.session_state["origem_dados"] = f"Upload ({uploaded_file.name})"
                 except Exception as e:
                     st.error(f"❌ Erro ao processar o arquivo: {e}")
                     return
 
-        df = st.session_state.get("df_memoria")
+    df: Optional[pd.DataFrame] = st.session_state.get("df_memoria")
 
-    # --- Sem dados: preenche o hero lá em cima e para ---
+    # ── 4. Estado Vazio / Sem Dados ───────────────────────────────────
     if df is None or df.empty:
         with hero_area:
             render_hero_upload()
         return
 
-    # Filtros na Barra Lateral
+    # ── 5. Filtros e Parâmetros na Sidebar ───────────────────────────
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Filtros e Parâmetros")
+    st.sidebar.markdown(
+        "<div style='font-size:12px; font-weight:700; color:#64748B; "
+        "text-transform:uppercase; letter-spacing:0.8px;'>🎯 Filtros Operacionais</div>",
+        unsafe_allow_html=True,
+    )
 
     regioes_disponiveis = sorted(df["REGIÃO"].unique().tolist())
     regioes_sel = st.sidebar.multiselect(
         "Região", regioes_disponiveis, default=regioes_disponiveis
     )
-
     df_filtrado = df[df["REGIÃO"].isin(regioes_sel)].copy()
 
     p_ot = st.sidebar.slider("Probabilidade Otimista (%)", 0, 100, 15, step=5) / 100.0
@@ -1700,12 +1604,15 @@ def main() -> None:
         st.sidebar.number_input("Mínimo de Alocações", value=5, min_value=1)
     )
 
+    # ── 6. Renderização Principal ────────────────────────────────────
+    origem_base = st.session_state.get("origem_dados", "Base Carregada")
     render_hero_topo_fixo(
         "Super Relatório Corporativo",
         "Análise unificada de desempenho operacional e quebra de agenda",
         regioes_sel,
         len(df_filtrado),
         badge="TOTALE OPERACIONAL",
+        origem=origem_base,
     )
 
     aba = st.radio(
