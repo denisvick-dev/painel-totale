@@ -2108,15 +2108,17 @@ def main() -> None:
         top_n = 999_999
 
         st.divider()
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            if st.button("🔄 Reiniciar", use_container_width=True):
-                st.session_state["df_memoria"] = None
+        # ─ Configurações de Sistema (Botões) ──────────────────────
+        with st.sidebar.expander("⚙️ Configurações do Sistema", expanded=False):
+            st.markdown("**Gerenciamento de Sessão**")
+            
+            if st.button("🔄 Reiniciar Aplicação", use_container_width=True, type="secondary"):
                 st.rerun()
-        with col_r2:
-            if st.button("🗑️ Limpar Cache", use_container_width=True):
+            
+            if st.button("️ Limpar Cache e Reiniciar", use_container_width=True, type="secondary"):
                 st.cache_data.clear()
-                st.session_state["df_memoria"] = None
+                st.cache_resource.clear()
+                st.success("Cache limpo! Recarregando...")
                 st.rerun()
 
         st.divider()

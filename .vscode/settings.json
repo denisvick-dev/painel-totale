@@ -1,3 +1,4 @@
 {
-    "editor.fontFamily": "Fira Mono, monospace"
+    "editor.fontFamily": "Fira Mono, monospace",
+    "python.analysis.ignore": ["pandas", "numpy"]
 }
