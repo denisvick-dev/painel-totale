@@ -442,7 +442,6 @@ class GerenciadorNavegacao:
                 st.Page(
                     "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
                 ),
-                st.Page("robo/main.py", title="Robô Local", icon="🤖"),
             ],
             "CENTRAL DE PERFORMANCE": [
                 st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),

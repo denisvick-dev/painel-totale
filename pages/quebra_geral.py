@@ -88,7 +88,6 @@ def _tentar_import_robo() -> Any:
     except Exception as e2:
         return None, f"{err1} | retry: {type(e2).__name__}: {e2}"
 
-
 _impl_robo, _ROBO_IMPORT_ERRO = _tentar_import_robo()
 ROBO_DISPONIVEL = _impl_robo is not None
 
@@ -118,10 +117,8 @@ class ConfigRobo:
     """Configurações centralizadas do robô auto-sincronizador."""
 
     PASTA_PADRAO: Optional[str] = None
-    TEMPO_VERIFICACAO_SEGUNDOS: int = 1  # Alterado para 1s para sincronização imediata
-    CICLOS_ESTABILIDADE: int = (
-        1  # Alterado para 1 para importar imediatamente ao detectar alteração
-    )
+    TEMPO_VERIFICACAO_SEGUNDOS: int = 1   # Sincronização imediata (1 segundo)
+    CICLOS_ESTABILIDADE: int = 1          # Estabilidade imediata (1 ciclo)
 
     COLUNAS_ROTA: List[str] = [
         "CONTRATO",
@@ -835,7 +832,7 @@ class DataLoader:
         )
 
         df.attrs["merge_aplicado"] = False
-
+        
         # Garante que as colunas do GSheets fiquem em UPPERCASE
         if df_gs is not None and not df_gs.empty:
             df_gs = df_gs.copy()
@@ -856,7 +853,7 @@ class DataLoader:
                 .str.upper()
             )
             df_gs_unico = df_gs.drop_duplicates(subset=["LOGIN"], keep="last").copy()
-
+            
             if "TÉCNICO" in df_gs_unico.columns:
                 df_gs_unico = df_gs_unico.rename(columns={"TÉCNICO": "TÉCNICO_GS"})
             if "MONITOR" in df_gs_unico.columns:
@@ -888,12 +885,8 @@ class DataLoader:
         df["TÉCNICO"] = df["TÉCNICO"].astype(str).str.strip().str.upper()
         df["MONITOR"] = df["MONITOR"].astype(str).str.strip().str.upper()
 
-        df.loc[df["TÉCNICO"].isin(["", "NAN", "NONE", "NULL"]), "TÉCNICO"] = (
-            "NÃO MAPEADO"
-        )
-        df.loc[df["MONITOR"].isin(["", "NAN", "NONE", "NULL"]), "MONITOR"] = (
-            "SEM MONITOR"
-        )
+        df.loc[df["TÉCNICO"].isin(["", "NAN", "NONE", "NULL"]), "TÉCNICO"] = "NÃO MAPEADO"
+        df.loc[df["MONITOR"].isin(["", "NAN", "NONE", "NULL"]), "MONITOR"] = "SEM MONITOR"
 
         # Limpeza de colunas auxiliares do merge
         df = df.drop(columns=["TÉCNICO_GS", "MONITOR_GS", "BASE_GS"], errors="ignore")
@@ -980,11 +973,7 @@ class DataLoader:
             df, ["CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA"]
         )
         nome_col_baixa = "_COL_BAIXA"
-        df[nome_col_baixa] = (
-            df[col_cod].astype(str).str.strip()
-            if col_cod and col_cod in df.columns
-            else ""
-        )
+        df[nome_col_baixa] = df[col_cod].astype(str).str.strip() if col_cod and col_cod in df.columns else ""
         df.attrs["_COL_BAIXA"] = nome_col_baixa
 
         # 10. GARANTIA DE COLUNAS
@@ -1007,16 +996,13 @@ class DataLoader:
     @staticmethod
     def callback_robo_etl(df_raw: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
         caminho_completo = st.session_state.get("robo_candidato_path", "")
-        nome_arquivo = (
-            Path(caminho_completo).name if caminho_completo else "Arquivo_Robo"
-        )
+        nome_arquivo = Path(caminho_completo).name if caminho_completo else "Arquivo_Robo"
 
         df_processado = DataLoader.preparar_base(df_raw, df_gs, filename=nome_arquivo)
 
         st.session_state["df_memoria"] = df_processado
         st.session_state["origem_dados"] = f"Robô Local ({nome_arquivo})"
         st.session_state["robo_hora_sucesso"] = datetime.now()
-        # Sem st.rerun() aqui — o próprio robo_local já dispara rerun global
         return df_processado
 
 
@@ -1158,9 +1144,11 @@ class Motor:
             aggfunc="sum",
             fill_value=0,
         ).reset_index()
+        
         for col in ["Não Executada", "Pendente"]:
             if col not in pivot.columns:
                 pivot[col] = 0
+                
         pivot["Total Fila"] = pivot["Não Executada"] + pivot["Pendente"]
         pivot["Prioridade"] = pivot["Não Executada"] * 2 + pivot["Pendente"]
         pivot["Classificação"] = np.select(
@@ -1173,10 +1161,14 @@ class Motor:
             default="⚪ BAIXA",
         )
 
+        # 1. Renomeamos as colunas do dataframe pivot PRIMEIRO
         rename_map = {"MONITOR": "Monitor", "TÉCNICO": "Técnico"}
         if "TIPO_SERVICO" in pivot.columns:
             rename_map["TIPO_SERVICO"] = "Segmento"
+            
+        pivot = pivot.rename(columns=rename_map)
 
+        # 2. Agora montamos as colunas finais com os nomes já devidamente traduzidos
         cols_final = [
             "Classificação",
             "Monitor",
@@ -1186,15 +1178,12 @@ class Motor:
             "Total Fila",
             "Prioridade",
         ]
-        if "Segmento" in pivot.columns or "TIPO_SERVICO" in pivot.columns:
-            cols_final.insert(
-                3, "Segmento" if "Segmento" in pivot.columns else "TIPO_SERVICO"
-            )
+        if "Segmento" in pivot.columns:
+            cols_final.insert(3, "Segmento")
 
         return (
             pivot.sort_values("Prioridade", ascending=False)
             .reset_index(drop=True)[cols_final]
-            .rename(columns=rename_map)
         )
 
     @staticmethod
@@ -1586,18 +1575,17 @@ def view_analise_detalhada(
 # ═══════════════════════════════════════════════════════════════════════
 def main() -> None:
     # ── Injeção de JS/CSS para Ocultar Legendas Indesejadas Instantaneamente ──
-    # Isso remove visualmente qualquer menção ou texto indesejado que venha renderizado internamente.
     st.markdown(
         """
         <style>
-        /* Oculta mensagens específicas da sidebar */
+        /* Oculta mensagens de caption padrão na sidebar */
         div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
             display: none !important;
         }
         </style>
         <script>
         const observer = new MutationObserver((mutations) => {
-            document.querySelectorAll('span, p, div, caption').forEach(el => {
+            document.querySelectorAll('span, p, div, caption, code').forEach(el => {
                 if (
                     el.textContent.includes('Robô importou') || 
                     el.textContent.includes('🔌 Robô:') ||
@@ -1613,7 +1601,7 @@ def main() -> None:
         observer.observe(document.body, { childList: true, subtree: true });
         </script>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
     # ─ 1. Sidebar: Marca ──────────────────────────────────────────────
@@ -1663,7 +1651,7 @@ def main() -> None:
 
     st.sidebar.markdown("---")
 
-    # [REMOVIDO / OCULTADO] A caption visual foi deletada conforme solicitado.
+    # [Legenda da sidebar removida como requisitado]
 
     if ROBO_DISPONIVEL and _impl_robo is not None:
         # ── Modo NATIVO: usa o robo_local.py com ciclos rápidos de sincronismo (1s) ─────
@@ -1672,7 +1660,7 @@ def main() -> None:
                 etl_fn=DataLoader.callback_robo_etl,
                 gsheets_fn=DataLoader.buscar_gsheets,
                 pasta_padrao=st.session_state["robo_pasta_alvo"],
-                ciclos_estabilidade=1,  # Sincronização imediata
+                ciclos_estabilidade=1, # Sincronização imediata
                 mostrar_toggle=True,
                 mostrar_config=True,
             )
@@ -1734,7 +1722,7 @@ def main() -> None:
             else:
                 st.sidebar.warning(f"Nenhum `Atividades-*.csv/xlsx` em `{pasta_fb}`")
 
-    # [REMOVIDO / OCULTADO] Seção "🐞 Debugger de Estado do Robô" removida da UI para ocultar o debug.
+    # [Sessão "🐞 Debugger de Estado do Robô" totalmente removida]
 
     # ─ 4. Área Central: Upload Manual de Contingência ────────────────
     hero_area = st.container()

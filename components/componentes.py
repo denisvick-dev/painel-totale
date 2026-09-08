@@ -28,8 +28,8 @@ _PLOTLY_CONFIGURADO = False
 # ====================================================
 def _limpar_html(html: str) -> str:
     """
-    Remove todos os espaços/tabs no início de cada linha do HTML.
-    Evita que o Markdown do Streamlit interprete linhas indentadas como code blocks.
+    Remove todos os espaços/tabs no início e final de cada linha do HTML.
+    Evita que o parser Markdown do Streamlit converta linhas indentadas em code blocks.
     """
     return "\n".join(linha.strip() for linha in html.splitlines() if linha.strip())
 
@@ -63,7 +63,7 @@ LinhaDestaqueConfig = Dict[str, Any]
 
 
 # ====================================================
-# TIPOGRAFIA & CORES CORPORATIVAS UNIFICADAS
+# TIPOGRAFIAS & CORES CORPORATIVAS UNIFICADAS
 # ====================================================
 FONTE_TITULO = "'Plus Jakarta Sans', 'Inter', 'Segoe UI', Arial, sans-serif"
 FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
@@ -75,7 +75,7 @@ _GOOGLE_FONTS_URLS = (
     "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap",
 )
 
-# Paleta Corporativa Totale
+# Paleta Corporativa Totale (Modern Enterprise)
 COR_PRIMARIA = "#012869"  # Deep Midnight Navy
 COR_SECUNDARIA = "#F37C04"  # Solar Orange
 COR_SECUNDARIA_HOVER = "#D46B02"
@@ -86,9 +86,9 @@ COR_NEUTRO = "#64748B"  # Slate Grey
 COR_ROXO = "#8B5CF6"  # Violet Accent
 
 # Textos
-COR_TEXTO = "#1F2937"
-COR_TEXTO_2 = "#374151"
-COR_TEXTO_3 = "#6B7280"
+COR_TEXTO = "#0F172A"  # Dark Slate
+COR_TEXTO_2 = "#334155"  # Slate Neutral
+COR_TEXTO_3 = "#64748B"  # Muted Slate
 
 # Estruturais
 COR_BORDA = "#E2E8F0"
@@ -96,15 +96,15 @@ COR_FUNDO = "#F8FAFC"
 COR_FUNDO_2 = "#F1F5F9"
 
 # Sidebar
-SB_FUNDO = "#EEF2F7"
+SB_FUNDO = "#F1F5F9"
 SB_FUNDO_LINK = "#FFFFFF"
 SB_FUNDO_LINK_HOVER = "#F8FAFC"
 SB_FUNDO_ATIVO = "#FFF7ED"
 SB_BORDA_ATIVA = "#F37C04"
 SB_TITULO_SECAO = "#012869"
-SB_TEXTO_LINK = "#1F2937"
+SB_TEXTO_LINK = "#0F172A"
 SB_TEXTO_MUTED = "#64748B"
-SB_BORDA_SUTIL = "#D9E0E9"
+SB_BORDA_SUTIL = "#CBD5E1"
 
 _TEMA_CORES: Dict[str, str] = {
     "azul": COR_PRIMARIA,
@@ -116,11 +116,11 @@ _TEMA_CORES: Dict[str, str] = {
 }
 
 _INSIGHT_CONFIG: Dict[str, Tuple[str, str, str, str]] = {
-    "ok": ("#D1FAE5", "#065F46", "#059669", "✅"),
-    "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
-    "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
-    "critico": ("#FEE2E2", "#991B1B", "#DC2626", "🚨"),
-    "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", ""),
+    "ok": ("#ECFDF5", "#065F46", "#10B981", "✅"),
+    "info": ("#EFF6FF", "#1E40AF", "#3B82F6", "ℹ️"),
+    "alerta": ("#FFFBEB", "#92400E", "#F59E0B", "⚠️"),
+    "critico": ("#FEF2F2", "#991B1B", "#EF4444", "🚨"),
+    "acao": ("#F5F3FF", "#5B21B6", "#8B5CF6", "⚡"),
 }
 
 _PLOTLY_COLORWAY = [
@@ -227,127 +227,381 @@ def _get_global_css() -> str:
         f'<link rel="stylesheet" href="{url}">' for url in _GOOGLE_FONTS_URLS
     )
 
-    css = f"""
-{links_html}
+    # CSS base como string simples (SEM f-string) — nenhuma chave conflitante
+    css_template = """
+{links}
+
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
-:root {{
-    --font-titulo: {FONTE_TITULO};
-    --font-texto: {FONTE_TEXTO};
-    --font-codigo: {FONTE_CODIGO};
-    --cor-primaria: {COR_PRIMARIA};
-    --cor-secundaria: {COR_SECUNDARIA};
-    --cor-sucesso: {COR_SUCESSO};
-    --cor-alerta: {COR_ALERTA};
-    --cor-borda: {COR_BORDA};
-    --cor-fundo: {COR_FUNDO};
-    --radius-sm: 6px;
-    --radius-md: 8px;
-    --radius-lg: 12px;
-    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+/* BLOQUEADOR CORE DE DEBUGS E CAPTIONS DO ROBÔ */
+div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {{
+    display: none !important;
+    height: 0px !important;
+    overflow: hidden !important;
+    padding: 0px !important;
+    margin: 0px !important;
 }}
 
-html, body, p, label, li, a, button, input, select, textarea, [class*="st-"] {{ font-family: var(--font-texto) !important; }}
-h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, [data-testid="stMetricValue"] {{ font-family: var(--font-titulo) !important; font-weight: 700; letter-spacing: -0.3px; }}
-code, pre, kbd, samp {{ font-family: var(--font-codigo) !important; }}
+:root {{
+    --font-titulo: '{FONTE_TITULO}';
+    --font-texto: '{FONTE_TEXTO}';
+    --font-codigo: '{FONTE_CODIGO}';
+    --cor-primaria: '{COR_PRIMARIA}';
+    --cor-secundaria: '{COR_SECUNDARIA}';
+    --cor-sucesso: '{COR_SUCESSO}';
+    --cor-alerta: '{COR_ALERTA}';
+    --cor-borda: '{COR_BORDA}';
+    --cor-fundo: '{COR_FUNDO}';
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+    --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+}}
+
+html, body, p, label, li, a, button, input, select, textarea, [class*="st-"] {{ 
+    font-family: var(--font-texto) !important; 
+    color: {COR_TEXTO};
+}}
+
+h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, [data-testid="stMetricValue"] {{ 
+    font-family: var(--font-titulo) !important; 
+    font-weight: 700; 
+    letter-spacing: -0.02em; 
+}}
+
+code, pre, kbd, samp {{ 
+    font-family: var(--font-codigo) !important; 
+}}
 
 [data-testid="stIconMaterial"], .material-icons, .material-symbols-rounded, .material-symbols-outlined {{
     font-family: "Material Symbols Rounded", "Material Icons" !important;
-    font-weight: normal !important; font-style: normal !important; font-size: 20px !important;
-    line-height: 1 !important; text-transform: none !important; white-space: nowrap !important;
-    font-feature-settings: "liga" 1 !important; -webkit-font-smoothing: antialiased !important;
-    display: inline-flex !important; align-items: center !important; justify-content: center !important;
+    font-weight: normal !important; 
+    font-style: normal !important; 
+    font-size: 20px !important;
+    line-height: 1 !important; 
+    text-transform: none !important; 
+    white-space: nowrap !important;
+    font-feature-settings: "liga" 1 !important; 
+    -webkit-font-smoothing: antialiased !important;
+    display: inline-flex !important; 
+    align-items: center !important; 
+    justify-content: center !important;
 }}
 
-.main .block-container {{ padding-top: 1rem; max-width: 1400px; }}
+.main .block-container {{ 
+    padding-top: 1.5rem; 
+    max-width: 1400px; 
+}}
 
 section[data-testid="stSidebar"] {{
-    background-color: {SB_FUNDO} !important; border-right: 1px solid {SB_BORDA_SUTIL} !important;
-    box-shadow: 2px 0 12px rgba(1, 40, 105, 0.06) !important;
+    background-color: {SB_FUNDO} !important; 
+    border-right: 1px solid {SB_BORDA_SUTIL} !important;
+    box-shadow: 1px 0 10px rgba(1, 40, 105, 0.03) !important;
 }}
-section[data-testid="stSidebar"] > div:first-child, section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{ background: transparent !important; }}
 
-section[data-testid="stSidebar"] ::-webkit-scrollbar {{ width: 5px !important; background: transparent !important; }}
-section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ background: {SB_BORDA_SUTIL} !important; border-radius: 20px !important; }}
-section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ background: {SB_TEXTO_MUTED} !important; }}
+section[data-testid="stSidebar"] > div:first-child, 
+section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{ 
+    background: transparent !important; 
+}}
+
+section[data-testid="stSidebar"] ::-webkit-scrollbar {{ 
+    width: 5px !important; 
+    background: transparent !important; 
+}}
+
+section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ 
+    background: {SB_BORDA_SUTIL} !important; 
+    border-radius: 20px !important; 
+}}
+
+section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ 
+    background: {SB_TEXTO_MUTED} !important; 
+}}
 
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
-    background-color: {SB_FUNDO_LINK} !important; border: 1px solid {SB_BORDA_SUTIL} !important;
-    border-left: 3px solid transparent !important; border-radius: 6px !important; margin: 3px 10px !important;
-    padding: 8px 12px !important; box-shadow: 0 1px 2px rgba(1, 40, 105, 0.04) !important;
-    transition: all 0.18s ease !important; display: flex !important; flex-direction: column !important;
-    align-items: center !important; justify-content: center !important; gap: 2px !important; min-height: 58px !important;
+    background-color: {SB_FUNDO_LINK} !important; 
+    border: 1px solid {SB_BORDA_SUTIL} !important;
+    border-left: 3px solid transparent !important; 
+    border-radius: var(--radius-sm) !important; 
+    margin: 3px 10px !important;
+    padding: 8px 12px !important; 
+    box-shadow: var(--shadow-sm) !important;
+    transition: all 0.2s ease-in-out !important; 
+    display: flex !important; 
+    flex-direction: column !important;
+    align-items: center !important; 
+    justify-content: center !important; 
+    gap: 2px !important; 
+    min-height: 56px !important;
 }}
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{ background-color: {SB_FUNDO_LINK_HOVER} !important; border-color: {COR_BORDA} !important; transform: translateX(2px); }}
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{ background-color: {SB_FUNDO_ATIVO} !important; border-left: 3px solid {SB_BORDA_ATIVA} !important; border-color: {SB_BORDA_SUTIL} !important; box-shadow: 0 2px 6px rgba(243, 124, 4, 0.12) !important; }}
 
-.hero-totale-1 {{ background: linear-gradient(to right, rgb(1,40,105) 0%, rgb(243,124,4) 100%); padding: 3rem 2.5rem; border-radius: var(--radius-md); color: #FFFFFF; position: relative; overflow: hidden; box-shadow: var(--shadow-md); }}
-.hero-totale-1::after {{ content: ''; position: absolute; top: -50%; left: -60%; width: 30%; height: 200%; background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0) 100%); transform: rotate(25deg); animation: feixeLuz 6s infinite ease-in-out; }}
-@keyframes feixeLuz {{ 0% {{ left: -60%; }} 30%, 100% {{ left: 130%; }} }}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{ 
+    background-color: {SB_FUNDO_LINK_HOVER} !important; 
+    border-color: {COR_BORDA} !important; 
+    transform: translateX(2px); 
+}}
 
-.kpi-card {{ background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%); border-radius: var(--radius-md); padding: 20px 24px; box-shadow: var(--shadow-sm); border-top: 1px solid #F3F4F6; transition: transform 0.2s ease, box-shadow 0.2s ease; }}
-.kpi-card:hover {{ transform: translateY(-2px); box-shadow: var(--shadow-md); }}
-.kpi-card .kpi-label {{ font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }}
-.kpi-card .kpi-value {{ font-size: 1.85rem; font-weight: 700; margin: 4px 0; }}
-.kpi-card .kpi-sub {{ font-size: 12px; color: #94A3B8; }}
+section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{ 
+    background-color: {SB_FUNDO_ATIVO} !important; 
+    border-left: 3px solid {SB_BORDA_ATIVA} !important; 
+    border-color: {SB_BORDA_SUTIL} !important; 
+    box-shadow: 0 2px 8px rgba(243, 124, 4, 0.1) !important; 
+}}
 
-.kpi-card-sm {{ background: #FFFFFF; border-radius: var(--radius-sm); padding: 12px 16px; box-shadow: var(--shadow-sm); border: 1px solid #F3F4F6; }}
-.kpi-card-sm .kpi-label {{ font-size: 11px; font-weight: 600; color: #64748B; }}
-.kpi-card-sm .kpi-value {{ font-size: 1.35rem; font-weight: 700; margin-top: 2px; }}
+.hero-totale-1 {{ 
+    background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #083884 60%, {COR_SECUNDARIA} 100%); 
+    padding: 2.8rem 2.2rem; 
+    border-radius: var(--radius-lg); 
+    color: #FFFFFF; 
+    position: relative; 
+    overflow: hidden; 
+    box-shadow: var(--shadow-md); 
+}}
 
-.kpi-delta-card, .kpi-card-delta {{ background: #FFFFFF; border-radius: var(--radius-md); padding: 14px 18px; border-top: 3px solid var(--cor-primaria); box-shadow: var(--shadow-sm); }}
-.kpi-delta-header {{ display:flex; justify-content:space-between; gap:8px; align-items:center; }}
-.kpi-delta-label {{ font-size:11px; font-weight:600; color:#64748B; text-transform:uppercase; }}
-.kpi-delta-indicator {{ font-size:11px; font-weight:700; }}
-.kpi-delta-up {{ color:#059669; }}
-.kpi-delta-down {{ color:#DC2626; }}
-.kpi-delta-flat {{ color:#64748B; }}
-.kpi-delta-value {{ font-size:1.55rem; font-weight:700; margin-top:5px; }}
+.hero-totale-1::after {{ 
+    content: ''; 
+    position: absolute; 
+    top: -50%; 
+    left: -60%; 
+    width: 30%; 
+    height: 200%; 
+    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%); 
+    transform: rotate(25deg); 
+    animation: feixeLuz 7s infinite ease-in-out; 
+}}
 
-.hero-totale-2 {{ background:linear-gradient(135deg,#012869 0%,#0A3A8A 100%); padding:2rem 2.5rem; border-radius:12px; color:#FFF; }}
-.hero-t2-title {{ font-family:var(--font-titulo); font-size:2rem; margin:0; color:#FFF; }}
-.hero-t2-sub {{ margin:.6rem 0 0; opacity:.82; }}
-.hero-t2-badge {{ display:inline-block; margin-top:10px; padding:4px 10px; border-radius:10px; font-size:11px; font-weight:700; }}
-.badge-laranja {{ background:#F37C04; color:#FFF; }}
-.badge-azul {{ background:#DBEAFE; color:#1E40AF; }}
+@keyframes feixeLuz {{ 
+    0% {{ left: -60%; }} 
+    30%, 100% {{ left: 130%; }} 
+}}
 
-.corp-table-wrap {{ width: 100%; overflow: auto; border: 1px solid var(--cor-borda); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: #FFFFFF; }}
-table.corp-table {{ width: 100%; border-collapse: separate; border-spacing: 0; }}
-.corp-table thead th {{ font-family: var(--font-titulo) !important; font-weight: 700; font-size: 11px; text-transform: uppercase; color: #1F2937; background: #F8FAFC; padding: 10px 14px; border-bottom: 2px solid var(--cor-borda); text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }}
-.corp-table tbody td {{ font-weight: 500; font-size: 11px; color: #374151; padding: 8px 14px; border-bottom: 1px solid #F3F4F6; white-space: nowrap; }}
-.corp-table tbody tr:hover td {{ background: #F8FAFC !important; }}
-.corp-table td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-.corp-table tr.total-row td {{ background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important; color: #FFFFFF !important; font-weight: 800 !important; border-top: 2px solid var(--cor-secundaria) !important; }}
+.kpi-card {{ 
+    background: #FFFFFF; 
+    border-radius: var(--radius-md); 
+    padding: 20px 22px; 
+    box-shadow: var(--shadow-sm); 
+    border: 1px solid var(--cor-borda); 
+    transition: transform 0.2s ease, box-shadow 0.2s ease; 
+}}
+
+.kpi-card:hover {{ 
+    transform: translateY(-2px); 
+    box-shadow: var(--shadow-md); 
+}}
+
+.kpi-card .kpi-label {{ 
+    font-size: 11px; 
+    font-weight: 700; 
+    color: {COR_TEXTO_3}; 
+    text-transform: uppercase; 
+    letter-spacing: 0.05em; 
+}}
+
+.kpi-card .kpi-value {{ 
+    font-size: 1.85rem; 
+    font-weight: 800; 
+    margin: 6px 0 2px 0; 
+    line-height: 1.2;
+}}
+
+.kpi-card .kpi-sub {{ 
+    font-size: 12px; 
+    color: {COR_TEXTO_3}; 
+}}
+
+.kpi-card-sm {{ 
+    background: #FFFFFF; 
+    border-radius: var(--radius-sm); 
+    padding: 12px 16px; 
+    box-shadow: var(--shadow-sm); 
+    border: 1px solid var(--cor-borda); 
+}}
+
+.kpi-card-sm .kpi-label {{ 
+    font-size: 11px; 
+    font-weight: 600; 
+    color: {COR_TEXTO_3}; 
+}}
+
+.kpi-card-sm .kpi-value {{ 
+    font-size: 1.35rem; 
+    font-weight: 700; 
+    margin-top: 2px; 
+}}
+
+.kpi-delta-card, .kpi-card-delta {{ 
+    background: #FFFFFF; 
+    border-radius: var(--radius-md); 
+    padding: 16px 20px; 
+    border-top: 3px solid var(--cor-primaria); 
+    border-left: 1px solid var(--cor-borda);
+    border-right: 1px solid var(--cor-borda);
+    border-bottom: 1px solid var(--cor-borda);
+    box-shadow: var(--shadow-sm); 
+}}
+
+.kpi-delta-header {{ 
+    display: flex; 
+    justify-content: space-between; 
+    gap: 8px; 
+    align-items: center; 
+}}
+
+.kpi-delta-label {{ 
+    font-size: 11px; 
+    font-weight: 700; 
+    color: {COR_TEXTO_3}; 
+    text-transform: uppercase; 
+    letter-spacing: 0.05em;
+}}
+
+.kpi-delta-indicator {{ 
+    font-size: 11px; 
+    font-weight: 700; 
+    padding: 2px 6px;
+    border-radius: 4px;
+}}
+
+.kpi-delta-up {{ color: #047857; background: #ECFDF5; }}
+.kpi-delta-down {{ color: #B91C1C; background: #FEF2F2; }}
+.kpi-delta-flat {{ color: #475569; background: #F8FAFC; }}
+.kpi-delta-value {{ font-size: 1.65rem; font-weight: 800; margin-top: 6px; }}
+
+.hero-totale-2 {{ 
+    background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #0A3A8A 100%); 
+    padding: 2.2rem 2.5rem; 
+    border-radius: var(--radius-lg); 
+    color: #FFFFFF; 
+    box-shadow: var(--shadow-md);
+}}
+
+.hero-t2-title {{ 
+    font-family: var(--font-titulo); 
+    font-size: 2rem; 
+    margin: 0; 
+    color: #FFFFFF; 
+}}
+
+.hero-t2-sub {{ 
+    margin: 0.6rem 0 0; 
+    opacity: 0.88; 
+    font-size: 0.95rem;
+}}
+
+.hero-t2-badge {{ 
+    display: inline-block; 
+    margin-top: 12px; 
+    padding: 4px 12px; 
+    border-radius: 20px; 
+    font-size: 11px; 
+    font-weight: 700; 
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}}
+
+.badge-laranja {{ background: {COR_SECUNDARIA}; color: #FFFFFF; }}
+.badge-azul {{ background: #DBEAFE; color: #1E40AF; }}
+
+.corp-table-wrap {{ 
+    width: 100%; 
+    overflow: auto; 
+    border: 1px solid var(--cor-borda); 
+    border-radius: var(--radius-md); 
+    box-shadow: var(--shadow-sm); 
+    background: #FFFFFF; 
+}}
+
+table.corp-table {{ 
+    width: 100%; 
+    border-collapse: separate; 
+    border-spacing: 0; 
+}}
+
+.corp-table thead th {{ 
+    font-family: var(--font-titulo) !important; 
+    font-weight: 700; 
+    font-size: 11px; 
+    text-transform: uppercase; 
+    letter-spacing: 0.05em;
+    color: {COR_TEXTO_2}; 
+    background: #F8FAFC; 
+    padding: 12px 14px; 
+    border-bottom: 2px solid var(--cor-borda); 
+    text-align: left; 
+    position: sticky; 
+    top: 0; 
+    z-index: 2; 
+    white-space: nowrap; 
+}}
+
+.corp-table tbody td {{ 
+    font-weight: 500; 
+    font-size: 12px; 
+    color: {COR_TEXTO_2}; 
+    padding: 10px 14px; 
+    border-bottom: 1px solid #F1F5F9; 
+    white-space: nowrap; 
+}}
+
+.corp-table tbody tr:hover td {{ 
+    background: #F8FAFC !important; 
+}}
+
+.corp-table td.num {{ 
+    text-align: right; 
+    font-variant-numeric: tabular-nums; 
+}}
+
+.corp-table tr.total-row td {{ 
+    background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important; 
+    color: #FFFFFF !important; 
+    font-weight: 800 !important; 
+    border-top: 2px solid var(--cor-secundaria) !important; 
+}}
 
 /* Sidebar Header */
 .sb-corp-header {{
-    padding: 20px 16px 14px; margin: -10px -16px 0;
+    padding: 22px 18px 16px; 
+    margin: -10px -16px 0;
     background: linear-gradient(160deg, {COR_PRIMARIA} 0%, #0A3A8A 60%, #124DB5 100%);
-    border-radius: 0 0 14px 14px; position: relative; overflow: hidden;
+    border-radius: 0 0 16px 16px; 
+    position: relative; 
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(1, 40, 105, 0.15);
 }}
-.sb-corp-header::before {{ content: ''; position: absolute; top: -40%; right: -25%; width: 120px; height: 120px; background: radial-gradient(circle, rgba(243,124,4,0.18) 0%, transparent 70%); border-radius: 50%; }}
-.sb-corp-header::after {{ content: ''; position: absolute; bottom: -30%; left: -15%; width: 90px; height: 90px; background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%); border-radius: 50%; }}
-.sb-corp-logo-row {{ display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; }}
-.sb-corp-logo-img {{ width: 36px; height: 36px; object-fit: contain; border-radius: 8px; background: rgba(255,255,255,0.12); padding: 4px; }}
-.sb-corp-logo-icon {{ width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.12); border-radius: 8px; font-size: 22px; color: {COR_SECUNDARIA}; }}
+
+.sb-corp-header::before {{ 
+    content: ''; 
+    position: absolute; 
+    top: -40%; 
+    right: -25%; 
+    width: 120px; 
+    height: 120px; 
+    background: radial-gradient(circle, rgba(243,124,4,0.2) 0%, transparent 70%); 
+    border-radius: 50%; 
+}}
+
+.sb-corp-logo-row {{ display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }}
+.sb-corp-logo-img {{ width: 38px; height: 38px; object-fit: contain; border-radius: 8px; background: rgba(255,255,255,0.12); padding: 4px; }}
+.sb-corp-logo-icon {{ width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.12); border-radius: 8px; font-size: 22px; color: {COR_SECUNDARIA}; }}
 .sb-corp-nome {{ font-family: {FONTE_TITULO} !important; font-size: 18px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.3px; line-height: 1.15; }}
-.sb-corp-sub {{ font-family: {FONTE_TEXTO} !important; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.65); margin-top: 2px; letter-spacing: 0.3px; }}
-.sb-corp-badges {{ display: flex; align-items: center; gap: 6px; margin-top: 10px; position: relative; z-index: 1; }}
+.sb-corp-sub {{ font-family: {FONTE_TEXTO} !important; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.7); margin-top: 2px; letter-spacing: 0.3px; }}
+.sb-corp-badges {{ display: flex; align-items: center; gap: 6px; margin-top: 12px; position: relative; z-index: 1; }}
 .sb-badge {{ font-family: {FONTE_TEXTO} !important; font-size: 9.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.4px; text-transform: uppercase; line-height: 1.5; }}
-.sb-badge-versao {{ background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.15); }}
-.sb-badge-prod {{ background: rgba(5,150,105,0.2); color: #6EE7B7; border: 1px solid rgba(5,150,105,0.3); }}
-.sb-badge-homo {{ background: rgba(245,158,11,0.2); color: #FCD34D; border: 1px solid rgba(245,158,11,0.3); }}
-.sb-badge-dev {{ background: rgba(139,92,246,0.2); color: #C4B5FD; border: 1px solid rgba(139,92,246,0.3); }}
-.sb-corp-data {{ font-family: {FONTE_TEXTO} !important; font-size: 10px; color: rgba(255,255,255,0.45); margin-top: 8px; position: relative; z-index: 1; }}
-.sb-corp-divider {{ border: none; height: 1px; background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%); margin: 14px 10px 10px; }}
+.sb-badge-versao {{ background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.2); }}
+.sb-badge-prod {{ background: rgba(5,150,105,0.25); color: #6EE7B7; border: 1px solid rgba(5,150,105,0.4); }}
+.sb-badge-homo {{ background: rgba(245,158,11,0.25); color: #FCD34D; border: 1px solid rgba(245,158,11,0.4); }}
+.sb-badge-dev {{ background: rgba(139,92,246,0.25); color: #C4B5FD; border: 1px solid rgba(139,92,246,0.4); }}
+.sb-corp-data {{ font-family: {FONTE_TEXTO} !important; font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 8px; position: relative; z-index: 1; }}
+.sb-corp-divider {{ border: none; height: 1px; background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%); margin: 16px 10px 12px; }}
 
 /* Sidebar Status */
-.sb-status-card {{ background: #FFFFFF; border: 1px solid {SB_BORDA_SUTIL}; border-radius: 10px; padding: 12px 14px; margin: 6px 10px; box-shadow: 0 1px 4px rgba(1,40,105,0.04); }}
+.sb-status-card {{ background: #FFFFFF; border: 1px solid {SB_BORDA_SUTIL}; border-radius: var(--radius-md); padding: 12px 14px; margin: 6px 10px; box-shadow: var(--shadow-sm); }}
 .sb-status-card-compacto {{ padding: 8px 12px; margin: 4px 10px; }}
 .sb-status-row {{ display: flex; align-items: center; gap: 8px; }}
 .sb-status-dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; position: relative; }}
@@ -378,12 +632,12 @@ table.corp-table {{ width: 100%; border-collapse: separate; border-spacing: 0; }
 .sb-brand-link {{ text-decoration: none !important; color: inherit !important; display: block; }}
 .sb-brand-card-gradiente {{
     background: linear-gradient(145deg, {COR_PRIMARIA} 0%, #0A3A8A 65%, #0F52BA 100%);
-    border-radius: 14px; padding: 16px 16px 14px; color: #FFFFFF; position: relative; overflow: hidden;
+    border-radius: var(--radius-md); padding: 16px 16px 14px; color: #FFFFFF; position: relative; overflow: hidden;
     box-shadow: 0 4px 14px rgba(1, 40, 105, 0.16); border: 1px solid rgba(255, 255, 255, 0.1);
 }}
 .sb-brand-card-gradiente-compact {{ border-radius: 10px !important; padding: 12px 14px !important; }}
 .sb-brand-card-gradiente::before {{ content: ''; position: absolute; top: -30px; right: -30px; width: 90px; height: 90px; background: radial-gradient(circle, rgba(243,124,4,0.3) 0%, transparent 70%); border-radius: 50%; }}
-.sb-brand-card-clean {{ background: #FFFFFF; border-radius: 14px; padding: 14px 16px; color: {COR_TEXTO}; box-shadow: 0 2px 8px rgba(1, 40, 105, 0.05); border: 1px solid {SB_BORDA_SUTIL}; }}
+.sb-brand-card-clean {{ background: #FFFFFF; border-radius: var(--radius-md); padding: 14px 16px; color: {COR_TEXTO}; box-shadow: var(--shadow-sm); border: 1px solid {SB_BORDA_SUTIL}; }}
 .sb-brand-card-clean-compact {{ border-radius: 10px !important; padding: 12px 14px !important; }}
 .sb-brand-card-minimalista {{ background: transparent; padding: 8px 6px; color: {COR_TEXTO}; }}
 .sb-brand-card-minimalista-compact {{ padding: 4px 4px !important; }}
@@ -414,9 +668,53 @@ table.corp-table {{ width: 100%; border-collapse: separate; border-spacing: 0; }
 .sb-brand-divider {{ height: 1px; background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%); margin: 14px 0 10px; }}
 .sb-brand-divider-compact {{ margin: 10px 0 6px !important; }}
 </style>
-"""
-    return _limpar_html(css)
 
+<!-- Injeção Script Realtime DOM Blocker de Legendas -->
+<script>
+const observer = new MutationObserver((mutations) => {
+    document.querySelectorAll('span, p, div, caption, code').forEach(el => {
+        const txt = el.textContent || "";
+        if (
+            txt.includes('Robô importou') || 
+            txt.includes('🔌 Robô:') ||
+            txt.includes('só que mantendo que importe') ||
+            txt.includes('Debugger de Estado do Robô')
+        ) {
+            el.style.display = 'none';
+            el.style.height = '0px';
+            el.style.padding = '0px';
+            el.style.margin = '0px';
+            el.style.overflow = 'hidden';
+        }
+    });
+});
+observer.observe(document.body, { childList: true, subtree: true });
+</script>
+"""
+    # Substituição segura dos placeholders pelo conteúdo real
+    css = css_template.replace("{links}", links_html)
+    css = css.replace("{FONTE_TITULO}", FONTE_TITULO)
+    css = css.replace("{FONTE_TEXTO}", FONTE_TEXTO)
+    css = css.replace("{FONTE_CODIGO}", FONTE_CODIGO)
+    css = css.replace("{COR_PRIMARIA}", COR_PRIMARIA)
+    css = css.replace("{COR_SECUNDARIA}", COR_SECUNDARIA)
+    css = css.replace("{COR_SUCESSO}", COR_SUCESSO)
+    css = css.replace("{COR_ALERTA}", COR_ALERTA)
+    css = css.replace("{COR_BORDA}", COR_BORDA)
+    css = css.replace("{COR_FUNDO}", COR_FUNDO)
+    css = css.replace("{COR_TEXTO}", COR_TEXTO)
+    css = css.replace("{COR_TEXTO_2}", COR_TEXTO_2)
+    css = css.replace("{COR_TEXTO_3}", COR_TEXTO_3)
+    css = css.replace("{SB_FUNDO}", SB_FUNDO)
+    css = css.replace("{SB_BORDA_SUTIL}", SB_BORDA_SUTIL)
+    css = css.replace("{SB_FUNDO_LINK}", SB_FUNDO_LINK)
+    css = css.replace("{SB_FUNDO_LINK_HOVER}", SB_FUNDO_LINK_HOVER)
+    css = css.replace("{SB_FUNDO_ATIVO}", SB_FUNDO_ATIVO)
+    css = css.replace("{SB_BORDA_ATIVA}", SB_BORDA_ATIVA)
+    css = css.replace("{SB_TITULO_SECAO}", SB_TITULO_SECAO)
+    css = css.replace("{SB_TEXTO_LINK}", SB_TEXTO_LINK)
+    css = css.replace("{SB_TEXTO_MUTED}", SB_TEXTO_MUTED)
+    return _limpar_html(css)
 
 def _injetar_css_global() -> None:
     st.markdown(_get_global_css(), unsafe_allow_html=True)
@@ -554,10 +852,12 @@ def render_hero_totale_1(
     if not titulo:
         return
     html = f"""
-<div class="hero-totale-1"><div class="hero-t1-content">
-<h1 class="hero-t1-title">{escape(titulo)}</h1>
-<p class="hero-t1-sub">{escape(subtitulo)}</p>
-</div></div>
+<div class="hero-totale-1">
+<div class="hero-t1-content">
+<h1 style="font-family: var(--font-titulo); font-size: 2.2rem; margin: 0; color: #FFFFFF; font-weight: 800;">{escape(titulo)}</h1>
+<p style="margin-top: 0.6rem; margin-bottom: 0; opacity: 0.9; font-size: 1rem;">{escape(subtitulo)}</p>
+</div>
+</div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
@@ -574,10 +874,13 @@ def render_hero_totale_2(
         else ""
     )
     html = f"""
-<div class="hero-totale-2"><div class="hero-t2-container">
+<div class="hero-totale-2">
+<div class="hero-t2-container">
 <h1 class="hero-t2-title">{escape(titulo)}</h1>
-<p class="hero-t2-sub">{escape(subtitulo)}</p>{html_badge}
-</div></div>
+<p class="hero-t2-sub">{escape(subtitulo)}</p>
+{html_badge}
+</div>
+</div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
@@ -588,11 +891,12 @@ def render_hero_migracao(
     if not titulo:
         return
     html = f"""
-<div class="hero-migracao" style="background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
+<div class="hero-migracao" style="background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%); padding: 2.4rem 2.5rem; border-radius: var(--radius-lg); color: white; box-shadow: var(--shadow-md);">
 <div class="hero-t1-content">
-<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{escape(titulo)}</h1>
-<p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{escape(subtitulo)}</p>
-</div></div>
+<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0; font-weight:800;">{escape(titulo)}</h1>
+<p class="hero-alt-sub" style="margin-top: 0.6rem; margin-bottom:0; opacity: 0.9; font-size:0.95rem;">{escape(subtitulo)}</p>
+</div>
+</div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
@@ -603,11 +907,12 @@ def render_hero_pme(
     if not titulo:
         return
     html = f"""
-<div class="hero-pme" style="background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%); padding: 2.2rem 2.5rem; border-radius: 16px; color: white;">
+<div class="hero-pme" style="background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%); padding: 2.4rem 2.5rem; border-radius: var(--radius-lg); color: white; box-shadow: var(--shadow-md);">
 <div class="hero-t1-content">
-<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0;">{escape(titulo)}</h1>
-<p class="hero-alt-sub" style="margin-top: 1rem; opacity: 0.88;">{escape(subtitulo)}</p>
-</div></div>
+<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0; font-weight:800;">{escape(titulo)}</h1>
+<p class="hero-alt-sub" style="margin-top: 0.6rem; margin-bottom:0; opacity: 0.9; font-size:0.95rem;">{escape(subtitulo)}</p>
+</div>
+</div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
@@ -714,8 +1019,9 @@ def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
     bg, texto, borda, icone = _INSIGHT_CONFIG.get(tipo, _INSIGHT_CONFIG["info"])
     msg_html = _markdown_inline_para_html(escape(msg))
     html = f"""
-<div style="background:{bg};color:{texto};border-left:4px solid {borda};padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;">
-<span style="margin-right:8px;">{icone}</span>{msg_html}
+<div style="background:{bg}; color:{texto}; border-left:4px solid {borda}; padding:14px 18px; border-radius:var(--radius-sm); margin:12px 0; font-size:13.5px; line-height:1.5; box-shadow:var(--shadow-sm); display:flex; align-items:flex-start; gap:10px;">
+<span style="font-size:16px; line-height:1;">{icone}</span>
+<div style="flex:1;">{msg_html}</div>
 </div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
@@ -725,10 +1031,10 @@ def render_empty_state(
     titulo: str = "Sem dados", mensagem: str = "", icone: str = "📭"
 ) -> None:
     html = f"""
-<div class="empty-state" style="text-align:center;padding:48px 24px;background:#FAFBFC;border:2px dashed var(--cor-borda);border-radius:12px;">
-<div class="empty-state-icon" style="font-size:48px;opacity:0.6;">{icone}</div>
-<div class="empty-state-title" style="font-weight:700;color:#374151;margin-top:12px;">{escape(titulo)}</div>
-<div class="empty-state-msg" style="color:#6B7280;font-size:13px;">{escape(mensagem)}</div>
+<div class="empty-state" style="text-align:center; padding:48px 24px; background:#FAFBFC; border:2px dashed var(--cor-borda); border-radius:var(--radius-md);">
+<div class="empty-state-icon" style="font-size:42px; opacity:0.7;">{icone}</div>
+<div class="empty-state-title" style="font-family:var(--font-titulo); font-weight:700; color:{COR_TEXTO}; margin-top:12px; font-size:16px;">{escape(titulo)}</div>
+<div class="empty-state-msg" style="color:{COR_TEXTO_3}; font-size:13px; margin-top:4px;">{escape(mensagem)}</div>
 </div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
@@ -748,7 +1054,7 @@ def render_section_header(
     icon_html = f'<span style="margin-right:10px;">{icone}</span>' if icone else ""
     badge_html = (
         (
-            f'<span style="margin-left:10px;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;'
+            f'<span style="margin-left:10px; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700;'
             f'background:{_TEMA_CORES.get(badge_tipo, "#FFF7ED")}1A;'
             f'color:{_TEMA_CORES.get(badge_tipo, "#C2410C")};'
             f'border:1px solid {_TEMA_CORES.get(badge_tipo, "#FDBA74")}66;">'
@@ -758,21 +1064,21 @@ def render_section_header(
         else ""
     )
     sub_html = (
-        f'<div style="font-family:var(--font-titulo);font-size:18px;color:{COR_PRIMARIA};font-weight:bold;">{escape(subtitulo)}</div>'
+        f'<div style="font-family:var(--font-texto); font-size:13px; color:{COR_TEXTO_3}; margin-top:3px;">{escape(subtitulo)}</div>'
         if subtitulo
         else ""
     )
 
     html = f"""
-<div style="margin-top:2.2rem; margin-bottom:1.6rem;">
-<div style="display:flex;align-items:center;flex-wrap:wrap;">
-<h2 style="font-family:var(--font-titulo);font-size:22px;font-weight:800;color:{COR_PRIMARIA};margin:0;display:flex;align-items:center;">
+<div style="margin-top:2.2rem; margin-bottom:1.4rem;">
+<div style="display:flex; align-items:center; flex-wrap:wrap;">
+<h2 style="font-family:var(--font-titulo); font-size:20px; font-weight:800; color:{COR_PRIMARIA}; margin:0; display:flex; align-items:center;">
 {icon_html}{escape(titulo)}
 </h2>
 {badge_html}
 </div>
 {sub_html}
-<div style="height:3px;width:45px;background:{cor_accent};border-radius:2px;margin-top:10px;"></div>
+<div style="height:3px; width:40px; background:{cor_accent}; border-radius:2px; margin-top:8px;"></div>
 </div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
@@ -804,15 +1110,28 @@ def render_table_html(
     height = max(120, int(height))
 
     if not isinstance(df, pd.DataFrame) or df.empty:
-        render_empty_state("Sem dados na tabela", "Ajuste os filtros.")
+        render_empty_state(
+            "Sem dados na tabela", "Ajuste os filtros para exibir dados."
+        )
         return
 
     cols = list(df.columns[:max_cols])
     df_show = df.loc[:, cols].head(max_rows).copy()
 
+    # Sanitização contra erros de serialização de tipos complexos (list, set, tuple, dict)
+    for col_name in df_show.columns:
+        if df_show[col_name].dtype == "object":
+            df_show[col_name] = df_show[col_name].apply(
+                lambda x: (
+                    ", ".join(sorted(map(str, x)))
+                    if isinstance(x, (list, set, tuple))
+                    else (str(x) if isinstance(x, dict) else x)
+                )
+            )
+
     if titulo:
         st.markdown(
-            f'<div style="font-weight:700;font-size:16px;color:{COR_PRIMARIA};margin-bottom:8px;">{icone} {escape(titulo)}</div>',
+            f'<div style="font-family:var(--font-titulo); font-weight:700; font-size:15px; color:{COR_PRIMARIA}; margin-bottom:8px;">{icone} {escape(titulo)}</div>',
             unsafe_allow_html=True,
         )
 
@@ -854,7 +1173,7 @@ def render_table_html(
             if is_linha_destaque:
                 if c == destaque_coluna_alvo:
                     style_parts.append(
-                        "background:linear-gradient(90deg,#012869 0%,#1E40AF 100%);color:white;font-weight:800;text-align:left;padding-left:16px;"
+                        f"background:linear-gradient(90deg,{COR_PRIMARIA} 0%,#1E40AF 100%);color:white;font-weight:800;text-align:left;padding-left:16px;"
                     )
                 else:
                     style_parts.append(
@@ -936,11 +1255,12 @@ def render_table_html(
     headers_html = "".join(f"<th>{escape(c)}</th>" for c in cols)
 
     html = f"""
-<div class="corp-table-wrap" style="max-height:{height}px;overflow-y:auto;">
+<div class="corp-table-wrap" style="max-height:{height}px; overflow-y:auto;">
 <table class="corp-table">
 <thead><tr>{headers_html}</tr></thead>
 <tbody>{"".join(html_rows)}</tbody>
-</table></div>
+</table>
+</div>
 """
     st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
@@ -961,8 +1281,20 @@ def render_dataframe(
         render_empty_state("Sem dados", "Não há registros para exibir.")
         return
 
+    # Sanitiza o DataFrame para evitar qualquer erro de serialização do PyArrow antes da renderização padrão
+    df_clean = df.copy()
+    for col_name in df_clean.columns:
+        if df_clean[col_name].dtype == "object":
+            df_clean[col_name] = df_clean[col_name].apply(
+                lambda x: (
+                    ", ".join(sorted(map(str, x)))
+                    if isinstance(x, (list, set, tuple))
+                    else (str(x) if isinstance(x, dict) else x)
+                )
+            )
+
     st.dataframe(
-        df,
+        df_clean,
         height=height,
         use_container_width=use_container_width,
         hide_index=hide_index,
@@ -993,7 +1325,7 @@ def formatar_numero_br(valor: Any, casas: int = 1) -> str:
 
 
 # ====================================================
-# COMPONENTS DE SIDEBAR (BRAND, HEADERS & STATUS)
+# COMPONENTES DE SIDEBAR (BRAND, HEADERS & STATUS)
 # ====================================================
 def aplicar_sidebar_corp(
     logo_url: str = "",
@@ -1024,7 +1356,7 @@ def aplicar_sidebar_corp(
     data_html = ""
     if mostrar_data:
         agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        data_html = f'<div class="sb-corp-data"><span class="material-symbols-rounded" style="font-size:12px;vertical-align:middle;margin-right:2px;">schedule</span>{agora.strftime("%d/%m/%Y · %H:%M")}</div>'
+        data_html = f'<div class="sb-corp-data"><span class="material-symbols-rounded" style="font-size:12px; vertical-align:middle; margin-right:3px;">schedule</span>{agora.strftime("%d/%m/%Y · %H:%M")}</div>'
 
     divider_html = '<hr class="sb-corp-divider">' if divider else ""
 
@@ -1055,11 +1387,11 @@ def render_sidebar_status(
     compacto: bool = False,
 ) -> None:
     tag_cfg: Dict[str, Tuple[str, str, str]] = {
-        "ativo": ("#D1FAE5", "#065F46", "Online"),
-        "inativo": ("#F1F5F9", "#475569", "Offline"),
-        "pendente": ("#FEF3C7", "#92400E", "Pendente"),
-        "sucesso": ("#D1FAE5", "#065F46", "OK"),
-        "erro": ("#FEE2E2", "#991B1B", "Erro"),
+        "ativo": ("#ECFDF5", "#065F46", "Online"),
+        "inativo": ("#F8FAFC", "#475569", "Offline"),
+        "pendente": ("#FFFBEB", "#92400E", "Pendente"),
+        "sucesso": ("#ECFDF5", "#065F46", "OK"),
+        "erro": ("#FEF2F2", "#991B1B", "Erro"),
     }
     status = status if status in tag_cfg else "inativo"
     tag_bg, tag_fg, tag_txt_padrao = tag_cfg[status]
@@ -1101,7 +1433,7 @@ def render_sidebar_status(
 <div class="sb-status-row">
 <span class="sb-status-dot sb-status-dot-{status}"></span>
 <span class="sb-status-label">{escape(label)}</span>
-<span class="sb-status-tag" style="background:{tag_bg};color:{tag_fg};">{tag_txt}</span>
+<span class="sb-status-tag" style="background:{tag_bg}; color:{tag_fg};">{tag_txt}</span>
 </div>
 {desc_html}
 {meta_html}
@@ -1172,7 +1504,7 @@ def render_sidebar_brand(
             amb_key, ("#059669", "rgba(5,150,105,0.18)", "PROD")
         )
         badges_parts.append(
-            f'<span class="sb-brand-badge" style="background:{cor_bg};color:{cor_txt};border-color:{cor_txt}40;">{label_amb}</span>'
+            f'<span class="sb-brand-badge" style="background:{cor_bg}; color:{cor_txt}; border-color:{cor_txt}40;">{label_amb}</span>'
         )
 
     if versao:

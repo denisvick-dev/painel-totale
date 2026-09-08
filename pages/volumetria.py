@@ -221,6 +221,23 @@ class Utils:
         )
         return ag
 
+    @staticmethod
+    def sanitizar_para_pyarrow(df_to_clean: pd.DataFrame) -> pd.DataFrame:
+        """Sanitiza colunas com listas, sets ou tipos mistos para evitar quebras de serialização no PyArrow."""
+        df_clean = df_to_clean.copy()
+        for col in df_clean.columns:
+            if df_clean[col].dtype == "object":
+                # Converte sets, lists, tuples em strings legíveis separadas por vírgula
+                df_clean[col] = df_clean[col].apply(
+                    lambda x: ", ".join(sorted(map(str, x))) if isinstance(x, (list, set, tuple))
+                    else (str(x) if isinstance(x, dict) else x)
+                )
+                # Força casting para string em colunas com tipos de dados ainda inconsistentes
+                types = df_clean[col].dropna().map(type).unique()
+                if len(types) > 1:
+                    df_clean[col] = df_clean[col].astype(str)
+        return df_clean
+
 
 # ==========================================================
 # CARREGAMENTO DE DADOS
@@ -793,7 +810,7 @@ def render_resultado_base(regioes: List[str], total: int):
     )
     html_content = (
         f'<div class="resultado-base">'
-        f'<span class="resultado-base-label">📋 Resultado da Base:</span>'
+        f'<span class="resultado-base-label">📋 Base Ativa:</span>'
         f"{badges}"
         f'<span class="resultado-base-count">{total:,} registros</span>'
         f"</div>"
@@ -829,7 +846,7 @@ def render_card_tecnicos(
         head_fg = "#FFFBEB"
         accent = "#F59E0B"
         icon_bg = "rgba(255,255,255,0.15)"
-        icon_emoji = ""
+        icon_emoji = "🟡"
         fill_ok, fill_nok = "#10B981", "#EF4444"
 
     meta = Config.META_EXECUTADAS_TECNICO
@@ -935,7 +952,9 @@ def render_dataframe(
     height: int | Literal["auto", "stretch", "content"] = "auto",
     adicionar_totais: bool = True,
 ):
-    df_d = df.copy()
+    # Sanitiza o DataFrame para evitar qualquer erro de serialização do PyArrow (ex: _TIPOS_OS_SET)
+    df_d = Utils.sanitizar_para_pyarrow(df)
+    
     mapa = Utils.resolver_renomeacao(df_d, RENOMEAR_COLUNAS)
     df_d = df_d.rename(columns=mapa)
 
@@ -1218,7 +1237,8 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
             with st.expander("📊 Resumo por Monitor — Escalados"):
                 r = _resumo_por_monitor(df_esc, ct)
                 if not r.empty:
-                    st.dataframe(r, use_container_width=True, hide_index=True)
+                    # Sanitiza antes de renderizar para prevenir problemas de tipo com o Arrow
+                    st.dataframe(Utils.sanitizar_para_pyarrow(r), use_container_width=True, hide_index=True)
 
     with a2:
         st.markdown(
@@ -1248,7 +1268,8 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
             with st.expander("📊 Resumo por Monitor — Montados"):
                 r = _resumo_por_monitor(df_mon, ct)
                 if not r.empty:
-                    st.dataframe(r, use_container_width=True, hide_index=True)
+                    # Sanitiza antes de renderizar para prevenir problemas de tipo com o Arrow
+                    st.dataframe(Utils.sanitizar_para_pyarrow(r), use_container_width=True, hide_index=True)
 
 
 # ==========================================================
@@ -1327,11 +1348,7 @@ def plot_comparativo(vol_esc, vol_mon):
                 "Visão": "Escalados",
                 "Valor": vol_esc["proj_tec"],
             },
-            {
-                "Métrica": "Projeção/Téc.",
-                "Visão": "Montados",
-                "Valor": vol_mon["proj_tec"],
-            },
+            {"Métrica": "Projeção/Téc.", "Visão": "Montados", "Valor": vol_mon["proj_tec"]},
         ]
     )
     fig = px.bar(
@@ -1385,6 +1402,36 @@ def plot_comparativo(vol_esc, vol_mon):
 # MAIN
 # ==========================================================
 def main():
+    # ── Injeção de JS/CSS para Ocultar Legendas Indesejadas do Robô Instantaneamente ──
+    st.markdown(
+        """
+        <style>
+        /* Oculta mensagens de caption padrão na sidebar */
+        div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
+            display: none !important;
+        }
+        </style>
+        <script>
+        const observer = new MutationObserver((mutations) => {
+            document.querySelectorAll('span, p, div, caption, code').forEach(el => {
+                if (
+                    el.textContent.includes('Robô importou') || 
+                    el.textContent.includes('🔌 Robô:') ||
+                    el.textContent.includes('só que mantendo que importe')
+                ) {
+                    el.style.display = 'none';
+                    el.style.height = '0px';
+                    el.style.padding = '0px';
+                    el.style.margin = '0px';
+                }
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+
     # Estilos: primeiro o global (componentes), depois o específico da página
     aplicar_estilo_corp()
     aplicar_estilo_pagina()
@@ -1402,9 +1449,10 @@ def main():
     # ── SIDEBAR COM ROBÔ INTEGRADO ──────────────────────────────────────────
     with st.sidebar:
         # ★ ROBÔ DE MONITORAMENTO AUTOMÁTICO ★
+        # A injeção de CSS acima garante que as captions geradas aqui dentro sejam limpas da tela.
         renderizar_robo_local(
-            etl_fn=None,  # Processamento é feito internamente
-            pasta_padrao=None,  # Usa Downloads por padrão
+            etl_fn=None,  
+            pasta_padrao=None,  
             colunas_esperadas=None,
         )
 
@@ -1753,8 +1801,9 @@ def main():
         medias["Montados"] - medias["Escalados"]
     )
 
+    # Sanitiza a tabela de médias contra erros do PyArrow antes de aplicar formatação
     st.dataframe(
-        medias.style.format(
+        Utils.sanitizar_para_pyarrow(medias).style.format(
             {
                 "Escalados": lambda x: f"{x:,.1f}".replace(",", "X")
                 .replace(".", ",")
