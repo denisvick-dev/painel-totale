@@ -72,7 +72,7 @@ render_sidebar_info(
     user_name="João Silva",
     email="joao@totale.com",
     role="Técnico de Produção",
-    avatar="👤"
+    avatar="👤",
 )
 ```
 
@@ -91,9 +91,7 @@ from components.sidebar import render_sidebar_status
 from datetime import datetime
 
 render_sidebar_status(
-    sistema_ok=True,
-    ultima_atualizacao=datetime.now(),
-    mensagem="Sistema operacional"
+    sistema_ok=True, ultima_atualizacao=datetime.now(), mensagem="Sistema operacional"
 )
 ```
 
@@ -113,7 +111,7 @@ filtro = render_sidebar_filtro(
     label="Selecione a Region",
     options=["SP", "RJ", "MG", "RS"],
     default="SP",
-    key="filtro_regiao"
+    key="filtro_regiao",
 )
 ```
 
@@ -130,7 +128,7 @@ Novos helpers para estruturar o sidebar:
 from components.sidebar import (
     render_sidebar_section,
     render_sidebar_divider,
-    render_sidebar_footer_info
+    render_sidebar_footer_info,
 )
 
 # Seção com título corporativo
@@ -140,11 +138,7 @@ render_sidebar_section("📊 Relatórios")
 render_sidebar_divider()
 
 # Footer com versão, ambiente e hora
-render_sidebar_footer_info(
-    versao="3.1.0",
-    ambiente="Produção",
-    mostrar_timestamp=True
-)
+render_sidebar_footer_info(versao="3.1.0", ambiente="Produção", mostrar_timestamp=True)
 ```
 
 #### 2.5 Funções Auxiliares de Tempo
@@ -153,8 +147,8 @@ Helpers para trabalhar com timezone do Brasil:
 ```python
 from components.sidebar import get_hora_atual_brt, get_data_atual_br
 
-hora = get_hora_atual_brt()      # "14:32:45"
-data = get_data_atual_br()        # "01/09/2026"
+hora = get_hora_atual_brt()  # "14:32:45"
+data = get_data_atual_br()  # "01/09/2026"
 ```
 
 ---
@@ -163,8 +157,8 @@ data = get_data_atual_br()        # "01/09/2026"
 
 #### 3.1 Paleta de Cores
 ```python
-TOTALE_AZUL = "#012869"           # Deep Midnight Navy
-TOTALE_LARANJA = "#F37C04"        # Solar Orange
+TOTALE_AZUL = "#012869"  # Deep Midnight Navy
+TOTALE_LARANJA = "#F37C04"  # Solar Orange
 TOTALE_LARANJA_CLARO = "#FFBE64"  # Light Orange
 ```
 
@@ -263,6 +257,7 @@ if "sidebar_applied" not in st.session_state:
 ```python
 from components.sidebar import aplicar_sidebar_corp
 
+
 def main():
     aplicar_sidebar_corp()  # Chamar uma vez no início
     st.logo("assets/images/novo-logo-totale.png")
@@ -274,17 +269,14 @@ def main():
 from components.sidebar import (
     render_sidebar_info,
     render_sidebar_status,
-    render_sidebar_filtro
+    render_sidebar_filtro,
 )
 
 # No sidebar
 with st.sidebar:
-    render_sidebar_info(
-        user_name=st.session_state.get("user"),
-        email="user@totale.com"
-    )
+    render_sidebar_info(user_name=st.session_state.get("user"), email="user@totale.com")
     render_sidebar_status(sistema_ok=True)
-    
+
     filtro = render_sidebar_filtro("Região", ["SP", "RJ", "MG"])
 ```
 
@@ -349,8 +341,7 @@ COR_SECUNDARIA = "#sua-laranja"
 ```python
 # Criar nova função em sidebar.py
 def render_sidebar_custom_widget():
-    st.markdown("""<div>Seu componente aqui</div>""", 
-                unsafe_allow_html=True)
+    st.markdown("""<div>Seu componente aqui</div>""", unsafe_allow_html=True)
 ```
 
 ### 3. Modificar Estilo de Inputs

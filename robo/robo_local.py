@@ -8,9 +8,9 @@ API pública: renderizar_robo_local(etl_fn, gsheets_fn, ...)
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 import streamlit as st
@@ -131,7 +131,10 @@ def ler_arquivo_totale(
     sheet_name: str | int | None = 0,
 ) -> pd.DataFrame | None:
     if not caminho_arquivo or not os.path.exists(caminho_arquivo):
-        _toast_dedup(f"Arquivo não encontrado: {Path(caminho_arquivo).name if caminho_arquivo else '—'}", icon="❌")
+        _toast_dedup(
+            f"Arquivo não encontrado: {Path(caminho_arquivo).name if caminho_arquivo else '—'}",
+            icon="❌",
+        )
         return None
 
     ext = Path(caminho_arquivo).suffix.lower()
@@ -141,7 +144,7 @@ def ler_arquivo_totale(
         try:
             df = pd.read_excel(caminho_arquivo, sheet_name=planilha, dtype=str)
             if isinstance(df, dict):
-                df = list(df.values())[0] if df else pd.DataFrame() # type: ignore
+                df = list(df.values())[0] if df else pd.DataFrame()  # type: ignore
             if colunas_esperadas and not all(
                 c in df.columns for c in colunas_esperadas
             ):
@@ -394,11 +397,11 @@ _obter_pasta_robo_padrao = obter_pasta_robo_padrao
 _obter_metadados_arquivo = obter_metadados_arquivo
 
 __all__ = [
-    "renderizar_robo_local",
-    "renderizar_sidebar_robo",
+    "EXTENSOES_VALIDAS",
     "buscar_arquivo_mais_recente",
     "ler_arquivo_totale",
-    "obter_pasta_robo_padrao",
     "obter_metadados_arquivo",
-    "EXTENSOES_VALIDAS",
+    "obter_pasta_robo_padrao",
+    "renderizar_robo_local",
+    "renderizar_sidebar_robo",
 ]

@@ -5,6 +5,9 @@ Análise de Quebra por Segmento (Novos Domicílios / Migração / PME)
 Inclui aba dedicada para contratos com MOTIVO DE BAIXA = SEM REGISTRO.
 - Layout vertical: Tabela 100% largura e Gráficos de Pareto expandidos.
 - Tipografia e fontes aumentadas para alta visibilidade.
+
+Version: 2.0.2
+Author: TOTALE Tecnologia
 """
 
 from __future__ import annotations
@@ -12,25 +15,22 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# ── Bootstrap sys.path ────────────────────────────────────────────────
+# ── Bootstrap sys.path ───────────────────────────────────────────────
 _DIR = Path(__file__).resolve().parent
 _ROOT = _DIR.parent
 for _p in (_DIR, _ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import textwrap
 from datetime import datetime
 from html import escape
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
-
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
@@ -44,65 +44,31 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-# ── Imports do Design System com Fallback Seguro ──────────────────────
-try:
-    from components.componentes import (
-        aplicar_estilo as _aplicar_estilo_global,
-        render_kpi,
-        render_kpi_sm,
-        render_insight,
-        render_section_header,
-        TemaKPI,
-        TipoInsight,
-    )
-except ImportError:
-    from components.componentes import (
-        aplicar_estilo as _aplicar_estilo_global,
-        render_kpi,
-        render_kpi_sm,
-        render_insight,
-        render_section_header,
-        TemaKPI,
-        TipoInsight,
-    )
+# ─ Imports do Design System ──────────────────────────────────────────
+from components.componentes import (
+    TemaKPIType,
+    TipoInsightType,
+    render_hero_migracao,
+    render_hero_pme,
+    render_insight,
+    render_kpi,
+    render_kpi_sm,
+    render_section_header,
+    render_table_html,
+)
+from components.componentes import (
+    aplicar_estilo as _aplicar_estilo_global,
+)
 
-# Heros e Table HTML com fallback
-try:
-    from components.componentes import (
-        render_hero_migracao,
-        render_hero_pme,
-        render_table_html,
-    )
-except (ImportError, AttributeError):
-    try:
-        from components.componentes import (
-            render_hero_migracao,
-            render_hero_pme,
-            render_table_html,
-        )
-    except (ImportError, AttributeError):
-
-        def render_table_html(df: pd.DataFrame, **kwargs: Any) -> None:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-        def render_hero_migracao(titulo: str = "", subtitulo: str = "") -> None:
-            st.markdown(f"## 🔄 {titulo}\n*{subtitulo}*")
-
-        def render_hero_pme(titulo: str = "", subtitulo: str = "") -> None:
-            st.markdown(f"## 🏢 {titulo}\n*{subtitulo}*")
-
-
-# ── Import do módulo principal ────────────────────────────────────────
+# ── Import do módulo principal ───────────────────────────────────────
+from components.criterios import (
+    classificar_tipo_servico,
+    render_debug_criterios,
+)
 from pages.quebra_geral import (
     Config,
     Motor,
     Utils,
-)
-
-# ── Critérios centralizados ──────────────────────────────────────────
-from components.criterios import (
-    classificar_tipo_servico,
-    render_debug_criterios,
 )
 
 # =====================================================================
@@ -173,10 +139,10 @@ class _PDFExecutivoBase:
         return escape(str(v))
 
     @classmethod
-    def _calcular_larguras(cls, df: pd.DataFrame) -> List[float]:
+    def _calcular_larguras(cls, df: pd.DataFrame) -> list[float]:
         if df.empty:
             return [cls.LARGURA_UTIL]
-        pesos: List[float] = []
+        pesos: list[float] = []
         for col in df.columns:
             max_len = len(str(col))
             for val in df[col].head(50):
@@ -189,9 +155,9 @@ class _PDFExecutivoBase:
     def _tab(
         cls,
         df: pd.DataFrame,
-        limite: Optional[int] = None,
-        larguras: Optional[List[float]] = None,
-        cor_col_quebra: Optional[str] = None,
+        limite: int | None = None,
+        larguras: list[float] | None = None,
+        cor_col_quebra: str | None = None,
         sla_meta: float = 0.25,
     ) -> Table:
         def _interna() -> Table:
@@ -321,16 +287,19 @@ class _PDFExecutivoBase:
                     try:
                         val = float(row[cor_col_quebra])
                         if val > sla_meta:
-                            bg_c, tx_c = colors.HexColor("#FEE2E2"), colors.HexColor(
-                                cls.COR_CRITICO
+                            bg_c, tx_c = (
+                                colors.HexColor("#FEE2E2"),
+                                colors.HexColor(cls.COR_CRITICO),
                             )
                         elif val > sla_meta * 0.85:
-                            bg_c, tx_c = colors.HexColor("#FEF9C3"), colors.HexColor(
-                                cls.COR_ALERTA
+                            bg_c, tx_c = (
+                                colors.HexColor("#FEF9C3"),
+                                colors.HexColor(cls.COR_ALERTA),
                             )
                         else:
-                            bg_c, tx_c = colors.HexColor("#DCFCE7"), colors.HexColor(
-                                cls.COR_OK
+                            bg_c, tx_c = (
+                                colors.HexColor("#DCFCE7"),
+                                colors.HexColor(cls.COR_OK),
                             )
                         style += [
                             ("BACKGROUND", (col_idx, row_i), (col_idx, row_i), bg_c),
@@ -342,7 +311,7 @@ class _PDFExecutivoBase:
                                 "Helvetica-Bold",
                             ),
                         ]
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         pass
             tab.setStyle(TableStyle(style))
             return tab
@@ -400,7 +369,7 @@ class PDFExecutivoNovosDomicilios(_PDFExecutivoBase):
     @classmethod
     def _estilos(cls) -> Any:
         s = getSampleStyleSheet()
-        estilos: List[Tuple[str, Dict[str, Any]]] = [
+        estilos: list[tuple[str, dict[str, Any]]] = [
             (
                 "ND_Titulo",
                 dict(
@@ -551,7 +520,7 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
     @classmethod
     def _estilos(cls) -> Any:
         s = getSampleStyleSheet()
-        estilos: List[Tuple[str, Dict[str, Any]]] = [
+        estilos: list[tuple[str, dict[str, Any]]] = [
             (
                 "MIG_Titulo",
                 dict(
@@ -645,7 +614,7 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
         )
         el.append(Spacer(1, 0.5 * cm))
 
-        el.append(Paragraph("2 ─ Técnicos Críticos", s["MIG_Secao"]))
+        el.append(Paragraph("2  Técnicos Críticos", s["MIG_Secao"]))
         df_tec = Motor.tecnicos_criticos(
             df,
             "Migração",
@@ -849,11 +818,13 @@ def _causa_raiz_segmento(
 
 
 # =====================================================================
-# HEROS E COMPONENTES VISUAIS ESPECÍFICOS
+# HERO NOVOS DOMICÍLIOS
 # =====================================================================
 def render_hero_novos_domicilios(
-    titulo: str = "🏠 Novos Domicílios — Quebra de Agenda",
+    titulo: str = " Novos Domicílios — Quebra de Agenda",
     subtitulo: str = "Análise estratégica dedicada à adesão de novos clientes",
+    badge: str | None = None,
+    icone: str | None = None,
 ) -> None:
     html = f"""
 <div class="hero-novos-domicilios" style="
@@ -880,7 +851,7 @@ def render_hero_novos_domicilios(
         ">
             <span>{titulo}</span>
         </h1>
-        {f'<p style="font-family: Inter, sans-serif; font-size: 0.95rem; margin: 0.8rem 0 0 0; color: rgba(255, 255, 255, 0.88); line-height: 1.4;">{subtitulo}</p>' if subtitulo else ''}
+        {f'<p style="font-family: Inter, sans-serif; font-size: 0.95rem; margin: 0.8rem 0 0 0; color: rgba(255, 255, 255, 0.88); line-height: 1.4;">{subtitulo}</p>' if subtitulo else ""}
     </div>
 </div>
 """
@@ -890,7 +861,7 @@ def render_hero_novos_domicilios(
 # =====================================================================
 # CONFIGURAÇÕES DINÂMICAS POR SEGMENTO
 # =====================================================================
-SEGMENTOS_CONFIG: Dict[str, Any] = {
+SEGMENTOS_CONFIG: dict[str, Any] = {
     "Novos Domicílios": {
         "icone": "🏠",
         "subtitulo": "Análise estratégica dedicada à adesão de novos clientes e domicílios",
@@ -936,7 +907,7 @@ SEGMENTOS_CONFIG: Dict[str, Any] = {
         "hero_fn": render_hero_migracao,
         "acoes": [
             (
-                "🔴 ALTA",
+                " ALTA",
                 "Verificar estoque de equipamentos nos almoxarifados das regiões com maior quebra.",
                 "alerta",
             ),
@@ -1040,7 +1011,6 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     color: #FFFFFF; font-size: 0.78rem; margin-left: auto; font-weight: 700;
 }}
 
-/* Sugestões de Dashboards Styling */
 .card-sugestao {{
     background: #FFFFFF;
     border: 1px solid #E2E8F0;
@@ -1086,7 +1056,7 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     )
 
 
-def _html_resultado_base(regioes: List[str], total: int) -> str:
+def _html_resultado_base(regioes: list[str], total: int) -> str:
     cores_regiao = {
         "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
         "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
@@ -1121,7 +1091,7 @@ def _html_resultado_base(regioes: List[str], total: int) -> str:
     )
 
 
-def _render_topo_fixo(segmento: str, regioes: List[str], total: int) -> None:
+def _render_topo_fixo(segmento: str, regioes: list[str], total: int) -> None:
     conf = SEGMENTOS_CONFIG[segmento]
     hero_fn = conf["hero_fn"]
     st.markdown('<div class="topo-fixo-dinamico">', unsafe_allow_html=True)
@@ -1130,7 +1100,7 @@ def _render_topo_fixo(segmento: str, regioes: List[str], total: int) -> None:
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -> None:
+def _render_card_status(segmento: str, m_seg: dict[str, Any], sla_meta: float) -> None:
     conf = SEGMENTOS_CONFIG[segmento]
     quebra_atual = float(m_seg["quebra_atual"])
     dentro_sla = quebra_atual <= sla_meta
@@ -1162,16 +1132,16 @@ def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -
     html = f"""
 <div style="background:white;border:1px solid #E5E7EB;border-radius:14px;
             padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);
-            margin:16px 0 24px 0;border-top:3px solid {conf['cor_primaria']};
+            margin:16px 0 24px 0;border-top:3px solid {conf["cor_primaria"]};
             font-family: {font_family};">
     <div style="display:flex;align-items:center;justify-content:space-between;
                 flex-wrap:wrap;gap:16px;">
         <div style="display:flex;align-items:center;gap:14px;">
-            <div style="width:44px;height:44px;background:{conf['grad_hero']};
+            <div style="width:44px;height:44px;background:{conf["grad_hero"]};
                         border-radius:10px;display:flex;align-items:center;
                         justify-content:center;
-                        box-shadow:0 4px 12px {conf['sombra_hero']};">
-                <span style="font-size:22px;">{conf['icone']}</span>
+                        box-shadow:0 4px 12px {conf["sombra_hero"]};">
+                <span style="font-size:22px;">{conf["icone"]}</span>
             </div>
             <div>
                 <div style="font-size:18px;font-weight:800;color:#1F2937;">{segmento}</div>
@@ -1200,7 +1170,7 @@ def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -
                         background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;">
                 <span style="font-size:10px;color:#6B7280;font-weight:600;
                              text-transform:uppercase;">Meta SLA</span>
-                <span style="font-size:16px;color:{conf['cor_secundaria']};font-weight:800;">{sla_meta:.2%}</span>
+                <span style="font-size:16px;color:{conf["cor_secundaria"]};font-weight:800;">{sla_meta:.2%}</span>
             </div>
         </div>
     </div>
@@ -1208,7 +1178,7 @@ def _render_card_status(segmento: str, m_seg: Dict[str, Any], sla_meta: float) -
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;
                     font-size:11px;color:#6B7280;font-weight:600;">
             <span>0%</span><span>Meta {sla_meta:.2%}</span>
-            <span>{sla_meta*2:.0%}</span>
+            <span>{sla_meta * 2:.0%}</span>
         </div>
         <div style="position:relative;height:8px;background:#E5E7EB;
                     border-radius:4px;overflow:hidden;">
@@ -1283,7 +1253,7 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
             .replace(".", "")
         )
 
-    def _achar(df: pd.DataFrame, cands: List[str]) -> Optional[str]:
+    def _achar(df: pd.DataFrame, cands: list[str]) -> str | None:
         cols_norm = {_norm(c): c for c in df.columns}
         for cand in cands:
             cn = _norm(cand)
@@ -1334,8 +1304,8 @@ def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
 # SIMULAÇÃO DE EXPURGO DO MAIOR OFENSOR
 # =====================================================================
 def _calcular_quebra_expurgada(
-    df_seg: pd.DataFrame, m_seg: Dict[str, Any], segmento: str
-) -> Optional[Dict[str, Any]]:
+    df_seg: pd.DataFrame, m_seg: dict[str, Any], segmento: str
+) -> dict[str, Any] | None:
     """Calcula o impacto na quebra caso o maior ofensor seja expurgado."""
     df_c = _causa_raiz_segmento(df_seg, segmento, top_n=1)
     if df_c.empty:
@@ -1348,7 +1318,6 @@ def _calcular_quebra_expurgada(
     naoexec = float(m_seg["naoexec"])
     alocado = float(m_seg["alocado"])
 
-    # Expurgo: remove do numerador (NE) e do denominador (Alocado)
     if alocado > volume:
         quebra_expurgada = max(0.0, (naoexec - volume) / (alocado - volume))
     else:
@@ -1372,7 +1341,7 @@ def render_section(titulo: str) -> None:
     if len(partes) == 2 and not primeiro_char.isascii():
         icon, title = partes[0], partes[1]
     else:
-        icon, title = "📊", titulo
+        icon, title = "", titulo
     try:
         render_section_header(icon, title)
     except TypeError:
@@ -1382,14 +1351,14 @@ def render_section(titulo: str) -> None:
 def _sub_visao_geral(
     segmento: str,
     df_seg: pd.DataFrame,
-    m_seg: Dict[str, Any],
+    m_seg: dict[str, Any],
     p_ot: float,
     p_base: float,
     p_pess: float,
     sla_meta: float,
 ) -> None:
     render_section(f"📊 Resumo Operacional — {segmento}")
-    tema_q: TemaKPI = "vermelho" if m_seg["quebra_atual"] > sla_meta else "verde"
+    tema_q: TemaKPIType = "vermelho" if m_seg["quebra_atual"] > sla_meta else "verde"
     c1, c2, c3, c4, c5 = st.columns(5)
     render_kpi(c1, "Alocado", f"{int(m_seg['alocado']):,}", tema="azul")
     render_kpi(c2, "Executadas", f"{int(m_seg['exec']):,}", tema="verde")
@@ -1404,7 +1373,7 @@ def _sub_visao_geral(
     )
 
     st.markdown("")
-    render_section("📈 Projeções de Fechamento")
+    render_section(" Projeções de Fechamento")
     cen = {
         n: Motor.projetar(df_seg, p)
         for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
@@ -1413,7 +1382,9 @@ def _sub_visao_geral(
 
     with c_cen:
         for nome, cd in cen.items():
-            cor_p: TemaKPI = "vermelho" if cd["fechamento_proj"] > sla_meta else "verde"
+            cor_p: TemaKPIType = (
+                "vermelho" if cd["fechamento_proj"] > sla_meta else "verde"
+            )
             render_kpi_sm(
                 st,
                 nome,
@@ -1459,7 +1430,7 @@ def _sub_visao_geral(
     render_section("🛡️ Folga de SLA")
     folga = Motor.folga_sla(df_seg, sla_meta)
     f1, f2, f3 = st.columns(3)
-    cor_f: TemaKPI = (
+    cor_f: TemaKPIType = (
         "vermelho"
         if folga["estourado"]
         else ("verde" if folga["folga_ne_pendente"] > 0 else "laranja")
@@ -1486,7 +1457,6 @@ def _sub_visao_geral(
         tema="cinza",
     )
 
-    # ── Simulação de Impacto (Expurgo do Maior Ofensor) ──────────────
     sim = _calcular_quebra_expurgada(df_seg, m_seg, segmento)
     if sim:
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1529,23 +1499,23 @@ def _sub_visao_geral(
   <div style="background:rgba(255,255,255,0.65);border-radius:10px;padding:14px;border:1px dashed rgba(0,0,0,0.08);margin-bottom:16px;">
     <div style="font-size:11px;text-transform:uppercase;color:#64748B;font-weight:700;letter-spacing:0.03em;">Maior Ofensora Identificada</div>
     <div style="font-size:16px;color:#0F172A;font-weight:700;margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <span style="color:#DC2626;">❌ {escape(sim['motivo'])}</span>
-      <span style="background:#FEE2E2;color:#991B1B;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">{sim['volume']:,} ocorrências</span>
+      <span style="color:#DC2626;">❌ {escape(sim["motivo"])}</span>
+      <span style="background:#FEE2E2;color:#991B1B;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">{sim["volume"]:,} ocorrências</span>
     </div>
   </div>
 
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:16px;">
     <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
       <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Quebra Atual</div>
-      <div style="font-size:24px;color:#64748B;font-weight:800;margin-top:4px;">{sim['quebra_atual']:.2%}</div>
+      <div style="font-size:24px;color:#64748B;font-weight:800;margin-top:4px;">{sim["quebra_atual"]:.2%}</div>
     </div>
     <div style="background:white;border-radius:8px;padding:12px;border:2px solid {border_color};text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
       <div style="font-size:10px;color:#1F2937;text-transform:uppercase;font-weight:700;">Quebra com Expurgo</div>
-      <div style="font-size:26px;color:{border_color};font-weight:900;margin-top:4px;">{sim['quebra_expurgada']:.2%}</div>
+      <div style="font-size:26px;color:{border_color};font-weight:900;margin-top:4px;">{sim["quebra_expurgada"]:.2%}</div>
     </div>
     <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
       <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Redução Absoluta</div>
-      <div style="font-size:24px;color:#2563EB;font-weight:800;margin-top:4px;">📉 −{sim['impacto_abs']:.2%}</div>
+      <div style="font-size:24px;color:#2563EB;font-weight:800;margin-top:4px;">📉 −{sim["impacto_abs"]:.2%}</div>
     </div>
   </div>
 
@@ -1558,12 +1528,6 @@ def _sub_visao_geral(
 
 
 def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
-    """
-    Sub-aba de Causa Raiz:
-    - Inclui 'SEM REGISTRO' e todos os motivos no cálculo do Pareto.
-    - Tabela 100% de largura no topo.
-    - Gráfico de Pareto expandido (fontes grandes) logo abaixo.
-    """
     render_section(f"🔍 Causa Raiz — {segmento}")
 
     col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", ""))
@@ -1589,9 +1553,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         render_insight("Não há motivos de quebra para compor o Pareto.", tipo="info")
         return
 
-    # =========================================================================
-    # 1. TABELA CORPORATIVA (100% de largura)
-    # =========================================================================
     render_table_html(
         df_c,
         fmt={
@@ -1599,7 +1560,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
             "% do Total": "{:.2%}",
             "Acumulado": "{:.2%}",
         },
-        num_cols=(
+        colunas_num=(
             ["Volume", "% do Total", "Acumulado"] if "Volume" in df_c.columns else None
         ),
         height=380,
@@ -1607,9 +1568,6 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # =========================================================================
-    # 2. GRÁFICO DE PARETO EXPANDIDO COM FONTES GRANDES
-    # =========================================================================
     cor_bar = SEGMENTOS_CONFIG[segmento]["cor_primaria"]
     cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
     fig = go.Figure()
@@ -1775,7 +1733,7 @@ def _sub_plano_acao(
     p_base: float,
     sla_meta: float,
 ) -> None:
-    render_section(f"🎯 Plano de Ação — {segmento}")
+    render_section(f" Plano de Ação — {segmento}")
     folga = Motor.folga_sla(df_seg, sla_meta)
     cen = Motor.projetar(df_seg, p_base)
     excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])
@@ -1808,11 +1766,11 @@ def _sub_plano_acao(
 
     with col_a:
         render_section("✅ Ações Recomendadas")
-        acoes: List[Tuple[str, str, str]] = []
+        acoes: list[tuple[str, str, str]] = []
         if folga["estourado"]:
             acoes.append(
                 (
-                    "🔴 IMEDIATA",
+                    " IMEDIATA",
                     f"Acionar plantão para recuperar {int(excesso):,} OS não executadas.",
                     "critico",
                 )
@@ -1827,7 +1785,7 @@ def _sub_plano_acao(
             )
         acoes.extend(SEGMENTOS_CONFIG[segmento]["acoes"])
         for pri, ac, tp in acoes:
-            render_insight(f"**{pri}** — {ac}", tipo=cast(TipoInsight, tp))
+            render_insight(f"**{pri}** — {ac}", tipo=cast(TipoInsightType, tp))
 
     df_plano = pd.DataFrame(
         [{"Segmento": segmento, "Prioridade": p, "Ação": a} for p, a, _ in acoes]
@@ -1914,7 +1872,7 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
     col_exp1, col_exp2, _ = st.columns([1, 1, 2])
     with col_exp1:
         st.download_button(
-            "📥 Exportar Filtrado",
+            " Exportar Filtrado",
             Utils.gerar_excel(df_view, "Filtrado"),
             f"pendentes_{segmento.lower().replace(' ', '_')}_filtrado.xlsx",
             key=f"dl_pend_f_{segmento}",
@@ -1931,10 +1889,21 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
 def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
     render_section(f"⚠️ Motivo de Baixa: Sem Registro — {segmento}")
 
+    def _buscar_coluna(df: pd.DataFrame, candidatos: list[str]) -> str | None:
+        for cand in candidatos:
+            if cand in df.columns:
+                return cand
+        cols_upper = {str(c).upper().strip(): c for c in df.columns}
+        for cand in candidatos:
+            cand_u = str(cand).upper().strip()
+            if cand_u in cols_upper:
+                return cols_upper[cand_u]
+        return None
+
     col_baixa = (
         "_COL_BAIXA"
         if "_COL_BAIXA" in df_seg.columns
-        else Utils.buscar_coluna(
+        else _buscar_coluna(
             df_seg,
             ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"],
         )
@@ -2060,9 +2029,7 @@ def main() -> None:
             for x in df_filt["TÉCNICO"].dropna().unique()
             if str(x) not in {"nan", "NÃO MAPEADO"}
         )
-        sel_tec = st.selectbox(
-            "👤 Técnico", tecnicos, key=f"tec_{segmento_selecionado}"
-        )
+        sel_tec = st.selectbox(" Técnico", tecnicos, key=f"tec_{segmento_selecionado}")
         df = df_filt if sel_tec == "Todos" else df_filt[df_filt["TÉCNICO"] == sel_tec]
 
         st.divider()
@@ -2108,14 +2075,19 @@ def main() -> None:
         top_n = 999_999
 
         st.divider()
-        # ─ Configurações de Sistema (Botões) ──────────────────────
         with st.sidebar.expander("⚙️ Configurações do Sistema", expanded=False):
             st.markdown("**Gerenciamento de Sessão**")
-            
-            if st.button("🔄 Reiniciar Aplicação", use_container_width=True, type="secondary"):
+
+            if st.button(
+                "🔄 Reiniciar Aplicação", use_container_width=True, type="secondary"
+            ):
                 st.rerun()
-            
-            if st.button("️ Limpar Cache e Reiniciar", use_container_width=True, type="secondary"):
+
+            if st.button(
+                "🗑️ Limpar Cache e Reiniciar",
+                use_container_width=True,
+                type="secondary",
+            ):
                 st.cache_data.clear()
                 st.cache_resource.clear()
                 st.success("Cache limpo! Recarregando...")
@@ -2196,7 +2168,7 @@ def main() -> None:
             "🔍 Causa Raiz",
             "👤 Técnicos",
             "🎯 Plano de Ação",
-            "📋 Pendentes",
+            " Pendentes",
             "⚠️ Sem Registro",
         ]
     )

@@ -8,7 +8,7 @@ from __future__ import annotations
 import calendar
 import datetime
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,16 +24,13 @@ except ImportError:
     TEM_HOLIDAYS = False
 
 from components.componentes import (
+    Cores,
+    Fontes,
     aplicar_estilo,
     render_hero_totale_2,
-    render_kpi,
     render_insight,
+    render_kpi,
     render_section_header,
-    render_table_html,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    COR_PRIMARIA,
-    COR_TEXTO_3,
 )
 
 # ====================================================
@@ -50,61 +47,94 @@ except Exception:
 
 aplicar_estilo()
 
-# CSS local: cores de O.S., projeção e faixas (sobre a corp-table)
+# CSS local: Fontes reduzidas, tabelas compactas e barra de rolagem ultrafina
 st.markdown(
-    f"""
+    """
     <style>
-    .corp-table thead th {{
+    /* Customização e redução da Barra de Rolagem (Scrollbar) */
+    .corp-table-wrap::-webkit-scrollbar {
+        width: 6px !important;
+        height: 6px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-track {
+        background: #F1F5F9 !important;
+        border-radius: 10px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb {
+        background: #CBD5E1 !important;
+        border-radius: 10px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb:hover {
+        background: #94A3B8 !important;
+    }
+    .corp-table-wrap {
+        scrollbar-width: thin !important;
+        scrollbar-color: #CBD5E1 #F1F5F9 !important;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+    }
+
+    /* Redução de fonte e espaçamento (padding) da tabela geral */
+    .corp-table {
+        font-size: 11px !important; /* Fonte reduzida para o corpo */
+        width: 100% !important;
+    }
+    .corp-table th, .corp-table td {
+        padding: 5px 8px !important; /* Padding reduzido para compactar linhas */
+        line-height: 1.2 !important;
+    }
+
+    .corp-table thead th {
         background: linear-gradient(180deg, #012869 0%, #1E40AF 100%) !important;
         color: #FFFFFF !important;
         text-transform: uppercase !important;
         letter-spacing: 0.04em !important;
-        font-size: 11px !important;
-    }}
-    .corp-table td.col-os {{
+        font-size: 10px !important; /* Cabeçalho sutilmente menor */
+    }
+    .corp-table td.col-os {
         background: #F8FAFC !important;
         color: #334155 !important;
         font-weight: 700 !important;
         text-align: right !important;
-    }}
-    .corp-table td.col-proj {{
+    }
+    .corp-table td.col-proj {
         background: #334155 !important;
         color: #FFFFFF !important;
         font-weight: 800 !important;
         text-align: right !important;
-    }}
-    .corp-table td.faixa-f3 {{
+    }
+    .corp-table td.faixa-f3 {
         background: #DCFCE7 !important;
         color: #166534 !important;
         font-weight: 700 !important;
         text-align: center !important;
-        border-radius: 6px;
-    }}
-    .corp-table td.faixa-f2 {{
+        border-radius: 4px;
+    }
+    .corp-table td.faixa-f2 {
         background: #DBEAFE !important;
         color: #1E40AF !important;
         font-weight: 700 !important;
         text-align: center !important;
-        border-radius: 6px;
-    }}
-    .corp-table td.faixa-f1 {{
+        border-radius: 4px;
+    }
+    .corp-table td.faixa-f1 {
         background: #FEF3C7 !important;
         color: #B45309 !important;
         font-weight: 700 !important;
         text-align: center !important;
-        border-radius: 6px;
-    }}
-    .corp-table td.faixa-baixa {{
+        border-radius: 4px;
+    }
+    .corp-table td.faixa-baixa {
         background: #FEE2E2 !important;
         color: #991B1B !important;
         font-weight: 700 !important;
         text-align: center !important;
-        border-radius: 6px;
-    }}
-    .corp-table td.num {{
+        border-radius: 4px;
+    }
+    .corp-table td.num {
         text-align: right !important;
         font-variant-numeric: tabular-nums !important;
-    }}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -232,10 +262,10 @@ def render_tabela_os(
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
     html = f"""
-    <div class="corp-table-wrap" style="max-height:{int(height)}px;">
+    <div class="corp-table-wrap" style="max-height:{int(height)}px; overflow: auto;">
       <table class="corp-table">
         <thead><tr>{header}</tr></thead>
-        <tbody>{''.join(body_rows)}</tbody>
+        <tbody>{"".join(body_rows)}</tbody>
       </table>
     </div>
     """
@@ -261,9 +291,7 @@ class InfoCalendario:
     feriados_usados: bool
 
     @classmethod
-    def calcular(
-        cls, data_referencia: Optional[datetime.date] = None
-    ) -> "InfoCalendario":
+    def calcular(cls, data_referencia: datetime.date | None = None) -> InfoCalendario:
         data_ref = data_referencia or datetime.date.today()
         ano, mes = data_ref.year, data_ref.month
         _, ultimo_dia_num = calendar.monthrange(ano, mes)
@@ -359,12 +387,12 @@ class ProcessadorDados:
         return int(self.df[self.COL_SUPERVISOR].nunique())
 
     @property
-    def ultima_atualizacao(self) -> Optional[pd.Timestamp]:
+    def ultima_atualizacao(self) -> pd.Timestamp | None:
         if self.COL_DATA in self.df.columns and not self.df.empty:
             return self.df[self.COL_DATA].max()
         return None
 
-    def filtrar(self, coluna: str, valor: Optional[str]) -> None:
+    def filtrar(self, coluna: str, valor: str | None) -> None:
         if valor != "Todos" and coluna in self.df.columns:
             self.df = self.df[self.df[coluna] == valor]
 
@@ -576,7 +604,7 @@ class Componentes:
             paper_bgcolor="rgba(0,0,0,0)",
             margin=dict(l=0, r=0, t=10, b=0),
             height=300,
-            font=dict(family=FONTE_TEXTO),
+            font=dict(family=Fontes.TEXTO),
         )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -594,7 +622,7 @@ class Componentes:
         st.markdown(
             f"""
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;
-                 font-family:{FONTE_TEXTO};font-size:0.75rem;">
+                 font-family:{Fontes.TEXTO};font-size:0.75rem;">
               <span style="background:#DCFCE7;color:#166534;padding:3px 10px;
                    border-radius:6px;font-weight:700;">F3 ≥ 3500</span>
               <span style="background:#DBEAFE;color:#1E40AF;padding:3px 10px;
@@ -623,7 +651,7 @@ class Componentes:
             st.markdown(
                 f"""
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;
-                     font-family:{FONTE_TEXTO};font-size:0.75rem;">
+                     font-family:{Fontes.TEXTO};font-size:0.75rem;">
                   <span style="background:#DCFCE7;color:#166534;padding:3px 10px;
                        border-radius:6px;font-weight:700;">F3 ≥ 11000</span>
                   <span style="background:#DBEAFE;color:#1E40AF;padding:3px 10px;
@@ -651,7 +679,7 @@ class Componentes:
                 margin=dict(t=0, b=0, l=0, r=0),
                 height=350,
                 paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(family=FONTE_TEXTO),
+                font=dict(family=Fontes.TEXTO),
             )
             st.plotly_chart(
                 fig, use_container_width=True, config={"displayModeBar": False}
@@ -669,8 +697,8 @@ class Componentes:
 
         with col_tab:
             st.markdown(
-                f'<div style="font-family:{FONTE_TITULO};font-weight:700;'
-                f'font-size:14px;color:{COR_PRIMARIA};margin-bottom:8px;">'
+                f'<div style="font-family:{Fontes.TITULO};font-weight:700;'
+                f'font-size:14px;color:{Cores.PRIMARIA};margin-bottom:8px;">'
                 f"📋 Tabela Geral de Técnicos</div>",
                 unsafe_allow_html=True,
             )
@@ -679,8 +707,8 @@ class Componentes:
 
         with col_chart:
             st.markdown(
-                f'<div style="font-family:{FONTE_TITULO};font-weight:700;'
-                f'font-size:14px;color:{COR_PRIMARIA};margin-bottom:8px;">'
+                f'<div style="font-family:{Fontes.TITULO};font-weight:700;'
+                f'font-size:14px;color:{Cores.PRIMARIA};margin-bottom:8px;">'
                 f"🏆 Top 10 Técnicos</div>",
                 unsafe_allow_html=True,
             )
@@ -707,14 +735,14 @@ class Componentes:
                 paper_bgcolor="rgba(0,0,0,0)",
                 margin=dict(l=0, r=0, t=0, b=0),
                 height=450,
-                font=dict(family=FONTE_TEXTO),
+                font=dict(family=Fontes.TEXTO),
             )
             st.plotly_chart(
                 fig, use_container_width=True, config={"displayModeBar": False}
             )
 
     @staticmethod
-    def rodape(ultima_atualizacao: Optional[pd.Timestamp]) -> None:
+    def rodape(ultima_atualizacao: pd.Timestamp | None) -> None:
         st.divider()
         if ultima_atualizacao is not None and pd.notna(ultima_atualizacao):
             st.sidebar.divider()

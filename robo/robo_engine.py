@@ -1,8 +1,7 @@
-import os
 import time
-import pandas as pd
 from pathlib import Path
-from typing import Optional, List, Tuple
+
+import pandas as pd
 
 
 class TotaleRoboEngine:
@@ -11,7 +10,7 @@ class TotaleRoboEngine:
     PADROES = ("Atividades-*.csv", "Atividades-*.xlsx", "Atividades-*.xls")
 
     @staticmethod
-    def buscar_mais_recente(pasta: str) -> Optional[Path]:
+    def buscar_mais_recente(pasta: str) -> Path | None:
         p = Path(pasta)
         if not p.exists() or not p.is_dir():
             return None
@@ -47,7 +46,7 @@ class TotaleRoboEngine:
             return False
 
     @staticmethod
-    def ler_dados(caminho: Path) -> Optional[pd.DataFrame]:
+    def ler_dados(caminho: Path) -> pd.DataFrame | None:
         """Leitura polimórfica com fallback de encoding."""
         ext = caminho.suffix.lower()
         try:

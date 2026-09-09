@@ -19,13 +19,8 @@ import streamlit as st
 from openpyxl.utils import get_column_letter
 
 from components.componentes import (
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_TEXTO,
-    COR_TEXTO_2,
-    COR_TEXTO_3,
-    FONTE_TEXTO,
-    FONTE_TITULO,
+    Cores,
+    Fontes,
     aplicar_estilo,
     render_hero_totale_1,
     render_insight,
@@ -99,9 +94,9 @@ class Config:
     ORDEM_COLUNAS: list[str] = ["BASE"] + COLUNAS_INDICADORES + COLUNAS_METRICAS
 
     BASES_CONFIG: dict[str, dict[str, str]] = {
-        "ABCDM": {"cor": COR_PRIMARIA},
-        "GUARULHOS": {"cor": COR_SECUNDARIA},
-        "LESTE": {"cor": COR_LARANJA_SUAVE},
+        "ABCDM": {"cor": Cores.PRIMARIA},
+        "GUARULHOS": {"cor": Cores.SECUNDARIA},
+        "LESTE": {"cor": Cores.LARANJA_SUAVE},
     }
 
     COLUNAS_ESPERADAS: list[str] = [
@@ -470,19 +465,19 @@ class Visualization:
             title=(
                 dict(
                     text=f"<b>{titulo}</b>",
-                    font=dict(family=FONTE_TITULO, size=16, color=COR_PRIMARIA),
+                    font=dict(family=Fontes.TITULO, size=16, color=Cores.PRIMARIA),
                     x=0.01,
                     xanchor="left",
                 )
                 if titulo
                 else fig.layout
             ),
-            font=dict(family=FONTE_TEXTO, size=12, color=COR_TEXTO_2),
+            font=dict(family=Fontes.TEXTO, size=12, color=Cores.TEXTO_2),
             height=height,
             margin=dict(t=60, b=40, l=20, r=20),
             paper_bgcolor="white",
             plot_bgcolor="rgba(0,0,0,0)",
-            legend=dict(font=dict(family=FONTE_TEXTO, size=11)),
+            legend=dict(font=dict(family=Fontes.TEXTO, size=11)),
         )
         return fig
 
@@ -494,10 +489,10 @@ class Visualization:
                 name="Média OS",
                 x=df_bases["BASE"],
                 y=df_bases["Média OS"],
-                marker_color=COR_PRIMARIA,
+                marker_color=Cores.PRIMARIA,
                 text=[Utils.fmt_float(v) for v in df_bases["Média OS"]],
                 textposition="outside",
-                textfont=dict(family=FONTE_TEXTO, size=12),
+                textfont=dict(family=Fontes.TEXTO, size=12),
             )
         )
         fig.add_trace(
@@ -505,10 +500,10 @@ class Visualization:
                 name="Média Montados",
                 x=df_bases["BASE"],
                 y=df_bases["Média Montados"],
-                marker_color=COR_SECUNDARIA,
+                marker_color=Cores.SECUNDARIA,
                 text=[Utils.fmt_float(v) for v in df_bases["Média Montados"]],
                 textposition="outside",
-                textfont=dict(family=FONTE_TEXTO, size=12),
+                textfont=dict(family=Fontes.TEXTO, size=12),
             )
         )
         fig.update_layout(barmode="group")
@@ -530,7 +525,7 @@ class Visualization:
         )
         fig.update_traces(
             textinfo="percent+label",
-            textfont=dict(family=FONTE_TEXTO, size=13),
+            textfont=dict(family=Fontes.TEXTO, size=13),
             marker=dict(line=dict(color="white", width=3)),
         )
         fig.update_layout(showlegend=False)
@@ -561,13 +556,13 @@ class Visualization:
                 y=list(matriz_norm.index),
                 text=matriz.to_numpy(),
                 texttemplate="<b>%{text}</b>",
-                textfont=dict(family=FONTE_TEXTO, size=13, color=COR_TEXTO),
+                textfont=dict(family=Fontes.TEXTO, size=13, color=Cores.TEXTO),
                 colorscale=escala_totale,
                 showscale=True,  # type: ignore
                 colorbar=dict(
                     title=dict(
                         text="Intensidade",
-                        font=dict(family=FONTE_TEXTO, size=11, color=COR_TEXTO_3),
+                        font=dict(family=Fontes.TEXTO, size=11, color=Cores.TEXTO_3),
                     ),
                     thickness=12,
                     len=0.7,
@@ -580,12 +575,12 @@ class Visualization:
         fig.update_layout(
             xaxis=dict(
                 side="bottom",
-                tickfont=dict(family=FONTE_TEXTO, size=12, color=COR_TEXTO_2),
+                tickfont=dict(family=Fontes.TEXTO, size=12, color=Cores.TEXTO_2),
                 showgrid=False,
                 zeroline=False,
             ),
             yaxis=dict(
-                tickfont=dict(family=FONTE_TITULO, size=12, color=COR_PRIMARIA),
+                tickfont=dict(family=Fontes.TITULO, size=12, color=Cores.PRIMARIA),
                 showgrid=False,
                 zeroline=False,
                 autorange="reversed",
@@ -712,7 +707,7 @@ class UI:
             subtitulo="Envie os arquivos consolidados de cada operação.",
             icone="📁",
             badge="CSV ou XLSX",
-            badge_tipo="azul",
+            badge_tipo="info",
         )
         arquivos = UI._mostrar_uploaders()
 
@@ -722,7 +717,7 @@ class UI:
             subtitulo="Informe o quantitativo total de técnicos montados por base no dia.",
             icone="📝",
             badge="Entrada Manual",
-            badge_tipo="laranja",
+            badge_tipo="default",
         )
         montados_dict = UI._mostrar_inputs_montados()
 
@@ -738,8 +733,8 @@ class UI:
             <style>
             /* Design Tokens */
             :root {{
-                --font-titulo: {FONTE_TITULO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                --font-texto: {FONTE_TEXTO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                --font-titulo: {Fontes.TITULO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                --font-texto: {Fontes.TEXTO}, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
                 --brand-navy-dark: #012869;
                 --brand-navy-mid: #023A9E;
@@ -1097,7 +1092,7 @@ class UI:
             subtitulo="Ranking visual por indicador — cores destacam melhor e pior desempenho.",
             icone="📋",
             badge="Detalhamento",
-            badge_tipo="azul",
+            badge_tipo="info",
         )
         Visualization.renderizar_tabela_html(df_final)
         UI._mostrar_legenda_heatmap()
@@ -1112,7 +1107,7 @@ class UI:
             subtitulo="Faça o download do consolidado em planilha Excel formatada.",
             icone="⬇️",
             badge="Excel",
-            badge_tipo="verde",
+            badge_tipo="sucesso",
         )
         st.download_button(
             "Baixar resultado em Excel",
@@ -1126,7 +1121,7 @@ class UI:
     def _mostrar_legenda_heatmap() -> None:
         st.markdown(
             f"""
-            <div style="display:flex;gap:16px;justify-content:flex-end;align-items:center; padding:8px 4px;font-size:12px;font-family:{FONTE_TEXTO}; color:#4B5563;font-weight:600;">
+            <div style="display:flex;gap:16px;justify-content:flex-end;align-items:center; padding:8px 4px;font-size:12px;font-family:{Fontes.TEXTO}; color:#4B5563;font-weight:600;">
                 <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:linear-gradient(180deg,#D1FAE5,#A7F3D0); border-left:3px solid #10B981;border-radius:3px;"></span>Melhor</span>
                 <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:linear-gradient(180deg,#FEF3C7,#FDE68A); border-left:3px solid #F59E0B;border-radius:3px;"></span>Intermediário</span>
                 <span style="display:flex;align-items:center;gap:6px;"><span style="width:14px;height:14px;background:linear-gradient(180deg,#FEE2E2,#FECACA); border-left:3px solid #EF4444;border-radius:3px;"></span>Pior</span>
@@ -1145,7 +1140,7 @@ class UI:
             subtitulo="Visão consolidada do resultado agregado das três bases.",
             icone="📈",
             badge="Total consolidado",
-            badge_tipo="azul",
+            badge_tipo="info",
         )
         k = st.columns(4)
         render_kpi(
@@ -1184,7 +1179,7 @@ class UI:
             subtitulo="Cartões comparativos para leitura rápida por operação.",
             icone="🏢",
             badge="Comparativo rápido",
-            badge_tipo="laranja",
+            badge_tipo="info",
         )
         cols = st.columns(len(df_bases))
         for i, (_, row) in enumerate(df_bases.iterrows()):
@@ -1219,7 +1214,7 @@ class UI:
             subtitulo="Gráficos comparativos de participação, médias e intensidade por indicador.",
             icone="📊",
             badge="Gráficos comparativos",
-            badge_tipo="azul",
+            badge_tipo="info",
         )
         g1, g2 = st.columns(2)
         with g1:
@@ -1248,7 +1243,7 @@ class UI:
             subtitulo="Leituras rápidas geradas a partir dos números consolidados.",
             icone="💡",
             badge="Leitura dos dados",
-            badge_tipo="verde",
+            badge_tipo="sucesso",
         )
         for msg, tipo in Visualization.gerar_insights(df_bases, total):
             render_insight(msg, tipo=tipo)

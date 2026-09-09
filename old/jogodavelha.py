@@ -1,7 +1,7 @@
-import streamlit as st
-import random
 import math
-from typing import List, Tuple, Optional
+import random
+
+import streamlit as st
 
 # --- CONSTANTES E CONFIGURAÇÕES ---
 JOGADOR_HUMANO = "❌"
@@ -34,7 +34,7 @@ st.markdown(
 
 
 # --- LÓGICA DO JOGO ---
-def verificar_vitoria(tabuleiro: List[List[str]], jogador: str) -> bool:
+def verificar_vitoria(tabuleiro: list[list[str]], jogador: str) -> bool:
     # Checa linhas e colunas
     for i in range(3):
         if all(tabuleiro[i][j] == jogador for j in range(3)) or all(
@@ -49,17 +49,17 @@ def verificar_vitoria(tabuleiro: List[List[str]], jogador: str) -> bool:
     return False
 
 
-def tabuleiro_cheio(tabuleiro: List[List[str]]) -> bool:
+def tabuleiro_cheio(tabuleiro: list[list[str]]) -> bool:
     return all(celula != VAZIO for linha in tabuleiro for celula in linha)
 
 
-def obter_posicoes_livres(tabuleiro: List[List[str]]) -> List[Tuple[int, int]]:
+def obter_posicoes_livres(tabuleiro: list[list[str]]) -> list[tuple[int, int]]:
     return [(r, c) for r in range(3) for c in range(3) if tabuleiro[r][c] == VAZIO]
 
 
 # --- INTELIGÊNCIA ARTIFICIAL (MINIMAX) ---
 def minimax(
-    tabuleiro: List[List[str]],
+    tabuleiro: list[list[str]],
     profundidade: int,
     alpha: float,
     beta: float,
@@ -96,9 +96,7 @@ def minimax(
         return melhor_pontuacao
 
 
-def jogada_ia(
-    tabuleiro: List[List[str]], dificuldade: str
-) -> Optional[Tuple[int, int]]:
+def jogada_ia(tabuleiro: list[list[str]], dificuldade: str) -> tuple[int, int] | None:
     posicoes_livres = obter_posicoes_livres(tabuleiro)
     if not posicoes_livres:
         return None

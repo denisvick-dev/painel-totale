@@ -10,17 +10,15 @@ import re  # CORREÇÃO 1: import no topo, não dentro de função
 import sys
 from pathlib import Path
 
-_DIR  = Path(__file__).resolve().parent
+_DIR = Path(__file__).resolve().parent
 _ROOT = _DIR.parent
 for _p in [_DIR, _ROOT]:
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from datetime import date as date_type  # CORREÇÃO 2: alias claro para o tipo date
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -39,33 +37,34 @@ st.set_page_config(
 )
 
 # CORREÇÃO 3: setdefault APÓS set_page_config
-st.session_state.setdefault("df_memoria",   None)
+st.session_state.setdefault("df_memoria", None)
 st.session_state.setdefault("dados_ativos", None)
 
 # ====================================================
 # CONSTANTES
 # ====================================================
 COL_TECNICO_LOGIN = "Login do Técnico"
-COL_TECNICO_NOME  = "Recurso"
-COL_TIPO_ATIV     = "Tipo de Atividade"
-COL_TIPO_OS       = "Tipo de O.S"
-COL_JANELA        = "Janela de Serviço"
-COL_DATA          = "Data"
-COL_NUM_WO        = "Número da WO"
-COL_STATUS_ATIV   = "Status da Atividade"
+COL_TECNICO_NOME = "Recurso"
+COL_TIPO_ATIV = "Tipo de Atividade"
+COL_TIPO_OS = "Tipo de O.S"
+COL_JANELA = "Janela de Serviço"
+COL_DATA = "Data"
+COL_NUM_WO = "Número da WO"
+COL_STATUS_ATIV = "Status da Atividade"
 COL_TOTAL_TAREFAS = "Total de tarefas"
 
-MAPA_SEGMENTO: Dict[str, List[str]] = {
-    "WO":       ["WO", "NOVO", "DOMICILIO", "DOMICÍLIO", "ND", "INSTALAÇÃO", "INSTALACAO"],
-    "GPON":     ["GPON", "FIBRA"],
+MAPA_SEGMENTO: dict[str, list[str]] = {
+    "WO": ["WO", "NOVO", "DOMICILIO", "DOMICÍLIO", "ND", "INSTALAÇÃO", "INSTALACAO"],
+    "GPON": ["GPON", "FIBRA"],
     "MIGRACAO": ["MIGRA", "MUDANÇA", "MUDANCA", "TROCA PACOTE"],
 }
 
-TURNOS: Dict[str, List[str]] = {
-    "Manhã":    ["MANHÃ", "MANHA", "MATUTINO"],
-    "Tarde I":  ["TARDE I", "TARDE 1", "TARDE1", "T1"],
+TURNOS: dict[str, list[str]] = {
+    "Manhã": ["MANHÃ", "MANHA", "MATUTINO"],
+    "Tarde I": ["TARDE I", "TARDE 1", "TARDE1", "T1"],
     "Tarde II": ["TARDE II", "TARDE 2", "TARDE2", "T2", "VESPERTINO"],
 }
+
 
 # ====================================================
 # CSS CORPORATIVO
@@ -162,7 +161,7 @@ def _injetar_css_rota() -> None:
 # ====================================================
 # UTILITÁRIOS
 # ====================================================
-def _encontrar_coluna(df: pd.DataFrame, candidatos: List[str]) -> Optional[str]:
+def _encontrar_coluna(df: pd.DataFrame, candidatos: list[str]) -> str | None:
     """Retorna o nome real da coluna se algum candidato existir."""
     cols_upper = {c.upper().strip(): c for c in df.columns}
     for cand in candidatos:
@@ -172,7 +171,7 @@ def _encontrar_coluna(df: pd.DataFrame, candidatos: List[str]) -> Optional[str]:
     return None
 
 
-def _classificar_segmento(valor: Any) -> Optional[str]:
+def _classificar_segmento(valor: Any) -> str | None:
     """Classifica em: WO, GPON, MIGRACAO ou None."""
     if pd.isna(valor):
         return None
@@ -187,7 +186,7 @@ def _classificar_segmento(valor: Any) -> Optional[str]:
     return None
 
 
-def _extrair_hora_inicio(janela: Any) -> Optional[int]:
+def _extrair_hora_inicio(janela: Any) -> int | None:
     """Extrai a hora de início de uma janela de serviço."""
     if pd.isna(janela):
         return None
@@ -216,7 +215,7 @@ def _extrair_hora_inicio(janela: Any) -> Optional[int]:
     return None
 
 
-def _classificar_turno(janela: Any) -> Optional[str]:
+def _classificar_turno(janela: Any) -> str | None:
     """
     Classifica turno:
     - Manhã:    06–11
@@ -280,7 +279,7 @@ def enriquecer_com_monitor(df: pd.DataFrame) -> pd.DataFrame:
 
     ativos_cols = {c.upper().strip(): c for c in ativos.columns}
     # CORREÇÃO 5: busca mais robusta das colunas de login e monitor
-    col_login_ativos   = (
+    col_login_ativos = (
         ativos_cols.get("LOGIN")
         or ativos_cols.get("LOGIN DO TÉCNICO")
         or ativos_cols.get("LOGIN TÉCNICO")
@@ -318,8 +317,8 @@ def enriquecer_com_monitor(df: pd.DataFrame) -> pd.DataFrame:
 # ====================================================
 def calcular_tabela_rota(
     df: pd.DataFrame,
-    turno: Optional[str] = None,
-    total_equipe_montada: Optional[int] = None,
+    turno: str | None = None,
+    total_equipe_montada: int | None = None,
 ) -> pd.DataFrame:
     """Calcula a tabela por Monitor: WO · GPON · OS · ND · Migração · Equipe · Média"""
 
@@ -328,13 +327,15 @@ def calcular_tabela_rota(
 
     df_work = df.copy()
 
-    col_mon    = _encontrar_coluna(df_work, ["Monitor", "MONITOR"])
-    col_tec    = _encontrar_coluna(df_work, [COL_TECNICO_LOGIN, COL_TECNICO_NOME])
-    col_tipo   = _encontrar_coluna(df_work, [COL_TIPO_ATIV, COL_TIPO_OS])
+    col_mon = _encontrar_coluna(df_work, ["Monitor", "MONITOR"])
+    col_tec = _encontrar_coluna(df_work, [COL_TECNICO_LOGIN, COL_TECNICO_NOME])
+    col_tipo = _encontrar_coluna(df_work, [COL_TIPO_ATIV, COL_TIPO_OS])
     col_janela = _encontrar_coluna(df_work, [COL_JANELA])
 
     if not col_mon or not col_tipo:
-        st.warning("Colunas obrigatórias 'Monitor' ou 'Tipo de Atividade' não encontradas.")
+        st.warning(
+            "Colunas obrigatórias 'Monitor' ou 'Tipo de Atividade' não encontradas."
+        )
         return pd.DataFrame()
 
     # Filtro de turno
@@ -359,39 +360,41 @@ def calcular_tabela_rota(
         return pd.DataFrame()
 
     monitores = sorted(df_work["_MON"].unique())
-    linhas: List[Dict[str, Any]] = []
+    linhas: list[dict[str, Any]] = []
 
     for mon in monitores:
         df_mon = df_work[df_work["_MON"] == mon]
 
-        wo   = int((df_mon["_SEG"] == "WO").sum())
+        wo = int((df_mon["_SEG"] == "WO").sum())
         gpon = int((df_mon["_SEG"] == "GPON").sum())
-        mig  = int((df_mon["_SEG"] == "MIGRACAO").sum())
-        nd   = wo  # ND = mesma quantidade que WO (instalações em domicílio)
+        mig = int((df_mon["_SEG"] == "MIGRACAO").sum())
+        nd = wo  # ND = mesma quantidade que WO (instalações em domicílio)
 
         total_os = wo + gpon + mig
-        equipe   = int(df_mon[col_tec].nunique()) if col_tec else 0
-        media    = total_os / equipe if equipe > 0 else 0.0
+        equipe = int(df_mon[col_tec].nunique()) if col_tec else 0
+        media = total_os / equipe if equipe > 0 else 0.0
 
-        linhas.append({
-            "Monitor":  mon,
-            "WO":       wo,
-            "GPON":     gpon,
-            "OS":       total_os,
-            "ND":       nd,
-            "Migração": mig,
-            "Equipe":   equipe,
-            "Média":    media,
-        })
+        linhas.append(
+            {
+                "Monitor": mon,
+                "WO": wo,
+                "GPON": gpon,
+                "OS": total_os,
+                "ND": nd,
+                "Migração": mig,
+                "Equipe": equipe,
+                "Média": media,
+            }
+        )
 
     df_out = pd.DataFrame(linhas)
 
     # ── Totais ──────────────────────────────────
-    total_wo           = int(df_out["WO"].sum())
-    total_gpon         = int(df_out["GPON"].sum())
-    total_os_geral     = int(df_out["OS"].sum())
-    total_nd           = int(df_out["ND"].sum())
-    total_mig          = int(df_out["Migração"].sum())
+    total_wo = int(df_out["WO"].sum())
+    total_gpon = int(df_out["GPON"].sum())
+    total_os_geral = int(df_out["OS"].sum())
+    total_nd = int(df_out["ND"].sum())
+    total_mig = int(df_out["Migração"].sum())
     total_eq_escalados = int(df_out["Equipe"].sum())
 
     total_eq_montados = (
@@ -401,22 +404,32 @@ def calcular_tabela_rota(
     )
 
     media_esc = total_os_geral / total_eq_escalados if total_eq_escalados > 0 else 0.0
-    media_mon = total_os_geral / total_eq_montados  if total_eq_montados  > 0 else 0.0
+    media_mon = total_os_geral / total_eq_montados if total_eq_montados > 0 else 0.0
 
-    df_totais = pd.DataFrame([
-        {
-            "Monitor":  "Total Geral | Escalados",
-            "WO": total_wo, "GPON": total_gpon, "OS": total_os_geral,
-            "ND": total_nd, "Migração": total_mig,
-            "Equipe": total_eq_escalados, "Média": media_esc,
-        },
-        {
-            "Monitor":  "Total Geral | Montados",
-            "WO": total_wo, "GPON": total_gpon, "OS": total_os_geral,
-            "ND": total_nd, "Migração": total_mig,
-            "Equipe": total_eq_montados, "Média": media_mon,
-        },
-    ])
+    df_totais = pd.DataFrame(
+        [
+            {
+                "Monitor": "Total Geral | Escalados",
+                "WO": total_wo,
+                "GPON": total_gpon,
+                "OS": total_os_geral,
+                "ND": total_nd,
+                "Migração": total_mig,
+                "Equipe": total_eq_escalados,
+                "Média": media_esc,
+            },
+            {
+                "Monitor": "Total Geral | Montados",
+                "WO": total_wo,
+                "GPON": total_gpon,
+                "OS": total_os_geral,
+                "ND": total_nd,
+                "Migração": total_mig,
+                "Equipe": total_eq_montados,
+                "Média": media_mon,
+            },
+        ]
+    )
 
     return pd.concat([df_out, df_totais], ignore_index=True)
 
@@ -432,12 +445,12 @@ def render_tabela_rota(df: pd.DataFrame, titulo: str) -> str:
             f'<div class="rota-titulo">{titulo}</div>'
             f'<table class="rota-tab"><tr><td colspan="8" '
             f'style="padding:20px;color:#64748B;text-align:center;">'
-            f'Sem dados disponíveis para este turno.</td></tr></table></div>'
+            f"Sem dados disponíveis para este turno.</td></tr></table></div>"
         )
 
     linhas_html = ""
     for _, row in df.iterrows():
-        monitor     = str(row["Monitor"])
+        monitor = str(row["Monitor"])
         classe_linha = ""
 
         if "Escalados" in monitor:
@@ -448,30 +461,30 @@ def render_tabela_rota(df: pd.DataFrame, titulo: str) -> str:
         linhas_html += (
             f'<tr class="{classe_linha}">'
             f'<td class="col-monitor">{monitor}</td>'
-            f'<td>{_fmt_num(row["WO"])}</td>'
-            f'<td>{_fmt_num(row["GPON"])}</td>'
+            f"<td>{_fmt_num(row['WO'])}</td>"
+            f"<td>{_fmt_num(row['GPON'])}</td>"
             f'<td class="col-os">{_fmt_num(row["OS"])}</td>'
-            f'<td>{_fmt_num(row["ND"])}</td>'
-            f'<td>{_fmt_num(row["Migração"])}</td>'
+            f"<td>{_fmt_num(row['ND'])}</td>"
+            f"<td>{_fmt_num(row['Migração'])}</td>"
             f'<td class="col-equipe">{_fmt_num(row["Equipe"])}</td>'
             f'<td class="col-media">{_fmt_media(row["Média"])}</td>'
-            f'</tr>'
+            f"</tr>"
         )
 
     return (
         f'<div class="rota-wrapper">'
         f'<div class="rota-titulo">{titulo}</div>'
         f'<table class="rota-tab">'
-        f'<thead><tr>'
+        f"<thead><tr>"
         f'<th style="width:32%;">Monitor</th>'
-        f'<th>WO</th><th>GPON</th>'
+        f"<th>WO</th><th>GPON</th>"
         f'<th class="th-os">OS</th>'
-        f'<th>ND</th><th>Migração</th>'
+        f"<th>ND</th><th>Migração</th>"
         f'<th class="th-equipe">Equipe</th>'
         f'<th class="th-media">Média</th>'
-        f'</tr></thead>'
-        f'<tbody>{linhas_html}</tbody>'
-        f'</table></div>'
+        f"</tr></thead>"
+        f"<tbody>{linhas_html}</tbody>"
+        f"</table></div>"
     )
 
 
@@ -529,9 +542,7 @@ def main() -> None:
                         "📅 Data",
                         options=["Todas"] + datas_unicas,
                         format_func=lambda x: (
-                            "Todas as datas"
-                            if x == "Todas"
-                            else x.strftime("%d/%m/%Y")
+                            "Todas as datas" if x == "Todas" else x.strftime("%d/%m/%Y")
                         ),
                         key="rota_data",
                     )
@@ -544,7 +555,8 @@ def main() -> None:
             opcoes_mon = ["Todos os Monitores"] + sorted(
                 str(x)
                 for x in df_full[col_mon].dropna().unique()
-                if str(x).upper() not in {"NAN", "SEM MONITOR", "NÃO MAPEADO", "NAO MAPEADO"}
+                if str(x).upper()
+                not in {"NAN", "SEM MONITOR", "NÃO MAPEADO", "NAO MAPEADO"}
             )
             sel_mon = st.selectbox("👔 Monitor", opcoes_mon, key="rota_mon")
 
@@ -579,19 +591,36 @@ def main() -> None:
 
     # ── Tabela 1: Dia todo ────────────────────────────
     df_rota = calcular_tabela_rota(df, turno=None, total_equipe_montada=total_montada)
-    st.markdown(render_tabela_rota(df_rota, f"Rota Inicial — {data_titulo}"), unsafe_allow_html=True)
+    st.markdown(
+        render_tabela_rota(df_rota, f"Rota Inicial — {data_titulo}"),
+        unsafe_allow_html=True,
+    )
 
     # ── Tabela 2: Manhã ───────────────────────────────
-    df_manha = calcular_tabela_rota(df, turno="Manhã", total_equipe_montada=total_montada)
-    st.markdown(render_tabela_rota(df_manha, f"Manhã — {data_titulo}"), unsafe_allow_html=True)
+    df_manha = calcular_tabela_rota(
+        df, turno="Manhã", total_equipe_montada=total_montada
+    )
+    st.markdown(
+        render_tabela_rota(df_manha, f"Manhã — {data_titulo}"), unsafe_allow_html=True
+    )
 
     # ── Tabela 3: Tarde I ─────────────────────────────
-    df_tarde1 = calcular_tabela_rota(df, turno="Tarde I", total_equipe_montada=total_montada)
-    st.markdown(render_tabela_rota(df_tarde1, f"Tarde I — {data_titulo}"), unsafe_allow_html=True)
+    df_tarde1 = calcular_tabela_rota(
+        df, turno="Tarde I", total_equipe_montada=total_montada
+    )
+    st.markdown(
+        render_tabela_rota(df_tarde1, f"Tarde I — {data_titulo}"),
+        unsafe_allow_html=True,
+    )
 
     # ── Tabela 4: Tarde II ────────────────────────────
-    df_tarde2 = calcular_tabela_rota(df, turno="Tarde II", total_equipe_montada=total_montada)
-    st.markdown(render_tabela_rota(df_tarde2, f"Tarde II — {data_titulo}"), unsafe_allow_html=True)
+    df_tarde2 = calcular_tabela_rota(
+        df, turno="Tarde II", total_equipe_montada=total_montada
+    )
+    st.markdown(
+        render_tabela_rota(df_tarde2, f"Tarde II — {data_titulo}"),
+        unsafe_allow_html=True,
+    )
 
     # ── Rodapé ────────────────────────────────────────
     st.markdown(
@@ -599,7 +628,7 @@ def main() -> None:
         <div style="text-align:center;margin-top:32px;padding:16px;
              border-top:1px solid #E2E8F0;color:#94A3B8;font-size:12px;">
             <b style="color:#1E40AF;">Rota Inicial · Distribuição por Turno</b><br>
-            Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}
+            Gerado em {datetime.now().strftime("%d/%m/%Y às %H:%M")}
         </div>
         """,
         unsafe_allow_html=True,

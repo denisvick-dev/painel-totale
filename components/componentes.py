@@ -1,18 +1,21 @@
 """
-components/componentes.py
-=========================
-Módulo central unificado de estilos, fontes, componentes reutilizáveis,
-visualizações gráficas padronizadas e Design System do Sidebar TOTALE.
+Módulo central de estilos, fontes e componentes reutilizáveis
+para todo o projeto Streamlit TOTALE.
+
+Version: 4.1.1
+Author: TOTALE Tecnologia
 """
 
 from __future__ import annotations
 
+import html as html_lib
+import logging
 import re
-import textwrap
-from datetime import datetime
-from html import escape
-from typing import Any, Callable, Dict, List, Literal, Tuple, Union
-from zoneinfo import ZoneInfo
+from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Literal, TypeAlias
+from urllib.parse import urlparse
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,1555 +23,2331 @@ import plotly.io as pio
 import streamlit as st
 import streamlit.components.v1 as components
 
-_PLOTLY_CONFIGURADO = False
+# =============================================================================
+# CONFIGURAÇÃO DE LOGGING
+# =============================================================================
+logger = logging.getLogger(__name__)
 
 
-# ====================================================
-# HELPER DE LIMPEZA DE HTML (CRÍTICO PARA STREAMLIT)
-# ====================================================
-def _limpar_html(html: str) -> str:
-    """
-    Remove todos os espaços/tabs no início e final de cada linha do HTML.
-    Evita que o parser Markdown do Streamlit converta linhas indentadas em code blocks.
-    """
-    return "\n".join(linha.strip() for linha in html.splitlines() if linha.strip())
+# =============================================================================
+# TIPOS E ENUMERAÇÕES
+# =============================================================================
+class TemaKPI(str, Enum):
+    AZUL = "azul"
+    VERDE = "verde"
+    VERMELHO = "vermelho"
+    LARANJA = "laranja"
+    CINZA = "cinza"
+    ROXO = "roxo"
 
 
-# ====================================================
-# TIPOS LITERAIS E ALIASES
-# ====================================================
-TemaKPI = Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo"]
-TipoInsight = Literal["ok", "info", "alerta", "critico", "acao"]
-TipoBadge = Literal["laranja", "azul", "verde", "vermelho", "cinza", "roxo"]
-TipoStatus = Literal["ativo", "inativo", "pendente", "sucesso", "erro"]
-TendenciaDelta = Literal["up", "down", "flat"]
-TipoTemaBrand = Literal["gradiente", "clean", "minimalista"]
-TipoAmbiente = Literal[
-    "produção",
-    "homologação",
-    "desenvolvimento",
-    "producao",
-    "homologacao",
-    "prod",
-    "homo",
-    "dev",
+class TipoInsight(str, Enum):
+    OK = "ok"
+    INFO = "info"
+    ALERTA = "alerta"
+    CRITICO = "critico"
+    ACAO = "acao"
+
+
+class TipoStatus(str, Enum):
+    OK = "ok"
+    INFO = "info"
+    ALERTA = "alerta"
+    CRITICO = "critico"
+    NEUTRO = "neutro"
+
+
+class TipoEmptyState(str, Enum):
+    DADOS = "dados"
+    FILTRO = "filtro"
+    ERRO = "erro"
+    CARREGANDO = "carregando"
+    PADRAO = "padrao"
+
+
+class TipoBadge(str, Enum):
+    DEFAULT = "default"
+    SUCESSO = "sucesso"
+    ALERTA = "alerta"
+    ERRO = "erro"
+    INFO = "info"
+    ROXO = "roxo"
+
+
+class TipoProgressBar(str, Enum):
+    AZUL = "azul"
+    LARANJA = "laranja"
+    VERDE = "verde"
+    VERMELHO = "vermelho"
+    ROXO = "roxo"
+    GRADIENTE = "gradiente"
+
+
+class TipoTrend(str, Enum):
+    UP = "up"
+    DOWN = "down"
+    NEUTRAL = "neutral"
+    NONE = "none"
+
+
+class TipoNotification(str, Enum):
+    SUCESSO = "sucesso"
+    INFO = "info"
+    ALERTA = "alerta"
+    ERRO = "erro"
+
+
+class TipoTimelineItem(str, Enum):
+    CONCLUIDO = "concluido"
+    EM_ANDAMENTO = "em_andamento"
+    PENDENTE = "pendente"
+    CANCELADO = "cancelado"
+
+
+class TipoHero(str, Enum):
+    PADRAO = "padrao"
+    MIGRACAO = "migracao"
+    PME = "pme"
+    TOTALE_1 = "totale_1"
+    TOTALE_2 = "totale_2"
+
+
+# Type aliases
+TemaKPIType: TypeAlias = Literal[
+    "azul", "verde", "vermelho", "laranja", "cinza", "roxo"
 ]
-
-CellFormatter = Union[str, Callable[[Any], str]]
-FmtDict = Dict[str, Union[CellFormatter, None]]
-ColorRule = Tuple[Callable[[Any], bool], str]
-ColorMapDict = Dict[str, List[ColorRule]]
-CondicaoCoresConfig = Dict[str, Any]
-LinhaDestaqueConfig = Dict[str, Any]
-
-
-# ====================================================
-# TIPOGRAFIAS & CORES CORPORATIVAS UNIFICADAS
-# ====================================================
-FONTE_TITULO = "'Plus Jakarta Sans', 'Inter', 'Segoe UI', Arial, sans-serif"
-FONTE_TEXTO = "'IBM Plex Sans', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-FONTE_CODIGO = "'IBM Plex Mono', Consolas, 'Courier New', monospace"
-
-_GOOGLE_FONTS_URLS = (
-    "https://fonts.googleapis.com/icon?family=Material+Icons",
-    "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap",
-    "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap",
-)
-
-# Paleta Corporativa Totale (Modern Enterprise)
-COR_PRIMARIA = "#012869"  # Deep Midnight Navy
-COR_SECUNDARIA = "#F37C04"  # Solar Orange
-COR_SECUNDARIA_HOVER = "#D46B02"
-COR_SUCESSO = "#059669"  # Emerald Green
-COR_ALERTA = "#DC2626"  # Crimson Red
-COR_ATENCAO = "#F59E0B"  # Amber Warning
-COR_NEUTRO = "#64748B"  # Slate Grey
-COR_ROXO = "#8B5CF6"  # Violet Accent
-
-# Textos
-COR_TEXTO = "#0F172A"  # Dark Slate
-COR_TEXTO_2 = "#334155"  # Slate Neutral
-COR_TEXTO_3 = "#64748B"  # Muted Slate
-
-# Estruturais
-COR_BORDA = "#E2E8F0"
-COR_FUNDO = "#F8FAFC"
-COR_FUNDO_2 = "#F1F5F9"
-
-# Sidebar
-SB_FUNDO = "#F1F5F9"
-SB_FUNDO_LINK = "#FFFFFF"
-SB_FUNDO_LINK_HOVER = "#F8FAFC"
-SB_FUNDO_ATIVO = "#FFF7ED"
-SB_BORDA_ATIVA = "#F37C04"
-SB_TITULO_SECAO = "#012869"
-SB_TEXTO_LINK = "#0F172A"
-SB_TEXTO_MUTED = "#64748B"
-SB_BORDA_SUTIL = "#CBD5E1"
-
-_TEMA_CORES: Dict[str, str] = {
-    "azul": COR_PRIMARIA,
-    "verde": COR_SUCESSO,
-    "vermelho": COR_ALERTA,
-    "laranja": COR_SECUNDARIA,
-    "cinza": COR_NEUTRO,
-    "roxo": COR_ROXO,
-}
-
-_INSIGHT_CONFIG: Dict[str, Tuple[str, str, str, str]] = {
-    "ok": ("#ECFDF5", "#065F46", "#10B981", "✅"),
-    "info": ("#EFF6FF", "#1E40AF", "#3B82F6", "ℹ️"),
-    "alerta": ("#FFFBEB", "#92400E", "#F59E0B", "⚠️"),
-    "critico": ("#FEF2F2", "#991B1B", "#EF4444", "🚨"),
-    "acao": ("#F5F3FF", "#5B21B6", "#8B5CF6", "⚡"),
-}
-
-_PLOTLY_COLORWAY = [
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_SUCESSO,
-    COR_ALERTA,
-    COR_ROXO,
-    "#EC4899",
-    "#14B8A6",
-    "#F59E0B",
-    "#6366F1",
-    COR_NEUTRO,
+TipoInsightType: TypeAlias = Literal["ok", "info", "alerta", "critico", "acao"]
+TipoStatusType: TypeAlias = Literal["ok", "info", "alerta", "critico", "neutro"]
+TipoEmptyStateType: TypeAlias = Literal[
+    "dados", "filtro", "erro", "carregando", "padrao"
 ]
+TipoBadgeType: TypeAlias = Literal[
+    "default", "sucesso", "alerta", "erro", "info", "roxo"
+]
+TipoProgressBarType: TypeAlias = Literal[
+    "azul", "laranja", "verde", "vermelho", "roxo", "gradiente"
+]
+TipoTrendType: TypeAlias = Literal["up", "down", "neutral", "none"]
+TipoNotificationType: TypeAlias = Literal["sucesso", "info", "alerta", "erro"]
+TipoTimelineItemType: TypeAlias = Literal[
+    "concluido", "em_andamento", "pendente", "cancelado"
+]
+TipoHeroType: TypeAlias = Literal["padrao", "migracao", "pme", "totale_1", "totale_2"]
+
+BaseFormatter: TypeAlias = str | Callable[[object], str]
+FmtDict: TypeAlias = dict[str, BaseFormatter | None]
+ColorMapDict: TypeAlias = dict[str, str]
 
 
-# ====================================================
-# PLOTLY GLOBAL SETUP
-# ====================================================
-def _configurar_plotly_global() -> None:
-    global _PLOTLY_CONFIGURADO
-    if _PLOTLY_CONFIGURADO:
-        return
-
-    template = go.layout.Template(
-        layout=go.Layout(
-            font=dict(family=FONTE_TEXTO, size=12, color=COR_TEXTO_2),
-            title=dict(
-                font=dict(family=FONTE_TITULO, size=16, color=COR_TEXTO, weight="bold"),
-                x=0.01,
-                xanchor="left",
-                y=0.95,
-            ),
-            legend=dict(
-                font=dict(family=FONTE_TEXTO, size=11, color=COR_TEXTO_2),
-                orientation="h",
-                yanchor="bottom",
-                y=-0.22,
-                xanchor="center",
-                x=0.5,
-                bgcolor="rgba(255,255,255,0)",
-                bordercolor="rgba(0,0,0,0)",
-            ),
-            xaxis=dict(
-                tickfont=dict(family=FONTE_TEXTO, size=11, color=COR_TEXTO_3),
-                gridcolor="#F1F5F9",
-                zerolinecolor="#E2E8F0",
-                showgrid=True,
-                linecolor="#E2E8F0",
-            ),
-            yaxis=dict(
-                tickfont=dict(family=FONTE_TEXTO, size=11, color=COR_TEXTO_3),
-                gridcolor="#F1F5F9",
-                zerolinecolor="#E2E8F0",
-                showgrid=True,
-                linecolor="#E2E8F0",
-            ),
-            hoverlabel=dict(
-                font=dict(family=FONTE_TEXTO, size=12, color=COR_TEXTO),
-                bgcolor="white",
-                bordercolor=COR_BORDA,
-            ),
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            colorway=_PLOTLY_COLORWAY,
-            margin=dict(l=40, r=20, t=50, b=40),
-        )
-    )
-    pio.templates["corporativo"] = template
-    pio.templates.default = "plotly_white+corporativo"
-    _PLOTLY_CONFIGURADO = True
+# =============================================================================
+# CONFIGURAÇÕES DE TIPOGRAFIA E CORES
+# =============================================================================
+class Fontes:
+    TITULO = "'Manrope', 'Segoe UI', Arial, sans-serif"
+    TEXTO = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+    CODIGO = "'JetBrains Mono', Consolas, 'Courier New', monospace"
 
 
-# ====================================================
-# INJEÇÃO DE DEPENDÊNCIAS (CSS & FONTES)
-# ====================================================
-def _injetar_fontes_no_head_pai() -> None:
-    urls_js = ", ".join(f'"{u}"' for u in _GOOGLE_FONTS_URLS)
-    js = textwrap.dedent(f"""
-        <script>
-        (function () {{
-            let d;
-            try {{ d = window.parent.document; }} catch (e) {{ return; }}
-            const head = d.head;
-            const add = (rel, href, cross) => {{
-                if (head.querySelector('link[href="' + href + '"]')) return;
-                const l = d.createElement('link');
-                l.rel = rel; l.href = href;
-                if (cross) l.crossOrigin = 'anonymous';
-                head.appendChild(l);
-            }};
-            add('preconnect', 'https://fonts.googleapis.com', false);
-            add('preconnect', 'https://fonts.gstatic.com', true);
-            [{urls_js}].forEach(u => add('stylesheet', u, false));
-        }})();
-        </script>
-    """)
-    components.html(js, height=0)
-
-
-@st.cache_data
-def _get_global_css() -> str:
-    links_html = "\n".join(
-        f'<link rel="stylesheet" href="{url}">' for url in _GOOGLE_FONTS_URLS
+class GoogleFonts:
+    URLS: tuple[str, ...] = (
+        "https://fonts.googleapis.com/icon?family=Material+Icons",
+        "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded"
+        ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block",
+        "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined"
+        ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block",
+        "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800"
+        "&family=Manrope:wght@400;500;600;700;800;900"
+        "&family=JetBrains+Mono:wght@400;500&display=swap",
     )
 
-    # CSS base como string simples (SEM f-string) — nenhuma chave conflitante
-    css_template = """
-{links}
 
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
+class Cores:
+    PRIMARIA = "#012869"
+    PRIMARIA_LIGHT = "#0A48AA"
+    SECUNDARIA = "#F37C04"
+    SECUNDARIA_DARK = "#D96500"
 
-/* BLOQUEADOR CORE DE DEBUGS E CAPTIONS DO ROBÔ */
-div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {{
-    display: none !important;
-    height: 0px !important;
-    overflow: hidden !important;
-    padding: 0px !important;
-    margin: 0px !important;
-}}
+    SUCESSO = "#059669"
+    ALERTA = "#DC2626"
+    ATENCAO = "#F59E0B"
+    NEUTRO = "#64748B"
 
-:root {{
-    --font-titulo: '{FONTE_TITULO}';
-    --font-texto: '{FONTE_TEXTO}';
-    --font-codigo: '{FONTE_CODIGO}';
-    --cor-primaria: '{COR_PRIMARIA}';
-    --cor-secundaria: '{COR_SECUNDARIA}';
-    --cor-sucesso: '{COR_SUCESSO}';
-    --cor-alerta: '{COR_ALERTA}';
-    --cor-borda: '{COR_BORDA}';
-    --cor-fundo: '{COR_FUNDO}';
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
-    --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
-    --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
-}}
+    TEXTO = "#1F2937"
+    TEXTO_2 = "#374151"
+    TEXTO_3 = "#6B7280"
 
-html, body, p, label, li, a, button, input, select, textarea, [class*="st-"] {{ 
-    font-family: var(--font-texto) !important; 
-    color: {COR_TEXTO};
-}}
+    BORDA = "#E2E8F0"
+    FUNDO = "#F8FAFC"
+    LARANJA_SUAVE = "#FDE68A"
+    AZUL_SUAVE = "#DBEAFE"
+    ROXO = "#7C3AED"
+    ROXO_CLARO = "#A78BFA"
+    VERDE_PME = "#10B981"
+    AZUL_PME = "#3B82F6"
 
-h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, [data-testid="stMetricValue"] {{ 
-    font-family: var(--font-titulo) !important; 
-    font-weight: 700; 
-    letter-spacing: -0.02em; 
-}}
 
-code, pre, kbd, samp {{ 
-    font-family: var(--font-codigo) !important; 
-}}
+class ConfigCores:
+    TEMA: dict[str, str] = {
+        "azul": Cores.PRIMARIA,
+        "verde": Cores.SUCESSO,
+        "vermelho": Cores.ALERTA,
+        "laranja": Cores.SECUNDARIA,
+        "cinza": Cores.NEUTRO,
+        "roxo": Cores.ROXO,
+    }
 
-[data-testid="stIconMaterial"], .material-icons, .material-symbols-rounded, .material-symbols-outlined {{
-    font-family: "Material Symbols Rounded", "Material Icons" !important;
-    font-weight: normal !important; 
-    font-style: normal !important; 
-    font-size: 20px !important;
-    line-height: 1 !important; 
-    text-transform: none !important; 
-    white-space: nowrap !important;
-    font-feature-settings: "liga" 1 !important; 
-    -webkit-font-smoothing: antialiased !important;
-    display: inline-flex !important; 
-    align-items: center !important; 
-    justify-content: center !important;
-}}
+    BADGE: dict[str, tuple[str, str, str]] = {
+        "default": ("#F3F4F6", "#374151", "#D1D5DB"),
+        "sucesso": ("#D1FAE5", "#065F46", "#059669"),
+        "alerta": ("#FEF3C7", "#92400E", "#F59E0B"),
+        "erro": ("#FEE2E2", "#991B1B", "#DC2626"),
+        "info": ("#DBEAFE", "#1E40AF", "#3B82F6"),
+        "roxo": ("#EDE9FE", "#5B21B6", "#8B5CF6"),
+    }
 
-.main .block-container {{ 
-    padding-top: 1.5rem; 
-    max-width: 1400px; 
-}}
+    PROGRESS_BAR: dict[str, str] = {
+        "azul": Cores.PRIMARIA,
+        "laranja": Cores.SECUNDARIA,
+        "verde": Cores.SUCESSO,
+        "vermelho": Cores.ALERTA,
+        "roxo": Cores.ROXO,
+        "gradiente": f"linear-gradient(90deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA})",
+    }
 
-section[data-testid="stSidebar"] {{
-    background-color: {SB_FUNDO} !important; 
-    border-right: 1px solid {SB_BORDA_SUTIL} !important;
-    box-shadow: 1px 0 10px rgba(1, 40, 105, 0.03) !important;
-}}
+    TREND: dict[str, str] = {
+        "up": Cores.SUCESSO,
+        "down": Cores.ALERTA,
+        "neutral": Cores.NEUTRO,
+        "none": Cores.NEUTRO,
+    }
 
-section[data-testid="stSidebar"] > div:first-child, 
-section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {{ 
-    background: transparent !important; 
-}}
+    TREND_ICONS: dict[str, str] = {
+        "up": "↑",
+        "down": "↓",
+        "neutral": "→",
+        "none": "",
+    }
 
-section[data-testid="stSidebar"] ::-webkit-scrollbar {{ 
-    width: 5px !important; 
-    background: transparent !important; 
-}}
+    NOTIFICATION: dict[str, tuple[str, str, str, str]] = {
+        "sucesso": ("#D1FAE5", "#065F46", "#059669", "✅"),
+        "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
+        "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
+        "erro": ("#FEE2E2", "#991B1B", "#DC2626", "❌"),
+    }
 
-section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ 
-    background: {SB_BORDA_SUTIL} !important; 
-    border-radius: 20px !important; 
-}}
+    TIMELINE: dict[str, tuple[str, str, str]] = {
+        "concluido": (Cores.SUCESSO, "#D1FAE5", "✓"),
+        "em_andamento": (Cores.SECUNDARIA, "#FEF3C7", "⏳"),
+        "pendente": (Cores.NEUTRO, "#F3F4F6", "○"),
+        "cancelado": (Cores.ALERTA, "#FEE2E2", "✕"),
+    }
 
-section[data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ 
-    background: {SB_TEXTO_MUTED} !important; 
-}}
+    INSIGHT: dict[str, tuple[str, str, str, str]] = {
+        "ok": ("#D1FAE5", "#065F46", "#059669", "✅"),
+        "info": ("#DBEAFE", "#1E40AF", "#3B82F6", "ℹ️"),
+        "alerta": ("#FEF3C7", "#92400E", "#F59E0B", "⚠️"),
+        "critico": ("#FEE2E2", "#991B1B", "#DC2626", "🚨"),
+        "acao": ("#EDE9FE", "#5B21B6", "#8B5CF6", "💡"),
+    }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a {{
-    background-color: {SB_FUNDO_LINK} !important; 
-    border: 1px solid {SB_BORDA_SUTIL} !important;
-    border-left: 3px solid transparent !important; 
-    border-radius: var(--radius-sm) !important; 
-    margin: 3px 10px !important;
-    padding: 8px 12px !important; 
-    box-shadow: var(--shadow-sm) !important;
-    transition: all 0.2s ease-in-out !important; 
-    display: flex !important; 
-    flex-direction: column !important;
-    align-items: center !important; 
-    justify-content: center !important; 
-    gap: 2px !important; 
-    min-height: 56px !important;
-}}
+    EMPTY_STATE: dict[str, tuple[str, str, str, str]] = {
+        "dados": ("#F8FAFC", "#64748B", "📊", "Nenhum dado disponível"),
+        "filtro": ("#F0F9FF", "#0369A1", "🔍", "Nenhum resultado encontrado"),
+        "erro": ("#FEF2F2", "#DC2626", "⚠️", "Ocorreu um erro"),
+        "carregando": ("#F5F3FF", "#7C3AED", "⏳", "Carregando dados..."),
+        "padrao": ("#F8FAFC", "#64748B", "📭", "Conteúdo não disponível"),
+    }
 
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a:hover {{ 
-    background-color: {SB_FUNDO_LINK_HOVER} !important; 
-    border-color: {COR_BORDA} !important; 
-    transform: translateX(2px); 
-}}
-
-section[data-testid="stSidebar"] [data-testid="stSidebarNav"] ul li a[aria-current="page"] {{ 
-    background-color: {SB_FUNDO_ATIVO} !important; 
-    border-left: 3px solid {SB_BORDA_ATIVA} !important; 
-    border-color: {SB_BORDA_SUTIL} !important; 
-    box-shadow: 0 2px 8px rgba(243, 124, 4, 0.1) !important; 
-}}
-
-.hero-totale-1 {{ 
-    background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #083884 60%, {COR_SECUNDARIA} 100%); 
-    padding: 2.8rem 2.2rem; 
-    border-radius: var(--radius-lg); 
-    color: #FFFFFF; 
-    position: relative; 
-    overflow: hidden; 
-    box-shadow: var(--shadow-md); 
-}}
-
-.hero-totale-1::after {{ 
-    content: ''; 
-    position: absolute; 
-    top: -50%; 
-    left: -60%; 
-    width: 30%; 
-    height: 200%; 
-    background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%); 
-    transform: rotate(25deg); 
-    animation: feixeLuz 7s infinite ease-in-out; 
-}}
-
-@keyframes feixeLuz {{ 
-    0% {{ left: -60%; }} 
-    30%, 100% {{ left: 130%; }} 
-}}
-
-.kpi-card {{ 
-    background: #FFFFFF; 
-    border-radius: var(--radius-md); 
-    padding: 20px 22px; 
-    box-shadow: var(--shadow-sm); 
-    border: 1px solid var(--cor-borda); 
-    transition: transform 0.2s ease, box-shadow 0.2s ease; 
-}}
-
-.kpi-card:hover {{ 
-    transform: translateY(-2px); 
-    box-shadow: var(--shadow-md); 
-}}
-
-.kpi-card .kpi-label {{ 
-    font-size: 11px; 
-    font-weight: 700; 
-    color: {COR_TEXTO_3}; 
-    text-transform: uppercase; 
-    letter-spacing: 0.05em; 
-}}
-
-.kpi-card .kpi-value {{ 
-    font-size: 1.85rem; 
-    font-weight: 800; 
-    margin: 6px 0 2px 0; 
-    line-height: 1.2;
-}}
-
-.kpi-card .kpi-sub {{ 
-    font-size: 12px; 
-    color: {COR_TEXTO_3}; 
-}}
-
-.kpi-card-sm {{ 
-    background: #FFFFFF; 
-    border-radius: var(--radius-sm); 
-    padding: 12px 16px; 
-    box-shadow: var(--shadow-sm); 
-    border: 1px solid var(--cor-borda); 
-}}
-
-.kpi-card-sm .kpi-label {{ 
-    font-size: 11px; 
-    font-weight: 600; 
-    color: {COR_TEXTO_3}; 
-}}
-
-.kpi-card-sm .kpi-value {{ 
-    font-size: 1.35rem; 
-    font-weight: 700; 
-    margin-top: 2px; 
-}}
-
-.kpi-delta-card, .kpi-card-delta {{ 
-    background: #FFFFFF; 
-    border-radius: var(--radius-md); 
-    padding: 16px 20px; 
-    border-top: 3px solid var(--cor-primaria); 
-    border-left: 1px solid var(--cor-borda);
-    border-right: 1px solid var(--cor-borda);
-    border-bottom: 1px solid var(--cor-borda);
-    box-shadow: var(--shadow-sm); 
-}}
-
-.kpi-delta-header {{ 
-    display: flex; 
-    justify-content: space-between; 
-    gap: 8px; 
-    align-items: center; 
-}}
-
-.kpi-delta-label {{ 
-    font-size: 11px; 
-    font-weight: 700; 
-    color: {COR_TEXTO_3}; 
-    text-transform: uppercase; 
-    letter-spacing: 0.05em;
-}}
-
-.kpi-delta-indicator {{ 
-    font-size: 11px; 
-    font-weight: 700; 
-    padding: 2px 6px;
-    border-radius: 4px;
-}}
-
-.kpi-delta-up {{ color: #047857; background: #ECFDF5; }}
-.kpi-delta-down {{ color: #B91C1C; background: #FEF2F2; }}
-.kpi-delta-flat {{ color: #475569; background: #F8FAFC; }}
-.kpi-delta-value {{ font-size: 1.65rem; font-weight: 800; margin-top: 6px; }}
-
-.hero-totale-2 {{ 
-    background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #0A3A8A 100%); 
-    padding: 2.2rem 2.5rem; 
-    border-radius: var(--radius-lg); 
-    color: #FFFFFF; 
-    box-shadow: var(--shadow-md);
-}}
-
-.hero-t2-title {{ 
-    font-family: var(--font-titulo); 
-    font-size: 2rem; 
-    margin: 0; 
-    color: #FFFFFF; 
-}}
-
-.hero-t2-sub {{ 
-    margin: 0.6rem 0 0; 
-    opacity: 0.88; 
-    font-size: 0.95rem;
-}}
-
-.hero-t2-badge {{ 
-    display: inline-block; 
-    margin-top: 12px; 
-    padding: 4px 12px; 
-    border-radius: 20px; 
-    font-size: 11px; 
-    font-weight: 700; 
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}}
-
-.badge-laranja {{ background: {COR_SECUNDARIA}; color: #FFFFFF; }}
-.badge-azul {{ background: #DBEAFE; color: #1E40AF; }}
-
-.corp-table-wrap {{ 
-    width: 100%; 
-    overflow: auto; 
-    border: 1px solid var(--cor-borda); 
-    border-radius: var(--radius-md); 
-    box-shadow: var(--shadow-sm); 
-    background: #FFFFFF; 
-}}
-
-table.corp-table {{ 
-    width: 100%; 
-    border-collapse: separate; 
-    border-spacing: 0; 
-}}
-
-.corp-table thead th {{ 
-    font-family: var(--font-titulo) !important; 
-    font-weight: 700; 
-    font-size: 11px; 
-    text-transform: uppercase; 
-    letter-spacing: 0.05em;
-    color: {COR_TEXTO_2}; 
-    background: #F8FAFC; 
-    padding: 12px 14px; 
-    border-bottom: 2px solid var(--cor-borda); 
-    text-align: left; 
-    position: sticky; 
-    top: 0; 
-    z-index: 2; 
-    white-space: nowrap; 
-}}
-
-.corp-table tbody td {{ 
-    font-weight: 500; 
-    font-size: 12px; 
-    color: {COR_TEXTO_2}; 
-    padding: 10px 14px; 
-    border-bottom: 1px solid #F1F5F9; 
-    white-space: nowrap; 
-}}
-
-.corp-table tbody tr:hover td {{ 
-    background: #F8FAFC !important; 
-}}
-
-.corp-table td.num {{ 
-    text-align: right; 
-    font-variant-numeric: tabular-nums; 
-}}
-
-.corp-table tr.total-row td {{ 
-    background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important; 
-    color: #FFFFFF !important; 
-    font-weight: 800 !important; 
-    border-top: 2px solid var(--cor-secundaria) !important; 
-}}
-
-/* Sidebar Header */
-.sb-corp-header {{
-    padding: 22px 18px 16px; 
-    margin: -10px -16px 0;
-    background: linear-gradient(160deg, {COR_PRIMARIA} 0%, #0A3A8A 60%, #124DB5 100%);
-    border-radius: 0 0 16px 16px; 
-    position: relative; 
-    overflow: hidden;
-    box-shadow: 0 4px 12px rgba(1, 40, 105, 0.15);
-}}
-
-.sb-corp-header::before {{ 
-    content: ''; 
-    position: absolute; 
-    top: -40%; 
-    right: -25%; 
-    width: 120px; 
-    height: 120px; 
-    background: radial-gradient(circle, rgba(243,124,4,0.2) 0%, transparent 70%); 
-    border-radius: 50%; 
-}}
-
-.sb-corp-logo-row {{ display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }}
-.sb-corp-logo-img {{ width: 38px; height: 38px; object-fit: contain; border-radius: 8px; background: rgba(255,255,255,0.12); padding: 4px; }}
-.sb-corp-logo-icon {{ width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.12); border-radius: 8px; font-size: 22px; color: {COR_SECUNDARIA}; }}
-.sb-corp-nome {{ font-family: {FONTE_TITULO} !important; font-size: 18px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.3px; line-height: 1.15; }}
-.sb-corp-sub {{ font-family: {FONTE_TEXTO} !important; font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.7); margin-top: 2px; letter-spacing: 0.3px; }}
-.sb-corp-badges {{ display: flex; align-items: center; gap: 6px; margin-top: 12px; position: relative; z-index: 1; }}
-.sb-badge {{ font-family: {FONTE_TEXTO} !important; font-size: 9.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.4px; text-transform: uppercase; line-height: 1.5; }}
-.sb-badge-versao {{ background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.2); }}
-.sb-badge-prod {{ background: rgba(5,150,105,0.25); color: #6EE7B7; border: 1px solid rgba(5,150,105,0.4); }}
-.sb-badge-homo {{ background: rgba(245,158,11,0.25); color: #FCD34D; border: 1px solid rgba(245,158,11,0.4); }}
-.sb-badge-dev {{ background: rgba(139,92,246,0.25); color: #C4B5FD; border: 1px solid rgba(139,92,246,0.4); }}
-.sb-corp-data {{ font-family: {FONTE_TEXTO} !important; font-size: 10px; color: rgba(255,255,255,0.55); margin-top: 8px; position: relative; z-index: 1; }}
-.sb-corp-divider {{ border: none; height: 1px; background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%); margin: 16px 10px 12px; }}
-
-/* Sidebar Status */
-.sb-status-card {{ background: #FFFFFF; border: 1px solid {SB_BORDA_SUTIL}; border-radius: var(--radius-md); padding: 12px 14px; margin: 6px 10px; box-shadow: var(--shadow-sm); }}
-.sb-status-card-compacto {{ padding: 8px 12px; margin: 4px 10px; }}
-.sb-status-row {{ display: flex; align-items: center; gap: 8px; }}
-.sb-status-dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; position: relative; }}
-.sb-status-dot::after {{ content: ''; position: absolute; inset: -3px; border-radius: 50%; opacity: 0.25; }}
-.sb-status-dot-ativo {{ background: {COR_SUCESSO}; }}
-.sb-status-dot-ativo::after {{ background: {COR_SUCESSO}; }}
-.sb-status-dot-inativo {{ background: {COR_NEUTRO}; }}
-.sb-status-dot-inativo::after {{ background: {COR_NEUTRO}; }}
-.sb-status-dot-pendente {{ background: {COR_ATENCAO}; }}
-.sb-status-dot-pendente::after {{ background: {COR_ATENCAO}; animation: sbPulse 2s infinite; }}
-.sb-status-dot-sucesso {{ background: {COR_SUCESSO}; }}
-.sb-status-dot-sucesso::after {{ background: {COR_SUCESSO}; }}
-.sb-status-dot-erro {{ background: {COR_ALERTA}; }}
-.sb-status-dot-erro::after {{ background: {COR_ALERTA}; animation: sbPulse 1.2s infinite; }}
-@keyframes sbPulse {{ 0%, 100% {{ transform: scale(1); opacity: 0.25; }} 50% {{ transform: scale(1.6); opacity: 0; }} }}
-.sb-status-label {{ font-family: {FONTE_TEXTO} !important; font-size: 12px; font-weight: 600; color: {COR_TEXTO}; flex: 1; }}
-.sb-status-tag {{ font-family: {FONTE_TEXTO} !important; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.3px; }}
-.sb-status-desc {{ font-family: {FONTE_TEXTO} !important; font-size: 10.5px; color: {COR_TEXTO_3}; margin-top: 6px; line-height: 1.45; }}
-.sb-status-meta {{ display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #F1F5F9; }}
-.sb-status-meta-row {{ display: flex; justify-content: space-between; align-items: center; }}
-.sb-status-meta-key {{ font-family: {FONTE_TEXTO} !important; font-size: 10px; color: {COR_TEXTO_3}; font-weight: 500; }}
-.sb-status-meta-val {{ font-family: {FONTE_CODIGO} !important; font-size: 10px; color: {COR_TEXTO_2}; font-weight: 500; }}
-.sb-status-atualizacao {{ font-family: {FONTE_TEXTO} !important; font-size: 9.5px; color: {SB_TEXTO_MUTED}; margin-top: 6px; display: flex; align-items: center; gap: 4px; }}
-
-/* Sidebar Brand */
-.sb-brand-wrapper {{ margin: 0 0 12px 0; font-family: {FONTE_TEXTO}; }}
-.sb-brand-wrapper-compact {{ margin: -4px -8px 8px -8px !important; }}
-.sb-brand-link {{ text-decoration: none !important; color: inherit !important; display: block; }}
-.sb-brand-card-gradiente {{
-    background: linear-gradient(145deg, {COR_PRIMARIA} 0%, #0A3A8A 65%, #0F52BA 100%);
-    border-radius: var(--radius-md); padding: 16px 16px 14px; color: #FFFFFF; position: relative; overflow: hidden;
-    box-shadow: 0 4px 14px rgba(1, 40, 105, 0.16); border: 1px solid rgba(255, 255, 255, 0.1);
-}}
-.sb-brand-card-gradiente-compact {{ border-radius: 10px !important; padding: 12px 14px !important; }}
-.sb-brand-card-gradiente::before {{ content: ''; position: absolute; top: -30px; right: -30px; width: 90px; height: 90px; background: radial-gradient(circle, rgba(243,124,4,0.3) 0%, transparent 70%); border-radius: 50%; }}
-.sb-brand-card-clean {{ background: #FFFFFF; border-radius: var(--radius-md); padding: 14px 16px; color: {COR_TEXTO}; box-shadow: var(--shadow-sm); border: 1px solid {SB_BORDA_SUTIL}; }}
-.sb-brand-card-clean-compact {{ border-radius: 10px !important; padding: 12px 14px !important; }}
-.sb-brand-card-minimalista {{ background: transparent; padding: 8px 6px; color: {COR_TEXTO}; }}
-.sb-brand-card-minimalista-compact {{ padding: 4px 4px !important; }}
-.sb-brand-header {{ display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }}
-.sb-brand-header-compact {{ gap: 10px !important; }}
-.sb-brand-logo-img {{ width: 40px; height: 40px; object-fit: contain; border-radius: 8px; background: rgba(255, 255, 255, 0.12); padding: 2px; flex-shrink: 0; }}
-.sb-brand-logo-img-compact {{ width: 32px !important; height: 32px !important; }}
-.sb-brand-logo-icon {{ width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(243, 124, 4, 0.15); color: {COR_SECUNDARIA}; border: 1px solid rgba(243, 124, 4, 0.3); }}
-.sb-brand-logo-icon-compact {{ width: 32px !important; height: 32px !important; }}
-.sb-brand-logo-icon span {{ font-size: 24px !important; }}
-.sb-brand-logo-icon-compact span {{ font-size: 20px !important; }}
-.sb-brand-card-gradiente .sb-brand-logo-icon {{ background: rgba(255, 255, 255, 0.14); color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.2); }}
-.sb-brand-title {{ font-family: {FONTE_TITULO} !important; font-size: 17px; font-weight: 800; line-height: 1.15; letter-spacing: -0.3px; }}
-.sb-brand-title-compact {{ font-size: 15px !important; }}
-.sb-brand-card-gradiente .sb-brand-title {{ color: #FFFFFF; }}
-.sb-brand-card-clean .sb-brand-title, .sb-brand-card-minimalista .sb-brand-title {{ color: {COR_PRIMARIA}; }}
-.sb-brand-sub {{ font-size: 11.5px; font-weight: 500; margin-top: 2px; letter-spacing: 0.2px; opacity: 0.75; }}
-.sb-brand-sub-compact {{ font-size: 10.5px !important; }}
-.sb-brand-badges-row {{ display: flex; align-items: center; gap: 5px; margin-top: 10px; position: relative; z-index: 1; flex-wrap: wrap; }}
-.sb-brand-badges-row-compact {{ margin-top: 8px !important; }}
-.sb-brand-badge {{ font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.4px; border: 1px solid transparent; line-height: 1.3; }}
-.sb-brand-badge-version {{ background: rgba(100, 116, 139, 0.12); color: #64748B; border-color: rgba(100, 116, 139, 0.2); }}
-.sb-brand-card-gradiente .sb-brand-badge-version {{ background: rgba(255, 255, 255, 0.15); color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); }}
-.sb-brand-badge-custom {{ background: rgba(243, 124, 4, 0.15); color: {COR_SECUNDARIA}; border-color: rgba(243, 124, 4, 0.3); }}
-.sb-brand-card-gradiente .sb-brand-badge-custom {{ background: {COR_SECUNDARIA}; color: #FFFFFF; border-color: transparent; }}
-.sb-brand-date {{ font-size: 9.5px; margin-top: 6px; display: flex; align-items: center; gap: 4px; opacity: 0.6; font-family: {FONTE_CODIGO}; }}
-.sb-brand-date span {{ font-size: 11px !important; }}
-.sb-brand-divider {{ height: 1px; background: linear-gradient(90deg, transparent 0%, {SB_BORDA_SUTIL} 30%, {SB_BORDA_SUTIL} 70%, transparent 100%); margin: 14px 0 10px; }}
-.sb-brand-divider-compact {{ margin: 10px 0 6px !important; }}
-</style>
-
-<!-- Injeção Script Realtime DOM Blocker de Legendas -->
-<script>
-const observer = new MutationObserver((mutations) => {
-    document.querySelectorAll('span, p, div, caption, code').forEach(el => {
-        const txt = el.textContent || "";
-        if (
-            txt.includes('Robô importou') || 
-            txt.includes('🔌 Robô:') ||
-            txt.includes('só que mantendo que importe') ||
-            txt.includes('Debugger de Estado do Robô')
-        ) {
-            el.style.display = 'none';
-            el.style.height = '0px';
-            el.style.padding = '0px';
-            el.style.margin = '0px';
-            el.style.overflow = 'hidden';
-        }
-    });
-});
-observer.observe(document.body, { childList: true, subtree: true });
-</script>
-"""
-    # Substituição segura dos placeholders pelo conteúdo real
-    css = css_template.replace("{links}", links_html)
-    css = css.replace("{FONTE_TITULO}", FONTE_TITULO)
-    css = css.replace("{FONTE_TEXTO}", FONTE_TEXTO)
-    css = css.replace("{FONTE_CODIGO}", FONTE_CODIGO)
-    css = css.replace("{COR_PRIMARIA}", COR_PRIMARIA)
-    css = css.replace("{COR_SECUNDARIA}", COR_SECUNDARIA)
-    css = css.replace("{COR_SUCESSO}", COR_SUCESSO)
-    css = css.replace("{COR_ALERTA}", COR_ALERTA)
-    css = css.replace("{COR_BORDA}", COR_BORDA)
-    css = css.replace("{COR_FUNDO}", COR_FUNDO)
-    css = css.replace("{COR_TEXTO}", COR_TEXTO)
-    css = css.replace("{COR_TEXTO_2}", COR_TEXTO_2)
-    css = css.replace("{COR_TEXTO_3}", COR_TEXTO_3)
-    css = css.replace("{SB_FUNDO}", SB_FUNDO)
-    css = css.replace("{SB_BORDA_SUTIL}", SB_BORDA_SUTIL)
-    css = css.replace("{SB_FUNDO_LINK}", SB_FUNDO_LINK)
-    css = css.replace("{SB_FUNDO_LINK_HOVER}", SB_FUNDO_LINK_HOVER)
-    css = css.replace("{SB_FUNDO_ATIVO}", SB_FUNDO_ATIVO)
-    css = css.replace("{SB_BORDA_ATIVA}", SB_BORDA_ATIVA)
-    css = css.replace("{SB_TITULO_SECAO}", SB_TITULO_SECAO)
-    css = css.replace("{SB_TEXTO_LINK}", SB_TEXTO_LINK)
-    css = css.replace("{SB_TEXTO_MUTED}", SB_TEXTO_MUTED)
-    return _limpar_html(css)
-
-def _injetar_css_global() -> None:
-    st.markdown(_get_global_css(), unsafe_allow_html=True)
+    PLOTLY_COLORWAY: list[str] = [
+        Cores.PRIMARIA,
+        Cores.SECUNDARIA,
+        Cores.SUCESSO,
+        Cores.ALERTA,
+        "#8B5CF6",
+        "#EC4899",
+        "#14B8A6",
+        "#F59E0B",
+        "#6366F1",
+        Cores.NEUTRO,
+    ]
 
 
 # ====================================================
-# API PÚBLICA DE INICIALIZAÇÃO
-# ====================================================
-def aplicar_estilo() -> None:
-    _configurar_plotly_global()
-    _injetar_fontes_no_head_pai()
-    _injetar_css_global()
-
-
-# ====================================================
-# HELPERS INTERNOS
+# HELPERS
 # ====================================================
 def _resolver_cor_tema(tema: str) -> str:
-    return _TEMA_CORES.get(tema, COR_PRIMARIA)
+    cor = ConfigCores.TEMA.get(tema)
+    if cor is None:
+        logger.warning("Tema desconhecido: '%s'. Usando 'azul'.", tema)
+        return Cores.PRIMARIA
+    return cor
 
 
 def _markdown_inline_para_html(texto: str) -> str:
+    """
+    Converte marcadores markdown inline básicos para HTML.
+    Suporta **negrito**, *itálico*, `código`.
+    """
     texto = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", texto)
+    texto = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", texto)
     texto = re.sub(r"`([^`]+)`", r"<code>\1</code>", texto)
     return texto
 
 
-def _detectar_colunas_numericas(df: pd.DataFrame) -> List[str]:
-    return df.select_dtypes(include=["number"]).columns.tolist()
+# =============================================================================
+# UTILITÁRIOS E FORMATAÇÃO
+# =============================================================================
+class Validadores:
+    @staticmethod
+    def url(url: str | None) -> bool:
+        if not url:
+            return False
+        try:
+            result = urlparse(url)
+            return bool(result.scheme and result.netloc)
+        except Exception:
+            return False
+
+    @staticmethod
+    def html_escape(texto: Any) -> str:
+        if texto is None:
+            return ""
+        return html_lib.escape(str(texto))
+
+    @staticmethod
+    def resolver_cor_tema(tema: str) -> str:
+        cor = ConfigCores.TEMA.get(tema)
+        if cor is None:
+            return Cores.PRIMARIA
+        return cor
 
 
-def _fmt_br(valor: float, casas: int = 1) -> str:
-    try:
-        casas = max(0, int(casas))
-        numero = float(valor)
-        if not pd.notna(numero):
-            return "—"
+class Formatadores:
+    @staticmethod
+    def markdown_para_html(texto: str) -> str:
+        if not texto:
+            return texto
+        texto = html_lib.escape(texto)
+        texto = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", texto)
+        texto = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<em>\1</em>", texto)
+        texto = re.sub(r"`([^`]+)`", r"<code>\1</code>", texto)
+        return texto
+
+
+# =============================================================================
+# RENDER HTML À PROVA DE MARKDOWN DO STREAMLIT
+# =============================================================================
+def _safe_render_html(html_str: str, container: Any = st) -> None:
+    """
+    Renderiza HTML no Streamlit sem ser corrompido pelo parser Markdown.
+
+    Regras aplicadas:
+    1. Remove TODOS os newlines (evita code blocks e quebra de bloco HTML)
+    2. Colapsa espaços entre tags
+    3. Garante string única contínua
+    """
+    if not html_str:
+        return
+    # 1. Remove quebras de linha e tabs
+    clean = html_str.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    # 2. Colapsa espaços entre tags: ">   <" -> "><"
+    clean = re.sub(r">\s+<", "><", clean)
+    # 3. Colapsa espaços múltiplos no texto
+    clean = re.sub(r" {2,}", " ", clean)
+    # 4. Strip final
+    clean = clean.strip()
+    container.markdown(clean, unsafe_allow_html=True)
+
+
+# =============================================================================
+# CONFIGURAÇÃO GLOBAL DO PLOTLY E CSS
+# =============================================================================
+class PlotlyConfig:
+    @staticmethod
+    def configurar() -> None:
+        template = go.layout.Template(
+            layout=go.Layout(
+                font={"family": Fontes.TEXTO, "size": 13, "color": Cores.TEXTO},
+                title={
+                    "font": {"family": Fontes.TITULO, "size": 20, "color": Cores.TEXTO},
+                    "x": 0.02,
+                    "xanchor": "left",
+                },
+                legend={
+                    "font": {"family": Fontes.TEXTO, "size": 12, "color": Cores.TEXTO_2}
+                },
+                xaxis={"gridcolor": "#F1F5F9", "zerolinecolor": "#CBD5E1"},
+                yaxis={"gridcolor": "#F1F5F9", "zerolinecolor": "#CBD5E1"},
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                colorway=ConfigCores.PLOTLY_COLORWAY,
+            )
+        )
+        pio.templates["corporativo"] = template
+        pio.templates.default = "plotly_white+corporativo"
+
+
+class FontInjector:
+    @staticmethod
+    def _build_links_html() -> str:
+        tags = "\n".join(
+            f'<link rel="stylesheet" href="{url}">' for url in GoogleFonts.URLS
+        )
         return (
-            f"{numero:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            '<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+            + tags
         )
-    except (TypeError, ValueError):
-        return "—"
+
+    @staticmethod
+    def injetar_no_head_pai() -> None:
+        urls_js = ", ".join(f'"{u}"' for u in GoogleFonts.URLS)
+        components.html(
+            f"""
+            <script>
+            (function () {{
+                const urls = [{urls_js}];
+                const preconnects = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
+                let parentDoc;
+                try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
+                const head = parentDoc.head;
+                preconnects.forEach(function (href) {{
+                    if (head.querySelector('link[href="' + href + '"]')) return;
+                    const link = parentDoc.createElement('link');
+                    link.rel = 'preconnect'; link.href = href;
+                    if (href.includes('gstatic')) link.crossOrigin = 'anonymous';
+                    head.appendChild(link);
+                }});
+                const existentes = Array.from(head.querySelectorAll('link[rel="stylesheet"]')).map(function (l) {{ return l.href; }});
+                urls.forEach(function (href) {{
+                    if (existentes.includes(href)) return;
+                    const link = parentDoc.createElement('link');
+                    link.rel = 'stylesheet'; link.href = href;
+                    head.appendChild(link);
+                }});
+            }})();
+            </script>
+            """,
+            height=0,
+        )
 
 
-def _safe_float(val: Any) -> float:
-    if val is None:
-        return 0.0
-    try:
-        if bool(pd.isna(val)):
-            return 0.0
-    except (TypeError, ValueError):
-        return 0.0
+class CSSInjector:
+    @staticmethod
+    def _build_css_2() -> str:
+        return f"""
+        <style>
+        :root {{
+            --totale-font-title: {Fontes.TITULO};
+            --totale-font-text: {Fontes.TEXTO};
+            --totale-font-code: {Fontes.CODIGO};
 
-    if isinstance(val, bool):
-        return float(val)
+            --totale-primary: {Cores.PRIMARIA};
+            --totale-primary-light: {Cores.PRIMARIA_LIGHT};
+            --totale-secondary: {Cores.SECUNDARIA};
 
-    if isinstance(val, (int, float)):
-        return float(val)
+            --totale-text: {Cores.TEXTO};
+            --totale-text-2: {Cores.TEXTO_2};
+            --totale-text-3: {Cores.TEXTO_3};
 
-    s_val = str(val).strip()
-    if not s_val or s_val in {"—", "-", "nan", "None"}:
-        return 0.0
+            --totale-border: {Cores.BORDA};
+            --totale-background: {Cores.FUNDO};
 
-    percentual = s_val.endswith("%")
-    s_val = s_val.rstrip("%").strip()
-    s_val = re.sub(r"[^0-9,.-]", "", s_val)
-    if not s_val:
-        return 0.0
+            --totale-radius-sm: 6px;
+            --totale-radius-md: 10px;
+            --totale-radius-lg: 14px;
 
-    try:
-        if "," in s_val and "." in s_val:
-            ultimo_sep = max(s_val.rfind(","), s_val.rfind("."))
-            inteiro = re.sub(r"[,.]", "", s_val[:ultimo_sep])
-            decimal = re.sub(r"[^0-9]", "", s_val[ultimo_sep + 1 :])
-            numero = float(f"{inteiro}.{decimal}")
-        elif "," in s_val:
-            partes = s_val.split(",")
-            if len(partes) == 2 and len(partes[1]) <= 2:
-                numero = float(f"{partes[0].replace('.', '')}.{partes[1]}")
+            --totale-shadow-sm:
+                0 1px 3px rgba(15, 23, 42, 0.06);
+
+            --totale-shadow-md:
+                0 8px 20px rgba(15, 23, 42, 0.08);
+        }}
+
+        [data-testid="stSidebar"] {{
+            background:
+                linear-gradient(
+                    180deg,
+                    #FFFFFF 0%,
+                    #FBFCFE 55%,
+                    #F8FAFC 100%
+                );
+            border-right: 1px solid var(--totale-border);
+        }}
+
+        [data-testid="stSidebar"] > div:first-child {{
+            background: transparent;
+        }}
+
+        [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+            padding-top: 0.5rem;
+        }}
+
+        [data-testid="stSidebar"] *,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] button,
+        [data-testid="stSidebar"] input {{
+            font-family: var(--totale-font-text) !important;
+        }}
+
+        /* ---------------------------------------------------------
+           WIDGETS
+        --------------------------------------------------------- */
+
+        [data-testid="stSidebar"] .stSelectbox label,
+        [data-testid="stSidebar"] .stMultiSelect label,
+        [data-testid="stSidebar"] .stDateInput label,
+        [data-testid="stSidebar"] .stTextInput label,
+        [data-testid="stSidebar"] .stNumberInput label,
+        [data-testid="stSidebar"] .stSlider label,
+        [data-testid="stSidebar"] .stCheckbox label {{
+            color: var(--totale-text-2) !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.25px;
+        }}
+
+        [data-testid="stSidebar"]
+        div[data-baseweb="select"] > div {{
+            background: #FFFFFF !important;
+            border-color: var(--totale-border) !important;
+            border-radius: 9px !important;
+            min-height: 40px;
+            transition:
+                border-color 0.2s ease,
+                box-shadow 0.2s ease;
+        }}
+
+        [data-testid="stSidebar"]
+        div[data-baseweb="select"] > div:focus-within {{
+            border-color: var(--totale-primary-light) !important;
+            box-shadow:
+                0 0 0 3px rgba(10, 72, 170, 0.10) !important;
+        }}
+
+        [data-testid="stSidebar"]
+        div[data-baseweb="input"] {{
+            background: #FFFFFF !important;
+            border-color: var(--totale-border) !important;
+            border-radius: 9px !important;
+        }}
+
+        [data-testid="stSidebar"] .stButton > button {{
+            width: 100%;
+            min-height: 40px;
+            border-radius: 9px;
+            border: 1px solid var(--totale-border);
+            background: #FFFFFF;
+            color: var(--totale-text-2);
+            font-size: 12px;
+            font-weight: 700;
+            transition:
+                transform 0.18s ease,
+                border-color 0.18s ease,
+                box-shadow 0.18s ease;
+        }}
+
+        [data-testid="stSidebar"] .stButton > button:hover {{
+            color: var(--totale-primary);
+            border-color: #BFDBFE;
+            box-shadow: var(--totale-shadow-sm);
+            transform: translateY(-1px);
+        }}
+
+        [data-testid="stSidebar"]
+        .stButton > button[kind="primary"] {{
+            color: #FFFFFF;
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--totale-primary),
+                    var(--totale-primary-light)
+                );
+            border-color: var(--totale-primary);
+        }}
+
+        /* ---------------------------------------------------------
+           CONTAINERS
+        --------------------------------------------------------- */
+
+        [data-testid="stSidebar"]
+        [data-testid="stVerticalBlockBorderWrapper"] {{
+            border-color: var(--totale-border) !important;
+            border-radius: 12px !important;
+            background:
+                linear-gradient(
+                    160deg,
+                    #FFFFFF 0%,
+                    #F8FAFC 100%
+                );
+            box-shadow:
+                0 1px 3px rgba(15, 23, 42, 0.035);
+        }}
+
+        /* ---------------------------------------------------------
+           MENU DE NAVEGAÇÃO COM RADIO
+        --------------------------------------------------------- */
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] {{
+            gap: 5px;
+        }}
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] > label {{
+            width: 100%;
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            padding: 8px 11px;
+            margin: 0;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            color: var(--totale-text-2);
+            background: transparent;
+            transition:
+                background 0.18s ease,
+                border-color 0.18s ease,
+                transform 0.18s ease;
+        }}
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] > label:hover {{
+            color: var(--totale-primary);
+            background: #F1F5F9;
+            border-color: #E2E8F0;
+            transform: translateX(2px);
+        }}
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] > label:has(input:checked) {{
+            color: var(--totale-primary);
+            background:
+                linear-gradient(
+                    90deg,
+                    #EFF6FF 0%,
+                    #F8FAFC 100%
+                );
+            border-color: #BFDBFE;
+            box-shadow:
+                inset 3px 0 0 var(--totale-primary);
+            font-weight: 700 !important;
+        }}
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] > label > div:first-child {{
+            display: none;
+        }}
+
+        [data-testid="stSidebar"]
+        .totale-sidebar-menu-marker + div
+        div[role="radiogroup"] > label p {{
+            font-size: 12.5px !important;
+            line-height: 1.25;
+        }}
+
+        /* ---------------------------------------------------------
+           EXPANDER
+        --------------------------------------------------------- */
+
+        [data-testid="stSidebar"]
+        details[data-testid="stExpander"] {{
+            border: 1px solid var(--totale-border);
+            border-radius: 10px;
+            background: #FFFFFF;
+        }}
+
+        [data-testid="stSidebar"]
+        details[data-testid="stExpander"] summary {{
+            color: var(--totale-text-2);
+            font-size: 11px;
+            font-weight: 700;
+        }}
+
+        /* ---------------------------------------------------------
+           SCROLLBAR
+        --------------------------------------------------------- */
+
+        [data-testid="stSidebar"] ::-webkit-scrollbar {{
+            width: 7px;
+        }}
+
+        [data-testid="stSidebar"] ::-webkit-scrollbar-track {{
+            background: transparent;
+        }}
+
+        [data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{
+            background: #CBD5E1;
+            border-radius: 999px;
+        }}
+
+        [data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{
+            background: #94A3B8;
+        }}
+
+        /* ---------------------------------------------------------
+           RESPONSIVIDADE
+        --------------------------------------------------------- */
+
+        @media (max-width: 768px) {{
+            [data-testid="stSidebar"] {{
+                box-shadow:
+                    8px 0 30px rgba(15, 23, 42, 0.16);
+            }}
+        }}
+        </style>
+        """
+        
+    @staticmethod
+    def _build_css() -> str:
+        return f"""{FontInjector._build_links_html()}
+        <style>
+        @font-face {{ font-family: 'Material Icons'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/materialicons/v143/flUhRq6tzZclQEJ-Vdg-IuiaDsNc.woff2) format('woff2'); }}
+        @font-face {{ font-family: 'Material Symbols Rounded'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/materialsymbolsrounded/v206/syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190Fjzag.woff2) format('woff2'); }}
+        
+        :root {{
+            --font-titulo: {Fontes.TITULO}; --font-texto: {Fontes.TEXTO}; --font-codigo: {Fontes.CODIGO};
+            --cor-primaria: {Cores.PRIMARIA}; --cor-secundaria: {Cores.SECUNDARIA};
+            --cor-sucesso: {Cores.SUCESSO}; --cor-alerta: {Cores.ALERTA}; --cor-neutro: {Cores.NEUTRO};
+            --cor-texto: {Cores.TEXTO}; --cor-texto-2: {Cores.TEXTO_2}; --cor-texto-3: {Cores.TEXTO_3};
+            --cor-borda: {Cores.BORDA}; --cor-fundo: {Cores.FUNDO};
+            --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06); --shadow-md: 0 4px 12px rgba(0,0,0,0.08); --shadow-lg: 0 10px 28px rgba(0,0,0,0.12);
+        }}
+
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stSidebar"], p, label, div, li, a, button, input, select, textarea {{ font-family: var(--font-texto) !important; }}
+        h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, .metric-value, [data-testid="stMetricValue"] {{ font-family: var(--font-titulo) !important; font-weight: 700; letter-spacing: -0.3px; }}
+        h1, .hero-title {{ font-weight: 800; letter-spacing: -0.6px; }}
+        
+        .main .block-container {{ padding-top: 1rem; max-width: 1400px; }}
+        ::-webkit-scrollbar {{ width: 8px; height: 8px; }} ::-webkit-scrollbar-track {{ background: #F1F5F9; }} ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 4px; }}
+        
+        /* HEROS */
+        .hero-corp {{ background: linear-gradient(120deg, #012869 0%, #023A9E 35%, #1E5FCC 55%, #E85D04 82%, #F37C04 100%); padding: 34px 44px; border-radius: var(--radius-lg); color: #FFFFFF; box-shadow: 0 10px 40px rgba(1, 40, 105, 0.30); margin-bottom: 24px; position: relative; overflow: hidden; }}
+        .totale-hero-1 {{ background: linear-gradient(135deg, #011E52 0%, #012869 45%, #0A48AA 80%, #F37C04 130%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(243, 124, 4, 0.25); box-shadow: 0 12px 32px rgba(1, 40, 105, 0.28); margin-bottom: 24px; position: relative; overflow: hidden; }}
+        .totale-hero-2 {{ background: linear-gradient(120deg, #012869 0%, #033486 50%, #0747B3 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border-left: 6px solid #F37C04; box-shadow: 0 10px 28px rgba(1, 40, 105, 0.22); margin-bottom: 24px; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; }}
+        @media (max-width: 768px) {{ .totale-hero-2 {{ grid-template-columns: 1fr; }} }}
+        .totale-hero-2-card {{ background: rgba(255, 255, 255, 0.08); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 12px; padding: 16px 24px; min-width: 180px; text-align: center; }}
+        
+        .hero-migracao {{ background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(167, 139, 250, 0.30); box-shadow: 0 12px 32px rgba(124, 58, 237, 0.35); margin-bottom: 24px; position: relative; overflow: hidden; }}
+        .hero-pme {{ background: linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.25); box-shadow: 0 12px 32px rgba(16, 185, 129, 0.30); margin-bottom: 24px; position: relative; overflow: hidden; }}
+        
+                /* ═════════ CARDS PREMIUM (KPI & METRICS) ══════ */
+        .card-premium {{
+            background: #FFFFFF;
+            border-radius: 12px;
+            padding: 20px 24px;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }}
+        .card-premium:hover {{
+            transform: translateY(-4px);
+            box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -5px rgba(0, 0, 0, 0.04);
+            border-color: #CBD5E1;
+        }}
+        /* Acento visual no topo (opcional, dependendo da função) */
+        .card-accent-top {{
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+        }}
+        .card-header-flex {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }}
+        .kpi-label-premium {{
+            font-size: 12px;
+            font-weight: 600;
+            color: #64748B;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            line-height: 1.4;
+        }}
+        .kpi-icon-wrapper {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            flex-shrink: 0;
+        }}
+        .kpi-value-premium {{
+            font-size: 32px;
+            font-weight: 800;
+            color: #0F172A;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            font-family: var(--font-titulo) !important;
+            letter-spacing: -0.5px;
+        }}
+        .kpi-sub-premium {{
+            font-size: 13px;
+            color: #64748B;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        
+        /* Pills de Tendência Modernos */
+        .trend-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+        }}
+        .trend-up {{ background: #ECFDF5; color: #059669; }}
+        .trend-down {{ background: #FEF2F2; color: #DC2626; }}
+        .trend-neutral {{ background: #F8FAFC; color: #64748B; }}
+        
+        /* ════════ TABLE PRO COMPACT ════════ */
+        .table-pro-shell {{
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 14px;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+            overflow: hidden;
+            margin: 14px 0 8px 0;
+        }}
+
+        .table-pro-scroll {{
+            width: 100%;
+            max-width: 100%;
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-color: #94A3B8 #F8FAFC;
+        }}
+
+        .table-pro-scroll::-webkit-scrollbar {{
+            width: 10px;
+            height: 10px;
+        }}
+        .table-pro-scroll::-webkit-scrollbar-track {{
+            background: #F8FAFC;
+        }}
+        .table-pro-scroll::-webkit-scrollbar-thumb {{
+            background: #CBD5E1;
+            border-radius: 999px;
+            border: 2px solid #F8FAFC;
+        }}
+        .table-pro-scroll::-webkit-scrollbar-thumb:hover {{
+            background: #94A3B8;
+        }}
+
+        .totale-table-pro {{
+            width: max-content;
+            min-width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            table-layout: auto;
+            background: #FFFFFF;
+        }}
+
+        .totale-table-pro thead th {{
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: linear-gradient(180deg, #183C88 0%, #17387D 100%);
+            color: #FFFFFF;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.35px;
+            padding: 9px 12px;
+            border-right: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid #16336F;
+            white-space: nowrap;
+            font-family: var(--font-texto) !important;
+        }}
+
+        .totale-table-pro thead th:last-child {{
+            border-right: none;
+        }}
+
+        .totale-table-pro tbody td {{
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #24324A;
+            border-bottom: 1px solid #EEF2F7;
+            border-right: 1px solid #F5F7FA;
+            vertical-align: middle;
+            line-height: 1.35;
+            background: #FFFFFF;
+            font-family: var(--font-texto) !important;
+        }}
+
+        .totale-table-pro tbody td:last-child {{
+            border-right: none;
+        }}
+
+        .totale-table-pro tbody tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .totale-table-pro tbody tr.striped td {{
+            background: #FBFCFE;
+        }}
+
+        .totale-table-pro tbody tr:hover td {{
+            background: #F8FAFC;
+        }}
+
+        .totale-table-pro tbody tr.highlight td {{
+            background: #FFF7ED;
+        }}
+
+        .table-cell-num {{
+            text-align: right;
+            font-family: var(--font-codigo) !important;
+            font-size: 11.5px !important;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }}
+
+        .table-cell-rank {{
+            font-weight: 700;
+            white-space: nowrap;
+        }}
+
+        .table-cell-strong {{
+            font-weight: 700;
+            color: #0F172A;
+        }}
+
+        .table-dark-col {{
+            background: #0F1B34 !important;
+            color: #FFFFFF !important;
+            font-weight: 800;
+            text-align: center;
+            font-family: var(--font-codigo) !important;
+            font-variant-numeric: tabular-nums;
+        }}
+
+        .td-badge {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }}
+
+        .td-badge-success {{
+            background: #ECFDF5;
+            color: #059669;
+        }}
+        .td-badge-danger {{
+            background: #FEF2F2;
+            color: #DC2626;
+        }}
+        .td-badge-warning {{
+            background: #FFFBEB;
+            color: #D97706;
+        }}
+        .td-badge-info {{
+            background: #EFF6FF;
+            color: #2563EB;
+        }}
+        .td-badge-neutral {{
+            background: #F1F5F9;
+            color: #475569;
+        }}
+
+        .table-pro-title {{
+            font-size: 15px;
+            font-weight: 800;
+            color: #0F172A;
+            margin: 0;
+            font-family: var(--font-titulo) !important;
+            line-height: 1.2;
+        }}
+
+        .table-pro-meta {{
+            font-size: 10px;
+            color: #64748B;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.45px;
+            margin-top: 3px;
+        }}
+
+        .table-pro-caption {{
+            font-size: 10px;
+            color: #94A3B8;
+            text-align: right;
+            margin-top: 8px;
+            font-weight: 500;
+        }}
+
+        /* versão ainda mais compacta */
+        .table-pro-compact thead th {{
+            padding: 8px 10px;
+            font-size: 9.5px;
+        }}
+        .table-pro-compact tbody td {{
+            padding: 8px 10px;
+            font-size: 11.5px;
+        }}
+        .table-pro-compact .table-cell-num {{
+            font-size: 11px !important;
+        }}
+
+        /* ════════ TABELAS PREMIUM HTML ════════ */
+        .table-premium-wrapper {{
+            background: #FFFFFF;
+            border-radius: 12px;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+            overflow: hidden; /* Mantém as bordas arredondadas intactas */
+            margin: 16px 0;
+            position: relative;
+        }}
+        .table-premium-scroll {{
+            width: 100%;
+            overflow-x: auto;
+            /* Scrollbar customizada e elegante para a tabela */
+            scrollbar-width: thin;
+            scrollbar-color: #CBD5E1 transparent;
+        }}
+        .table-premium-scroll::-webkit-scrollbar {{ height: 6px; width: 6px; }}
+        .table-premium-scroll::-webkit-scrollbar-thumb {{ background-color: #CBD5E1; border-radius: 3px; }}
+        
+        .totale-table-pro {{
+            width: 100%;
+            border-collapse: separate; /* Permite sticky funcionar melhor */
+            border-spacing: 0;
+            text-align: left;
+        }}
+        .totale-table-pro th {{
+            background: #F8FAFC;
+            color: #475569;
+            font-family: var(--font-texto) !important;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 14px 16px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid #E2E8F0;
+            white-space: nowrap;
+        }}
+        /* Sombra sutil sob o cabeçalho fixo */
+        .totale-table-pro th::after {{
+            content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 5px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 100%);
+            pointer-events: none;
+        }}
+        .totale-table-pro td {{
+            padding: 14px 16px;
+            border-bottom: 1px solid #F1F5F9;
+            color: #334155;
+            font-size: 13px;
+            font-family: var(--font-texto) !important;
+            vertical-align: middle;
+            transition: background 0.2s ease;
+        }}
+        /* Remove borda da última linha para não chocar com o wrapper */
+        .totale-table-pro tbody tr:last-child td {{ border-bottom: none; }}
+        
+        /* Efeitos de Linha */
+        .totale-table-pro tbody tr:hover td {{ background-color: #F8FAFC; color: #0F172A; }}
+        .totale-table-pro tbody tr.striped td {{ background-color: #FAFCFE; }}
+        .totale-table-pro tbody tr.striped:hover td {{ background-color: #F8FAFC; }}
+        
+        /* Badges dentro da tabela */
+        .td-badge {{
+            display: inline-block; padding: 4px 10px; border-radius: 12px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase;
+        }}
+        
+        /* SIDEBAR E LAYOUT */
+        .section-header {{ display: flex; align-items: center; gap: 12px; margin: 32px 0 16px 0; padding-bottom: 12px; border-bottom: 2px solid var(--cor-borda); }}
+        .user-info-card {{ background: linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 100%); border: 1px solid var(--cor-borda); border-radius: 12px; padding: 16px; margin: 12px 0; }}
+        .user-avatar {{ width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA}); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #FFFFFF; font-weight: 700; flex-shrink: 0; object-fit: cover; }}
+        .filter-group {{ background: #FFFFFF; border: 1px solid var(--cor-borda); border-radius: 8px; margin: 8px 0; overflow: hidden; }}
+        
+        /* TABELAS */
+        .totale-table-container {{ width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid var(--cor-borda); margin: 16px 0; background: #FFFFFF; box-shadow: var(--shadow-sm); }}
+        .totale-table {{ width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }}
+        .totale-table th {{ background-color: #F8FAFC; color: var(--cor-primaria); font-weight: 700; padding: 12px 16px; border-bottom: 2px solid var(--cor-borda); text-transform: uppercase; font-size: 11px; white-space: nowrap; }}
+        .totale-table td {{ padding: 10px 16px; border-bottom: 1px solid var(--cor-borda); color: var(--cor-texto-2); }}
+        .totale-table tbody tr.striped {{ background-color: #FAFCFE; }}
+        .totale-table tbody tr:hover {{ background-color: #F1F5F9; }}
+        
+                /* ── classes utilitárias para heroes (evita font-family inline) ── */
+        .th-title {{
+            margin: 0;
+            font-size: 30px;
+            font-weight: 800;
+            color: #FFFFFF;
+            font-family: var(--font-titulo) !important;
+            line-height: 1.2;
+            letter-spacing: -0.5px;
+        }}
+        .th-title-lg {{
+            margin: 0;
+            font-size: 32px;
+            font-weight: 800;
+            color: #FFFFFF;
+            font-family: var(--font-titulo) !important;
+            line-height: 1.2;
+            letter-spacing: -0.6px;
+        }}
+        .th-sub {{
+            margin: 6px 0 0 0;
+            font-size: 13px;
+            color: #E0E7FF;
+            font-family: var(--font-texto) !important;
+            line-height: 1.5;
+        }}
+        .th-sub-muted {{
+            margin: 8px 0 0 0;
+            font-size: 14px;
+            color: #E2E8F0;
+            font-family: var(--font-texto) !important;
+        }}
+        .th-badge {{
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: #FFFFFF;
+            padding: 3px 10px;
+            border-radius: 14px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            display: inline-block;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }}
+        .th-tag {{
+            font-size: 11px;
+            color: #CBD5E1;
+            margin-left: 8px;
+        }}
+        .th-card-label {{
+            font-size: 10px;
+            font-weight: 700;
+            color: #CBD5E1;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .th-card-value {{
+            font-size: 26px;
+            font-weight: 800;
+            color: #F37C04;
+            font-family: var(--font-titulo) !important;
+            margin-top: 4px;
+            line-height: 1;
+        }}
+        .th-meta {{
+            margin-top: 14px;
+            font-size: 11px;
+            color: #94A3B8;
+            display: inline-block;
+            background: rgba(0,0,0,0.25);
+            padding: 4px 10px;
+            border-radius: 6px;
+        }}
+        
+        .material-icons, .material-symbols-outlined, .material-symbols-rounded {{ font-family: "Material Symbols Rounded", "Material Icons" !important; font-weight: normal !important; -webkit-font-smoothing: antialiased !important; }}
+        </style>
+        """
+
+    @staticmethod
+    def injetar() -> None:
+        _safe_render_html(CSSInjector._build_css())
+
+
+# =============================================================================
+# API PÚBLICA PRINCIPAL
+# =============================================================================
+def aplicar_estilo() -> None:
+    PlotlyConfig.configurar()
+    FontInjector.injetar_no_head_pai()
+    CSSInjector.injetar()
+
+
+def aplicar_estilo_corp() -> None:
+    aplicar_estilo()
+
+
+def aplicar_sidebar_corp() -> None:
+    aplicar_estilo()
+
+
+# =============================================================================
+# COMPONENTES DE SIDEBAR
+# =============================================================================
+def render_sidebar_brand(
+    nome="TOTALE",
+    subtitulo="Analytics & Intelligence",
+    versao="",
+    logo_url=None,
+    icone="⚡",
+    titulo="",
+    logo=None,
+    **kwargs,
+) -> None:
+    nome_final = titulo or nome
+    subtitulo_final = kwargs.get("segmento", subtitulo)
+    logo_final = logo or logo_url
+
+    with st.sidebar:
+        if logo_final and Validadores.url(logo_final):
+            st.image(logo_final, use_container_width=True)
+
+        badge_html = (
+            f'<span style="display:inline-block;background-color:{Cores.AZUL_SUAVE};color:{Cores.PRIMARIA};font-weight:700;font-size:10px;padding:2px 8px;border-radius:12px;border:1px solid #BFDBFE;margin-top:6px;text-transform:uppercase;">{Validadores.html_escape(versao)}</span>'
+            if versao
+            else ""
+        )
+        icone_html = (
+            f'<span style="font-size:22px;color:{Cores.SECUNDARIA};line-height:1;">{Validadores.html_escape(icone)}</span>'
+            if not logo_final
+            else ""
+        )
+
+        markup = f"""
+        <div style="padding:10px 0 16px 0;border-bottom:1px solid {Cores.BORDA};margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                {icone_html}
+                <div>
+                    <h2 style="font-family:{Fontes.TITULO};font-size:18px;font-weight:800;color:{Cores.PRIMARIA};margin:0;line-height:1.2;">{Validadores.html_escape(nome_final)}</h2>
+                    <div style="font-family:{Fontes.TEXTO};font-size:11px;color:{Cores.TEXTO_3};margin-top:2px;">{Validadores.html_escape(subtitulo_final)}</div>
+                </div>
+            </div>
+            {badge_html}
+        </div>
+        """
+        _safe_render_html(markup)
+
+
+def render_sidebar_section(
+    titulo: str, icone: str = "", collapsible: bool = False
+) -> None:
+    if collapsible:
+        with st.sidebar.expander(f"{icone} {titulo}".strip(), expanded=True):
+            pass
+    else:
+        icone_html = (
+            f'<span style="font-size:14px;line-height:1;">{Validadores.html_escape(icone)}</span>'
+            if icone
+            else ""
+        )
+        markup = f'<div style="margin:16px 0;padding:12px 0;border-top:1px solid {Cores.BORDA};"><div style="font-size:11px;font-weight:700;color:{Cores.TEXTO_3};text-transform:uppercase;display:flex;align-items:center;gap:6px;">{icone_html}<span>{Validadores.html_escape(titulo)}</span></div></div>'
+        with st.sidebar:
+            _safe_render_html(markup)
+
+
+def render_sidebar_divider(
+    estilo: Literal["linha", "gradiente", "pontilhado", "espaco"] = "gradiente",
+    espacamento: Literal["pequeno", "medio", "grande"] = "medio",
+    cor: str = "",
+    label: str = "",
+) -> None:
+    """
+    Divisória horizontal para a sidebar.
+
+    Args:
+        estilo: Visual da linha
+            - ``"linha"``      — linha sólida simples
+            - ``"gradiente"``  — fade nas extremidades (padrão premium)
+            - ``"pontilhado"`` — tracejado sutil
+            - ``"espaco"``     — apenas espaçamento invisível
+        espacamento: Margem vertical (``"pequeno"`` | ``"medio"`` | ``"grande"``)
+        cor: Cor customizada (hex). Vazio = usa ``Cores.BORDA``
+        label: Texto central opcional (ex: ``"FILTROS"``). Só com estilo linha/gradiente.
+
+    Exemplos:
+        >>> render_sidebar_divider()
+        >>> render_sidebar_divider(estilo="pontilhado", espacamento="pequeno")
+        >>> render_sidebar_divider(label="Navegação", estilo="gradiente")
+        >>> render_sidebar_divider(estilo="espaco", espacamento="grande")
+    """
+    margens = {
+        "pequeno": "6px 0",
+        "medio": "14px 0",
+        "grande": "24px 0",
+    }
+    margem = margens.get(espacamento, margens["medio"])
+    cor_final = cor or Cores.BORDA
+
+    # ── apenas espaçamento ──
+    if estilo == "espaco":
+        alturas = {"pequeno": "8px", "medio": "16px", "grande": "28px"}
+        markup = f'<div style="height:{alturas.get(espacamento, "16px")};"></div>'
+        with st.sidebar:
+            _safe_render_html(markup)
+        return
+
+    # ── com label central ──
+    if label:
+        label_esc = Validadores.html_escape(label)
+        if estilo == "pontilhado":
+            line_style = f"border:none;border-top:1.5px dashed {cor_final};"
+        elif estilo == "gradiente":
+            line_style = (
+                f"border:none;height:1px;"
+                f"background:linear-gradient(90deg,transparent 0%,{cor_final} 40%,{cor_final} 60%,transparent 100%);"
+            )
+        else:  # linha
+            line_style = f"border:none;border-top:1px solid {cor_final};"
+
+        markup = (
+            f'<div style="display:flex;align-items:center;gap:10px;margin:{margem};">'
+            f'<div style="flex:1;{line_style}"></div>'
+            f'<span style="font-size:9px;font-weight:700;color:{Cores.TEXTO_3};'
+            f'text-transform:uppercase;letter-spacing:1.2px;white-space:nowrap;">'
+            f"{label_esc}</span>"
+            f'<div style="flex:1;{line_style}"></div>'
+            f"</div>"
+        )
+        with st.sidebar:
+            _safe_render_html(markup)
+        return
+
+    # ── divisória simples (sem label) ──
+    if estilo == "pontilhado":
+        markup = f'<div style="margin:{margem};border:none;border-top:1.5px dashed {cor_final};"></div>'
+    elif estilo == "gradiente":
+        markup = (
+            f'<div style="margin:{margem};height:1px;border:none;'
+            f'background:linear-gradient(90deg,transparent 0%,{cor_final} 50%,transparent 100%);"></div>'
+        )
+    else:  # linha
+        markup = f'<div style="margin:{margem};border:none;border-top:1px solid {cor_final};"></div>'
+
+    with st.sidebar:
+        _safe_render_html(markup)
+
+
+def render_sidebar_footer_info(
+    itens: dict[str, Any] | list[tuple[str, Any]] | None = None,
+    copyright: str = "",
+    empresa: str = "TOTALE",
+    ano: int | None = None,
+    versao: str = "",
+    ambiente: str = "",
+    unidade: str = "",
+    mostrar_relógio: bool = False,
+) -> None:
+    """
+    Rodapé informativo premium para a sidebar.
+
+    Args:
+        itens: Pares label/valor extras.
+               Aceita ``dict`` ou ``list[tuple]``.
+               Ex: ``{"Build": "2403", "Região": "BR-SP"}``
+        copyright: Texto de copyright customizado.
+                   Vazio = gera automaticamente com empresa + ano.
+        empresa: Nome da empresa (usado no copyright automático).
+        ano: Ano do copyright. ``None`` = ano UTC atual.
+        versao: Versão da app (ex: ``"4.1.0"``). Exibe badge.
+        ambiente: Ambiente de execução
+                  (``"produção"``, ``"homologação"``, ``"desenvolvimento"``).
+                  Exibe pill colorido.
+        unidade: Unidade / departamento (ex: ``"Operações NE"``).
+        mostrar_relógio: Se ``True``, exibe horário UTC de renderização.
+
+    Exemplos:
+        >>> render_sidebar_footer_info(
+        ...     versao="4.1.0",
+        ...     ambiente="produção",
+        ...     unidade="TOTALE Analytics",
+        ...     itens={"Build": "240318", "DB": "PostgreSQL 16"},
+        ... )
+    """
+    # ── normalizar itens ──
+    itens_dict: dict[str, Any] = {}
+    if isinstance(itens, list):
+        itens_dict = dict(itens)
+    elif isinstance(itens, dict):
+        itens_dict = itens
+
+    # ── auto-ano ──
+    if ano is None:
+        ano = datetime.now(timezone.utc).year
+
+    # ── mapeamento de ambiente → cores ──
+    _AMB_CFG: dict[str, tuple[str, str, str]] = {
+        "produção": ("#D1FAE5", "#065F46", "#059669"),
+        "producao": ("#D1FAE5", "#065F46", "#059669"),
+        "prod": ("#D1FAE5", "#065F46", "#059669"),
+        "homologação": ("#FEF3C7", "#92400E", "#D97706"),
+        "homologacao": ("#FEF3C7", "#92400E", "#D97706"),
+        "hml": ("#FEF3C7", "#92400E", "#D97706"),
+        "desenvolvimento": ("#DBEAFE", "#1E40AF", "#3B82F6"),
+        "dev": ("#DBEAFE", "#1E40AF", "#3B82F6"),
+        "local": ("#F3F4F6", "#374151", "#9CA3AF"),
+    }
+
+    # ── badge de versão ──
+    versao_html = ""
+    if versao:
+        v_txt = versao if str(versao).startswith("v") else f"v{versao}"
+        versao_html = (
+            f'<span style="display:inline-block;background:#F0F4FF;'
+            f"color:{Cores.PRIMARIA};font-size:9px;font-weight:700;"
+            f"padding:2px 8px;border-radius:10px;border:1px solid #C7D2FE;"
+            f'letter-spacing:0.4px;text-transform:uppercase;">'
+            f"{Validadores.html_escape(v_txt)}</span>"
+        )
+
+    # ── pill de ambiente ──
+    amb_html = ""
+    if ambiente:
+        bg_a, fg_a, dot_a = _AMB_CFG.get(
+            ambiente.lower().strip(),
+            ("#F3F4F6", "#374151", "#9CA3AF"),
+        )
+        amb_html = (
+            f'<span style="display:inline-flex;align-items:center;gap:5px;'
+            f"background:{bg_a};color:{fg_a};font-size:9px;font-weight:700;"
+            f"padding:2px 8px;border-radius:10px;letter-spacing:0.4px;"
+            f'text-transform:uppercase;">'
+            f'<span style="width:6px;height:6px;border-radius:50%;'
+            f'background:{dot_a};display:inline-block;flex-shrink:0;"></span>'
+            f"{Validadores.html_escape(ambiente)}</span>"
+        )
+
+    # ── linha de badges (versão + ambiente) ──
+    badges_row = ""
+    if versao_html or amb_html:
+        badges_row = (
+            f'<div style="display:flex;align-items:center;gap:6px;'
+            f'flex-wrap:wrap;margin-bottom:10px;">'
+            f"{versao_html}{amb_html}</div>"
+        )
+
+    # ── unidade ──
+    unidade_html = ""
+    if unidade:
+        unidade_html = (
+            f'<div style="font-size:10px;font-weight:600;color:{Cores.TEXTO_2};'
+            f'margin-bottom:8px;letter-spacing:0.2px;">'
+            f"{Validadores.html_escape(unidade)}</div>"
+        )
+
+    # ── itens extras ──
+    itens_html = ""
+    if itens_dict:
+        rows = "".join(
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;padding:3px 0;gap:8px;">'
+            f'<span style="font-size:10px;color:{Cores.TEXTO_3};'
+            f'font-weight:500;">{Validadores.html_escape(k)}</span>'
+            f'<span style="font-size:10px;color:{Cores.TEXTO_2};'
+            f"font-weight:700;font-variant-numeric:tabular-nums;"
+            f'text-align:right;">{Validadores.html_escape(v)}</span>'
+            f"</div>"
+            for k, v in itens_dict.items()
+        )
+        itens_html = (
+            f'<div style="border-top:1px solid {Cores.BORDA};'
+            f'padding-top:8px;margin-top:4px;">{rows}</div>'
+        )
+
+    # ── relógio ──
+    relogio_html = ""
+    if mostrar_relógio:
+        agora = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+        relogio_html = (
+            f'<div style="font-size:9px;color:{Cores.TEXTO_3};'
+            f'text-align:center;margin-top:6px;letter-spacing:0.3px;">'
+            f"🕒 {agora}</div>"
+        )
+
+    # ── copyright ──
+    copy_final = copyright or f"© {ano} {empresa}"
+    copy_html = (
+        f'<div style="margin-top:10px;padding-top:8px;'
+        f"border-top:1px solid {Cores.BORDA};"
+        f"font-size:9px;color:{Cores.TEXTO_3};text-align:center;"
+        f'line-height:1.5;letter-spacing:0.2px;">'
+        f"{Validadores.html_escape(copy_final)}</div>"
+    )
+
+    # ── montagem final ──
+    markup = (
+        f'<div style="margin-top:28px;padding:14px 12px 10px;'
+        f"border-top:1px solid {Cores.BORDA};"
+        f"background:linear-gradient(180deg,#FFFFFF 0%,#F8FAFC 100%);"
+        f'border-radius:0 0 10px 10px;">'
+        f"{badges_row}"
+        f"{unidade_html}"
+        f"{itens_html}"
+        f"{relogio_html}"
+        f"{copy_html}"
+        f"</div>"
+    )
+
+    with st.sidebar:
+        _safe_render_html(markup)
+        
+def render_sidebar_info(
+    user_name: str = "",
+    role: str = "",
+    email: str = "",
+    avatar: str = "",
+    itens: dict[str, Any] | list[tuple[str, Any]] | None = None,
+    icone: str = "ℹ️",
+    rodape: str = "",
+    status: Literal["online", "offline", "ausente", "ocupado", ""] = "online",
+    titulo: str = "",
+) -> None:
+    """
+    Card de informações do usuário / contexto na sidebar.
+
+    Args:
+        user_name: Nome do usuário exibido em destaque.
+        role: Cargo ou função (ex: ``"Analista de Dados"``).
+        email: E-mail do usuário.
+        avatar: URL de imagem **ou** texto/emoji para monograma.
+                Vazio = gera inicial a partir de ``user_name``.
+        itens: Pares label/valor extras.
+               Aceita ``dict`` ou ``list[tuple]``.
+               Ex: ``{"Unidade": "NE", "Acesso": "Admin"}``
+        icone: Ícone padrão exibido à esquerda de cada item.
+        rodape: Texto discreto no rodapé do card.
+        status: Indicador de presença.
+                ``"online"`` | ``"offline"`` | ``"ausente"`` | ``"ocupado"`` | ``""``.
+        titulo: Título opcional acima do card (ex: ``"Sessão Ativa"``).
+
+    Exemplos:
+        >>> render_sidebar_info(
+        ...     user_name="Ana Silva",
+        ...     role="Coordenadora de Operações",
+        ...     email="ana.silva@totale.com.br",
+        ...     status="online",
+        ...     itens={"Unidade": "Nordeste", "Perfil": "Admin"},
+        ...     rodape="Último login: 18/03/2026 09:14",
+        ... )
+        >>> render_sidebar_info(
+        ...     user_name="Sistema",
+        ...     role="Bot de Integração",
+        ...     avatar="🤖",
+        ...     status="online",
+        ...     itens={"Fila": "12 jobs", "Uptime": "99.9%"},
+        ... )
+        >>> render_sidebar_info(
+        ...     titulo="Contexto",
+        ...     itens={"Empresa": "TOTALE", "Módulo": "Performance"},
+        ... )
+    """
+    # ── normalizar itens ──
+    itens_dict: dict[str, Any] = {}
+    if isinstance(itens, list):
+        itens_dict = dict(itens)
+    elif isinstance(itens, dict):
+        itens_dict = itens
+
+    # ── status → cor + label ──
+    _STATUS_CFG: dict[str, tuple[str, str]] = {
+        "online":  ("#059669", "Online"),
+        "offline": ("#94A3B8", "Offline"),
+        "ausente": ("#D97706", "Ausente"),
+        "ocupado": ("#DC2626", "Ocupado"),
+    }
+
+    # ── avatar ──
+    if avatar and Validadores.url(avatar):
+        avatar_html = (
+            f'<img src="{Validadores.html_escape(avatar)}" '
+            f'alt="Avatar" style="width:42px;height:42px;border-radius:50%;'
+            f'object-fit:cover;flex-shrink:0;border:2px solid #E2E8F0;" />'
+        )
+    else:
+        # monograma: usa avatar como texto, senão inicial do nome
+        if avatar:
+            mono = Validadores.html_escape(avatar[:2])
+            mono_size = "18px" if len(avatar) <= 2 else "14px"
+        elif user_name:
+            partes = user_name.strip().split()
+            if len(partes) >= 2:
+                mono = Validadores.html_escape(
+                    (partes[0][0] + partes[-1][0]).upper()
+                )
             else:
-                numero = float(s_val.replace(",", ""))
-        elif "." in s_val:
-            partes = s_val.split(".")
-            if len(partes) == 2 and len(partes[1]) <= 2:
-                numero = float(s_val)
-            else:
-                numero = float(s_val.replace(".", ""))
+                mono = Validadores.html_escape(user_name[:1].upper())
+            mono_size = "16px"
         else:
-            numero = float(s_val)
+            mono = "U"
+            mono_size = "16px"
 
-        return numero / 100 if percentual else numero
-    except (ValueError, TypeError):
-        return 0.0
+        avatar_html = (
+            f'<div style="width:42px;height:42px;border-radius:50%;'
+            f'background:linear-gradient(135deg,{Cores.PRIMARIA},{Cores.SECUNDARIA});'
+            f'display:flex;align-items:center;justify-content:center;'
+            f'font-size:{mono_size};color:#FFFFFF;font-weight:800;'
+            f'flex-shrink:0;letter-spacing:0.5px;border:2px solid rgba(255,255,255,0.3);'
+            f'box-shadow:0 2px 8px rgba(1,40,105,0.25);">{mono}</div>'
+        )
 
+    # ── bolinha de status sobreposta ao avatar ──
+    status_dot = ""
+    status_label_html = ""
+    if status and status in _STATUS_CFG:
+        cor_s, label_s = _STATUS_CFG[status]
+        status_dot = (
+            f'<span style="position:absolute;bottom:1px;right:1px;'
+            f'width:11px;height:11px;border-radius:50%;background:{cor_s};'
+            f'border:2px solid #FFFFFF;box-shadow:0 0 0 1px {cor_s}40;"></span>'
+        )
+        status_label_html = (
+            f'<span style="display:inline-flex;align-items:center;gap:4px;'
+            f'font-size:9px;font-weight:700;color:{cor_s};'
+            f'text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;">'
+            f'<span style="width:5px;height:5px;border-radius:50%;'
+            f'background:{cor_s};display:inline-block;"></span>'
+            f'{label_s}</span>'
+        )
 
-# ====================================================
-# ESTADO DE SESSÃO
-# ====================================================
-def inicializar_estado(defaults: Dict[str, Any]) -> None:
-    for chave, valor in defaults.items():
-        if chave not in st.session_state:
-            st.session_state[chave] = valor
+    # ── bloco do usuário ──
+    user_section = ""
+    if user_name or role or email or avatar:
+        name_html = (
+            f'<p style="margin:0;font-size:13px;font-weight:700;'
+            f'color:{Cores.TEXTO};line-height:1.25;font-family:var(--font-titulo) !important;">'
+            f'{Validadores.html_escape(user_name)}</p>'
+            if user_name else ""
+        )
+        role_html = (
+            f'<p style="margin:2px 0 0;font-size:10px;color:{Cores.TEXTO_3};'
+            f'line-height:1.3;font-weight:500;">'
+            f'{Validadores.html_escape(role)}</p>'
+            if role else ""
+        )
+        email_html = (
+            f'<p style="margin:2px 0 0;font-size:10px;color:{Cores.PRIMARIA};'
+            f'line-height:1.3;font-weight:500;opacity:0.85;">'
+            f'{Validadores.html_escape(email)}</p>'
+            if email else ""
+        )
 
+        user_section = (
+            f'<div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">'
+            f'<div style="position:relative;flex-shrink:0;">{avatar_html}{status_dot}</div>'
+            f'<div style="min-width:0;flex:1;">'
+            f'{name_html}{role_html}{email_html}{status_label_html}'
+            f'</div></div>'
+        )
 
-def estado_get(chave: str, padrao: Any = None) -> Any:
-    return st.session_state.get(chave, padrao)
+    # ── itens de detalhe ──
+    itens_html = ""
+    if itens_dict:
+        # separador só se já tem user_section acima
+        sep = (
+            f'<div style="height:1px;background:{Cores.BORDA};'
+            f'margin:10px 0 6px;"></div>'
+            if user_section else ""
+        )
+        rows = "".join(
+            f'<div style="display:flex;align-items:center;gap:8px;'
+            f'padding:5px 0;">'
+            f'<span style="font-size:12px;line-height:1;flex-shrink:0;'
+            f'width:18px;text-align:center;opacity:0.7;">'
+            f'{Validadores.html_escape(icone)}</span>'
+            f'<span style="font-size:11px;color:{Cores.TEXTO_3};'
+            f'font-weight:500;flex-shrink:0;">'
+            f'{Validadores.html_escape(k)}</span>'
+            f'<span style="font-size:11px;color:{Cores.TEXTO};'
+            f'font-weight:700;margin-left:auto;text-align:right;'
+            f'font-variant-numeric:tabular-nums;">'
+            f'{Validadores.html_escape(v)}</span>'
+            f'</div>'
+            for k, v in itens_dict.items()
+        )
+        itens_html = f'{sep}<div>{rows}</div>'
 
+    # ── rodapé ──
+    rodape_html = ""
+    if rodape:
+        rodape_html = (
+            f'<div style="margin-top:8px;padding-top:8px;'
+            f'border-top:1px dashed {Cores.BORDA};'
+            f'font-size:9px;color:{Cores.TEXTO_3};line-height:1.4;'
+            f'letter-spacing:0.2px;">'
+            f'{Validadores.html_escape(rodape)}</div>'
+        )
 
-def estado_set(chave: str, valor: Any) -> Any:
-    st.session_state[chave] = valor
-    return valor
+    # ── título externo ──
+    titulo_html = ""
+    if titulo:
+        titulo_html = (
+            f'<div style="font-size:10px;font-weight:700;color:{Cores.TEXTO_3};'
+            f'text-transform:uppercase;letter-spacing:0.8px;'
+            f'margin:0 0 6px 2px;">{Validadores.html_escape(titulo)}</div>'
+        )
 
-
-def limpar_estado(*chaves: str) -> None:
-    for chave in chaves:
-        st.session_state.pop(chave, None)
-
-
-def resetar_estado(prefixo: str = "") -> None:
-    chaves_para_remover = [
-        chave
-        for chave in st.session_state.keys()
-        if isinstance(chave, str) and chave.startswith(prefixo)
-    ]
-    for chave in chaves_para_remover:
-        del st.session_state[chave]
-
-
-# ====================================================
-# HEROS CORPORATIVOS
-# ====================================================
-def render_hero_totale_1(
-    titulo: str = "Portal TOTALE", subtitulo: str = "Painéis de Produção"
-) -> None:
-    if not titulo:
+    # ── se não tem nada, não renderiza ──
+    if not user_section and not itens_html and not rodape_html:
         return
-    html = f"""
-<div class="hero-totale-1">
-<div class="hero-t1-content">
-<h1 style="font-family: var(--font-titulo); font-size: 2.2rem; margin: 0; color: #FFFFFF; font-weight: 800;">{escape(titulo)}</h1>
-<p style="margin-top: 0.6rem; margin-bottom: 0; opacity: 0.9; font-size: 1rem;">{escape(subtitulo)}</p>
-</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
-
-def render_hero_totale_2(
-    titulo: str, subtitulo: str = "", badge_texto: str = "", badge_tipo: str = "laranja"
-) -> None:
-    if not titulo:
-        return
-    cls_badge = "badge-laranja" if badge_tipo.lower() == "laranja" else "badge-azul"
-    html_badge = (
-        f'<span class="hero-t2-badge {cls_badge}">{escape(badge_texto)}</span>'
-        if badge_texto
-        else ""
+    markup = (
+        f'{titulo_html}'
+        f'<div style="background:linear-gradient(160deg,#FFFFFF 0%,#F8FAFC 100%);'
+        f'border:1px solid {Cores.BORDA};border-radius:12px;'
+        f'padding:14px;margin:8px 0 12px;'
+        f'box-shadow:0 1px 3px rgba(0,0,0,0.04);">'
+        f'{user_section}'
+        f'{itens_html}'
+        f'{rodape_html}'
+        f'</div>'
     )
-    html = f"""
-<div class="hero-totale-2">
-<div class="hero-t2-container">
-<h1 class="hero-t2-title">{escape(titulo)}</h1>
-<p class="hero-t2-sub">{escape(subtitulo)}</p>
-{html_badge}
-</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
 
-
-def render_hero_migracao(
-    titulo: str = "🔄 Migração", subtitulo: str = "Análise estratégica"
+    with st.sidebar:
+        _safe_render_html(markup)
+        
+def render_sidebar_spacer(
+    altura: Literal["pequeno", "medio", "grande", "xgrande"] | int | str = "medio",
 ) -> None:
-    if not titulo:
-        return
-    html = f"""
-<div class="hero-migracao" style="background: linear-gradient(135deg, #024B7A 0%, #027BBF 100%); padding: 2.4rem 2.5rem; border-radius: var(--radius-lg); color: white; box-shadow: var(--shadow-md);">
-<div class="hero-t1-content">
-<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0; font-weight:800;">{escape(titulo)}</h1>
-<p class="hero-alt-sub" style="margin-top: 0.6rem; margin-bottom:0; opacity: 0.9; font-size:0.95rem;">{escape(subtitulo)}</p>
-</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
+    """
+    Renderiza um espaçamento vertical invisível (respiro) na sidebar.
+
+    Args:
+        altura: Altura do espaço vertical.
+            - **Presets**: ``"pequeno"`` (8px) | ``"medio"`` (16px) | ``"grande"`` (28px) | ``"xgrande"`` (48px)
+            - **Número inteiro** (pixels): ex: ``20`` -> ``"20px"``
+            - **String CSS customizada**: ex: ``"2rem"``, ``"35px"``, ``"4vh"``
+
+    Exemplos:
+        >>> render_sidebar_spacer()               # Espaço médio (16px)
+        >>> render_sidebar_spacer("grande")       # Espaço grande (28px)
+        >>> render_sidebar_spacer(30)             # Espaço de 30px
+        >>> render_sidebar_spacer("2.5rem")       # Espaço de 2.5rem
+    """
+    PRESETS: dict[str, str] = {
+        "pequeno": "8px",
+        "medio": "16px",
+        "grande": "28px",
+        "xgrande": "48px",
+    }
+
+    if isinstance(altura, int):
+        altura_css = f"{altura}px"
+    elif isinstance(altura, str):
+        altura_lower = altura.lower().strip()
+        if altura_lower in PRESETS:
+            altura_css = PRESETS[altura_lower]
+        elif any(altura_lower.endswith(unit) for unit in ("px", "rem", "em", "%", "vh", "vw")):
+            altura_css = altura_lower
+        else:
+            # Fallback se passar string numérica como "20"
+            altura_css = f"{altura_lower}px"
+    else:
+        altura_css = "16px"
+
+    markup = f'<div style="height:{altura_css};width:100%;display:block;" aria-hidden="true"></div>'
+
+    with st.sidebar:
+        _safe_render_html(markup)
 
 
-def render_hero_pme(
-    titulo: str = "🏢 PME", subtitulo: str = "Pequenas e Médias Empresas"
-) -> None:
-    if not titulo:
-        return
-    html = f"""
-<div class="hero-pme" style="background: linear-gradient(135deg, #4A1D96 0%, #8B42F6 100%); padding: 2.4rem 2.5rem; border-radius: var(--radius-lg); color: white; box-shadow: var(--shadow-md);">
-<div class="hero-t1-content">
-<h1 class="hero-alt-title" style="font-family: var(--font-titulo); font-size: 2.1rem; margin:0; font-weight:800;">{escape(titulo)}</h1>
-<p class="hero-alt-sub" style="margin-top: 0.6rem; margin-bottom:0; opacity: 0.9; font-size:0.95rem;">{escape(subtitulo)}</p>
-</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
+# =============================================================================
+# COMPONENTES HERO — CORRIGIDOS
+# =============================================================================
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
-    extra = f" · {badge}" if badge else ""
-    render_hero_totale_1(titulo, f"{subtitulo}{extra}".strip(" ·"))
-
-
-# ====================================================
-# KPIs
-# ====================================================
-def render_kpi(
-    col: Any, label: str, valor: str, sub: str = "", tema: TemaKPI = "azul"
-) -> None:
-    cor = _resolver_cor_tema(tema)
-    html = f"""
-<div class="kpi-card" style="border-left: 4px solid {cor};">
-<div class="kpi-label">{escape(label)}</div>
-<div class="kpi-value" style="color:{cor};">{escape(str(valor))}</div>
-<div class="kpi-sub">{escape(sub)}</div>
-</div>
-"""
-    (col.markdown if hasattr(col, "markdown") else st.markdown)(
-        _limpar_html(html), unsafe_allow_html=True
-    )
-
-
-def render_kpi_sm(
-    col: Any,
-    label: str,
-    valor: str,
-    sub: str = "",
-    tema: TemaKPI = "azul",
-    icone: str = "",
-) -> None:
-    cor = _resolver_cor_tema(tema)
-    html_icone = (
-        f'<span style="font-size:13px; margin-left:4px;">{icone}</span>'
-        if icone
+    if not titulo:
+        raise ValueError("render_hero: 'titulo' não pode ser vazio.")
+    t = Validadores.html_escape(titulo)
+    s = (
+        f'<p class="hero-subtitle">{Validadores.html_escape(subtitulo)}</p>'
+        if subtitulo
         else ""
     )
-    sub_html = f'<div class="kpi-sub">{escape(sub)}</div>' if sub else ""
-    html = f"""
-<div class="kpi-card-sm" style="border-left: 3px solid {cor};">
-<div class="kpi-label"><span>{escape(label)}</span>{html_icone}</div>
-<div class="kpi-value" style="color:{cor};">{escape(str(valor))}</div>
-{sub_html}
-</div>
-"""
-    (col.markdown if hasattr(col, "markdown") else st.markdown)(
-        _limpar_html(html), unsafe_allow_html=True
-    )
-
-
-def render_metric_delta(
-    col: Any,
-    label: str,
-    valor: str,
-    delta: float,
-    delta_sufixo: str = "%",
-    tendencia: TendenciaDelta | None = None,
-    tema: TemaKPI = "azul",
-    inverter_cor: bool = False,
-) -> None:
-    cor = _resolver_cor_tema(tema)
-    if tendencia is None:
-        tendencia = "up" if delta > 0.01 else "down" if delta < -0.01 else "flat"
-
-    icones = {"up": "▲", "down": "▼", "flat": "▬"}
-    classes = {"up": "kpi-delta-up", "down": "kpi-delta-down", "flat": "kpi-delta-flat"}
-
-    tendencia = tendencia if tendencia in icones else "flat"
-    classe = classes[tendencia]
-    if inverter_cor:
-        classe = (
-            "kpi-delta-down"
-            if tendencia == "up"
-            else "kpi-delta-up" if tendencia == "down" else "kpi-delta-flat"
-        )
-
-    delta_txt = f"{'+' if delta > 0 else ''}{_fmt_br(delta)}{delta_sufixo}"
-
-    html = f"""
-<div class="kpi-card-delta" style="border-top-color:{cor};">
-<div class="kpi-delta-header">
-<span class="kpi-delta-label">{escape(label)}</span>
-<span class="kpi-delta-indicator {classe}">{icones[tendencia]} {delta_txt}</span>
-</div>
-<div class="kpi-delta-value" style="color:{cor};">{escape(str(valor))}</div>
-</div>
-"""
-    (col.markdown if hasattr(col, "markdown") else st.markdown)(
-        _limpar_html(html), unsafe_allow_html=True
-    )
-
-
-# ====================================================
-# INSIGHTS & UTILS
-# ====================================================
-def render_insight(msg: str, tipo: TipoInsight = "info") -> None:
-    if not msg:
-        return
-    bg, texto, borda, icone = _INSIGHT_CONFIG.get(tipo, _INSIGHT_CONFIG["info"])
-    msg_html = _markdown_inline_para_html(escape(msg))
-    html = f"""
-<div style="background:{bg}; color:{texto}; border-left:4px solid {borda}; padding:14px 18px; border-radius:var(--radius-sm); margin:12px 0; font-size:13.5px; line-height:1.5; box-shadow:var(--shadow-sm); display:flex; align-items:flex-start; gap:10px;">
-<span style="font-size:16px; line-height:1;">{icone}</span>
-<div style="flex:1;">{msg_html}</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
-def render_empty_state(
-    titulo: str = "Sem dados", mensagem: str = "", icone: str = "📭"
-) -> None:
-    html = f"""
-<div class="empty-state" style="text-align:center; padding:48px 24px; background:#FAFBFC; border:2px dashed var(--cor-borda); border-radius:var(--radius-md);">
-<div class="empty-state-icon" style="font-size:42px; opacity:0.7;">{icone}</div>
-<div class="empty-state-title" style="font-family:var(--font-titulo); font-weight:700; color:{COR_TEXTO}; margin-top:12px; font-size:16px;">{escape(titulo)}</div>
-<div class="empty-state-msg" style="color:{COR_TEXTO_3}; font-size:13px; margin-top:4px;">{escape(mensagem)}</div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
-def render_section_header(
-    titulo: str,
-    subtitulo: str = "",
-    icone: str = "",
-    badge: str = "",
-    badge_tipo: TipoBadge = "laranja",
-    cor_accent: str = COR_SECUNDARIA,
-) -> None:
-    if not titulo:
-        return
-
-    icon_html = f'<span style="margin-right:10px;">{icone}</span>' if icone else ""
-    badge_html = (
-        (
-            f'<span style="margin-left:10px; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:700;'
-            f'background:{_TEMA_CORES.get(badge_tipo, "#FFF7ED")}1A;'
-            f'color:{_TEMA_CORES.get(badge_tipo, "#C2410C")};'
-            f'border:1px solid {_TEMA_CORES.get(badge_tipo, "#FDBA74")}66;">'
-            f"{escape(badge)}</span>"
-        )
+    b = (
+        f'<span class="hero-badge">{Validadores.html_escape(badge)}</span>'
         if badge
         else ""
     )
+    _safe_render_html(
+        f'<div class="hero-corp"><div class="hero-content">'
+        f'<h1 class="hero-title">{t}</h1>{s}{b}'
+        f"</div></div>"
+    )
+
+
+def render_hero_totale_1(
+    titulo: str,
+    subtitulo: str = "",
+    badge: str = "TOTALE ANALYTICS",
+    icone: str = "⚡",
+    meta_info: str = "",
+) -> None:
+    if not titulo:
+        raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
+    t = Validadores.html_escape(titulo)
+    b = (
+        f'<div class="totale-badge-pill"><span>{Validadores.html_escape(icone)}</span>'
+        f" {Validadores.html_escape(badge)}</div>"
+        if badge
+        else ""
+    )
+    s = (
+        f'<p class="th-sub-muted">{Validadores.html_escape(subtitulo)}</p>'
+        if subtitulo
+        else ""
+    )
+    m = (
+        f'<div class="th-meta">{Validadores.html_escape(meta_info)}</div>'
+        if meta_info
+        else ""
+    )
+    _safe_render_html(
+        f'<div class="totale-hero-1"><div style="position:relative;z-index:2;">'
+        f'{b}<h1 class="th-title-lg">{t}</h1>{s}{m}'
+        f"</div></div>"
+    )
+
+
+def render_hero_totale_2(
+    titulo: str,
+    subtitulo: str = "",
+    valor_destaque: str = "",
+    label_destaque: str = "",
+    badge: str = "PAINEL GERENCIAL",
+    tag_info: str = "",
+    **kwargs: Any,
+) -> None:
+    if not titulo:
+        raise ValueError("render_hero_totale_2: 'titulo' não pode ser vazio.")
+
+    badge_texto = kwargs.get("badge_texto", badge)
+    t = Validadores.html_escape(titulo)
+
+    b = (
+        f'<span class="th-badge">{Validadores.html_escape(badge_texto)}</span>'
+        if badge_texto
+        else ""
+    )
+    tag = (
+        f'<span class="th-tag">• {Validadores.html_escape(tag_info)}</span>'
+        if tag_info
+        else ""
+    )
+    s = (
+        f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>'
+        if subtitulo
+        else ""
+    )
+    card = ""
+    if valor_destaque:
+        card = (
+            f'<div class="totale-hero-2-card">'
+            f'<div class="th-card-label">{Validadores.html_escape(label_destaque)}</div>'
+            f'<div class="th-card-value">{Validadores.html_escape(valor_destaque)}</div>'
+            f"</div>"
+        )
+
+    # TUDO EM UMA ÚNICA EXPRESSÃO — zero newlines no HTML final
+    _safe_render_html(
+        f'<div class="totale-hero-2">'
+        f'<div>{b}{tag}<h1 class="th-title">{t}</h1>{s}</div>'
+        f"{card}"
+        f"</div>"
+    )
+
+
+def render_hero_migracao(
+    titulo: str,
+    subtitulo: str = "",
+    badge: str = "MIGRAÇÃO DE DADOS",
+    icone: str = "🔄",
+    stats: Sequence[dict[str, str]] | None = None,
+) -> None:
+    if not titulo:
+        raise ValueError("render_hero_migracao: 'titulo' não pode ser vazio.")
+    t = Validadores.html_escape(titulo)
+    b = (
+        f'<div class="hero-migracao-badge"><span>{Validadores.html_escape(icone)}</span>'
+        f" {Validadores.html_escape(badge)}</div>"
+        if badge
+        else ""
+    )
+    s = (
+        f'<p class="hero-migracao-subtitle">{Validadores.html_escape(subtitulo)}</p>'
+        if subtitulo
+        else ""
+    )
+    stats_html = ""
+    if stats:
+        items = "".join(
+            f'<div class="hero-migracao-stat">'
+            f"<strong>{Validadores.html_escape(st.get('valor', ''))}</strong>"
+            f" {Validadores.html_escape(st.get('label', ''))}</div>"
+            for st in stats[:4]
+        )
+        stats_html = f'<div class="hero-migracao-stats">{items}</div>'
+
+    _safe_render_html(
+        f'<div class="hero-migracao"><div style="position:relative;z-index:2;">'
+        f'{b}<h1 class="hero-migracao-title">{t}</h1>{s}{stats_html}'
+        f"</div></div>"
+    )
+
+
+def render_hero_pme(
+    titulo: str,
+    subtitulo: str = "",
+    badge: str = "PME CONNECT",
+    icone: str = "🚀",
+    features: Sequence[str] | None = None,
+) -> None:
+    if not titulo:
+        raise ValueError("render_hero_pme: 'titulo' não pode ser vazio.")
+    t = Validadores.html_escape(titulo)
+    b = (
+        f'<div class="hero-pme-badge"><span>{Validadores.html_escape(icone)}</span>'
+        f" {Validadores.html_escape(badge)}</div>"
+        if badge
+        else ""
+    )
+    s = (
+        f'<p class="hero-pme-subtitle">{Validadores.html_escape(subtitulo)}</p>'
+        if subtitulo
+        else ""
+    )
+    feat_html = ""
+    if features:
+        items = "".join(
+            f'<span class="hero-pme-feature">✓ {Validadores.html_escape(f)}</span>'
+            for f in features[:5]
+        )
+        feat_html = f'<div class="hero-pme-features">{items}</div>'
+
+    _safe_render_html(
+        f'<div class="hero-pme"><div style="position:relative;z-index:2;">'
+        f'{b}<h1 class="hero-pme-title">{t}</h1>{s}{feat_html}'
+        f"</div></div>"
+    )
+
+
+# =============================================================================
+# RESTANTE DOS COMPONENTES
+# =============================================================================
+
+
+def render_sidebar_status(
+    status: str = "Online",
+    ultima_atualizacao: str = "",
+    total_registros: int | str | None = None,
+    detalhes: dict[str, Any] | None = None,
+    tipo: Literal["ok", "info", "alerta", "critico"] = "ok",
+    **kwargs: Any,
+) -> None:
+    """Card de status do sistema/dados na Sidebar."""
+    detalhes_dict = detalhes or {}
+
+    detalhes_html = "".join(f"""
+        <div class="sidebar-footer-item">
+            <span class="sidebar-footer-label">{Validadores.html_escape(k)}</span>
+            <span class="sidebar-footer-value">{Validadores.html_escape(v)}</span>
+        </div>
+        """ for k, v in detalhes_dict.items())
+
+    # Mapear tipo de status para cor
+    mapa_status_cor = {
+        "ok": Cores.SUCESSO,
+        "info": Cores.PRIMARIA,
+        "alerta": Cores.ATENCAO,
+        "critico": Cores.ALERTA,
+    }
+    cor_status = mapa_status_cor.get(tipo, Cores.NEUTRO)
+
+    markup = f"""
+    <div class="user-info-card" style="border-left:3px solid {cor_status};">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:10px;height:10px;border-radius:50%;background:{cor_status};display:inline-block;flex-shrink:0;"></span>
+            <strong style="color:{Cores.TEXTO};font-size:13px;">{Validadores.html_escape(status)}</strong>
+        </div>
+        {f'<div style="font-size:11px;color:{Cores.TEXTO_3};line-height:1.4;">Atualizado em: {Validadores.html_escape(ultima_atualizacao)}</div>' if ultima_atualizacao else ""}
+        {f'<div style="font-size:11px;color:{Cores.TEXTO_3};margin-top:4px;line-height:1.4;">Total: <strong>{Validadores.html_escape(total_registros)}</strong></div>' if total_registros is not None else ""}
+        {detalhes_html}
+    </div>
+    """
+
+    with st.sidebar:
+        st.markdown(markup, unsafe_allow_html=True)
+
+
+def render_section_header(
+    title="",
+    icon="",
+    badge="",
+    titulo="",
+    subtitulo="",
+    icone="",
+    badge_tipo: TipoBadgeType = "default",
+) -> None:
+    titulo_final = titulo or title
+    icon_final = icone or icon
+    bg_badge, cor_badge, borda_badge = ConfigCores.BADGE.get(
+        badge_tipo, ConfigCores.BADGE["default"]
+    )
+
+    badge_html = (
+        f'<span style="background:{bg_badge};color:{cor_badge};border:1px solid {borda_badge};padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;">{Validadores.html_escape(badge)}</span>'
+        if badge
+        else ""
+    )
+    icone_html = (
+        f'<span style="font-size:24px;line-height:1;">{Validadores.html_escape(icon_final)}</span>'
+        if icon_final
+        else ""
+    )
     sub_html = (
-        f'<div style="font-family:var(--font-texto); font-size:13px; color:{COR_TEXTO_3}; margin-top:3px;">{escape(subtitulo)}</div>'
+        f'<p class="section-subtitle">{Validadores.html_escape(subtitulo)}</p>'
         if subtitulo
         else ""
     )
 
-    html = f"""
-<div style="margin-top:2.2rem; margin-bottom:1.4rem;">
-<div style="display:flex; align-items:center; flex-wrap:wrap;">
-<h2 style="font-family:var(--font-titulo); font-size:20px; font-weight:800; color:{COR_PRIMARIA}; margin:0; display:flex; align-items:center;">
-{icon_html}{escape(titulo)}
-</h2>
-{badge_html}
-</div>
-{sub_html}
-<div style="height:3px; width:40px; background:{cor_accent}; border-radius:2px; margin-top:8px;"></div>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
+    markup = f"""
+    <div class="section-header">
+        <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                {icone_html}
+                <h2 class="section-title">{Validadores.html_escape(titulo_final)}</h2>
+                {badge_html}
+            </div>
+            {sub_html}
+        </div>
+    </div>
+    """
+    _safe_render_html(markup)
 
 
-# ====================================================
-# TABELAS HTML CORPORATIVAS
-# ====================================================
+# =============================================================================
+# COMPONENTES KPI E MÉTRICAS PREMIUM
+# =============================================================================
+def render_kpi(
+    col: Any,
+    label: str,
+    valor: str,
+    sub: str = "",
+    tema: TemaKPIType = "azul",
+    icone: str = "",
+) -> None:
+    """Card KPI Premium com ícone em destaque e soft shadows."""
+    cor_hex = Validadores.resolver_cor_tema(tema)
+
+    # Criar um background super suave para o ícone baseado na cor do tema
+    # (Usando truque de opacity em rgba ou similar. Vamos usar o hex convertendo pra opacity)
+    # Como não temos uma função nativa de conversão HEX->RGB aqui, usaremos opacity na tag.
+
+    icone_html = ""
+    if icone:
+        icone_html = (
+            f'<div class="kpi-icon-wrapper" style="background-color:{cor_hex}15; color:{cor_hex};">'
+            f'<span style="font-size:20px; line-height:1;">{Validadores.html_escape(icone)}</span>'
+            f"</div>"
+        )
+
+    sub_html = (
+        f'<div class="kpi-sub-premium">{Validadores.html_escape(sub)}</div>'
+        if sub
+        else ""
+    )
+
+    markup = f"""
+    <div class="card-premium">
+        <div class="card-accent-top" style="background-color:{cor_hex};"></div>
+        <div class="card-header-flex">
+            <div class="kpi-label-premium">{Validadores.html_escape(label)}</div>
+            {icone_html}
+        </div>
+        <div>
+            <div class="kpi-value-premium">{Validadores.html_escape(valor)}</div>
+            {sub_html}
+        </div>
+    </div>
+    """
+    _safe_render_html(markup, col)
+
+
+def render_metric_card(
+    col: Any,
+    label: str,
+    valor: str,
+    trend: TipoTrendType = "none",
+    trend_valor: str = "",
+    sub: str = "",
+) -> None:
+    """Card de Métrica com badge de tendência (pill) visualmente polido."""
+
+    trend_icone = ConfigCores.TREND_ICONS.get(trend, "")
+    trend_classe = f"trend-{trend}" if trend in ("up", "down", "neutral") else ""
+
+    trend_html = ""
+    if trend != "none" and trend_valor:
+        trend_html = (
+            f'<span class="trend-pill {trend_classe}">'
+            f"<span>{trend_icone}</span> {Validadores.html_escape(trend_valor)}"
+            f"</span>"
+        )
+
+    sub_html = ""
+    if sub or trend_html:
+        sub_text = (
+            f'<span style="margin-left:6px;">{Validadores.html_escape(sub)}</span>'
+            if sub
+            else ""
+        )
+        sub_html = f'<div class="kpi-sub-premium">{trend_html}{sub_text}</div>'
+
+    markup = f"""
+    <div class="card-premium">
+        <div class="kpi-label-premium" style="margin-bottom:12px;">{Validadores.html_escape(label)}</div>
+        <div>
+            <div class="kpi-value-premium">{Validadores.html_escape(valor)}</div>
+            {sub_html}
+        </div>
+    </div>
+    """
+    _safe_render_html(markup, col)
+
+
+def render_kpi_sm(
+    container: Any,
+    label: str,
+    valor: str,
+    sub: str = "",
+    tema: TemaKPIType = "azul",
+    icone: str = "",
+) -> None:
+    cor = _resolver_cor_tema(tema)
+    container.markdown(
+        f"""
+        <div style="background:white;border-radius:6px;padding:12px 16px;
+             border-left:3px solid {cor};margin-bottom:8px;
+             box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-family:{Cores.TEXTO};font-size:10px;
+                 color:{Cores.TEXTO_3};text-transform:uppercase;
+                 letter-spacing:1px;font-weight:700;">{label}</div>
+            <div style="font-family:{Fontes.TITULO};font-size:20px;
+                 color:{cor};font-weight:800;line-height:1.2;
+                 margin-top:4px;font-variant-numeric:tabular-nums;">{valor}</div>
+            <div style="font-family:{Fontes.TEXTO};font-size:11px;
+                 color:{Cores.TEXTO_3};margin-top:2px;">{sub}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_insight(msg: str, tipo: TipoInsightType = "info") -> None:
+    if not msg:
+        return
+    bg, texto, borda, icone = ConfigCores.INSIGHT.get(tipo, ConfigCores.INSIGHT["info"])
+    msg_html = Formatadores.markdown_para_html(msg)
+    markup = f'<div style="background:{bg};color:{texto};border-left:4px solid {borda};padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;"><span style="margin-right:8px;">{icone}</span>{msg_html}</div>'
+    _safe_render_html(markup)
+
+
+def render_empty_state(
+    tipo: TipoEmptyStateType = "padrao",
+    titulo: str = "",
+    descricao: str = "",
+    acao: str = "",
+    icone: str = "",
+) -> None:
+    _, _, icone_default, titulo_default = ConfigCores.EMPTY_STATE.get(
+        tipo, ConfigCores.EMPTY_STATE["padrao"]
+    )
+    desc_html = (
+        f'<p class="empty-state-desc">{Validadores.html_escape(descricao)}</p>'
+        if descricao
+        else ""
+    )
+    acao_html = (
+        f'<p style="margin:12px 0 0 0;font-size:13px;color:{Cores.SECUNDARIA};font-weight:600;">{Validadores.html_escape(acao)}</p>'
+        if acao
+        else ""
+    )
+
+    markup = f"""
+    <div class="empty-state">
+        <span class="empty-state-icon">{Validadores.html_escape(icone or icone_default)}</span>
+        <h3 class="empty-state-title">{Validadores.html_escape(titulo or titulo_default)}</h3>
+        {desc_html}
+        {acao_html}
+    </div>
+    """
+    _safe_render_html(markup)
+
+
+def render_progress_bar(
+    valor: float,
+    maximo: float = 100.0,
+    label: str = "",
+    mostrar_valor: bool = True,
+    tema: TipoProgressBarType = "azul",
+    altura: str = "medio",
+    unidade: str = "%",
+) -> None:
+    altura_px = {"pequeno": "6px", "medio": "10px", "grande": "14px"}.get(
+        altura, "10px"
+    )
+    porcentagem = min(100.0, max(0.0, (valor / maximo) * 100)) if maximo > 0 else 0.0
+    bg_style = (
+        f"linear-gradient(90deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA})"
+        if tema == "gradiente"
+        else ConfigCores.PROGRESS_BAR.get(tema, Cores.PRIMARIA)
+    )
+
+    label_html = (
+        f'<div class="progress-bar-label"><span>{Validadores.html_escape(label)}</span>{f"<span style=font-weight:700;color:{Cores.TEXTO};>{porcentagem:.1f}{unidade}</span>" if mostrar_valor else ""}</div>'
+        if label or mostrar_valor
+        else ""
+    )
+    markup = f'{label_html}<div class="progress-bar-container" style="height:{altura_px};"><div class="progress-bar-fill" style="width:{porcentagem}%;height:{altura_px};background:{bg_style};"></div></div>'
+    _safe_render_html(markup)
+
+
+# =============================================================================
+# TABELA HTML PREMIUM
+# =============================================================================
 def render_table_html(
     df: pd.DataFrame,
     titulo: str = "",
-    icone: str = "📊",
+    colunas: Sequence[str] | None = None,
+    alinhamentos: dict[str, Literal["left", "center", "right"]] | None = None,
+    striped: bool = True,
     max_rows: int = 100,
-    height: int = 420,
     fmt: FmtDict | None = None,
-    color_rules: ColorMapDict | None = None,
-    num_cols: List[str] | None = None,
-    max_cols: int = 20,
-    linha_total: bool = False,
-    condicao_cores: CondicaoCoresConfig | None = None,
-    destaque_col: Dict[str, Any] | None = None,
-    condicoes_colunas: Dict[str, Any] | None = None,
-    linha_destaque: Dict[str, Any] | None = None,
-    hide_index: bool = True,
-    **kwargs: Any,
-) -> None:
-    max_rows = max(1, int(max_rows))
-    max_cols = max(1, int(max_cols))
-    height = max(120, int(height))
-
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        render_empty_state(
-            "Sem dados na tabela", "Ajuste os filtros para exibir dados."
-        )
-        return
-
-    cols = list(df.columns[:max_cols])
-    df_show = df.loc[:, cols].head(max_rows).copy()
-
-    # Sanitização contra erros de serialização de tipos complexos (list, set, tuple, dict)
-    for col_name in df_show.columns:
-        if df_show[col_name].dtype == "object":
-            df_show[col_name] = df_show[col_name].apply(
-                lambda x: (
-                    ", ".join(sorted(map(str, x)))
-                    if isinstance(x, (list, set, tuple))
-                    else (str(x) if isinstance(x, dict) else x)
-                )
-            )
-
-    if titulo:
-        st.markdown(
-            f'<div style="font-family:var(--font-titulo); font-weight:700; font-size:15px; color:{COR_PRIMARIA}; margin-bottom:8px;">{icone} {escape(titulo)}</div>',
-            unsafe_allow_html=True,
-        )
-
-    num_set = set(
-        num_cols or [c for c in _detectar_colunas_numericas(df_show) if c in cols]
-    )
-    df_show = df_show.fillna("—")
-
-    display = pd.DataFrame(index=df_show.index)
-    for c in cols:
-        s = df_show[c]
-        if fmt and c in fmt and fmt[c] is not None:
-            f = fmt[c]
-            if callable(f):
-                display[c] = s.map(lambda v, _f=f: _f(v) if v != "—" else "—")
-            elif isinstance(f, str):
-                display[c] = s.map(lambda v, _f=f: _f.format(v) if v != "—" else "—")
-        else:
-            display[c] = s.astype(str)
-
-    html_rows = []
-    destaque_coluna_alvo = linha_destaque.get("coluna") if linha_destaque else None
-    destaque_valor_alvo = (
-        str(linha_destaque.get("valor")).upper() if linha_destaque else None
-    )
-
-    for _, row in display.iterrows():
-        cells = []
-        is_linha_destaque = (
-            destaque_coluna_alvo
-            and str(row.get(destaque_coluna_alvo, "")).upper() == destaque_valor_alvo
-        )
-
-        for c in cols:
-            val_raw = row[c]
-            val = escape(str(val_raw)) if val_raw != "—" else "—"
-            style_parts = []
-
-            if is_linha_destaque:
-                if c == destaque_coluna_alvo:
-                    style_parts.append(
-                        f"background:linear-gradient(90deg,{COR_PRIMARIA} 0%,#1E40AF 100%);color:white;font-weight:800;text-align:left;padding-left:16px;"
-                    )
-                else:
-                    style_parts.append(
-                        "background-color:#F8FAFC;font-weight:700;text-align:left;padding-left:16px;border-right:2px solid #E2E8F0;"
-                    )
-
-            elif destaque_col and c == destaque_col.get("coluna"):
-                if val_raw != "—":
-                    bg_col = destaque_col.get("bg", "#1E293B")
-                    txt_col = destaque_col.get("text", "#FFFFFF")
-                    b_weight = "800" if destaque_col.get("bold", True) else "500"
-                    style_parts.append(
-                        f"background-color:{bg_col};color:{txt_col};font-weight:{b_weight};"
-                    )
-
-            elif condicao_cores and c == condicao_cores.get("coluna"):
-                v = _safe_float(val_raw)
-                meta = condicao_cores.get("meta", 0.20)
-                if v > meta:
-                    cfg = condicao_cores.get("acima_meta", {})
-                    style_parts.append(
-                        f"background-color:{cfg.get('bg', '#FEE2E2')};color:{cfg.get('text', '#991B1B')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                    )
-                elif v > meta * 0.85:
-                    cfg = condicao_cores.get("perto_meta", {})
-                    style_parts.append(
-                        f"background-color:{cfg.get('bg', '#FEF9C3')};color:{cfg.get('text', '#854D0E')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                    )
-                else:
-                    cfg = condicao_cores.get("abaixo_meta", {})
-                    style_parts.append(
-                        f"background-color:{cfg.get('bg', '#DCFCE7')};color:{cfg.get('text', '#166534')};font-weight:{'800' if cfg.get('bold', True) else '500'};"
-                    )
-
-            elif condicoes_colunas and c in condicoes_colunas:
-                v = _safe_float(val_raw)
-                cfg = condicoes_colunas[c]
-                meta = cfg.get("meta", 0.20)
-                if v > meta:
-                    acima = cfg.get("acima_meta", {})
-                    style_parts.append(
-                        f"background-color:{acima.get('bg', '#FEE2E2')};color:{acima.get('text', '#991B1B')};font-weight:{'800' if acima.get('bold', True) else '500'};text-align:center;"
-                    )
-                else:
-                    abaixo = cfg.get("abaixo_meta", {})
-                    style_parts.append(
-                        f"background-color:{abaixo.get('bg', '#D1FAE5')};color:{abaixo.get('text', '#065F46')};font-weight:{'800' if abaixo.get('bold', True) else '500'};text-align:center;"
-                    )
-
-            elif color_rules and c in color_rules:
-                for rule, color in color_rules[c]:
-                    if rule(val_raw):
-                        style_parts.append(f"color:{color};font-weight:600;")
-                        break
-
-            if c in num_set and val_raw != "—" and not is_linha_destaque:
-                style_parts.append(
-                    "text-align:right;font-variant-numeric:tabular-nums;"
-                )
-
-            style = "".join(style_parts)
-            cells.append(f'<td style="{style}">{val}</td>')
-
-        html_rows.append(f"<tr>{''.join(cells)}</tr>")
-
-    if linha_total and not df_show.empty:
-        total_cells = []
-        for c in cols:
-            if c in num_set:
-                try:
-                    total = df_show[c].map(_safe_float).sum()
-                    total_cells.append(f'<td class="num">{_fmt_br(total)}</td>')
-                except (TypeError, ValueError):
-                    total_cells.append("<td>—</td>")
-            else:
-                total_cells.append("<td><strong>TOTAL</strong></td>")
-        html_rows.append(f'<tr class="total-row">{"".join(total_cells)}</tr>')
-
-    headers_html = "".join(f"<th>{escape(c)}</th>" for c in cols)
-
-    html = f"""
-<div class="corp-table-wrap" style="max-height:{height}px; overflow-y:auto;">
-<table class="corp-table">
-<thead><tr>{headers_html}</tr></thead>
-<tbody>{"".join(html_rows)}</tbody>
-</table>
-</div>
-"""
-    st.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
-# ====================================================
-# DATAFRAME / UTILITÁRIOS DE UI
-# ====================================================
-def render_dataframe(
-    df: pd.DataFrame,
-    *,
-    height: int = 420,
-    use_container_width: bool = True,
-    hide_index: bool = True,
-    key: str | None = None,
-    **kwargs: Any,
-) -> None:
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        render_empty_state("Sem dados", "Não há registros para exibir.")
-        return
-
-    # Sanitiza o DataFrame para evitar qualquer erro de serialização do PyArrow antes da renderização padrão
-    df_clean = df.copy()
-    for col_name in df_clean.columns:
-        if df_clean[col_name].dtype == "object":
-            df_clean[col_name] = df_clean[col_name].apply(
-                lambda x: (
-                    ", ".join(sorted(map(str, x)))
-                    if isinstance(x, (list, set, tuple))
-                    else (str(x) if isinstance(x, dict) else x)
-                )
-            )
-
-    st.dataframe(
-        df_clean,
-        height=height,
-        use_container_width=use_container_width,
-        hide_index=hide_index,
-        key=key,
-        **kwargs,
-    )
-
-
-def validar_dataframe(
-    df: Any,
-    colunas_obrigatorias: List[str] | None = None,
-) -> Tuple[bool, str]:
-    if not isinstance(df, pd.DataFrame):
-        return False, "O objeto informado não é um pandas.DataFrame."
-
-    if df.empty:
-        return False, "O DataFrame está vazio."
-
-    faltantes = [c for c in (colunas_obrigatorias or []) if c not in df.columns]
-    if faltantes:
-        return False, f"Colunas obrigatórias ausentes: {', '.join(faltantes)}."
-
-    return True, ""
-
-
-def formatar_numero_br(valor: Any, casas: int = 1) -> str:
-    return _fmt_br(_safe_float(valor), casas)
-
-
-# ====================================================
-# COMPONENTES DE SIDEBAR (BRAND, HEADERS & STATUS)
-# ====================================================
-def aplicar_sidebar_corp(
-    logo_url: str = "",
-    nome_empresa: str = "TOTALE",
-    subtitulo: str = "Inteligência Corporativa",
-    versao: str = "",
-    ambiente: Literal["produção", "homologação", "desenvolvimento"] = "produção",
+    color_rules: dict[str, Any] | None = None,
+    colunas_num: Sequence[str] | None = None,
+    height: int | None = 400,  # Adicionado height padrão para ativar o sticky header
     mostrar_data: bool = True,
-    divider: bool = True,
 ) -> None:
-    amb_map = {
-        "produção": ("sb-badge-prod", "PROD"),
-        "homologação": ("sb-badge-homo", "HOMO"),
-        "desenvolvimento": ("sb-badge-dev", "DEV"),
-    }
-    amb_cls, amb_txt = amb_map.get(ambiente, amb_map["produção"])
+    """Renderiza uma tabela premium (SaaS UI) com Sticky Headers."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        render_empty_state(tipo="dados", descricao="Nenhum dado disponível na tabela.")
+        return
 
-    badges_html = f'<span class="sb-badge {amb_cls}">{amb_txt}</span>'
-    if versao:
-        badges_html += f'<span class="sb-badge sb-badge-versao">{escape(versao)}</span>'
+    df_display = df[colunas].copy() if colunas else df.copy()
+    if len(df_display) > max_rows:
+        df_display = df_display.head(max_rows)
 
-    logo_html = (
-        f'<img class="sb-corp-logo-img" src="{escape(logo_url)}" alt="logo">'
-        if logo_url
-        else '<span class="sb-corp-logo-icon"><span class="material-symbols-rounded">dashboard</span></span>'
-    )
+    alinhamentos = dict(alinhamentos or {})
+    if colunas_num:
+        for c in colunas_num:
+            alinhamentos[c] = "right"
 
-    data_html = ""
-    if mostrar_data:
-        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        data_html = f'<div class="sb-corp-data"><span class="material-symbols-rounded" style="font-size:12px; vertical-align:middle; margin-right:3px;">schedule</span>{agora.strftime("%d/%m/%Y · %H:%M")}</div>'
+    # Montar o Header (<th>)
+    th_parts = []
+    for col in df_display.columns:
+        align = alinhamentos.get(col, "left")
+        th_parts.append(
+            f'<th style="text-align:{align};">{Validadores.html_escape(str(col))}</th>'
+        )
+    th_html = "".join(th_parts)
 
-    divider_html = '<hr class="sb-corp-divider">' if divider else ""
+    # Montar o Corpo (<tr> e <td>)
+    tr_parts = []
+    for i, (_, row) in enumerate(df_display.iterrows()):
+        td_parts = []
+        for col in df_display.columns:
+            val = row[col]
+            align = alinhamentos.get(col, "left")
 
-    html = f"""
-<div class="sb-corp-header">
-<div class="sb-corp-logo-row">
-{logo_html}
-<div>
-<div class="sb-corp-nome">{escape(nome_empresa)}</div>
-<div class="sb-corp-sub">{escape(subtitulo)}</div>
-</div>
-</div>
-<div class="sb-corp-badges">{badges_html}</div>
-{data_html}
-</div>
-{divider_html}
-"""
-    st.sidebar.markdown(_limpar_html(html), unsafe_allow_html=True)
+            # Formatação Customizada
+            if fmt and col in fmt and fmt[col] is not None:
+                formatter = fmt[col]
+                if isinstance(formatter, str):
+                    try:
+                        val = formatter.format(val)
+                    except:
+                        pass
+                elif callable(formatter):
+                    try:
+                        val = formatter(val)
+                    except:
+                        pass
 
+            val_str = Validadores.html_escape(str(val) if pd.notna(val) else "-")
 
-def render_sidebar_status(
-    status: TipoStatus = "ativo",
-    label: str = "Sistema",
-    descricao: str = "",
-    tag_customizada: str = "",
-    ultima_atualizacao: str | datetime | None = None,
-    dados: Dict[str, str] | None = None,
-    compacto: bool = False,
-) -> None:
-    tag_cfg: Dict[str, Tuple[str, str, str]] = {
-        "ativo": ("#ECFDF5", "#065F46", "Online"),
-        "inativo": ("#F8FAFC", "#475569", "Offline"),
-        "pendente": ("#FFFBEB", "#92400E", "Pendente"),
-        "sucesso": ("#ECFDF5", "#065F46", "OK"),
-        "erro": ("#FEF2F2", "#991B1B", "Erro"),
-    }
-    status = status if status in tag_cfg else "inativo"
-    tag_bg, tag_fg, tag_txt_padrao = tag_cfg[status]
-    tag_txt = (
-        escape(tag_customizada.strip()) if tag_customizada.strip() else tag_txt_padrao
-    )
+            # Regras de Cor (Transforma em badges na tabela)
+            estilo_extra = ""
+            if color_rules and col in color_rules:
+                regras = color_rules[col]
+                if isinstance(regras, dict):
+                    classe_cor = regras.get(str(row[col]), "")
+                    # Mapeia classes simples para design de badge
+                    if classe_cor == "positive" or classe_cor == "sucesso":
+                        val_str = f'<span class="td-badge" style="background:#ECFDF5;color:#059669;">{val_str}</span>'
+                    elif classe_cor == "negative" or classe_cor == "alerta":
+                        val_str = f'<span class="td-badge" style="background:#FEF2F2;color:#DC2626;">{val_str}</span>'
+                    elif classe_cor == "neutral" or classe_cor == "info":
+                        val_str = f'<span class="td-badge" style="background:#F0F9FF;color:#0284C7;">{val_str}</span>'
 
-    atualizacao_html = ""
-    if ultima_atualizacao is not None:
-        if isinstance(ultima_atualizacao, datetime):
-            ts = (
-                ultima_atualizacao
-                if ultima_atualizacao.tzinfo
-                else ultima_atualizacao.replace(tzinfo=ZoneInfo("America/Sao_Paulo"))
+            # Define fonte monoespaçada se alinhado à direita (assumindo que seja número)
+            font_style = (
+                "font-variant-numeric: tabular-nums; font-family: var(--font-codigo) !important; font-size: 12px;"
+                if align == "right"
+                else ""
             )
-            ts_str = ts.strftime("%d/%m %H:%M:%S")
-        else:
-            ts_str = str(ultima_atualizacao)
-        atualizacao_html = f'<div class="sb-status-atualizacao"><span class="material-symbols-rounded" style="font-size:11px;">update</span>Atualizado em {escape(ts_str)}</div>'
 
-    desc_html = (
-        f'<div class="sb-status-desc">{escape(descricao)}</div>'
-        if (descricao and not compacto)
+            td_parts.append(
+                f'<td style="text-align:{align}; {font_style}">{val_str}</td>'
+            )
+
+        classe_linha = ' class="striped"' if striped and i % 2 == 1 else ""
+        tr_parts.append(f'<tr{classe_linha}>{"".join(td_parts)}</tr>')
+
+    titulo_html = (
+        f'<div style="font-weight:800;font-size:16px;color:#0F172A;margin-bottom:12px;font-family:var(--font-titulo) !important;">{Validadores.html_escape(titulo)}</div>'
+        if titulo
+        else ""
+    )
+    data_html = (
+        f'<div style="font-size:11px;color:#94A3B8;margin-top:8px;text-align:right;font-weight:500;">Atualizado em: {datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M")}</div>'
+        if mostrar_data
         else ""
     )
 
-    meta_html = ""
-    if dados and not compacto:
-        rows = "".join(
-            f'<div class="sb-status-meta-row"><span class="sb-status-meta-key">{escape(k)}</span><span class="sb-status-meta-val">{escape(str(v))}</span></div>'
-            for k, v in dados.items()
-        )
-        meta_html = f'<div class="sb-status-meta">{rows}</div>'
+    height_style = f"max-height:{height}px;" if height else ""
 
-    cls_extra = " sb-status-card-compacto" if compacto else ""
-
-    html = f"""
-<div class="sb-status-card{cls_extra}">
-<div class="sb-status-row">
-<span class="sb-status-dot sb-status-dot-{status}"></span>
-<span class="sb-status-label">{escape(label)}</span>
-<span class="sb-status-tag" style="background:{tag_bg}; color:{tag_fg};">{tag_txt}</span>
-</div>
-{desc_html}
-{meta_html}
-{atualizacao_html}
-</div>
-"""
-    st.sidebar.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
-def render_sidebar_brand(
-    titulo: str = "TOTALE",
-    subtitulo: str = "Inteligência Corporativa",
-    logo: str = "",
-    tema: TipoTemaBrand = "gradiente",
-    ambiente: TipoAmbiente | None = "produção",
-    versao: str = "",
-    badge_custom: str = "",
-    link_url: str = "",
-    mostrar_data: bool = False,
-    divider: bool = True,
-    compacto: bool = False,
-) -> None:
-    amb_map: Dict[str, Tuple[str, str, str]] = {
-        "produção": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
-        "producao": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
-        "prod": ("#059669", "rgba(5,150,105,0.18)", "PROD"),
-        "homologação": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
-        "homologacao": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
-        "homo": ("#D97706", "rgba(245,158,11,0.18)", "HOMO"),
-        "desenvolvimento": ("#7C3AED", "rgba(139,92,246,0.18)", "DEV"),
-        "dev": ("#7C3AED", "rgba(139,92,246,0.18)", "DEV"),
-    }
-
-    logo_is_url = (
-        bool(re.match(r"^(https?://|data:image/|/|\./)", logo.strip().lower()))
-        if logo
-        else False
-    )
-
-    logo_img_cls = "sb-brand-logo-img" + (
-        " sb-brand-logo-img-compact" if compacto else ""
-    )
-    logo_icon_cls = "sb-brand-logo-icon" + (
-        " sb-brand-logo-icon-compact" if compacto else ""
-    )
-    title_cls = "sb-brand-title" + (" sb-brand-title-compact" if compacto else "")
-    sub_cls = "sb-brand-sub" + (" sb-brand-sub-compact" if compacto else "")
-    badges_cls = "sb-brand-badges-row" + (
-        " sb-brand-badges-row-compact" if compacto else ""
-    )
-    wrapper_cls = "sb-brand-wrapper" + (" sb-brand-wrapper-compact" if compacto else "")
-    card_cls = f"sb-brand-card-{tema}" + (
-        f" sb-brand-card-{tema}-compact" if compacto else ""
-    )
-    header_cls = "sb-brand-header" + (" sb-brand-header-compact" if compacto else "")
-    divider_cls = "sb-brand-divider" + (" sb-brand-divider-compact" if compacto else "")
-
-    if logo and logo_is_url:
-        logo_html = f'<img src="{escape(logo)}" class="{logo_img_cls}" alt="logo" />'
-    else:
-        icone_nome = logo if logo else "token"
-        logo_html = f'<div class="{logo_icon_cls}"><span class="material-symbols-rounded">{escape(icone_nome)}</span></div>'
-
-    badges_parts: List[str] = []
-    if ambiente:
-        amb_key = str(ambiente).strip().lower()
-        cor_txt, cor_bg, label_amb = amb_map.get(
-            amb_key, ("#059669", "rgba(5,150,105,0.18)", "PROD")
-        )
-        badges_parts.append(
-            f'<span class="sb-brand-badge" style="background:{cor_bg}; color:{cor_txt}; border-color:{cor_txt}40;">{label_amb}</span>'
-        )
-
-    if versao:
-        badges_parts.append(
-            f'<span class="sb-brand-badge sb-brand-badge-version">{escape(versao)}</span>'
-        )
-
-    if badge_custom:
-        badges_parts.append(
-            f'<span class="sb-brand-badge sb-brand-badge-custom">{escape(badge_custom)}</span>'
-        )
-
-    badges_html = (
-        f'<div class="{badges_cls}">{"".join(badges_parts)}</div>'
-        if badges_parts
-        else ""
-    )
-
-    data_html = ""
-    if mostrar_data:
-        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
-        data_html = f'<div class="sb-brand-date"><span class="material-symbols-rounded">schedule</span> {agora.strftime("%d/%m/%Y · %H:%M")}</div>'
-
-    divider_html = f'<div class="{divider_cls}"></div>' if divider else ""
-    sub_html = f'<div class="{sub_cls}">{escape(subtitulo)}</div>' if subtitulo else ""
-
-    corpo_card = f'<div class="{header_cls}">{logo_html}<div><div class="{title_cls}">{escape(titulo)}</div>{sub_html}</div></div>{badges_html}{data_html}'
-
-    if link_url:
-        corpo_card = (
-            f'<a href="{escape(link_url)}" class="sb-brand-link">{corpo_card}</a>'
-        )
-
-    html = f'<div class="{wrapper_cls}"><div class="{card_cls}">{corpo_card}</div>{divider_html}</div>'
-
-    st.sidebar.markdown(_limpar_html(html), unsafe_allow_html=True)
-
-
-# ====================================================
-# EXPORTS DOS MÉTODOS PÚBLICOS DO DESIGN SYSTEM
-# ====================================================
-__all__ = [
-    "aplicar_estilo",
-    "inicializar_estado",
-    "estado_get",
-    "estado_set",
-    "limpar_estado",
-    "resetar_estado",
-    "render_hero_totale_1",
-    "render_hero_totale_2",
-    "render_hero_migracao",
-    "render_hero_pme",
-    "render_hero",
-    "render_kpi",
-    "render_kpi_sm",
-    "render_metric_delta",
-    "render_insight",
-    "render_empty_state",
-    "render_section_header",
-    "render_table_html",
-    "render_dataframe",
-    "validar_dataframe",
-    "formatar_numero_br",
-    "aplicar_sidebar_corp",
-    "render_sidebar_status",
-    "render_sidebar_brand",
-]
+    markup = f"""
+    <div style="margin: 24px 0;">
+        {titulo_html}
+        <div class="table-premium-wrapper">
+            <div class="table-premium-scroll" style="{height_style}">
+                <table class="totale-table-pro">
+                    <thead><tr>{th_html}</tr></thead>
+                    <tbody>{"".join(tr_parts)}</tbody>
+                </table>
+            </div>
+        </div>
+        {data_html}
+    </div>
+    """
+    _safe_render_html(markup)

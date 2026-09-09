@@ -22,7 +22,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime, time
 from io import BytesIO
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -344,7 +344,7 @@ def normalizar_texto(texto: str) -> str:
     return t
 
 
-def buscar_coluna(df: pd.DataFrame, palavras_chave: List[str]) -> Optional[str]:
+def buscar_coluna(df: pd.DataFrame, palavras_chave: list[str]) -> str | None:
     if df is None or df.empty:
         return None
     cols_norm = {normalizar_texto(c): c for c in df.columns}
@@ -356,7 +356,7 @@ def buscar_coluna(df: pd.DataFrame, palavras_chave: List[str]) -> Optional[str]:
     return None
 
 
-def buscar_coluna_exata(df: pd.DataFrame, nome: str) -> Optional[str]:
+def buscar_coluna_exata(df: pd.DataFrame, nome: str) -> str | None:
     if df is None or df.empty:
         return None
     nome_norm = normalizar_texto(nome)
@@ -413,6 +413,7 @@ def fmt_hora(t: time) -> str:
         return t
     try:
         import math
+
         import numpy as np
 
         if t is getattr(pd, "NaT", None):
@@ -512,8 +513,8 @@ def carregar_lista_ativos() -> pd.DataFrame:
 def aplicar_merge_ativos(
     df: pd.DataFrame,
     df_ativos: pd.DataFrame,
-    col_login: Optional[str],
-) -> Tuple[pd.DataFrame, dict]:
+    col_login: str | None,
+) -> tuple[pd.DataFrame, dict]:
     """Faz merge da base carregada com a lista_ativos."""
     diag = {
         "aplicado": False,
@@ -625,9 +626,9 @@ def classificar_pendentes(df: pd.DataFrame, col_status: str) -> pd.Series:
 
 def limpar_base(
     df: pd.DataFrame,
-    col_contrato: Optional[str],
-    col_status_atividade: Optional[str],
-) -> Tuple[pd.DataFrame, dict]:
+    col_contrato: str | None,
+    col_status_atividade: str | None,
+) -> tuple[pd.DataFrame, dict]:
     df_clean = df.copy()
     diag = {
         "total_inicial": len(df),
@@ -669,10 +670,10 @@ def limpar_base(
 # ═══════════════════════════════════════════════════════
 def calcular_primeiro_horario_tecnico(
     df: pd.DataFrame,
-    col_tecnico: Optional[str],
-    col_monitor: Optional[str],
-    col_status_atividade: Optional[str],
-    col_inicio: Optional[str],
+    col_tecnico: str | None,
+    col_monitor: str | None,
+    col_status_atividade: str | None,
+    col_inicio: str | None,
 ) -> pd.DataFrame:
     if not col_tecnico or col_tecnico not in df.columns:
         return pd.DataFrame()
@@ -765,9 +766,7 @@ def calcular_ranking_monitores(
     df_work = df_primeiro_horario.copy()
 
     df_work["_segundos"] = df_work["_datetime"].apply(
-        lambda dt: (
-            dt.hour * 3600 + dt.minute * 60 + dt.second if pd.notna(dt) else None
-        )
+        lambda dt: dt.hour * 3600 + dt.minute * 60 + dt.second if pd.notna(dt) else None
     )
 
     df_work = df_work[
@@ -1057,7 +1056,7 @@ def main() -> None:
         c3,
         "Executadas/Fechadas",
         fmt_int(executados),
-        sub=f"{100-pct_pend:.1f}% do total",
+        sub=f"{100 - pct_pend:.1f}% do total",
         cor="#012869",
         icone="✅",
     )

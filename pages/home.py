@@ -3,10 +3,11 @@
 # 📌 PÁGINA: Home - Portal TOTALE
 # =====================================
 
-import streamlit as st
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import streamlit as st
 
 # =====================================
 # 🔧 BLOCO 1: CONFIGURAÇÕES LOCAIS

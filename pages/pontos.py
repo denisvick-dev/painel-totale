@@ -1,29 +1,25 @@
-import streamlit as st
-import streamlit.components.v1 as components
+import calendar
+import datetime
+from io import BytesIO
+from typing import Any
+
+import numpy as np
 import pandas as pd
 import plotly.express as px
-from plotly.graph_objects import Figure
-import numpy as np
-import datetime
-import calendar
-from io import BytesIO
-from typing import Any, Optional
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+import streamlit as st
+import streamlit.components.v1 as components
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from plotly.graph_objects import Figure
 
 from components.componentes import (
+    Cores,
+    Fontes,
     aplicar_estilo,
-    render_hero,
-    render_kpi,
-    render_insight,
-    render_section_header,
-    render_table_html,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    COR_TEXTO_3,
-    COR_PRIMARIA,
-    COR_BORDA,
     render_hero_totale_2,
+    render_insight,
+    render_kpi,
+    render_section_header,
 )
 
 st.set_page_config(
@@ -34,46 +30,82 @@ st.set_page_config(
 
 aplicar_estilo()
 
-# CSS extra só desta página (header azul + classes de meta)
+# CSS extra só desta página (header azul + classes de meta + redução de fontes e scrollbar)
 st.markdown(
     """
     <style>
+    /* --- BARRA DE ROLAGEM CUSTOMIZADA --- */
+    .corp-table-wrap::-webkit-scrollbar {
+        width: 6px !important;
+        height: 6px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-track {
+        background: #F1F5F9 !important;
+        border-radius: 4px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb {
+        background: #CBD5E1 !important;
+        border-radius: 4px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb:hover {
+        background: #94A3B8 !important;
+    }
+
+    /* --- TABELA COMPACTA (FONTES E PADDING REDUZIDOS) --- */
+    .corp-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 11px !important; /* Fonte geral reduzida */
+    }
+    .corp-table th, .corp-table td {
+        padding: 5px 8px !important; /* Padding reduzido para compactação */
+        font-size: 11px !important;
+        line-height: 1.2 !important;
+    }
     .corp-table thead th {
         background: linear-gradient(180deg, #012869 0%, #1E3A8A 100%) !important;
         color: #FFFFFF !important;
         text-transform: uppercase !important;
         letter-spacing: 0.04em !important;
-        font-size: 11px !important;
+        font-size: 10px !important; /* Cabeçalho ligeiramente menor */
         border-right: 1px solid rgba(255,255,255,0.12) !important;
+        padding: 6px 8px !important;
     }
     .corp-table td.meta-alta {
         background: #1E3A8A !important; color: #FFFFFF !important;
         font-weight: 800 !important; text-align: center !important;
         border-left: 3px solid #0F172A !important;
+        font-size: 11px !important;
     }
     .corp-table td.meta-ok {
         background: #DCFCE7 !important; color: #166534 !important;
         font-weight: 700 !important; text-align: center !important;
         border-left: 3px solid #22C55E !important;
+        font-size: 11px !important;
     }
     .corp-table td.meta-prox {
         background: #FEF9C3 !important; color: #854D0E !important;
         font-weight: 700 !important; text-align: center !important;
         border-left: 3px solid #EAB308 !important;
+        font-size: 11px !important;
     }
     .corp-table td.meta-baixa {
         font-weight: 700 !important; text-align: center !important;
         border-left: 3px solid #EF4444 !important;
+        font-size: 11px !important;
     }
     .corp-table td.proj {
         background: #0F172A !important; color: #FFFFFF !important;
         font-weight: 800 !important; text-align: center !important;
         border-left: 3px solid #64748B !important;
+        font-size: 11px !important;
     }
+    
+    /* Header do card compactado */
     .rank-card-header {
         background: #FFFFFF;
         border-radius: 12px 12px 0 0;
-        padding: 14px 20px;
+        padding: 10px 16px;
         border: 1px solid #E2E8F0;
         border-bottom: none;
         display: flex;
@@ -112,7 +144,7 @@ class ComponenteVisual:
                 f'<span class="ticker-label">{item.get("label", "")}:</span>'
                 f'<span class="ticker-valor">{item.get("valor", "")}</span>'
                 f'<span class="ticker-delta" style="color:{cor};">'
-                f'{simbolo} {item.get("delta", "")}</span>'
+                f"{simbolo} {item.get('delta', '')}</span>"
                 f"</span>"
                 f'<span class="ticker-sep">|</span>'
             )
@@ -279,9 +311,9 @@ class ComponenteVisual:
             <div class="rank-card-header">
                 <span style="font-size:1.4rem;">{icone}</span>
                 <div style="flex:1;">
-                    <div style="font-family:{FONTE_TITULO};font-size:0.95rem;
+                    <div style="font-family:{Fontes.TITULO};font-size:0.95rem;
                          font-weight:800;color:#0F172A;">{titulo}</div>
-                    <div style="font-family:{FONTE_TEXTO};font-size:0.72rem;color:#64748B;
+                    <div style="font-family:{Fontes.TEXTO};font-size:0.72rem;color:#64748B;
                          text-transform:uppercase;letter-spacing:0.05em;
                          font-weight:600;margin-top:2px;">{modo_txt}</div>
                 </div>
@@ -344,7 +376,7 @@ class ComponenteVisual:
         height: int = 450,
         max_rows: int = 300,
     ) -> None:
-        """HTML corporativo com classes CSS de meta/projeção."""
+        """HTML corporativo com classes CSS de meta/projeção e scrollbar custom."""
         df_show = df.head(max_rows).copy()
         cols = list(df_show.columns)
         fmt = fmt or {}
@@ -365,18 +397,12 @@ class ComponenteVisual:
 
         def _cls(val: Any, col: str) -> str:
             classes = []
-            # numéricas
             if col in ("Pontos", "Proj. Fechamento") or "Meta" in str(col):
                 classes.append("num")
             if col == "Pontos":
                 classes.append(ComponenteVisual._classe_meta(val))
             if col == "Proj. Fechamento":
                 classes.append("proj")
-            # metas diárias/mensais também coloridas pelo valor
-            if "Meta" in str(col):
-                # valor da meta é gap (pontos - meta); colorir pelo gap residual é confuso
-                # então só alinha à direita
-                pass
             return " ".join(classes)
 
         header = "".join(f"<th>{c}</th>" for c in cols)
@@ -400,11 +426,11 @@ class ComponenteVisual:
         <div style="background:#FFFFFF;border-radius:0 0 12px 12px;
              border:1px solid #E2E8F0;border-top:none;overflow:hidden;
              box-shadow:0 4px 12px rgba(0,0,0,0.05);margin-bottom:16px;">
-          <div class="corp-table-wrap" style="max-height:{int(height)}px;border:none;
+          <div class="corp-table-wrap" style="max-height:{int(height)}px; overflow-y:auto; overflow-x:auto; border:none;
                border-radius:0;box-shadow:none;margin:0;">
             <table class="corp-table">
               <thead><tr>{header}</tr></thead>
-              <tbody>{''.join(rows)}</tbody>
+              <tbody>{"".join(rows)}</tbody>
             </table>
           </div>
         </div>
@@ -429,7 +455,7 @@ def _safe_float(v: Any) -> float:
 # ====================================================
 class Utilitarios:
     @staticmethod
-    def encontrar_coluna_data(df: pd.DataFrame) -> Optional[str]:
+    def encontrar_coluna_data(df: pd.DataFrame) -> str | None:
         for c in [
             "Data Agendamento",
             "Data Conclusão",
@@ -625,22 +651,20 @@ class Utilitarios:
 # ====================================================
 # BLOCO 4: PROCESSAMENTO
 # ====================================================
-# ====================================================
-# BLOCO 4: PROCESSAMENTO (CORRIGIDO)
-# ====================================================
 class ProcessamentoDados:
     @staticmethod
     def calcular_rankings(
         df: pd.DataFrame, dias_brutos: int, dias_seguros: int, dias_passados: int
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         base = (
-            df.groupby(["CódAuxEquipe", "Nome Equipe", "Supervisor", "Projeto"])["Pontos"]
+            df.groupby(["CódAuxEquipe", "Nome Equipe", "Supervisor", "Projeto"])[
+                "Pontos"
+            ]
             .sum()
             .reset_index()
             .sort_values("Pontos", ascending=False)
         )
 
-        # Garantir tipo float numérico para evitar erros de tipo
         base["Pontos"] = pd.to_numeric(base["Pontos"], errors="coerce").fillna(0.0)
 
         if "Dias Trab Tecnico" in df.columns:
@@ -655,7 +679,6 @@ class ProcessamentoDados:
 
         dias_trab = dias_trab.replace(0.0, 1.0)
 
-        # Usar .div() em vez do operador '/'
         media_pts = base["Pontos"].div(dias_trab)
         projecao = base["Pontos"] + (media_pts * float(dias_brutos))
 
@@ -665,7 +688,6 @@ class ProcessamentoDados:
             for m in [300, 350, 375, 400]:
                 label = f"Meta Dia | {m}" if modo_dia else f"Meta | {m}"
                 if modo_dia:
-                    # Usar .div() explícito com float
                     r[label] = (r["Pontos"] - float(m)).div(float(dias_seguros))
                 else:
                     r[label] = r["Pontos"] - float(m)
@@ -694,13 +716,17 @@ class ProcessamentoDados:
             .agg(Qtd_Equipes=("Nome Equipe", "count"), Total_Pontos=("Pontos", "sum"))
             .reset_index()
         )
-        sup["Total_Pontos"] = pd.to_numeric(sup["Total_Pontos"], errors="coerce").fillna(0.0)
-        sup["Qtd_Equipes"] = pd.to_numeric(sup["Qtd_Equipes"], errors="coerce").fillna(1.0)
-        
-        # Divisão explícita via .div()
+        sup["Total_Pontos"] = pd.to_numeric(
+            sup["Total_Pontos"], errors="coerce"
+        ).fillna(0.0)
+        sup["Qtd_Equipes"] = pd.to_numeric(sup["Qtd_Equipes"], errors="coerce").fillna(
+            1.0
+        )
+
         sup["Media_por_Equipe"] = sup["Total_Pontos"].div(sup["Qtd_Equipes"])
         return sup.sort_values("Media_por_Equipe", ascending=True)
-    
+
+
 # ====================================================
 # BLOCO 5: GRÁFICOS
 # ====================================================
@@ -928,7 +954,7 @@ with aba_ranking:
     df_exibir = ranking_dia if por_dia else ranking
     modo_txt = "Meta Diária" if por_dia else "Meta Mensal"
 
-    # ✅ Fontes corporativas + cores preservadas
+    # Ranking compacto renderizado com o novo CSS ajustado
     ComponenteVisual.render_ranking_html(
         df_exibir,
         titulo=f"Performance por Equipe — {modo_txt}",
@@ -963,8 +989,8 @@ with aba_ranking:
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;
              padding:12px 16px;background:#F8FAFC;border-radius:8px;
              border:1px solid #E2E8F0;font-size:0.78rem;
-             font-family:{FONTE_TEXTO};">
-            <span style="font-weight:700;color:{COR_TEXTO_3};
+             font-family:{Fontes.TEXTO};">
+            <span style="font-weight:700;color:{Cores.TEXTO_3};
                  text-transform:uppercase;letter-spacing:0.05em;">🎨 Legenda:</span>
             <span style="background:#1E3A8A;color:white;padding:3px 10px;
                  border-radius:6px;font-weight:700;">🏆 400+ pts — Alta Performance</span>

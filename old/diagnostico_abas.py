@@ -1,14 +1,15 @@
 # debug_400.py — v2 com leitura robusta do secrets.toml
-import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-import pandas as pd
 import traceback
+
+import gspread
+import pandas as pd
+import streamlit as st
+from google.oauth2.service_account import Credentials
 
 st.title("🔬 Debug 400 — v2")
 
 SHEET_ID = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-ABA      = "lista_ativos"
+ABA = "lista_ativos"
 
 # ── Mostra TODAS as chaves disponíveis no secrets ─────────────────────────────
 st.subheader("🔑 Chaves encontradas no secrets.toml")
@@ -18,10 +19,19 @@ try:
     st.code("\n".join(chaves))
 
     # Verifica campos obrigatórios
-    obrigatorios = ["project_id","private_key_id","private_key",
-                    "client_id","token_uri"]
-    opcionais    = ["client_email","client_x509_cert_url",
-                    "auth_uri","auth_provider_x509_cert_url"]
+    obrigatorios = [
+        "project_id",
+        "private_key_id",
+        "private_key",
+        "client_id",
+        "token_uri",
+    ]
+    opcionais = [
+        "client_email",
+        "client_x509_cert_url",
+        "auth_uri",
+        "auth_provider_x509_cert_url",
+    ]
 
     faltando = [c for c in obrigatorios if c not in chaves]
     if faltando:
@@ -39,6 +49,7 @@ except Exception:
     st.code(traceback.format_exc())
     st.stop()
 
+
 # ── Monta client_email de forma robusta ───────────────────────────────────────
 def extrair_client_email(s: dict) -> str:
     """
@@ -55,7 +66,8 @@ def extrair_client_email(s: dict) -> str:
     # URL formato: .../x509/EMAIL_ENCODED
     if "client_x509_cert_url" in s:
         import urllib.parse
-        url   = s["client_x509_cert_url"]
+
+        url = s["client_x509_cert_url"]
         parte = url.split("/x509/")[-1]
         email = urllib.parse.unquote(parte)
         if "@" in email:
@@ -72,20 +84,22 @@ def get_client():
     client_email = extrair_client_email(dict(s))
 
     info = {
-        "type":                        "service_account",
-        "project_id":                  s["project_id"],
-        "private_key_id":              s["private_key_id"],
-        "private_key":                 s["private_key"],
-        "client_email":                client_email,
-        "client_id":                   s["client_id"],
-        "auth_uri":                    s.get("auth_uri","https://accounts.google.com/o/oauth2/auth"),
-        "token_uri":                   s.get("token_uri","https://oauth2.googleapis.com/token"),
-        "auth_provider_x509_cert_url": s.get("auth_provider_x509_cert_url","https://www.googleapis.com/oauth2/v1/certs"),
-        "client_x509_cert_url":        s.get("client_x509_cert_url",""),
+        "type": "service_account",
+        "project_id": s["project_id"],
+        "private_key_id": s["private_key_id"],
+        "private_key": s["private_key"],
+        "client_email": client_email,
+        "client_id": s["client_id"],
+        "auth_uri": s.get("auth_uri", "https://accounts.google.com/o/oauth2/auth"),
+        "token_uri": s.get("token_uri", "https://oauth2.googleapis.com/token"),
+        "auth_provider_x509_cert_url": s.get(
+            "auth_provider_x509_cert_url", "https://www.googleapis.com/oauth2/v1/certs"
+        ),
+        "client_x509_cert_url": s.get("client_x509_cert_url", ""),
     }
 
     st.expander("📋 Info de autenticação (sem private_key)").json(
-        {k:v for k,v in info.items() if k != "private_key"}
+        {k: v for k, v in info.items() if k != "private_key"}
     )
 
     creds = Credentials.from_service_account_info(
@@ -111,7 +125,7 @@ except Exception:
 # ── Passo 2: Abre a planilha ──────────────────────────────────────────────────
 st.subheader("Passo 2 — Abre planilha e lista abas")
 try:
-    sh   = gc.open_by_key(SHEET_ID)
+    sh = gc.open_by_key(SHEET_ID)
     abas = [ws.title for ws in sh.worksheets()]
     st.success(f"✅ Planilha aberta. Abas encontradas: {abas}")
 except Exception:
@@ -135,7 +149,7 @@ try:
         st.stop()
 
     cabecalho = dados[0]
-    linhas    = dados[1:]
+    linhas = dados[1:]
     df = pd.DataFrame(linhas, columns=cabecalho)
 
     st.success(f"✅ Leitura OK — {len(df)} linhas, colunas: {cabecalho}")
@@ -189,7 +203,7 @@ st.caption("Se este funcionar mas o Passo 4 falhar, o problema é volume de dado
 
 if st.button("🧪 Escrever só cabeçalho + 1 linha"):
     try:
-        payload_mini = [cabecalho, [""]*len(cabecalho)]
+        payload_mini = [cabecalho, [""] * len(cabecalho)]
         ws.clear()
         ws.update(payload_mini)
         st.success("✅ Escrita mínima OK!")

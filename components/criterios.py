@@ -27,7 +27,7 @@ ARQUITETURA:
 from __future__ import annotations
 
 import unicodedata
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple, cast
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -76,30 +76,30 @@ VALOR_FLAG_GPON_SIM: str = "SIM"
 TERMO_GPON_HABILIDADE: str = "PON(1/100)"
 TERMO_PME_HABILIDADE: str = "PME(1/100)"
 
-TERMOS_ND: Tuple[str, ...] = ("ADESAO",)
-TERMOS_PME: Tuple[str, ...] = (TERMO_PME_HABILIDADE,)
+TERMOS_ND: tuple[str, ...] = ("ADESAO",)
+TERMOS_PME: tuple[str, ...] = (TERMO_PME_HABILIDADE,)
 
-CANDS_TIPO_OS_1: List[str] = [
+CANDS_TIPO_OS_1: list[str] = [
     "TIPO O.S 1",
     "TIPO OS 1",
     "TIPO O.S. 1",
     "TIPO_OS_1",
     "TIPO_O_S_1",
 ]
-CANDS_FLAG_GPON: List[str] = [
+CANDS_FLAG_GPON: list[str] = [
     "FLAG_GPON",
     "FLAG GPON",
     "FLAGGPON",
     "IS_GPON",
 ]
-CANDS_CAPACIDADE: List[str] = [
+CANDS_CAPACIDADE: list[str] = [
     "CATEGORIAS DA CAPACIDADE",
     "CATEGORIA DA CAPACIDADE",
     "CATEGORIAS CAPACIDADE",
     "CATEGORIA CAPACIDADE",
     "CAPACIDADE",
 ]
-CANDS_HABILIDADE: List[str] = [
+CANDS_HABILIDADE: list[str] = [
     "HABILIDADE DE TRABALHO",
     "HABILIDADES DE TRABALHO",
     "HABILIDADE",
@@ -131,7 +131,7 @@ def norm_col_nome(nome: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # DETECÇÃO DE COLUNAS (COM CAST PARA SATISFAZER O PYLANCE)
 # ═══════════════════════════════════════════════════════════════════════
-def detectar_cols_tipo(df: pd.DataFrame) -> List[str]:
+def detectar_cols_tipo(df: pd.DataFrame) -> list[str]:
     return [
         str(c)
         for c in df.columns
@@ -140,7 +140,7 @@ def detectar_cols_tipo(df: pd.DataFrame) -> List[str]:
     ]
 
 
-def detectar_col_tipo_os_1(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_tipo_os_1(df: pd.DataFrame) -> str | None:
     cols_norm = {norm_col_nome(str(c)): str(c) for c in df.columns}
     for cand in CANDS_TIPO_OS_1:
         cn = norm_col_nome(cand)
@@ -153,7 +153,7 @@ def detectar_col_tipo_os_1(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def detectar_col_flag_gpon(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_flag_gpon(df: pd.DataFrame) -> str | None:
     cols_norm = {norm_col_nome(str(c)): str(c) for c in df.columns}
     for cand in CANDS_FLAG_GPON:
         cn = norm_col_nome(cand)
@@ -165,7 +165,7 @@ def detectar_col_flag_gpon(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def detectar_col_capacidade(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_capacidade(df: pd.DataFrame) -> str | None:
     cols_norm = {norm_col_nome(str(c)): str(c) for c in df.columns}
     for cand in CANDS_CAPACIDADE:
         cn = norm_col_nome(cand)
@@ -177,7 +177,7 @@ def detectar_col_capacidade(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def detectar_col_habilidade(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_habilidade(df: pd.DataFrame) -> str | None:
     for nome in [
         "HABILIDADE DE TRABALHO",
         "Habilidade de Trabalho",
@@ -213,7 +213,7 @@ def detectar_col_habilidade(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def detectar_col_status_atividade(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_status_atividade(df: pd.DataFrame) -> str | None:
     for nome in [
         "STATUS DA ATIVIDADE",
         "Status da Atividade",
@@ -240,7 +240,7 @@ def detectar_col_status_atividade(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def detectar_col_contrato(df: pd.DataFrame) -> Optional[str]:
+def detectar_col_contrato(df: pd.DataFrame) -> str | None:
     for nome in ["CONTRATO", "Contrato", "contrato"]:
         if nome in df.columns:
             return str(nome)
@@ -282,7 +282,7 @@ def criar_coluna_tipos_agrupados(df: pd.DataFrame) -> pd.DataFrame:
         )
         return df
 
-    def _agrupar(row: pd.Series) -> Tuple[str, FrozenSet[str]]:
+    def _agrupar(row: pd.Series) -> tuple[str, frozenset[str]]:
         raw, norm = set(), set()
         for col in cols_tipo:
             val = str(row.get(col, "")).strip()
@@ -300,7 +300,7 @@ def criar_coluna_tipos_agrupados(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def criar_flag_gpon(df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[str], int]:
+def criar_flag_gpon(df: pd.DataFrame) -> tuple[pd.DataFrame, str | None, int]:
     df = df.copy()
 
     col_ex = detectar_col_flag_gpon(df)
@@ -334,7 +334,7 @@ def criar_flag_gpon(df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[str], int]
 # ═══════════════════════════════════════════════════════════════════════
 # CLASSIFICAÇÃO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════
-def classificar_tipo_servico(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+def classificar_tipo_servico(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     """
     Classifica cada linha em: Migração, PME, Novos Domicílios ou Outros.
     """
@@ -422,7 +422,7 @@ def _mask_novos_domicilios(df: pd.DataFrame) -> pd.Series:
     return mascara
 
 
-def extrair_metricas_criterios(df: pd.DataFrame) -> Dict[str, int]:
+def extrair_metricas_criterios(df: pd.DataFrame) -> dict[str, int]:
     if df is None or df.empty or "TIPO_SERVICO" not in df.columns:
         return {}
 
@@ -467,7 +467,7 @@ def extrair_metricas_criterios(df: pd.DataFrame) -> Dict[str, int]:
 
     return {
         "total": int(tarefas.sum()),
-        "total_registros": int(len(df)),
+        "total_registros": len(df),
         "migracao": _soma(tipo_final.eq("Migração")),
         "novos_domicilios": _soma(tipo_final.eq("Novos Domicílios")),
         "pme": _soma(tipo_final.eq("PME")),
@@ -805,9 +805,7 @@ def render_painel_criterios(df: pd.DataFrame) -> None:
                     "⚠️ Nenhuma tarefa identificada como Novos Domicílios / ADESAO."
                 )
             elif metricas["criterio_habilidade_pme"] == 0:
-                st.warning(
-                    "⚠️ Nenhuma tarefa com PME(1/100) em HABILIDADE DE TRABALHO."
-                )
+                st.warning("⚠️ Nenhuma tarefa com PME(1/100) em HABILIDADE DE TRABALHO.")
             else:
                 st.warning(
                     "⚠️ Existem tarefas ND e tarefas com habilidade PME, mas nenhum registro atende aos dois juntos."
@@ -830,12 +828,12 @@ def render_debug_criterios(df_full: pd.DataFrame, expanded: bool = False) -> Non
         st.markdown("**🔗 Colunas detectadas:**")
         cc1, cc2 = st.columns(2)
         cc1.markdown(
-            f"**TIPO O.S 1:** "
+            "**TIPO O.S 1:** "
             + (f"✅ `{col_tipo}`" if col_tipo else "❌")
-            + f"\n\n**FLAG_GPON:** "
+            + "\n\n**FLAG_GPON:** "
             + (f"✅ `{col_gpon}`" if col_gpon else "❌")
         )
-        cc2.markdown(f"**HABILIDADE:** " + (f"✅ `{col_hab}`" if col_hab else "❌"))
+        cc2.markdown("**HABILIDADE:** " + (f"✅ `{col_hab}`" if col_hab else "❌"))
         st.markdown("---")
         st.markdown(
             "**📋 Regras:**\n\n🔄 **Migração**: `TIPO O.S 1` contém `MUDANCA DE PACOTE` E `FLAG_GPON = Sim`\n\n🔦 **FLAG_GPON**: `HABILIDADE` contém `PON(1/100)`\n\n🏠 **Novos Domicílios**: TIPO O.S contém `ADESAO`\n\n🏢 **PME**: é ND + `HABILIDADE` contém `PME(1/100)`"
@@ -899,35 +897,36 @@ def render_lista_colunas(df: pd.DataFrame, expanded: bool = False) -> None:
             height=min(600, 40 + len(df_cols) * 35),
         )
         st.caption(
-            f"Total: **{len(df.columns)} colunas** · "
-            f"**{len(df):,} registros**".replace(",", ".")
+            f"Total: **{len(df.columns)} colunas** · **{len(df):,} registros**".replace(
+                ",", "."
+            )
         )
 
 
 __all__ = [
-    "VAZIOS_GERAIS",
-    "VAZIOS_CONTRATO",
-    "TERMO_MIGRACAO_OS",
-    "VALOR_FLAG_GPON_SIM",
-    "TERMO_GPON_HABILIDADE",
-    "TERMO_PME_HABILIDADE",
     "TERMOS_ND",
     "TERMOS_PME",
-    "normalizar_str",
-    "norm_col_nome",
-    "detectar_cols_tipo",
-    "detectar_col_tipo_os_1",
-    "detectar_col_flag_gpon",
-    "detectar_col_capacidade",
-    "detectar_col_habilidade",
-    "detectar_col_status_atividade",
-    "detectar_col_contrato",
+    "TERMO_GPON_HABILIDADE",
+    "TERMO_MIGRACAO_OS",
+    "TERMO_PME_HABILIDADE",
+    "VALOR_FLAG_GPON_SIM",
+    "VAZIOS_CONTRATO",
+    "VAZIOS_GERAIS",
+    "classificar_tipo_servico",
     "criar_coluna_tipos_agrupados",
     "criar_flag_gpon",
-    "classificar_tipo_servico",
+    "detectar_col_capacidade",
+    "detectar_col_contrato",
+    "detectar_col_flag_gpon",
+    "detectar_col_habilidade",
+    "detectar_col_status_atividade",
+    "detectar_col_tipo_os_1",
+    "detectar_cols_tipo",
     "extrair_metricas_criterios",
-    "render_painel_criterios",
-    "render_debug_criterios",
+    "norm_col_nome",
+    "normalizar_str",
     "render_card_destaque_migracao",
+    "render_debug_criterios",
     "render_lista_colunas",
+    "render_painel_criterios",
 ]

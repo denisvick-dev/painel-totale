@@ -1,7 +1,6 @@
-import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from typing import Optional, List
+import streamlit as st
 
 # ────────────────────────────────────────────────────────
 # IMPORTAÇÃO DO DESIGN SYSTEM CORPORATIVO
@@ -10,8 +9,8 @@ try:
     from components.componentes import (
         aplicar_estilo,
         render_hero,
-        render_kpi,
         render_insight,
+        render_kpi,
         render_section_header,
     )
 except ImportError:
@@ -24,7 +23,7 @@ except ImportError:
 # ====================================================
 class Utilitarios:
     @staticmethod
-    def buscar_coluna(df: pd.DataFrame, palavras_chave: List[str]) -> Optional[str]:
+    def buscar_coluna(df: pd.DataFrame, palavras_chave: list[str]) -> str | None:
         cols_upper = {c.upper(): c for c in df.columns}
         for palavra in palavras_chave:
             if palavra in cols_upper:
@@ -173,6 +172,7 @@ def _injetar_css_tooltip() -> None:
         unsafe_allow_html=True,
     )
 
+
 # ====================================================
 # BLOCO 3: CARD COM TOOLTIP
 # (componentes.py não tem tooltip — mantemos local)
@@ -230,15 +230,15 @@ def _criar_card_tooltip(
 
     return f"""
     <div class="card-premium"
-         style="background:{cores['fundo']};padding:20px;border-radius:10px;
-                border-left:6px solid {cores['borda']};
+         style="background:{cores["fundo"]};padding:20px;border-radius:10px;
+                border-left:6px solid {cores["borda"]};
                 box-shadow:0 4px 6px rgba(0,0,0,0.05);
                 height:100%;display:flex;flex-direction:column;
                 justify-content:center;transition:transform 0.2s;"
          onmouseover="this.style.transform='scale(1.02)'"
          onmouseout="this.style.transform='scale(1)'">
-        <p style="margin:0;font-size:14px;color:{cores['titulo']};font-weight:bold;">{titulo_fmt}</p>
-        <h2 style="margin:5px 0 0;color:{cores['texto']};font-weight:900;font-size:32px;">{valor}</h2>
+        <p style="margin:0;font-size:14px;color:{cores["titulo"]};font-weight:bold;">{titulo_fmt}</p>
+        <h2 style="margin:5px 0 0;color:{cores["texto"]};font-weight:900;font-size:32px;">{valor}</h2>
         <p style="margin:5px 0 0;font-size:13px;color:#64748B;font-weight:500;">{subtitulo}</p>
         {html_tooltip}
     </div>
@@ -659,24 +659,18 @@ if tec_selecionado and not df_tec_prod.empty:
                 ),
             )
         if col_data and "Pontos" in df_exibir.columns:
-
             df_exec = df_exibir.copy()
 
             # Garante datetime robusto
-            df_exec[col_data] = pd.to_datetime(
-                df_exec[col_data],
-                errors="coerce"
-            )
+            df_exec[col_data] = pd.to_datetime(df_exec[col_data], errors="coerce")
 
             # Remove datas inválidas
             df_exec = df_exec.dropna(subset=[col_data])
 
             if not df_exec.empty:
-
                 # ── Consolidação diária ──
                 df_resumo_dia = (
-                    df_exec
-                    .groupby(col_data)["Pontos"]
+                    df_exec.groupby(col_data)["Pontos"]
                     .sum()
                     .reset_index()
                     .sort_values(col_data)
@@ -695,7 +689,9 @@ if tec_selecionado and not df_tec_prod.empty:
 
                 # Indicadores estratégicos
                 gap_absoluto = max_val - min_val
-                variacao_percentual = ((max_val - min_val) / min_val * 100) if min_val > 0 else 0
+                variacao_percentual = (
+                    ((max_val - min_val) / min_val * 100) if min_val > 0 else 0
+                )
 
                 # ── MÉTRICAS EXECUTIVAS ──
                 with col_met2:
@@ -733,4 +729,6 @@ if tec_selecionado and not df_tec_prod.empty:
                     )
 
             else:
-                render_insight("Sem dados válidos para análise executiva diária.", "alerta")
+                render_insight(
+                    "Sem dados válidos para análise executiva diária.", "alerta"
+                )

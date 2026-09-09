@@ -13,8 +13,7 @@ import re
 import textwrap
 import unicodedata
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional
-from datetime import datetime
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -29,20 +28,18 @@ from streamlit_gsheets import GSheetsConnection
 # COMPONENTES CORPORATIVOS CENTRALIZADOS
 # ==========================================================
 from components.componentes import (
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_TEXTO,
-    COR_TEXTO_2,
-    COR_TEXTO_3,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    aplicar_estilo as aplicar_estilo_corp,
+    Cores,
+    Fontes,
     render_hero_totale_1,
     render_insight,
-    render_kpi as render_kpi_corp,
     render_kpi_sm,
     render_section_header,
-    render_sidebar_status,
+)
+from components.componentes import (
+    aplicar_estilo as aplicar_estilo_corp,
+)
+from components.componentes import (
+    render_kpi as render_kpi_corp,
 )
 
 # ==========================================================
@@ -86,14 +83,14 @@ class Config:
     REGIOES_PRINCIPAIS = ["LESTE", "GRU", "ABCDM"]
 
 
-CORES_REGIAO: Dict[str, Dict[str, str]] = {
+CORES_REGIAO: dict[str, dict[str, str]] = {
     "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
     "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
     "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
     "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
 }
 
-RENOMEAR_COLUNAS: Dict[str, str] = {
+RENOMEAR_COLUNAS: dict[str, str] = {
     "TÉCNICO": "Técnico",
     "MONITOR": "Monitor",
     "REGIÃO": "Região",
@@ -160,7 +157,7 @@ class Utils:
         return Utils.normalizar_chave(serie).str.replace(r"\.0$", "", regex=True)
 
     @staticmethod
-    def buscar_coluna(df: pd.DataFrame, aliases: List[str]) -> Optional[str]:
+    def buscar_coluna(df: pd.DataFrame, aliases: list[str]) -> str | None:
         cols_map = {Utils.normalizar_chave(pd.Series([c]))[0]: c for c in df.columns}
         for alias in aliases:
             chave = Utils.normalizar_chave(pd.Series([alias]))[0]
@@ -189,10 +186,10 @@ class Utils:
         return ~norm.isin(Config.CONTRATO_VALORES_VAZIOS)
 
     @staticmethod
-    def resolver_renomeacao(df: pd.DataFrame, mapa: Dict[str, str]) -> Dict[str, str]:
+    def resolver_renomeacao(df: pd.DataFrame, mapa: dict[str, str]) -> dict[str, str]:
         existentes = set(df.columns)
         usados: set[str] = set()
-        resultado: Dict[str, str] = {}
+        resultado: dict[str, str] = {}
         for col in df.columns:
             if col not in mapa:
                 continue
@@ -229,8 +226,11 @@ class Utils:
             if df_clean[col].dtype == "object":
                 # Converte sets, lists, tuples em strings legíveis separadas por vírgula
                 df_clean[col] = df_clean[col].apply(
-                    lambda x: ", ".join(sorted(map(str, x))) if isinstance(x, (list, set, tuple))
-                    else (str(x) if isinstance(x, dict) else x)
+                    lambda x: (
+                        ", ".join(sorted(map(str, x)))
+                        if isinstance(x, (list, set, tuple))
+                        else (str(x) if isinstance(x, dict) else x)
+                    )
                 )
                 # Força casting para string em colunas com tipos de dados ainda inconsistentes
                 types = df_clean[col].dropna().map(type).unique()
@@ -303,9 +303,7 @@ class DataLoader:
             df = df[valida].copy()
             diag["Removidos por contrato vazio"] = int(rem)
             if rem > 0:
-                st.toast(
-                    f"🗑️ {rem} linha(s) removida(s) por contrato vazio.", icon="⚠️"
-                )
+                st.toast(f"🗑️ {rem} linha(s) removida(s) por contrato vazio.", icon="⚠️")
         else:
             st.warning("⚠️ Coluna de contrato não encontrada.")
 
@@ -404,7 +402,7 @@ class DataLoader:
 # ==========================================================
 # CÁLCULOS DE NEGÓCIO
 # ==========================================================
-def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
+def calcular_kpis(df: pd.DataFrame) -> dict[str, Any]:
     if df.empty:
         return {
             "total": 0,
@@ -435,7 +433,7 @@ def calcular_kpis(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def calcular_volumetria_por_tecnico(kpis: Dict[str, Any], n: int) -> Dict[str, Any]:
+def calcular_volumetria_por_tecnico(kpis: dict[str, Any], n: int) -> dict[str, Any]:
     n = max(int(n), 0)
     meta = Config.META_EXECUTADAS_TECNICO
     divisor = n if n > 0 else None
@@ -464,7 +462,7 @@ def calcular_volumetria_por_tecnico(kpis: Dict[str, Any], n: int) -> Dict[str, A
     }
 
 
-def calcular_volumetria(df: pd.DataFrame, grupos: List[str]) -> pd.DataFrame:
+def calcular_volumetria(df: pd.DataFrame, grupos: list[str]) -> pd.DataFrame:
     tabela = (
         df.groupby(grupos + [Config.COL_STATUS], observed=True)[Config.COL_TOTAL]
         .sum()
@@ -604,7 +602,7 @@ def _resumo_por_monitor(df_tec: pd.DataFrame, col_tec: str) -> pd.DataFrame:
     )
     cta = RENOMEAR_COLUNAS.get("Taxa Execução", "Taxa Exec.")
     cpr = RENOMEAR_COLUNAS.get("Projeção", "Projeção")
-    agg: Dict[str, Any] = {}
+    agg: dict[str, Any] = {}
     for c in [ce, cn, cp, cb, ct2, cpr]:
         if c in df_tec.columns:
             agg[c] = "sum"
@@ -637,7 +635,7 @@ def aplicar_estilo_pagina():
         overflow: hidden;
         box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12);
         border: 1px solid #E2E8F0;
-        font-family: {FONTE_TEXTO};
+        font-family: {Fontes.TEXTO};
     }}
     .tec-card-head {{
         padding: 20px 24px 16px;
@@ -658,20 +656,20 @@ def aplicar_estilo_pagina():
         font-size: 0.6rem; font-weight: 800;
         text-transform: uppercase; letter-spacing: 1.2px;
         opacity: 0.7;
-        font-family: {FONTE_TITULO};
+        font-family: {Fontes.TITULO};
     }}
     .tec-card-titulo {{
         font-size: 0.95rem; font-weight: 700;
         letter-spacing: -0.2px; margin: 2px 0 0;
         line-height: 1.25;
-        font-family: {FONTE_TITULO};
+        font-family: {Fontes.TITULO};
     }}
     .tec-card-numero {{ text-align: right; flex-shrink: 0; }}
     .tec-card-n-val {{
         font-size: 3.2rem; font-weight: 800;
         line-height: 1; letter-spacing: -2px;
         font-variant-numeric: tabular-nums;
-        font-family: {FONTE_TITULO};
+        font-family: {Fontes.TITULO};
     }}
     .tec-card-n-lab {{
         font-size: 0.6rem; font-weight: 700;
@@ -701,7 +699,7 @@ def aplicar_estilo_pagina():
         font-size: 1.2rem; font-weight: 800;
         letter-spacing: -0.3px; font-variant-numeric: tabular-nums;
         color: #0F172A; line-height: 1.15;
-        font-family: {FONTE_TITULO};
+        font-family: {Fontes.TITULO};
     }}
     .tec-card-m-sub {{
         font-size: 0.6rem; font-weight: 600;
@@ -735,7 +733,7 @@ def aplicar_estilo_pagina():
         display: flex; align-items: center;
         flex-wrap: wrap; gap: 16px;
         font-size: 0.82rem; margin: 6px 0 4px;
-        font-family: {FONTE_TEXTO};
+        font-family: {Fontes.TEXTO};
     }}
     .diff-strip-label {{
         font-weight: 700; color: #64748B;
@@ -753,19 +751,19 @@ def aplicar_estilo_pagina():
         font-size: 0.78rem; font-weight: 700;
         letter-spacing: 0.5px; text-transform: uppercase;
         border: 2px solid; margin-bottom: 12px;
-        font-family: {FONTE_TEXTO};
+        font-family: {Fontes.TEXTO};
     }}
     .badge-escalados {{ background:#D1FAE5; color:#065F46; border-color:#10B981; }}
     .badge-montados  {{ background:#FEF3C7; color:#92400E; border-color:#F59E0B; }}
 
     /* ── RESULTADO DA BASE ── */
     .resultado-base {{
-        background: linear-gradient(135deg, {COR_PRIMARIA} 0%, #1E3A5F 100%);
+        background: linear-gradient(135deg, {Cores.PRIMARIA} 0%, #1E3A5F 100%);
         padding: 1rem 1.5rem; border-radius: 0.75rem;
         margin-bottom: 1.5rem;
         display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem;
         box-shadow: 0 4px 16px rgba(15,23,42,0.15);
-        font-family: {FONTE_TEXTO};
+        font-family: {Fontes.TEXTO};
     }}
     .resultado-base-label {{
         color: #FFB86B; font-size: 0.8rem; font-weight: 700;
@@ -802,7 +800,7 @@ def aplicar_estilo_pagina():
 # ==========================================================
 # COMPONENTES VISUAIS CUSTOMIZADOS
 # ==========================================================
-def render_resultado_base(regioes: List[str], total: int):
+def render_resultado_base(regioes: list[str], total: int):
     """Faixa horizontal exibindo regiões filtradas."""
     badges = "".join(
         f'<span class="resultado-base-regiao" style="background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]}">{html.escape(str(r))}</span>'
@@ -829,8 +827,8 @@ def render_card_tecnicos(
     tag: str,
     fonte: str,
     n_tecnicos: int,
-    vol: Dict[str, Any],
-    kpis: Dict[str, Any],
+    vol: dict[str, Any],
+    kpis: dict[str, Any],
     variante: Literal["escalados", "montados"] = "escalados",
 ):
     """Card visual completo mostrando número de técnicos + 6 métricas + barra de atingimento."""
@@ -874,32 +872,32 @@ def render_card_tecnicos(
         <div class="tec-card-body">
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">O.S. / Técnico</div>
-                <div class="tec-card-m-val">{_fmt_br(vol['os_tec'])}</div>
-                <div class="tec-card-m-sub">{kpis['total']:,} total</div>
+                <div class="tec-card-m-val">{_fmt_br(vol["os_tec"])}</div>
+                <div class="tec-card-m-sub">{kpis["total"]:,} total</div>
             </div>
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">Exec. / Técnico</div>
-                <div class="tec-card-m-val" style="color:{accent}">{_fmt_br(vol['exe_tec'])}</div>
-                <div class="tec-card-m-sub">{kpis['executadas']:,} exec.</div>
+                <div class="tec-card-m-val" style="color:{accent}">{_fmt_br(vol["exe_tec"])}</div>
+                <div class="tec-card-m-sub">{kpis["executadas"]:,} exec.</div>
             </div>
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">Projeção / Téc.</div>
-                <div class="tec-card-m-val">{_fmt_br(vol['proj_tec'])}</div>
-                <div class="tec-card-m-sub">{kpis['projecao']:,} proj.</div>
+                <div class="tec-card-m-val">{_fmt_br(vol["proj_tec"])}</div>
+                <div class="tec-card-m-sub">{kpis["projecao"]:,} proj.</div>
             </div>
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">Não Exec. / Téc.</div>
-                <div class="tec-card-m-val">{_fmt_br(vol['nex_tec'])}</div>
-                <div class="tec-card-m-sub">quebra {kpis['quebra']:.1%}</div>
+                <div class="tec-card-m-val">{_fmt_br(vol["nex_tec"])}</div>
+                <div class="tec-card-m-sub">quebra {kpis["quebra"]:.1%}</div>
             </div>
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">Pendentes / Téc.</div>
-                <div class="tec-card-m-val">{_fmt_br(vol['pen_tec'])}</div>
-                <div class="tec-card-m-sub">{kpis['pendentes']:,} pend.</div>
+                <div class="tec-card-m-val">{_fmt_br(vol["pen_tec"])}</div>
+                <div class="tec-card-m-sub">{kpis["pendentes"]:,} pend.</div>
             </div>
             <div class="tec-card-metrica">
                 <div class="tec-card-m-lab">Taxa Execução</div>
-                <div class="tec-card-m-val">{kpis['taxa']:.1%}</div>
+                <div class="tec-card-m-val">{kpis["taxa"]:.1%}</div>
                 <div class="tec-card-m-sub">meta {Config.META_EXECUCAO:.0%}</div>
             </div>
         </div>
@@ -920,7 +918,7 @@ def render_card_tecnicos(
     col.markdown(card_html, unsafe_allow_html=True)
 
 
-def render_faixa_diferenca(n_esc: int, n_mon: int, vol_esc: Dict, vol_mon: Dict):
+def render_faixa_diferenca(n_esc: int, n_mon: int, vol_esc: dict, vol_mon: dict):
     """Faixa comparativa entre os dois cards."""
     dif = n_mon - n_esc
     cor = "#B91C1C" if dif > 0 else ("#047857" if dif < 0 else "#64748B")
@@ -931,8 +929,8 @@ def render_faixa_diferenca(n_esc: int, n_mon: int, vol_esc: Dict, vol_mon: Dict)
         f'<span class="diff-strip-val" style="color:{cor}">{sinal}{dif} técnico(s)</span>'
         f'<span class="diff-strip-detail">Montados ({n_mon}) − Escalados ({n_esc})</span>'
         f'<span class="diff-strip-right">'
-        f'Exec/téc: Escalados <strong>{_fmt_br(vol_esc["exe_tec"])}</strong>'
-        f'&nbsp;×&nbsp;Montados <strong>{_fmt_br(vol_mon["exe_tec"])}</strong>'
+        f"Exec/téc: Escalados <strong>{_fmt_br(vol_esc['exe_tec'])}</strong>"
+        f"&nbsp;×&nbsp;Montados <strong>{_fmt_br(vol_mon['exe_tec'])}</strong>"
         f"</span></div>"
     )
     st.markdown(html_content, unsafe_allow_html=True)
@@ -946,15 +944,15 @@ def render_dataframe(
     titulo: str = "",
     icone: str = "📊",
     badge: str = "",
-    fmt: Optional[Dict[str, Any]] = None,
-    color_col: Optional[str] = None,
-    color_meta: Optional[float] = None,
+    fmt: dict[str, Any] | None = None,
+    color_col: str | None = None,
+    color_meta: float | None = None,
     height: int | Literal["auto", "stretch", "content"] = "auto",
     adicionar_totais: bool = True,
 ):
     # Sanitiza o DataFrame para evitar qualquer erro de serialização do PyArrow (ex: _TIPOS_OS_SET)
     df_d = Utils.sanitizar_para_pyarrow(df)
-    
+
     mapa = Utils.resolver_renomeacao(df_d, RENOMEAR_COLUNAS)
     df_d = df_d.rename(columns=mapa)
 
@@ -972,7 +970,7 @@ def render_dataframe(
         if cd in df_d.columns:
             df_d[cd] = pd.to_numeric(df_d[cd], errors="coerce").fillna(0).astype(int)
 
-    ranking: Dict[float, float] = {}
+    ranking: dict[float, float] = {}
     if cta in df_d.columns and len(df_d):
         valores = pd.to_numeric(df_d[cta], errors="coerce")
         n = len(valores.dropna())
@@ -985,7 +983,7 @@ def render_dataframe(
             }
 
     if adicionar_totais and len(df_d):
-        tr: Dict[str, Any] = {
+        tr: dict[str, Any] = {
             c: (0 if pd.api.types.is_numeric_dtype(df_d[c]) else "")
             for c in df_d.columns
         }
@@ -1010,9 +1008,9 @@ def render_dataframe(
 
     data = pd.Timestamp.now().strftime("%d/%m/%Y")
     header_html = (
-        f'<div style="background:{COR_PRIMARIA};padding:16px 24px;border-radius:12px 12px 0 0;'
-        f"color:#F9FAFB;margin-bottom:0;border-bottom:2px solid {COR_SECUNDARIA};"
-        f'font-family:{FONTE_TITULO};">'
+        f'<div style="background:{Cores.PRIMARIA};padding:16px 24px;border-radius:12px 12px 0 0;'
+        f"color:#F9FAFB;margin-bottom:0;border-bottom:2px solid {Cores.SECUNDARIA};"
+        f'font-family:{Fontes.TITULO};">'
         f'<span style="font-weight:700;font-size:0.85rem;letter-spacing:1.2px;">'
         f"{icone}  {titulo.upper()} — {data}</span></div>"
     )
@@ -1024,7 +1022,7 @@ def render_dataframe(
         if v == "" or v is None or pd.isna(v):
             return ""
         try:
-            return f"{float(v)*100:.1f}%".replace(".", ",")
+            return f"{float(v) * 100:.1f}%".replace(".", ",")
         except (ValueError, TypeError):
             return str(v)
 
@@ -1044,7 +1042,7 @@ def render_dataframe(
         except (ValueError, TypeError):
             return str(v)
 
-    fm: Dict[str, Any] = {}
+    fm: dict[str, Any] = {}
     if cta in df_d.columns:
         fm[cta] = fp
     if cq in df_d.columns:
@@ -1130,7 +1128,7 @@ def render_dataframe(
             {
                 "selector": "thead th",
                 "props": [
-                    ("background-color", COR_PRIMARIA),
+                    ("background-color", Cores.PRIMARIA),
                     ("color", "#F1F5F9"),
                     ("font-weight", "600"),
                     ("text-align", "center"),
@@ -1139,7 +1137,7 @@ def render_dataframe(
                     ("font-size", "0.72rem"),
                     ("text-transform", "uppercase"),
                     ("letter-spacing", "1px"),
-                    ("font-family", FONTE_TITULO),
+                    ("font-family", Fontes.TITULO),
                 ],
             },
             {
@@ -1151,7 +1149,7 @@ def render_dataframe(
                     ("text-align", "center"),
                     ("color", "#334155"),
                     ("font-variant-numeric", "tabular-nums"),
-                    ("font-family", FONTE_TEXTO),
+                    ("font-family", Fontes.TEXTO),
                 ],
             },
             {
@@ -1201,7 +1199,7 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
         subtitulo="Comparativo entre técnicos escalados na base e o total fixo digitado.",
         icone="‍🔧",
         badge="Detalhamento",
-        badge_tipo="azul",
+        badge_tipo="info",
     )
 
     df_esc = criar_visao_tecnicos_escalados(df)
@@ -1238,7 +1236,11 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
                 r = _resumo_por_monitor(df_esc, ct)
                 if not r.empty:
                     # Sanitiza antes de renderizar para prevenir problemas de tipo com o Arrow
-                    st.dataframe(Utils.sanitizar_para_pyarrow(r), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        Utils.sanitizar_para_pyarrow(r),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
     with a2:
         st.markdown(
@@ -1269,7 +1271,11 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
                 r = _resumo_por_monitor(df_mon, ct)
                 if not r.empty:
                     # Sanitiza antes de renderizar para prevenir problemas de tipo com o Arrow
-                    st.dataframe(Utils.sanitizar_para_pyarrow(r), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        Utils.sanitizar_para_pyarrow(r),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
 
 # ==========================================================
@@ -1293,7 +1299,7 @@ def plot_status_pie(df):
         height=370,
         margin=dict(t=40, b=10, l=10, r=10),
         title=dict(
-            text="Distribuição de Status", font=dict(size=15, family=FONTE_TITULO)
+            text="Distribuição de Status", font=dict(size=15, family=Fontes.TITULO)
         ),
         showlegend=False,
     )
@@ -1315,7 +1321,7 @@ def plot_ranking_monitor(df):
     fig.add_vline(
         x=Config.META_EXECUCAO,
         line_dash="dash",
-        line_color=COR_PRIMARIA,
+        line_color=Cores.PRIMARIA,
         annotation_text=f"Meta {Config.META_EXECUCAO:.0%}",
         annotation_position="top",
     )
@@ -1324,7 +1330,7 @@ def plot_ranking_monitor(df):
         height=420,
         title=dict(
             text="Taxa de Execução por Monitor (Top 15)",
-            font=dict(size=15, family=FONTE_TITULO),
+            font=dict(size=15, family=Fontes.TITULO),
         ),
         margin=dict(l=10, r=10, t=50, b=10),
         yaxis=dict(autorange="reversed"),
@@ -1348,7 +1354,11 @@ def plot_comparativo(vol_esc, vol_mon):
                 "Visão": "Escalados",
                 "Valor": vol_esc["proj_tec"],
             },
-            {"Métrica": "Projeção/Téc.", "Visão": "Montados", "Valor": vol_mon["proj_tec"]},
+            {
+                "Métrica": "Projeção/Téc.",
+                "Visão": "Montados",
+                "Valor": vol_mon["proj_tec"],
+            },
         ]
     )
     fig = px.bar(
@@ -1429,7 +1439,7 @@ def main():
         observer.observe(document.body, { childList: true, subtree: true });
         </script>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     # Estilos: primeiro o global (componentes), depois o específico da página
@@ -1451,8 +1461,8 @@ def main():
         # ★ ROBÔ DE MONITORAMENTO AUTOMÁTICO ★
         # A injeção de CSS acima garante que as captions geradas aqui dentro sejam limpas da tela.
         renderizar_robo_local(
-            etl_fn=None,  
-            pasta_padrao=None,  
+            etl_fn=None,
+            pasta_padrao=None,
             colunas_esperadas=None,
         )
 
@@ -1516,7 +1526,7 @@ def main():
             subtitulo="Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.",
             icone="",
             badge="Excel, CSV ou Auto",
-            badge_tipo="azul",
+            badge_tipo="info",
         )
 
         # Verifica se o robô já carregou dados
@@ -1601,7 +1611,7 @@ def main():
         subtitulo="Visão consolidada da produção do dia com projeção final estimada.",
         icone="📈",
         badge="Consolidado",
-        badge_tipo="azul",
+        badge_tipo="info",
     )
     kpis = calcular_kpis(df)
 
@@ -1642,7 +1652,7 @@ def main():
         s3,
         "Pendentes",
         f"{kpis['pendentes']:,}",
-        f"{kpis['pendentes']/kpis['total']:.1%} do total" if kpis["total"] else "0%",
+        f"{kpis['pendentes'] / kpis['total']:.1%} do total" if kpis["total"] else "0%",
         "cinza",
     )
 
@@ -1660,7 +1670,7 @@ def main():
         subtitulo="Comparativo entre os técnicos da base importada e o total montado do dia.",
         icone="👷",
         badge="Comparativo",
-        badge_tipo="laranja",
+        badge_tipo="alerta",
     )
 
     p1, p2 = st.columns(2)
@@ -1695,7 +1705,7 @@ def main():
         subtitulo="Produtividade média em cada visão. Verde = Escalados; Amarelo = Montados.",
         icone="",
         badge="Produtividade",
-        badge_tipo="verde",
+        badge_tipo="sucesso",
     )
 
     m1, m2, m3, m4 = st.columns(4)
@@ -1805,17 +1815,15 @@ def main():
     st.dataframe(
         Utils.sanitizar_para_pyarrow(medias).style.format(
             {
-                "Escalados": lambda x: f"{x:,.1f}".replace(",", "X")
-                .replace(".", ",")
-                .replace("X", "."),
-                "Montados": lambda x: f"{x:,.1f}".replace(",", "X")
-                .replace(".", ",")
-                .replace("X", "."),
-                "Diferença (Montados - Escalados)": lambda x: f"{x:+,.1f}".replace(
-                    ",", "X"
-                )
-                .replace(".", ",")
-                .replace("X", "."),
+                "Escalados": lambda x: (
+                    f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                ),
+                "Montados": lambda x: (
+                    f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                ),
+                "Diferença (Montados - Escalados)": lambda x: (
+                    f"{x:+,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                ),
             }
         ),
         use_container_width=True,
@@ -1830,7 +1838,7 @@ def main():
         subtitulo="Distribuição de status e ranking dos monitores por taxa de execução.",
         icone="📈",
         badge="Panorama",
-        badge_tipo="azul",
+        badge_tipo="info",
     )
     g1, g2 = st.columns([1, 2])
     g1.plotly_chart(plot_status_pie(df), use_container_width=True)
@@ -1842,7 +1850,7 @@ def main():
         subtitulo="Explore os dados agrupados por equipe, técnico ou monitor individualmente.",
         icone="",
         badge="Detalhamento",
-        badge_tipo="laranja",
+        badge_tipo="alerta",
     )
 
     t1, t2, t3, t4 = st.tabs(

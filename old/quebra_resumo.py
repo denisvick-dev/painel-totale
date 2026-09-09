@@ -18,16 +18,16 @@ Segmentos analisados:
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from datetime import datetime
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any
 
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
+import streamlit as st
 
 # ── PATH RESOLUTION ─────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,6 +38,7 @@ for _p in [_HERE, _ROOT]:
 
 try:
     from utils import Utils  # type: ignore
+
     from components.componentes import aplicar_estilo, render_section  # type: ignore
 except ImportError:
     Utils = None
@@ -150,7 +151,7 @@ COL_CAND_TOTAL_TAREFAS = [
 COL_REGIAO = "REGIÃO"
 REGIOES_PRINCIPAIS = ["LESTE", "GRU", "ABCDM"]
 
-CORES_REGIAO: Dict[str, Dict[str, str]] = {
+CORES_REGIAO: dict[str, dict[str, str]] = {
     "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
     "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
     "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
@@ -547,7 +548,9 @@ def build_matriz_desempenho(df: pd.DataFrame) -> pd.DataFrame:
 
     # ✅ Multiplica flags pela qtd de tarefas
     df_work["_EXEC"] = (df_work["_STATUS_CLASS"] == "EXECUTADO") * df_work["_TAREFAS"]
-    df_work["_NAO_EXEC"] = (df_work["_STATUS_CLASS"] == "NAO_EXECUTADO") * df_work["_TAREFAS"]
+    df_work["_NAO_EXEC"] = (df_work["_STATUS_CLASS"] == "NAO_EXECUTADO") * df_work[
+        "_TAREFAS"
+    ]
     df_work["_PEND"] = (df_work["_STATUS_CLASS"] == "PENDENTE") * df_work["_TAREFAS"]
 
     df_valid = df_work.dropna(subset=["_TIPO"]).copy()
@@ -982,7 +985,7 @@ def _render_section_header(icon: str, title: str, badge: str = "") -> None:
     )
 
 
-def html_resultado_base(regioes: List[str], total: int) -> str:
+def html_resultado_base(regioes: list[str], total: int) -> str:
     badges = ""
     for reg in sorted(regioes):
         c = CORES_REGIAO.get(reg, CORES_REGIAO["OUTRAS"])
@@ -996,13 +999,13 @@ def html_resultado_base(regioes: List[str], total: int) -> str:
     return (
         f'<div class="resultado-base">'
         f'<span class="resultado-base-label">📋 Resultado da Base:</span>'
-        f'{badges}'
+        f"{badges}"
         f'<span class="resultado-base-count">{total_fmt} registros</span>'
-        f'</div>'
+        f"</div>"
     )
 
 
-def render_resultado_base(regioes: List[str], total: int):
+def render_resultado_base(regioes: list[str], total: int):
     st.markdown(html_resultado_base(regioes, total), unsafe_allow_html=True)
 
 
@@ -1307,9 +1310,15 @@ def main() -> None:
         removidos_vazio = max(0, removidos_total - qtd_suspensos)
 
         # ✅ Soma tarefas (não linhas)
-        ext_exec = int(df_extracao.loc[df_extracao["É Executado"], "Total Tarefas"].sum())
-        ext_nao_exec = int(df_extracao.loc[df_extracao["É Não Executado"], "Total Tarefas"].sum())
-        ext_pend = int(df_extracao.loc[df_extracao["É Pendente"], "Total Tarefas"].sum())
+        ext_exec = int(
+            df_extracao.loc[df_extracao["É Executado"], "Total Tarefas"].sum()
+        )
+        ext_nao_exec = int(
+            df_extracao.loc[df_extracao["É Não Executado"], "Total Tarefas"].sum()
+        )
+        ext_pend = int(
+            df_extracao.loc[df_extracao["É Pendente"], "Total Tarefas"].sum()
+        )
         ext_denom = ext_exec + ext_nao_exec
         ext_pct = ext_nao_exec / ext_denom if ext_denom > 0 else 0.0
 
@@ -1523,7 +1532,7 @@ def main() -> None:
             },
             column_order=[
                 "Contrato",
-                "Total Tarefas",   # ✅ NOVO
+                "Total Tarefas",  # ✅ NOVO
                 "Login",
                 "Técnico",
                 "Monitor",

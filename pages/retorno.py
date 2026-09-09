@@ -15,14 +15,14 @@ Regras de Negócio:
 
 from __future__ import annotations
 
-import sys
+import logging
 import os
 import re
+import sys
 import unicodedata
-import logging
-from io import BytesIO
 from datetime import date
-from typing import cast, Any
+from io import BytesIO
+from typing import Any
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -30,18 +30,12 @@ import pandas as pd
 import streamlit as st
 
 from components.componentes import (
+    ColorMapDict,
     aplicar_estilo,
     render_hero,
-    render_kpi,
     render_insight,
+    render_kpi,
     render_table_html,
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_SUCESSO,
-    COR_ALERTA,
-    COR_NEUTRO,
-    TemaKPI,
-    ColorMapDict,
 )
 
 logger = logging.getLogger(__name__)
@@ -505,10 +499,8 @@ def refinar_base_toa(
 
     # 2. Remoção de Suspensos
     if col_status and col_status in df_filt.columns:
-        mask_nao_suspenso = (
-            ~df_filt[col_status]
-            .astype(str)
-            .str.contains("suspen", case=False, na=False)
+        mask_nao_suspenso = ~df_filt[col_status].astype(str).str.contains(
+            "suspen", case=False, na=False
         )
         stats["suspensos_removidos"] = int((~mask_nao_suspenso).sum())
         df_filt = df_filt[mask_nao_suspenso].copy()
@@ -1084,6 +1076,6 @@ st.markdown(
     f'<div style="text-align:center;color:#9CA3AF;font-size:11px;padding:24px 0;'
     f'margin-top:32px;border-top:1px solid #F1F5F9;">'
     f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name}) "
-    f'· Gerado em {date.today().strftime("%d/%m/%Y")}</div>',
+    f"· Gerado em {date.today().strftime('%d/%m/%Y')}</div>",
     unsafe_allow_html=True,
 )

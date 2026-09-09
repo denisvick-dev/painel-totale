@@ -1,21 +1,19 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 from components.componentes import (
+    Fontes,
     aplicar_estilo,
     render_hero_totale_2,
-    render_kpi,
     render_insight,
+    render_kpi,
     render_section_header,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    COR_PRIMARIA,
-    COR_TEXTO_3,
 )
 
 # ====================================================
@@ -28,68 +26,106 @@ except Exception:
 
 aplicar_estilo()
 
-# ── CSS LOCAL DA PÁGINA (Cores da tabela e colunas específicas) ──
+# ── CSS LOCAL DA PÁGINA (Cores da tabela, tamanho de fontes e barras de rolagem) ──
 st.markdown(
-    f"""
+    """
     <style>
     /* Estilo do SideBar Filtros Específicos */
-    [data-testid="stSidebar"] [data-testid="stDateInput"] input {{
+    [data-testid="stSidebar"] [data-testid="stDateInput"] input {
         border-radius: 8px !important;
         border: 1.5px solid #CBD5E1 !important;
         font-weight: 600 !important;
         color: #012869 !important;
         font-size: 13px !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stDateInput"] input:focus {{
+    }
+    [data-testid="stSidebar"] [data-testid="stDateInput"] input:focus {
         border-color: #F37C04 !important;
         box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.15) !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+    }
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {
         font-size: 13px !important;
         padding: 4px 0 !important;
-    }}
+    }
 
-    /* Estilo Tabela HTML DOM */
-    .corp-table thead th {{
+    /* Estilo Tabela HTML DOM - Redução Geral de Fonte e Espaçamento */
+    .corp-table-wrap {
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 8px !important;
+    }
+    
+    .corp-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 10.5px !important; /* Redução do tamanho da fonte dos dados */
+    }
+    
+    .corp-table th, 
+    .corp-table td {
+        padding: 4px 6px !important; /* Células mais compactas vertical e horizontalmente */
+        line-height: 1.25 !important;
+    }
+
+    .corp-table thead th {
         background: linear-gradient(180deg, #012869 0%, #1E40AF 100%) !important;
         color: #FFFFFF !important;
         text-transform: uppercase !important;
         letter-spacing: 0.04em !important;
-        font-size: 11px !important;
+        font-size: 10px !important; /* Redução do tamanho da fonte do cabeçalho */
         border-right: 1px solid rgba(255,255,255,0.12) !important;
-    }}
-    .corp-table td.col-real {{
+        padding: 6px 6px !important;
+    }
+    
+    .corp-table td.col-real {
         background: #F8FAFC !important;
         font-weight: 700 !important;
-    }}
-    .corp-table td.col-proj {{
+    }
+    .corp-table td.col-proj {
         background: #FEF9C3 !important;
         color: #854D0E !important;
         font-weight: 700 !important;
-    }}
-    .corp-table td.meta-batida {{
+    }
+    .corp-table td.meta-batida {
         background: #DCFCE7 !important;
         color: #166534 !important;
         font-weight: 700 !important;
-    }}
-    .corp-table td.falta-meta {{
+    }
+    .corp-table td.falta-meta {
         background: #FEE2E2 !important;
         color: #991B1B !important;
         font-weight: 700 !important;
-    }}
-    .corp-table td.num {{
+    }
+    .corp-table td.num {
         text-align: right !important;
         font-variant-numeric: tabular-nums !important;
-    }}
-    .corp-table-wrap.centralizada {{
+    }
+    .corp-table-wrap.centralizada {
         width: min(100%, 1100px) !important;
         margin-left: auto !important;
         margin-right: auto !important;
-    }}
+    }
     .corp-table-wrap.centralizada .corp-table th,
-    .corp-table-wrap.centralizada .corp-table td {{
+    .corp-table-wrap.centralizada .corp-table td {
         text-align: center !important;
-    }}
+    }
+
+    /* ── Customização das Barras de Rolagem (Mais finas e discretas) ── */
+    .corp-table-wrap::-webkit-scrollbar {
+        width: 6px !important;   /* Rolagem vertical fina */
+        height: 6px !important;  /* Rolagem horizontal fina */
+    }
+    .corp-table-wrap::-webkit-scrollbar-track {
+        background: #F1F5F9 !important; /* Fundo do trilho */
+        border-radius: 4px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb {
+        background: #CBD5E1 !important; /* Cor da barra */
+        border-radius: 4px !important;
+    }
+    .corp-table-wrap::-webkit-scrollbar-thumb:hover {
+        background: #94A3B8 !important; /* Cor quando passa o mouse */
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -221,9 +257,8 @@ def preparar_resumo_diario_monitor(
         .drop_duplicates()
         .sort_values(["Base", "Monitor"])
     )
-    mascara_dia = (
-        df["DATA"].notna()
-        & df["DATA"].dt.normalize().eq(data_referencia.normalize())
+    mascara_dia = df["DATA"].notna() & df["DATA"].dt.normalize().eq(
+        data_referencia.normalize()
     )
     resumo = (
         df.loc[mascara_dia]
@@ -234,7 +269,9 @@ def preparar_resumo_diario_monitor(
     )
     resumo = monitores.merge(resumo, on=["Base", "Monitor"], how="left")
     resumo["Total Consultivos"] = resumo["Total Consultivos"].fillna(0).astype(int)
-    return resumo.sort_values("Total Consultivos", ascending=False).reset_index(drop=True)
+    return resumo.sort_values("Total Consultivos", ascending=False).reset_index(
+        drop=True
+    )
 
 
 def calcular_meta_acumulada_monitor(
@@ -242,10 +279,7 @@ def calcular_meta_acumulada_monitor(
 ) -> pd.DataFrame:
     """Calcula a meta de hoje compensando apenas o déficit de ontem."""
     ontem = data_referencia.normalize() - pd.Timedelta(days=1)
-    mascara_anterior = (
-        df["DATA"].notna()
-        & df["DATA"].dt.normalize().eq(ontem)
-    )
+    mascara_anterior = df["DATA"].notna() & df["DATA"].dt.normalize().eq(ontem)
     realizado_anterior = (
         df.loc[mascara_anterior]
         .groupby(["Base", "Monitor"], dropna=False)["Qtde. Cons."]
@@ -254,13 +288,10 @@ def calcular_meta_acumulada_monitor(
         .reset_index()
     )
     monitores = df[["Base", "Monitor"]].dropna().astype(str).drop_duplicates()
-    resumo = monitores.merge(
-        realizado_anterior, on=["Base", "Monitor"], how="left"
-    )
+    resumo = monitores.merge(realizado_anterior, on=["Base", "Monitor"], how="left")
     resumo["Realizado Anterior"] = resumo["Realizado Anterior"].fillna(0).astype(int)
     resumo["Saldo Anterior"] = (
-        Configuracoes.meta_diaria_consultivos
-        - resumo["Realizado Anterior"]
+        Configuracoes.meta_diaria_consultivos - resumo["Realizado Anterior"]
     ).clip(lower=0)
     resumo["Meta Ajustada"] = (
         Configuracoes.meta_diaria_consultivos + resumo["Saldo Anterior"]
@@ -293,7 +324,8 @@ def render_tabela_cons(
         if (
             "Total" in col
             or "Proj" in col
-            or col in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
+            or col
+            in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
         ):
             try:
                 return f"{float(val):,.0f}".replace(",", ".")
@@ -307,7 +339,8 @@ def render_tabela_cons(
         if (
             "Total" in col
             or "Proj" in col
-            or col in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
+            or col
+            in ("Mesh", "TV Box", "Virtua", "Posição", "Meta Diária", "Falta para Meta")
         ):
             classes.append("num")
 
@@ -335,7 +368,7 @@ def render_tabela_cons(
 
         return " ".join(classes)
 
-    # ── Montagem do HTML (estava faltando) ──
+    # ── Montagem do HTML ──
     header = "".join(f"<th>{c}</th>" for c in cols)
     body_rows: list[str] = []
 
@@ -355,10 +388,10 @@ def render_tabela_cons(
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
 
     html = f"""
-    <div class="corp-table-wrap{' centralizada' if centralizar else ''}" style="max-height:{int(height)}px;">
+    <div class="corp-table-wrap{" centralizada" if centralizar else ""}" style="max-height:{int(height)}px;">
       <table class="corp-table">
         <thead><tr>{header}</tr></thead>
-        <tbody>{''.join(body_rows)}</tbody>
+        <tbody>{"".join(body_rows)}</tbody>
       </table>
     </div>
     """
@@ -480,8 +513,7 @@ if "DATA" in df.columns and df["DATA"].notna().any():
 
         inicio = limitar_data(inicio)
         fim = limitar_data(fim)
-        if inicio > fim:
-            inicio = fim
+        inicio = min(inicio, fim)
         return inicio, fim
 
     preset = st.sidebar.radio(
@@ -708,7 +740,7 @@ st.markdown(
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:-8px;margin-bottom:16px;
          padding:12px 16px;background:#F8FAFC;border-radius:8px;
          border:1px solid #E2E8F0;font-size:0.78rem;
-         font-family:{FONTE_TEXTO};">
+         font-family:{Fontes.TEXTO};">
         <span style="font-weight:700;color:#6B7280;text-transform:uppercase;
              letter-spacing:0.05em;">🎨 Legenda:</span>
         <span style="background:#F8FAFC;color:#0F172A;padding:3px 10px;
@@ -723,9 +755,7 @@ st.markdown(
 )
 
 # ── ABAS INFERIORES ──
-aba1, aba2 = st.tabs(
-    ["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"]
-)
+aba1, aba2 = st.tabs(["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"])
 
 with aba1:
     g1, g2 = st.columns(2)

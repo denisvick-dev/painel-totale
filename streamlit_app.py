@@ -1,15 +1,15 @@
-import streamlit as st
-import time
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from typing import Optional, Dict, Any
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from functools import wraps
+from zoneinfo import ZoneInfo
+
+import streamlit as st
 
 from components.componentes import (
-    aplicar_sidebar_corp,
     aplicar_estilo,
+    aplicar_sidebar_corp,
     render_sidebar_status,
 )
 
@@ -71,8 +71,8 @@ def handle_exceptions(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"Erro em {func.__name__}: {str(e)}", exc_info=True)
-            st.error(f"Ocorreu um erro: {str(e)}")
+            logger.error(f"Erro em {func.__name__}: {e!s}", exc_info=True)
+            st.error(f"Ocorreu um erro: {e!s}")
             return None
 
     return wrapper
@@ -84,7 +84,7 @@ def get_current_time() -> datetime:
 
 
 def format_datetime(
-    dt: Optional[datetime], format_str: str = "%d/%m/%Y às %H:%M:%S"
+    dt: datetime | None, format_str: str = "%d/%m/%Y às %H:%M:%S"
 ) -> str:
     """Formata datetime de forma segura."""
     if dt is None:
@@ -288,7 +288,7 @@ class ComponentesHome:
     @staticmethod
     def render_hero_banner() -> None:
         st.markdown(
-            f"""
+            """
             <div class="hero-banner">
                 <h1 style="font-size:32px; font-weight:800; margin:0; color:#FFFFFF !important;">
                     📊 Portal TOTALE
@@ -322,7 +322,7 @@ class ComponentesHome:
 
         if dados_prod is None:
             st.markdown(
-                f"""
+                """
                 <div class="card status-warning">
                     <b style="color:#C2410C;">⚠️ Sistema aguardando atualização de dados</b><br>
                     <p style="margin:8px 0 0 0; font-size:13px; color:#7C2D12;">
@@ -434,7 +434,7 @@ class GerenciadorNavegacao:
     """Gerencia a navegação e estrutura de páginas."""
 
     @staticmethod
-    def _definir_paginas() -> Dict[str, list]:
+    def _definir_paginas() -> dict[str, list]:
         """Define todas as páginas do sistema."""
         return {
             "MENU PRINCIPAL": [
@@ -473,9 +473,9 @@ class GerenciadorNavegacao:
         }
 
     @staticmethod
-    def renderizar_sidebar(paginas: Dict[str, list]) -> None:
+    def renderizar_sidebar(paginas: dict[str, list]) -> None:
         """Mantém o ponto de extensão sem duplicar a navegação nativa."""
-        return None
+        return
 
 
 # ====================================================

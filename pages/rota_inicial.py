@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from io import BytesIO
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -18,24 +18,13 @@ from streamlit_gsheets import GSheetsConnection
 
 # ── Componentes corporativos ──────────────────────────────────────────────────
 from components.componentes import (
+    Cores,
     aplicar_estilo,
     render_hero,
+    render_insight,
     render_kpi,
     render_kpi_sm,
     render_section_header,
-    render_insight,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_SUCESSO,
-    COR_ALERTA,
-    COR_NEUTRO,
-    COR_TEXTO,
-    COR_TEXTO_2,
-    COR_TEXTO_3,
-    COR_BORDA,
-    COR_FUNDO,
 )
 
 # ====================================================
@@ -142,7 +131,7 @@ CORES_REGIAO = {
     "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
 }
 
-RENOMEAR_COLUNAS: Dict[str, str] = {
+RENOMEAR_COLUNAS: dict[str, str] = {
     "Monitor": "Monitor",
     "OS": "Volume de O.S.",
     "GPON": "GPON",
@@ -211,7 +200,7 @@ def _extrair_velocidade_e_mbps(produto: Any) -> tuple[str, float]:
                 mbps = valor
 
     if pd.notna(mbps) and mbps >= 70:
-        label = f"{int(mbps)} Mbps" if mbps < 1000 else f"{mbps/1000:.0f} Gbps"
+        label = f"{int(mbps)} Mbps" if mbps < 1000 else f"{mbps / 1000:.0f} Gbps"
         return label, mbps
 
     return "", np.nan
@@ -386,7 +375,7 @@ def _injetar_css_local() -> None:
 # ====================================================
 # 4. COMPONENTES LOCAIS
 # ====================================================
-def render_resultado_base(regioes: List[str], total: int) -> None:
+def render_resultado_base(regioes: list[str], total: int) -> None:
     badges = ""
     for reg in sorted(regioes):
         c = CORES_REGIAO.get(reg, CORES_REGIAO["OUTRAS"])
@@ -412,9 +401,9 @@ def render_dataframe_local(
     titulo: str = "",
     icone: str = "📊",
     badge: str = "",
-    fmt: Optional[Dict[str, Any]] = None,
-    color_col: Optional[str] = None,
-    color_meta: Optional[float] = None,
+    fmt: dict[str, Any] | None = None,
+    color_col: str | None = None,
+    color_meta: float | None = None,
     color_invertido: bool = False,
     height: int | Literal["auto", "stretch", "content"] = "auto",
 ) -> None:
@@ -432,7 +421,7 @@ def render_dataframe_local(
     )
 
     df_display = df.copy()
-    colunas_para_renomear: Dict[str, str] = {}
+    colunas_para_renomear: dict[str, str] = {}
     nomes_existentes = set(df_display.columns)
     nomes_ja_usados: set[str] = set()
 
@@ -716,9 +705,9 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
         .str.strip()
         .str.upper()
         .apply(
-            lambda v: unicodedata.normalize("NFKD", v)
-            .encode("ASCII", "ignore")
-            .decode()
+            lambda v: (
+                unicodedata.normalize("NFKD", v).encode("ASCII", "ignore").decode()
+            )
         )
     )
     df["REGIÃO"] = np.select(
@@ -774,8 +763,8 @@ def _fmt_media_br(v: Any) -> str:
 
 def calcular_tabela_rota_turno(
     df: pd.DataFrame,
-    turno: Optional[str] = None,
-    total_equipe_montada: Optional[int] = None,
+    turno: str | None = None,
+    total_equipe_montada: int | None = None,
 ) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
@@ -799,7 +788,7 @@ def calcular_tabela_rota_turno(
         pd.to_numeric(df_work["TOTAL_TAREFAS"], errors="coerce").fillna(1).astype(int)
     )
 
-    linhas: List[Dict[str, Any]] = []
+    linhas: list[dict[str, Any]] = []
     for mon in sorted(df_work["Monitor"].unique()):
         df_mon = df_work[df_work["Monitor"] == mon]
         total_os = int(df_mon["TOTAL_TAREFAS"].sum())
@@ -875,13 +864,15 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
             f"Sem dados disponíveis</td></tr></table></div>"
         )
 
-    linhas_html: List[str] = []
+    linhas_html: list[str] = []
     for _, row in df.iterrows():
         monitor = str(row["Monitor"])
         classe = (
             "total-escalados"
             if "Escalados" in monitor
-            else "total-montados" if "Montados" in monitor else ""
+            else "total-montados"
+            if "Montados" in monitor
+            else ""
         )
         linhas_html.append(
             f'<tr class="{classe}">'
@@ -907,7 +898,7 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
         f'<th class="th-equipe">Equipe</th>'
         f'<th class="th-media">Média</th>'
         f"</tr></thead>"
-        f'<tbody>{"".join(linhas_html)}</tbody>'
+        f"<tbody>{''.join(linhas_html)}</tbody>"
         f"</table></div>"
     )
 
@@ -1148,10 +1139,10 @@ def main() -> None:
             text_auto=True,
             color="PERIODO_TRATADO",
             color_discrete_sequence=[
-                COR_PRIMARIA,
-                COR_SECUNDARIA,
-                COR_SUCESSO,
-                COR_NEUTRO,
+                Cores.PRIMARIA,
+                Cores.SECUNDARIA,
+                Cores.SUCESSO,
+                Cores.NEUTRO,
             ],
         )
         fig_per.update_layout(
@@ -1185,7 +1176,7 @@ def main() -> None:
                 y="Serviço",
                 orientation="h",
                 text_auto=True,
-                color_discrete_sequence=[COR_SUCESSO],
+                color_discrete_sequence=[Cores.SUCESSO],
             )
             fig_prem.update_layout(
                 showlegend=False,
@@ -1305,7 +1296,7 @@ def main() -> None:
     with aba_contratos:
         render_section_header("📄", "Resumo dos Contratos da Rota")
 
-        COLUNAS_CONTRATOS: Dict[str, List[str]] = {
+        COLUNAS_CONTRATOS: dict[str, list[str]] = {
             "CONTRATO": ["CONTRATO"],
             "INTERVALO": ["PERIODO_TRATADO", "INTERVALO"],
             "CEP": ["CEP/CÓDIGO POSTAL", "CEP", "CODIGO POSTAL"],
@@ -1316,7 +1307,7 @@ def main() -> None:
             "VELOCIDADE": ["VELOCIDADE_BANDA"],
         }
 
-        colunas_encontradas: Dict[str, str] = {}
+        colunas_encontradas: dict[str, str] = {}
         for nome_amigavel, aliases in COLUNAS_CONTRATOS.items():
             for alias in aliases:
                 if alias in df_master.columns:
@@ -1585,7 +1576,9 @@ def main() -> None:
                         (
                             "#EF4444"
                             if d > tolerancia
-                            else "#F59E0B" if d < -tolerancia else "#10B981"
+                            else "#F59E0B"
+                            if d < -tolerancia
+                            else "#10B981"
                         )
                         for d in df_eq_mon["Desvio %"]
                     ],

@@ -10,18 +10,16 @@ from PIL import Image, ImageDraw, ImageFont
 # IMPORTAÇÃO DE COMPONENTES CORPORATIVOS
 # ==========================================================
 from components.componentes import (
-    COR_PRIMARIA,
-    COR_SECUNDARIA,
-    COR_TEXTO,
-    COR_TEXTO_3,
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    aplicar_estilo as aplicar_estilo_corp,
+    Cores,
+    Fontes,
     render_hero_totale_2,
     render_insight,
     render_kpi_sm,
     render_section_header,
     render_sidebar_brand,
+)
+from components.componentes import (
+    aplicar_estilo as aplicar_estilo_corp,
 )
 
 # ============ CONFIGURAÇÕES DE IMAGEM ============
@@ -70,7 +68,7 @@ def aplicar_estilo_pagina():
         f"<style>"
         f".preview-container {{"
         f"    background: #F8FAFC;"
-        f"    border: 2px dashed {COR_TEXTO_3};"
+        f"    border: 2px dashed {Cores.TEXTO_3};"
         f"    border-radius: 12px;"
         f"    padding: 1.5rem;"
         f"    text-align: center;"
@@ -80,7 +78,7 @@ def aplicar_estilo_pagina():
         f"    padding: 0.5rem 0.75rem; margin: 0.25rem 0;"
         f"    background: white; border-radius: 6px;"
         f"    border-left: 3px solid; font-size: 0.875rem;"
-        f"    color: {COR_TEXTO}; font-family: {FONTE_TEXTO};"
+        f"    color: {Cores.TEXTO}; font-family: {Fontes.TEXTO};"
         f"    box-shadow: 0 1px 3px rgba(0,0,0,0.05);"
         f"}}"
         f".status-ok {{ border-left-color: #10B981; }}"
@@ -88,8 +86,8 @@ def aplicar_estilo_pagina():
         f".corporate-footer {{"
         f"    margin-top: 3rem; padding: 1.5rem;"
         f"    background: #F8FAFC; border-radius: 8px;"
-        f"    text-align: center; border-top: 3px solid {COR_SECUNDARIA};"
-        f"    font-family: {FONTE_TEXTO};"
+        f"    text-align: center; border-top: 3px solid {Cores.SECUNDARIA};"
+        f"    font-family: {Fontes.TEXTO};"
         f"}}"
         f"</style>"
     )
@@ -114,7 +112,7 @@ def carregar_fonte(tamanho: int, negrito: bool = False):
         try:
             fonte = ImageFont.truetype(str(caminho), tamanho)
             return fonte, f"Oscine {tipo} ({caminho.name})"
-        except (OSError, IOError) as e:
+        except OSError as e:
             st.warning(f"⚠️ Erro ao carregar {caminho.name}: {e}")
 
     fallbacks = [
@@ -157,7 +155,7 @@ def carregar_fonte(tamanho: int, negrito: bool = False):
         try:
             fonte = ImageFont.truetype(caminho_fonte, tamanho)
             return fonte, f"{nome_fonte} (fallback)"
-        except (OSError, IOError):
+        except OSError:
             continue
 
     return ImageFont.load_default(), "DEFAULT (bitmap)"
@@ -285,7 +283,7 @@ with st.sidebar:
     render_sidebar_brand()
 
     st.markdown(
-        f"<h3 style='font-family:{FONTE_TITULO}; font-size:16px; margin-top:20px;'>📦 Status do Sistema</h3>",
+        f"<h3 style='font-family:{Fontes.TITULO}; font-size:16px; margin-top:20px;'>📦 Status do Sistema</h3>",
         unsafe_allow_html=True,
     )
 
@@ -303,7 +301,7 @@ with st.sidebar:
     st.divider()
 
     st.markdown(
-        f"<h3 style='font-family:{FONTE_TITULO}; font-size:16px;'>🎯 Posições e Tamanhos</h3>",
+        f"<h3 style='font-family:{Fontes.TITULO}; font-size:16px;'>🎯 Posições e Tamanhos</h3>",
         unsafe_allow_html=True,
     )
 
@@ -336,7 +334,7 @@ with col1:
         subtitulo="Preencha as informações que constarão na assinatura.",
         icone="📝",
         badge="Entrada",
-        badge_tipo="azul",
+        badge_tipo="info",
     )
 
     nome = st.text_input(
@@ -349,7 +347,7 @@ with col1:
     )
 
     st.markdown(
-        f"<div style='font-family:{FONTE_TITULO}; font-size:14px; margin: 15px 0 5px;'>📞 Contatos Telefônicos</div>",
+        f"<div style='font-family:{Fontes.TITULO}; font-size:14px; margin: 15px 0 5px;'>📞 Contatos Telefônicos</div>",
         unsafe_allow_html=True,
     )
 
@@ -384,7 +382,7 @@ with col2:
         subtitulo="A imagem gerada em tempo real e em seu tamanho final exato.",
         icone="👁️",
         badge="Preview",
-        badge_tipo="laranja",
+        badge_tipo="alerta",
     )
 
     try:
@@ -419,7 +417,7 @@ with col2:
             subtitulo="Analise o tamanho do arquivo e baixe sua assinatura.",
             icone="📥",
             badge="Download",
-            badge_tipo="verde",
+            badge_tipo="sucesso",
         )
 
         formato_opcao = st.selectbox(
@@ -445,9 +443,7 @@ with col2:
         render_kpi_sm(
             k2, "Tamanho", f"{tamanho_kb:.1f} KB", "peso do arquivo", "cinza", "💾"
         )
-        render_kpi_sm(
-            k3, "Formato", extensao.upper(), "extensão final", "laranja", "🖼️"
-        )
+        render_kpi_sm(k3, "Formato", extensao.upper(), "extensão final", "laranja", "🖼️")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -474,8 +470,7 @@ render_section_header(
     "Guia de Instalação",
     "Como aplicar a imagem nos principais clientes de e-mail.",
     "📚",
-    badge="Dúvidas",
-    badge_tipo="cinza",
+    badge_tipo="default",
 )
 
 tab1, tab2, tab3 = st.tabs(["📧 Gmail", "🖥️ Outlook Desktop", "🌐 Outlook Web"])
@@ -514,8 +509,8 @@ with tab3:
 
 st.markdown(
     f'<div class="corporate-footer">'
-    f'<p><strong style="color:{COR_PRIMARIA};">Totale Tecnologia</strong> · Conexão em Movimento</p>'
-    f'<p style="font-size:0.75rem;margin-top:0.5rem;color:{COR_TEXTO_3};">Ferramenta de uso interno · Versão 2.1 · © 2026</p>'
+    f'<p><strong style="color:{Cores.PRIMARIA};">Totale Tecnologia</strong> · Conexão em Movimento</p>'
+    f'<p style="font-size:0.75rem;margin-top:0.5rem;color:{Cores.TEXTO_3};">Ferramenta de uso interno · Versão 2.1 · © 2026</p>'
     f"</div>",
     unsafe_allow_html=True,
 )

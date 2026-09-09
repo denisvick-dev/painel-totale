@@ -11,16 +11,15 @@ import csv
 import os
 import re
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from html import escape
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, cast, TypedDict, Callable
+from typing import Any, Literal, TypedDict, cast
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -33,25 +32,20 @@ for _p in (_DIR, _ROOT):
         sys.path.insert(0, str(_p))
 
 # ── Componentes visuais globais ─────────────────────────────────────
+# ── Robô de Sincronismo Local ───────────────────────────────────────
+
 from components.componentes import (
-    FONTE_TEXTO,
-    FONTE_TITULO,
-    aplicar_estilo,
+    Fontes,
     render_section_header,
     render_sidebar_brand,
-    render_sidebar_status,
     render_table_html,
 )
 from components.componentes import render_insight as _render_insight_global
 from components.componentes import render_kpi as _render_kpi_global
 from components.componentes import render_kpi_sm as _render_kpi_sm_global
 
-# ── Robô de Sincronismo Local ───────────────────────────────────────
-import importlib
-import traceback
-
 ROBO_DISPONIVEL: bool = False
-_impl_robo: Optional[Callable[..., None]] = None
+_impl_robo: Callable[..., None] | None = None
 _ROBO_IMPORT_ERRO: str = ""
 
 
@@ -65,8 +59,8 @@ def _tentar_import_robo() -> Any:
 
     # 1) Pacote oficial
     try:
-        from robo.robo_local import renderizar_robo_local as fn  # type: ignore
         import robo.robo_local as mod  # type: ignore
+        from robo.robo_local import renderizar_robo_local as fn  # type: ignore
 
         return fn, f"OK via robo.robo_local ({getattr(mod, '__file__', '?')})"
     except Exception as e1:
@@ -88,6 +82,7 @@ def _tentar_import_robo() -> Any:
     except Exception as e2:
         return None, f"{err1} | retry: {type(e2).__name__}: {e2}"
 
+
 _impl_robo, _ROBO_IMPORT_ERRO = _tentar_import_robo()
 ROBO_DISPONIVEL = _impl_robo is not None
 
@@ -106,9 +101,9 @@ def renderizar_robo_local(*args: Any, **kwargs: Any) -> None:
 class PaginaConfig(TypedDict, total=False):
     titulo: str
     subtitulo: str
-    pasta: Optional[str]
-    etl_fn: Optional[Callable[..., Any]]
-    colunas: Optional[List[str]]
+    pasta: str | None
+    etl_fn: Callable[..., Any] | None
+    colunas: list[str] | None
     ativo_padrao: bool
     sheet_name: int | str
 
@@ -116,11 +111,11 @@ class PaginaConfig(TypedDict, total=False):
 class ConfigRobo:
     """Configurações centralizadas do robô auto-sincronizador."""
 
-    PASTA_PADRAO: Optional[str] = None
-    TEMPO_VERIFICACAO_SEGUNDOS: int = 1   # Sincronização imediata (1 segundo)
-    CICLOS_ESTABILIDADE: int = 1          # Estabilidade imediata (1 ciclo)
+    PASTA_PADRAO: str | None = None
+    TEMPO_VERIFICACAO_SEGUNDOS: int = 1  # Sincronização imediata (1 segundo)
+    CICLOS_ESTABILIDADE: int = 1  # Estabilidade imediata (1 ciclo)
 
-    COLUNAS_ROTA: List[str] = [
+    COLUNAS_ROTA: list[str] = [
         "CONTRATO",
         "STATUS DA O.S 1",
         "TÉCNICO",
@@ -141,18 +136,16 @@ try:
 except ImportError:
     VAZIOS_CONTRATO = {"", "NAN", "NONE", "N/A", "NA", "-", "0", "NULL"}
 
-    def classificar_tipo_servico(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+    def classificar_tipo_servico(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         df = df.copy()
         df["TIPO_SERVICO"] = "Outros"
         return df, df["TIPO_SERVICO"]
 
-    def detectar_col_contrato(df: pd.DataFrame) -> Optional[str]:
-        return str("CONTRATO") if "CONTRATO" in df.columns else None
+    def detectar_col_contrato(df: pd.DataFrame) -> str | None:
+        return "CONTRATO" if "CONTRATO" in df.columns else None
 
-    def detectar_col_status_atividade(df: pd.DataFrame) -> Optional[str]:
-        return (
-            str("STATUS DA ATIVIDADE") if "STATUS DA ATIVIDADE" in df.columns else None
-        )
+    def detectar_col_status_atividade(df: pd.DataFrame) -> str | None:
+        return "STATUS DA ATIVIDADE" if "STATUS DA ATIVIDADE" in df.columns else None
 
     def render_debug_criterios(df_full: pd.DataFrame, expanded: bool = False) -> None:
         st.info("Debug de critérios indisponível.")
@@ -169,7 +162,7 @@ TemaKPI = Literal[
 # ═════════════════════════════════════════════════════════════════════
 # MAPEAMENTO DE DEPARA (CÓD DE BAIXA 1)
 # ══════════════════════════════════════════════════════════════════════
-MAPA_CODIGO_NUMERICO: Dict[int, str] = {
+MAPA_CODIGO_NUMERICO: dict[int, str] = {
     100: "Não Executada",
     101: "Não Executada",
     103: "Não Executada",
@@ -274,7 +267,7 @@ MAPA_CODIGO_NUMERICO: Dict[int, str] = {
     590: "Executada",
 }
 
-MAPA_COD_BAIXA_TEXTO: Dict[str, str] = {
+MAPA_COD_BAIXA_TEXTO: dict[str, str] = {
     "EM ROTA": "Pendente",
     "INICIADO": "Pendente",
     "PENDENTE": "Pendente",
@@ -310,14 +303,14 @@ class Config:
     ORDEM_TIPOS = ["Novos Domicílios", "PME", "Migração", "Outros"]
 
 
-CORES_REGIAO: Dict[str, Dict[str, str]] = {
+CORES_REGIAO: dict[str, dict[str, str]] = {
     "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
     "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
     "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
     "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
 }
 
-TEMAS_CARD_EXTRA: Dict[str, Dict[str, str]] = {
+TEMAS_CARD_EXTRA: dict[str, dict[str, str]] = {
     "amarelo": {
         "fundo": "#FEF9C3",
         "texto": "#854D0E",
@@ -361,12 +354,12 @@ def render_kpi(
         col.markdown(
             f'<div style="background:{t["fundo"]};border-left:4px solid {t["borda"]};'
             f'border-radius:10px;padding:20px 24px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">'
-            f'<div style="font-family:{FONTE_TEXTO};font-size:11px;font-weight:700;'
-            f'color:{t["titulo"]};text-transform:uppercase;letter-spacing:1.2px;'
+            f'<div style="font-family:{Fontes.TEXTO};font-size:11px;font-weight:700;'
+            f"color:{t['titulo']};text-transform:uppercase;letter-spacing:1.2px;"
             f'margin-bottom:6px;">{label}</div>'
-            f'<div style="font-family:{FONTE_TITULO};font-size:28px;font-weight:800;'
+            f'<div style="font-family:{Fontes.TITULO};font-size:28px;font-weight:800;'
             f'color:{t["texto"]};line-height:1;font-variant-numeric:tabular-nums;">{value}</div>'
-            f'<div style="font-family:{FONTE_TEXTO};font-size:12px;color:{t["titulo"]};'
+            f'<div style="font-family:{Fontes.TEXTO};font-size:12px;color:{t["titulo"]};'
             f'margin-top:6px;font-weight:500;">{sub}</div></div>',
             unsafe_allow_html=True,
         )
@@ -383,12 +376,12 @@ def render_kpi_sm(
             f'<div style="background:{t["fundo"]};border-left:3px solid {t["borda"]};'
             f"border-radius:6px;padding:12px 16px;margin-bottom:8px;"
             f'box-shadow:0 1px 4px rgba(0,0,0,0.06);">'
-            f'<div style="font-family:{FONTE_TEXTO};font-size:10px;color:{t["titulo"]};'
+            f'<div style="font-family:{Fontes.TEXTO};font-size:10px;color:{t["titulo"]};'
             f'text-transform:uppercase;letter-spacing:1px;font-weight:700;">{label}</div>'
-            f'<div style="font-family:{FONTE_TITULO};font-size:20px;color:{t["texto"]};'
+            f'<div style="font-family:{Fontes.TITULO};font-size:20px;color:{t["texto"]};'
             f"font-weight:800;line-height:1.2;margin-top:4px;"
             f'font-variant-numeric:tabular-nums;">{value}</div>'
-            f'<div style="font-family:{FONTE_TEXTO};font-size:11px;color:{t["titulo"]};'
+            f'<div style="font-family:{Fontes.TEXTO};font-size:11px;color:{t["titulo"]};'
             f'margin-top:2px;">{sub}</div></div>',
             unsafe_allow_html=True,
         )
@@ -432,7 +425,7 @@ def _fmt_int_br(v: Any) -> str:
 # ══════════════════════════════════════════════════════════════════════
 class Utils:
     @staticmethod
-    def buscar_coluna(df: pd.DataFrame, palavras: list) -> Optional[str]:
+    def buscar_coluna(df: pd.DataFrame, palavras: list) -> str | None:
         if df is None or df.empty:
             return None
 
@@ -832,7 +825,7 @@ class DataLoader:
         )
 
         df.attrs["merge_aplicado"] = False
-        
+
         # Garante que as colunas do GSheets fiquem em UPPERCASE
         if df_gs is not None and not df_gs.empty:
             df_gs = df_gs.copy()
@@ -853,7 +846,7 @@ class DataLoader:
                 .str.upper()
             )
             df_gs_unico = df_gs.drop_duplicates(subset=["LOGIN"], keep="last").copy()
-            
+
             if "TÉCNICO" in df_gs_unico.columns:
                 df_gs_unico = df_gs_unico.rename(columns={"TÉCNICO": "TÉCNICO_GS"})
             if "MONITOR" in df_gs_unico.columns:
@@ -885,8 +878,12 @@ class DataLoader:
         df["TÉCNICO"] = df["TÉCNICO"].astype(str).str.strip().str.upper()
         df["MONITOR"] = df["MONITOR"].astype(str).str.strip().str.upper()
 
-        df.loc[df["TÉCNICO"].isin(["", "NAN", "NONE", "NULL"]), "TÉCNICO"] = "NÃO MAPEADO"
-        df.loc[df["MONITOR"].isin(["", "NAN", "NONE", "NULL"]), "MONITOR"] = "SEM MONITOR"
+        df.loc[df["TÉCNICO"].isin(["", "NAN", "NONE", "NULL"]), "TÉCNICO"] = (
+            "NÃO MAPEADO"
+        )
+        df.loc[df["MONITOR"].isin(["", "NAN", "NONE", "NULL"]), "MONITOR"] = (
+            "SEM MONITOR"
+        )
 
         # Limpeza de colunas auxiliares do merge
         df = df.drop(columns=["TÉCNICO_GS", "MONITOR_GS", "BASE_GS"], errors="ignore")
@@ -973,7 +970,11 @@ class DataLoader:
             df, ["CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA"]
         )
         nome_col_baixa = "_COL_BAIXA"
-        df[nome_col_baixa] = df[col_cod].astype(str).str.strip() if col_cod and col_cod in df.columns else ""
+        df[nome_col_baixa] = (
+            df[col_cod].astype(str).str.strip()
+            if col_cod and col_cod in df.columns
+            else ""
+        )
         df.attrs["_COL_BAIXA"] = nome_col_baixa
 
         # 10. GARANTIA DE COLUNAS
@@ -996,7 +997,9 @@ class DataLoader:
     @staticmethod
     def callback_robo_etl(df_raw: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
         caminho_completo = st.session_state.get("robo_candidato_path", "")
-        nome_arquivo = Path(caminho_completo).name if caminho_completo else "Arquivo_Robo"
+        nome_arquivo = (
+            Path(caminho_completo).name if caminho_completo else "Arquivo_Robo"
+        )
 
         df_processado = DataLoader.preparar_base(df_raw, df_gs, filename=nome_arquivo)
 
@@ -1017,7 +1020,7 @@ class Motor:
         return float(df.loc[df["Status Contrato"] == status, "TOTAL DE TAREFAS"].sum())
 
     @staticmethod
-    def quebra_atual(df: pd.DataFrame) -> Tuple[float, float]:
+    def quebra_atual(df: pd.DataFrame) -> tuple[float, float]:
         if df.empty:
             return 0.0, 0.0
         exe = Motor._soma_status(df, "Executada")
@@ -1144,11 +1147,11 @@ class Motor:
             aggfunc="sum",
             fill_value=0,
         ).reset_index()
-        
+
         for col in ["Não Executada", "Pendente"]:
             if col not in pivot.columns:
                 pivot[col] = 0
-                
+
         pivot["Total Fila"] = pivot["Não Executada"] + pivot["Pendente"]
         pivot["Prioridade"] = pivot["Não Executada"] * 2 + pivot["Pendente"]
         pivot["Classificação"] = np.select(
@@ -1165,7 +1168,7 @@ class Motor:
         rename_map = {"MONITOR": "Monitor", "TÉCNICO": "Técnico"}
         if "TIPO_SERVICO" in pivot.columns:
             rename_map["TIPO_SERVICO"] = "Segmento"
-            
+
         pivot = pivot.rename(columns=rename_map)
 
         # 2. Agora montamos as colunas finais com os nomes já devidamente traduzidos
@@ -1181,10 +1184,9 @@ class Motor:
         if "Segmento" in pivot.columns:
             cols_final.insert(3, "Segmento")
 
-        return (
-            pivot.sort_values("Prioridade", ascending=False)
-            .reset_index(drop=True)[cols_final]
-        )
+        return pivot.sort_values("Prioridade", ascending=False).reset_index(drop=True)[
+            cols_final
+        ]
 
     @staticmethod
     def matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
@@ -1240,7 +1242,7 @@ class Motor:
         )
         pivot["Total Tarefas"] = df_tot["tar"].astype(int)
         pivot = pivot.reset_index().rename(columns={"MONITOR": "Monitor"})
-        total_row: Dict[str, Any] = {"Monitor": "TOTAL GERAL"}
+        total_row: dict[str, Any] = {"Monitor": "TOTAL GERAL"}
         for tipo in Config.ORDEM_TIPOS:
             sub = df_valid[df_valid["TIPO_SERVICO"] == tipo]
             ex, ne = sub["_executadas"].sum(), sub["_nao_executadas"].sum()
@@ -1251,7 +1253,7 @@ class Motor:
         return pd.concat([pivot, pd.DataFrame([total_row])], ignore_index=True)
 
     @staticmethod
-    def projetar(df: pd.DataFrame, p: float) -> Dict[str, float]:
+    def projetar(df: pd.DataFrame, p: float) -> dict[str, float]:
         if df.empty:
             return dict(
                 alocado=0,
@@ -1283,7 +1285,7 @@ class Motor:
         )
 
     @staticmethod
-    def folga_sla(df: pd.DataFrame, sla: float) -> Dict[str, Any]:
+    def folga_sla(df: pd.DataFrame, sla: float) -> dict[str, Any]:
         if df.empty:
             return dict(
                 alocado=0,
@@ -1325,10 +1327,10 @@ class Motor:
 # ═══════════════════════════════════════════════════════════════════════
 def estilizar_matriz(df: pd.DataFrame, meta_padrao: float = 0.20):
     cols_pct = [c for c in df.columns if c not in ("Monitor", "Total Tarefas")]
-    fmt: Dict[str, Any] = {c: _fmt_pct_br for c in cols_pct}
+    fmt: dict[str, Any] = {c: _fmt_pct_br for c in cols_pct}
     if "Total Tarefas" in df.columns:
         fmt["Total Tarefas"] = _fmt_int_br
-    METAS_COLUNAS: Dict[str, float] = {
+    METAS_COLUNAS: dict[str, float] = {
         "NOVOS DOMICÍLIOS": 0.20,
         "Novos Domicílios": 0.20,
         "PME": 0.20,
@@ -1339,7 +1341,7 @@ def estilizar_matriz(df: pd.DataFrame, meta_padrao: float = 0.20):
         "OUTROS": 0.20,
         "Outros": 0.20,
     }
-    condicoes: Dict[str, Dict[str, Any]] = {}
+    condicoes: dict[str, dict[str, Any]] = {}
     for col in cols_pct:
         meta_col = METAS_COLUNAS.get(col, meta_padrao)
         condicoes[col] = {
@@ -1354,7 +1356,7 @@ def render_dataframe_profundo(
     df: pd.DataFrame,
     titulo: str,
     icone: str,
-    color_col: Optional[str] = None,
+    color_col: str | None = None,
     meta: float = 0.20,
     height: int = 400,
 ) -> None:
@@ -1413,7 +1415,7 @@ def render_dataframe_profundo(
         df_disp,
         fmt=fmt_dict,
         color_rules=condicao_cores,
-        num_cols=list(df_disp.columns),
+        colunas_num=list(df_disp.columns),
         height=height,
     )
 
@@ -1421,12 +1423,12 @@ def render_dataframe_profundo(
 # ═══════════════════════════════════════════════════════════════════════
 # HEROS
 # ═══════════════════════════════════════════════════════════════════════
-def html_resultado_base(regioes: List[str], total: int, origem: str = "") -> str:
+def html_resultado_base(regioes: list[str], total: int, origem: str = "") -> str:
     badges = "".join(
         [
             f'<span style="padding:0.3rem 0.9rem;border-radius:999px;font-size:0.82rem;'
-            f'font-weight:700;border:2px solid;background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};'
-            f'color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};'
+            f"font-weight:700;border:2px solid;background:{CORES_REGIAO.get(r, CORES_REGIAO['OUTRAS'])['bg']};"
+            f"color:{CORES_REGIAO.get(r, CORES_REGIAO['OUTRAS'])['text']};"
             f'border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]};">{r}</span>'
             for r in sorted(regioes)
         ]
@@ -1450,7 +1452,7 @@ def html_resultado_base(regioes: List[str], total: int, origem: str = "") -> str
 def render_hero_topo_fixo(
     titulo: str,
     subtitulo: str,
-    regioes: List[str],
+    regioes: list[str],
     total: int,
     badge: str = "",
     origem: str = "",
@@ -1601,7 +1603,7 @@ def main() -> None:
         observer.observe(document.body, { childList: true, subtree: true });
         </script>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
     # ─ 1. Sidebar: Marca ──────────────────────────────────────────────
@@ -1660,7 +1662,7 @@ def main() -> None:
                 etl_fn=DataLoader.callback_robo_etl,
                 gsheets_fn=DataLoader.buscar_gsheets,
                 pasta_padrao=st.session_state["robo_pasta_alvo"],
-                ciclos_estabilidade=1, # Sincronização imediata
+                ciclos_estabilidade=1,  # Sincronização imediata
                 mostrar_toggle=True,
                 mostrar_config=True,
             )
@@ -1685,7 +1687,7 @@ def main() -> None:
         )
 
         if ativo_fb and pasta_fb and os.path.isdir(pasta_fb):
-            candidatos: List[Path] = []
+            candidatos: list[Path] = []
             p_dir = Path(pasta_fb)
             for pat in ("Atividades-*.csv", "Atividades-*.xlsx", "Atividades-*.xls"):
                 candidatos.extend(p_dir.glob(pat))
@@ -1726,7 +1728,7 @@ def main() -> None:
 
     # ─ 4. Área Central: Upload Manual de Contingência ────────────────
     hero_area = st.container()
-    df_atual: Optional[pd.DataFrame] = st.session_state.get("df_memoria")
+    df_atual: pd.DataFrame | None = st.session_state.get("df_memoria")
     origem_atual = str(st.session_state.get("origem_dados", ""))
     robo_carregou = (
         df_atual is not None
@@ -1771,7 +1773,7 @@ def main() -> None:
                     st.error(f"❌ Erro ao processar o arquivo: {e}")
                     return
 
-    df: Optional[pd.DataFrame] = st.session_state.get("df_memoria")
+    df: pd.DataFrame | None = st.session_state.get("df_memoria")
 
     # ─ 6. Estado Vazio ───────────────────────────────────────────────
     if df is None or df.empty:

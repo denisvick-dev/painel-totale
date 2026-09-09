@@ -3,8 +3,9 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
+from collections.abc import Mapping
 from io import BytesIO
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -233,7 +234,7 @@ def chave_coluna(valor: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "", texto)
 
 
-def buscar_coluna(df: pd.DataFrame, aliases: List[str]) -> Optional[str]:
+def buscar_coluna(df: pd.DataFrame, aliases: list[str]) -> str | None:
     if df is None or df.empty:
         return None
 
@@ -348,7 +349,7 @@ def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def carregar_hierarquia_gsheets() -> Tuple[pd.DataFrame, Optional[str]]:
+def carregar_hierarquia_gsheets() -> tuple[pd.DataFrame, str | None]:
     colunas_padrao = [
         "__LOGIN_BASE",
         "__TECNICO_GS",
@@ -636,7 +637,7 @@ def preparar_base(
 # ==========================================================
 # MÉTRICAS
 # ==========================================================
-def calcular_kpis(df: pd.DataFrame) -> Dict[str, float]:
+def calcular_kpis(df: pd.DataFrame) -> dict[str, float]:
     executadas = df.loc[
         df[COL_STATUS] == "Executada",
         COL_TOTAL,
@@ -671,7 +672,7 @@ def calcular_kpis(df: pd.DataFrame) -> Dict[str, float]:
 
 def calcular_volumetria(
     df: pd.DataFrame,
-    grupos: List[str],
+    grupos: list[str],
 ) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
@@ -839,13 +840,13 @@ def renderizar_card(
 
 
 def estilo_projecao(_valor) -> str:
-    return "background-color:#0F172A;" "color:#FFFFFF;" "font-weight:700;"
+    return "background-color:#0F172A;color:#FFFFFF;font-weight:700;"
 
 
 def estilo_meta_executadas(valor) -> str:
     try:
         if float(valor) >= META_EXECUTADAS_TECNICO:
-            return "background-color:#DCFCE7;" "color:#166534;" "font-weight:700;"
+            return "background-color:#DCFCE7;color:#166534;font-weight:700;"
     except Exception:
         pass
 
@@ -931,7 +932,7 @@ def renderizar_tabela(
         label="📥 Baixar Excel",
         data=gerar_excel(tabela, aba_excel),
         file_name=arquivo,
-        mime=("application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"),
+        mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         use_container_width=True,
         key=chave_download,
     )
@@ -976,7 +977,7 @@ def aplicar_layout_grafico(
     return figura
 
 
-def grafico_status(kpis: Dict[str, float]) -> go.Figure:
+def grafico_status(kpis: dict[str, float]) -> go.Figure:
     dados = pd.DataFrame(
         {
             "Status": STATUS_ORDEM,
@@ -1065,9 +1066,7 @@ def grafico_regioes(df: pd.DataFrame) -> go.Figure:
     )
 
     figura.update_traces(
-        hovertemplate=(
-            "<b>%{x}</b><br>" "%{fullData.name}: %{y:,.0f}" "<extra></extra>"
-        )
+        hovertemplate=("<b>%{x}</b><br>%{fullData.name}: %{y:,.0f}<extra></extra>")
     )
 
     figura.update_layout(
@@ -1528,9 +1527,7 @@ def main() -> None:
         config={"displayModeBar": False},
     )
 
-    st.caption(
-        f"Meta de referência de execução: " f"{formatar_percentual(META_EXECUCAO)}."
-    )
+    st.caption(f"Meta de referência de execução: {formatar_percentual(META_EXECUCAO)}.")
 
     st.divider()
 
@@ -1616,9 +1613,9 @@ def main() -> None:
 
             renderizar_tabela(
                 tabela=df_tecnicos,
-                titulo=(f"Desempenho Técnico — " f"{monitor_selecionado}"),
+                titulo=(f"Desempenho Técnico — {monitor_selecionado}"),
                 arquivo=(
-                    f"desempenho_tecnicos_" f"{str(monitor_selecionado).strip()}.xlsx"
+                    f"desempenho_tecnicos_{str(monitor_selecionado).strip()}.xlsx"
                 ),
                 aba_excel="Por Tecnico",
                 chave_download="download_tecnicos",
@@ -1631,7 +1628,7 @@ def main() -> None:
     with aba_base:
         st.subheader("Base Completa Filtrada")
 
-        st.caption(f"Linhas disponíveis após filtros: " f"{formatar_numero(len(df))}")
+        st.caption(f"Linhas disponíveis após filtros: {formatar_numero(len(df))}")
 
         st.dataframe(
             df,
@@ -1643,9 +1640,7 @@ def main() -> None:
             label="📥 Baixar Base Filtrada em Excel",
             data=gerar_excel(df, "Base Filtrada"),
             file_name="base_filtrada.xlsx",
-            mime=(
-                "application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"
-            ),
+            mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             use_container_width=True,
             key="download_base_completa",
         )

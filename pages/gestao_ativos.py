@@ -8,34 +8,28 @@ import hmac
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from io import BytesIO
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import gspread
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
 # Importação do Design System
 from components.componentes import (
+    Cores,
     aplicar_estilo,
-    render_hero_totale_1,
-    render_section_header,
-    render_kpi,
     render_empty_state,
-    render_table_html,
+    render_hero_totale_1,
+    render_kpi,
+    render_section_header,
     render_sidebar_brand,
-    render_sidebar_info,
-    render_sidebar_section,
     render_sidebar_divider,
     render_sidebar_footer_info,
-    COR_SUCESSO,
-    COR_ATENCAO,
-    COR_ALERTA,
-    COR_NEUTRO,
-    COR_PRIMARIA,
+    render_sidebar_info,
+    render_sidebar_section,
+    render_table_html,
 )
 
 
@@ -100,7 +94,7 @@ class Safe:
         return df.astype(str)
 
     @classmethod
-    def garantir_colunas(cls, df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
+    def garantir_colunas(cls, df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
         def n(s):
             return str(s).lower().translate(str.maketrans("ãáâéêíóôúç ", "aaaeeioouc_"))
 
@@ -155,7 +149,7 @@ def _gspread_sheet(worksheet_name: str) -> gspread.Worksheet:
     return sh.worksheet(worksheet_name)
 
 
-def _append_gspread(worksheet_name: str, linha: List[Any]) -> bool:
+def _append_gspread(worksheet_name: str, linha: list[Any]) -> bool:
     try:
         ws = _gspread_sheet(worksheet_name)
         ws.append_row(
@@ -248,17 +242,17 @@ class Config:
 
     # Mapeamento de cores para o render_table_html
     CORES_SITUACAO = {
-        "ATIVO": COR_SUCESSO,
-        "FÉRIAS": COR_ATENCAO,
-        "INOPERANTE": COR_ALERTA,
+        "ATIVO": Cores.SUCESSO,
+        "FÉRIAS": Cores.ATENCAO,
+        "INOPERANTE": Cores.ALERTA,
         "ETN": "#7C3AED",
-        "AFASTADO": COR_NEUTRO,
+        "AFASTADO": Cores.NEUTRO,
         "DESLIGADO": "#374151",
         "INATIVO": "#1F2937",
     }
 
     @staticmethod
-    def usuarios() -> Dict[str, dict]:
+    def usuarios() -> dict[str, dict]:
         base = {
             "denisvick": {
                 "senha": "admin123",
@@ -285,7 +279,7 @@ class Config:
 # [2] REPOSITÓRIO & SERVIÇOS (Lógica de negócio mantida)
 # ═══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=Config.CACHE_TTL, show_spinner=False)
-def _fetch(chave: str, colunas: Tuple[str, ...]) -> pd.DataFrame:
+def _fetch(chave: str, colunas: tuple[str, ...]) -> pd.DataFrame:
     worksheet_name = Config.ABAS.get(chave, chave)
     empty = pd.DataFrame(columns=list(colunas))
     try:
@@ -305,7 +299,7 @@ def _fetch(chave: str, colunas: Tuple[str, ...]) -> pd.DataFrame:
 
 
 class Repo:
-    def ler(self, chave: str, cols: List[str]) -> pd.DataFrame:
+    def ler(self, chave: str, cols: list[str]) -> pd.DataFrame:
         return _fetch(chave, tuple(cols)).copy()
 
     def gravar(self, chave: str, df: pd.DataFrame) -> bool:
@@ -343,7 +337,7 @@ class Usuario:
     login: str
     nome: str
     role: str
-    bases: List[str] = field(default_factory=list)
+    bases: list[str] = field(default_factory=list)
 
     def pode(self, a: str) -> bool:
         P = {
@@ -365,7 +359,7 @@ class Tecnico:
     Situação: str
     Ultima_Modificacao: str = ""
 
-    def normalizar(self) -> "Tecnico":
+    def normalizar(self) -> Tecnico:
         self.RE = Safe.upper(self.RE)
         self.Login = Safe.lower(self.Login)
         self.Técnico = Safe.upper(self.Técnico)
@@ -446,7 +440,7 @@ class Svc:
 
     def importar(
         self, df_imp: pd.DataFrame, usr: Usuario
-    ) -> tuple[int, int, List[str]]:
+    ) -> tuple[int, int, list[str]]:
         df_imp = Safe.limpar_df(df_imp)
         df_at = self.r.ler("ativos", Config.COL_ATIVOS)
         exist = set(df_at["RE"].str.upper())
@@ -457,11 +451,11 @@ class Svc:
             re = Safe.upper(row.get("RE", ""))
             if not re:
                 falhas += 1
-                erros.append(f"Linha {i+2}: RE vazio")
+                erros.append(f"Linha {i + 2}: RE vazio")
                 continue
             if re in exist:
                 falhas += 1
-                erros.append(f"Linha {i+2}: RE '{re}' duplicado")
+                erros.append(f"Linha {i + 2}: RE '{re}' duplicado")
                 continue
             tec = Tecnico(
                 RE=re,
@@ -530,9 +524,7 @@ def view_dashboard(df_raw, usr):
         df = df[df["Situação"].isin(fs)]
 
     if df.empty:
-        render_empty_state(
-            "Nenhum registro encontrado", "Tente ajustar os filtros acima."
-        )
+        render_empty_state("filtro")
         return
 
     tot = len(df)
@@ -542,14 +534,16 @@ def view_dashboard(df_raw, usr):
 
     k1, k2, k3, k4, k5 = st.columns(5)
     render_kpi(k1, "Total", str(tot), f"{df['Base'].nunique()} bases", "azul")
-    render_kpi(k2, "Em Operação", str(atv), f"{atv/tot*100:.1f}% disponível", "verde")
+    render_kpi(
+        k2, "Em Operação", str(atv), f"{atv / tot * 100:.1f}% disponível", "verde"
+    )
     render_kpi(k3, "Em Férias", str(fer), "", "laranja")
     render_kpi(k4, "Inoperantes", str(inop), "", "vermelho")
     render_kpi(k5, "Monitores", str(df["Monitor"].nunique()), "", "roxo")
 
     st.divider()
     render_section_header(
-        "Listagem de Ativos", icone="📋", badge=f"{tot} registros", badge_tipo="azul"
+        "Listagem de Ativos", icone="📋", badge=f"{tot} registros", badge_tipo="info"
     )
 
     # APLICAÇÃO DO RENDER_TABLE_HTML
@@ -631,7 +625,7 @@ def view_auditoria(repo, usr):
         return
     df = repo.ler("auditoria", Config.COL_AUDIT)
     if df.empty:
-        render_empty_state("Sem logs de auditoria.")
+        render_empty_state("filtro")
         return
 
     # Filtros...
@@ -722,7 +716,7 @@ def tela_principal():
         df_ativos = svc.ativos(usr)
     if df_ativos.empty:
         render_empty_state(
-            "Base de dados vazia",
+            "dados",
             "Verifique a conexão com o Google Sheets ou cadastre novos ativos.",
         )
         return
