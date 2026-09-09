@@ -3,7 +3,6 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
-import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
