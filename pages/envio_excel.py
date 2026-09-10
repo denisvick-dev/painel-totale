@@ -212,14 +212,28 @@ class ProcessadorDeDados:
     ]:
         """Faz o download e processamento de todas as bases remotas."""
         prod_raw: dict[str, pd.DataFrame] = {}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
 
-        # 1) Produção
+                # 1) Produção (Corrigido com verificação de resposta None)
         try:
+            resp_prod = requests.get(
+                Configuracoes.URL_PROD, headers=headers, timeout=Configuracoes.TIMEOUT
+            )
+            resp_prod.raise_for_status()
+
+            if "text/html" in resp_prod.headers.get("Content-Type", "").lower():
+                raise RuntimeError(
+                    "O link da Produção retornou HTML. Verifique se a planilha está compartilhada como 'Qualquer pessoa com o link'."
+                )
+
             prod_result = pd.read_excel(
-                Configuracoes.URL_PROD,
+                BytesIO(resp_prod.content),
                 sheet_name=Configuracoes.ABAS_PROD,
                 engine="openpyxl",
             )
+
             if isinstance(prod_result, dict):
                 prod_raw = {
                     str(k): v
@@ -230,8 +244,19 @@ class ProcessadorDeDados:
                 prod_raw = {"Prod": prod_result}
             else:
                 prod_raw = {"Prod": pd.DataFrame()}
+
+        except requests.exceptions.HTTPError as e:
+            # Correção: Verifica se e.response não é None antes de acessar status_code
+            if e.response is not None:
+                if e.response.status_code == 400:
+                    raise RuntimeError(
+                        "Erro 400 (Bad Request) ao acessar a Produção. Verifique se o ID da planilha na URL está correto."
+                    ) from e
+                raise RuntimeError(f"Erro HTTP {e.response.status_code} ao carregar Produção: {e}") from e
+            else:
+                raise RuntimeError(f"Erro de conexão sem resposta HTTP ao carregar Produção: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Erro ao carregar Produção Excel: {e}") from e
+            raise RuntimeError(f"Erro ao processar Produção Excel: {e}") from e
 
         # 2) Consultivo
         try:
@@ -257,7 +282,7 @@ class ProcessadorDeDados:
 
         cons_dict = {"Consultivo": cons}
         return prod_raw, cons_dict, ativos
-
+    
 
 def _obter_dataframe(chave_state: str, nome_aba: str | None = None) -> pd.DataFrame:
     """Helper seguro para extrair DataFrames do st.session_state."""

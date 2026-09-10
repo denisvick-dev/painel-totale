@@ -2,7 +2,7 @@
 Módulo central de estilos, fontes e componentes reutilizáveis
 para todo o projeto Streamlit TOTALE.
 
-Version: 4.1.2
+Version: 4.1.3
 Author: TOTALE Tecnologia
 """
 
@@ -470,6 +470,58 @@ class CSSInjector:
             font-family: var(--totale-font-text) !important;
         }}
 
+        /* ── NAVEGAÇÃO SIDEBAR: ESTILO BASE ── */
+        [data-testid="stSidebar"] div[role="radiogroup"] > label,
+        [data-testid="stSidebar"] [data-testid="stPageLink"] a,
+        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a {{
+            width: 100% !important;
+            min-height: 40px !important;
+            display: flex !important;
+            align-items: center !important;
+            padding: 8px 12px !important;
+            margin: 2px 0 !important;
+            border: 1px solid transparent !important;
+            border-radius: 9px !important;
+            color: var(--totale-text-2) !important;
+            background: transparent !important;
+            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            text-decoration: none !important;
+        }}
+
+        /* ── NAVEGAÇÃO SIDEBAR: HOVER COM SOMBREAMENTO E ELEVAÇÃO ── */
+        [data-testid="stSidebar"] div[role="radiogroup"] > label:hover,
+        [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
+        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {{
+            color: var(--totale-primary) !important;
+            background: linear-gradient(90deg, #FFF7ED 0%, #FFFFFF 100%) !important;
+            border-color: #FDBA74 !important;
+            box-shadow: 0 4px 14px rgba(243, 124, 4, 0.15), 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+            transform: translateX(4px) !important;
+        }}
+
+        /* ── NAVEGAÇÃO SIDEBAR: ITEM SELECIONADO / ATIVO ── */
+        [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked),
+        [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"],
+        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] {{
+            color: #012869 !important;
+            background: #FFF7ED !important;
+            border: 1px solid #F37C04 !important;
+            box-shadow: 0 2px 8px rgba(243, 124, 4, 0.18) !important;
+            font-weight: 700 !important;
+        }}
+
+        /* Oculta a bolinha do radio nativo se presente */
+        [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {{
+            display: none !important;
+        }}
+
+        [data-testid="stSidebar"] div[role="radiogroup"] > label p {{
+            font-size: 13px !important;
+            line-height: 1.25 !important;
+            margin: 0 !important;
+        }}
+
+        /* WIDGETS */
         [data-testid="stSidebar"] .stSelectbox label,
         [data-testid="stSidebar"] .stMultiSelect label,
         [data-testid="stSidebar"] .stDateInput label,
@@ -496,12 +548,6 @@ class CSSInjector:
             box-shadow: 0 0 0 3px rgba(10, 72, 170, 0.10) !important;
         }}
 
-        [data-testid="stSidebar"] div[data-baseweb="input"] {{
-            background: #FFFFFF !important;
-            border-color: var(--totale-border) !important;
-            border-radius: 9px !important;
-        }}
-
         [data-testid="stSidebar"] .stButton > button {{
             width: 100%;
             min-height: 40px;
@@ -511,84 +557,18 @@ class CSSInjector:
             color: var(--totale-text-2);
             font-size: 12px;
             font-weight: 700;
-            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
         }}
 
         [data-testid="stSidebar"] .stButton > button:hover {{
-            color: var(--totale-primary);
-            border-color: #BFDBFE;
-            box-shadow: var(--totale-shadow-sm);
-            transform: translateY(-1px);
+            color: var(--totale-primary) !important;
+            background: linear-gradient(90deg, #FFF7ED 0%, #FFFFFF 100%) !important;
+            border-color: #FDBA74 !important;
+            box-shadow: 0 4px 14px rgba(243, 124, 4, 0.15) !important;
+            transform: translateX(4px) !important;
         }}
 
-        [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
-            color: #FFFFFF;
-            background: linear-gradient(135deg, var(--totale-primary), var(--totale-primary-light));
-            border-color: var(--totale-primary);
-        }}
-
-        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {{
-            border-color: var(--totale-border) !important;
-            border-radius: 12px !important;
-            background: linear-gradient(160deg, #FFFFFF 0%, #F8FAFC 100%);
-            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.035);
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] {{
-            gap: 5px;
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] > label {{
-            width: 100%;
-            min-height: 42px;
-            display: flex;
-            align-items: center;
-            padding: 8px 11px;
-            margin: 0;
-            border: 1px solid transparent;
-            border-radius: 9px;
-            color: var(--totale-text-2);
-            background: transparent;
-            transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] > label:hover {{
-            color: var(--totale-primary);
-            background: #F1F5F9;
-            border-color: #E2E8F0;
-            transform: translateX(2px);
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] > label:has(input:checked) {{
-            color: var(--totale-primary);
-            background: linear-gradient(90deg, #EFF6FF 0%, #F8FAFC 100%);
-            border-color: #BFDBFE;
-            box-shadow: inset 3px 0 0 var(--totale-primary);
-            font-weight: 700 !important;
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] > label > div:first-child {{
-            display: none;
-        }}
-
-        [data-testid="stSidebar"] .totale-sidebar-menu-marker + div div[role="radiogroup"] > label p {{
-            font-size: 12.5px !important;
-            line-height: 1.25;
-        }}
-
-        [data-testid="stSidebar"] details[data-testid="stExpander"] {{
-            border: 1px solid var(--totale-border);
-            border-radius: 10px;
-            background: #FFFFFF;
-        }}
-
-        [data-testid="stSidebar"] details[data-testid="stExpander"] summary {{
-            color: var(--totale-text-2);
-            font-size: 11px;
-            font-weight: 700;
-        }}
-
-        [data-testid="stSidebar"] ::-webkit-scrollbar {{ width: 7px; }}
+        [data-testid="stSidebar"] ::-webkit-scrollbar {{ width: 6px; }}
         [data-testid="stSidebar"] ::-webkit-scrollbar-track {{ background: transparent; }}
         [data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 999px; }}
         [data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ background: #94A3B8; }}
@@ -1531,15 +1511,12 @@ def render_sidebar_status(
 ) -> None:
     detalhes_dict = detalhes or {}
 
-    detalhes_html = "".join(
-        f"""
+    detalhes_html = "".join(f"""
         <div class="sidebar-footer-item">
             <span class="sidebar-footer-label">{Validadores.html_escape(k)}</span>
             <span class="sidebar-footer-value">{Validadores.html_escape(v)}</span>
         </div>
-        """
-        for k, v in detalhes_dict.items()
-    )
+        """ for k, v in detalhes_dict.items())
 
     mapa_status_cor = {
         "ok": Cores.SUCESSO,
@@ -1772,27 +1749,52 @@ def render_progress_bar(
     altura: str = "medio",
     unidade: str = "%",
 ) -> None:
-    altura_px = {"pequeno": "6px", "medio": "10px", "grande": "14px"}.get(
-        altura, "10px"
+    # Alturas levemente ajustadas para um visual mais elegante
+    altura_px = {"pequeno": "6px", "medio": "8px", "grande": "12px"}.get(
+        altura, "8px"
     )
     porcentagem = min(100.0, max(0.0, (valor / maximo) * 100)) if maximo > 0 else 0.0
+    
     bg_style = (
         f"linear-gradient(90deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA})"
         if tema == "gradiente"
         else ConfigCores.PROGRESS_BAR.get(tema, Cores.PRIMARIA)
     )
 
-    label_html = (
-        f'<div class="progress-bar-label"><span>{Validadores.html_escape(label)}</span>{f"<span style=font-weight:700;color:{Cores.TEXTO};>{porcentagem:.1f}{unidade}</span>" if mostrar_valor else ""}</div>'
-        if label or mostrar_valor
-        else ""
-    )
-    markup = f'{label_html}<div class="progress-bar-container" style="height:{altura_px};"><div class="progress-bar-fill" style="width:{porcentagem}%;height:{altura_px};background:{bg_style};"></div></div>'
+    # Header com Flexbox para separar perfeitamente o Label do Valor numérico
+    header_html = ""
+    if label or mostrar_valor:
+        lbl_html = (
+            f'<span style="font-size:13px; font-weight:600; color:{Cores.TEXTO_2};">'
+            f'{Validadores.html_escape(label)}</span>'
+        ) if label else "<span></span>"
+        
+        val_html = (
+            f'<span style="font-size:14px; font-weight:800; color:{Cores.TEXTO}; '
+            f'font-family:var(--font-titulo) !important; font-variant-numeric:tabular-nums;">'
+            f'{porcentagem:.1f}{unidade}</span>'
+        ) if mostrar_valor else ""
+
+        header_html = (
+            f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:8px;">'
+            f'{lbl_html}{val_html}'
+            f'</div>'
+        )
+
+    # O wrapper contém o header e a barra arredondada com fundo cinza claro (Track)
+    markup = f"""
+    <div style="margin: 14px 0;">
+        {header_html}
+        <div style="width:100%; background-color:#E2E8F0; border-radius:999px; overflow:hidden; height:{altura_px};">
+            <div style="width:{porcentagem}%; height:100%; background:{bg_style}; border-radius:999px; transition:width 0.6s ease-out;"></div>
+        </div>
+    </div>
+    """
     _safe_render_html(markup)
 
 
 # =============================================================================
-# TABELA HTML PREMIUM (RESISTENTE A DUPLICADAS E AMBIGUIDADE)
+# TABELA HTML PREMIUM
 # =============================================================================
 def render_table_html(
     df: pd.DataFrame,
@@ -1812,7 +1814,6 @@ def render_table_html(
         render_empty_state(tipo="dados", descricao="Nenhum dado disponível na tabela.")
         return
 
-    # Deduplicação defensiva de colunas para prevenir a.any() / a.all()
     df_clean = df.loc[:, ~df.columns.duplicated()].copy()
 
     if colunas:
@@ -1898,7 +1899,7 @@ def render_table_html(
             )
 
         classe_linha = ' class="striped"' if striped and i % 2 == 1 else ""
-        tr_parts.append(f"<tr{classe_linha}>{''.join(td_parts)}</tr>")
+        tr_parts.append(f'<tr{classe_linha}>{"".join(td_parts)}</tr>')
 
     titulo_html = (
         f'<div style="font-weight:800;font-size:16px;color:#0F172A;margin-bottom:12px;font-family:var(--font-titulo) !important;">{Validadores.html_escape(titulo)}</div>'
