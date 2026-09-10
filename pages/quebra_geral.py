@@ -1506,14 +1506,33 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
     if df_matriz.empty:
         st.warning("⚠️ Dados insuficientes para montar a Matriz Executiva.")
         return
-    df_proc, fmt, condicoes = estilizar_matriz(df_matriz, meta_sla)
+
+    df_proc, fmt, color_rules = estilizar_matriz(df_matriz, meta_sla)
+
+    # Destaque visual da linha TOTAL GERAL (sem parâmetro nativo)
+    if "Monitor" in df_proc.columns:
+        mask_total = (
+            df_proc["Monitor"].astype(str).str.strip().str.upper() == "TOTAL GERAL"
+        )
+        if mask_total.any():
+            # Mantém TOTAL no final e opcionalmente prefixa para leitura
+            df_total = df_proc.loc[mask_total].copy()
+            df_resto = df_proc.loc[~mask_total].copy()
+            df_proc = pd.concat([df_resto, df_total], ignore_index=True)
+
     render_table_html(
         df_proc,
         fmt=fmt,
-        condicoes_colunas=condicoes,
-        linha_destaque={"coluna": "Monitor", "valor": "TOTAL GERAL"},
+        color_rules=color_rules,   # era condicoes_colunas
+        colunas_num=[
+            c
+            for c in df_proc.columns
+            if c != "Monitor" and pd.api.types.is_numeric_dtype(df_proc[c])
+        ],
         height=460,
+        mostrar_data=True,
     )
+
     st.markdown("<br>", unsafe_allow_html=True)
     c1, _ = st.columns([1, 1])
     with c1:
@@ -1524,7 +1543,6 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-
 
 def view_analise_detalhada(
     df: pd.DataFrame,
@@ -1786,17 +1804,8 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    regioes_sel = []
+    # Filtro de Região oculto — todos os dados são exibidos
     df_filtrado = df.copy()
-    if "REGIÃO" in df.columns:
-        regioes_disponiveis = sorted(df["REGIÃO"].unique().tolist())
-        regioes_sel = st.sidebar.multiselect(
-            "Região", regioes_disponiveis, default=regioes_disponiveis
-        )
-        if regioes_sel:
-            df_filtrado = df[df["REGIÃO"].isin(regioes_sel)].copy()
-    else:
-        st.sidebar.info("ℹ️ Coluna 'REGIÃO' não identificada. Exibindo todos os dados.")
 
     p_ot = st.sidebar.slider("Probabilidade Otimista (%)", 0, 100, 15, step=5) / 100.0
     p_base = st.sidebar.slider("Probabilidade Base (%)", 0, 100, 30, step=5) / 100.0
@@ -1808,11 +1817,18 @@ def main() -> None:
     )
 
     # ─ 8. Hero Principal ─────────────────────────────────────────────
+    regioes_sel = (
+        sorted(df_filtrado["REGIÃO"].dropna().unique().tolist())
+        if "REGIÃO" in df_filtrado.columns
+        else []
+    )
+
     origem_base = st.session_state.get("origem_dados", "Base Carregada")
+
     render_hero_topo_fixo(
         "Super Relatório Corporativo",
         "Análise unificada de desempenho operacional e quebra de agenda",
-        regioes_sel if regioes_sel else ["OUTRAS"],
+        regioes_sel if regioes_sel else ["TODAS"],
         len(df_filtrado),
         badge="TOTALE OPERACIONAL",
         origem=origem_base,

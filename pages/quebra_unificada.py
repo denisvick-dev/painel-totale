@@ -2003,11 +2003,11 @@ def main() -> None:
 
     with st.sidebar:
         st.markdown("### 📁 Escolha a Carteira")
-        segmento_selecionado = st.radio(
+        segmento_selecionado = st.selectbox(
             "Segmento:",
             ["Novos Domicílios", "Migração", "PME"],
             index=0,
-            horizontal=True,
+            key="sel_segmento_principal",
         )
         st.divider()
         st.header(f"🎯 Filtros {segmento_selecionado}")
