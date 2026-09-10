@@ -1,23 +1,20 @@
 """
 dashboard_meta.py
 =================
-Dashboard de Metas Operacionais - TOTALE (Versão Enterprise v4.1.6 - Final Polish)
-- Estrutura de classes removida para resolver erros de escopo (UndefinedVariable).
-- Funções e constantes agora são globais para compatibilidade Pylance.
-- Todos os erros de lint e Pylance resolvidos.
-- Função de download do Google Drive otimizada e robustecida.
-- Removidas abas desnecessárias para simplificar a UI.
-- Nova regra de agrupamento: Produção por PROJETO, Consultivo por BASE.
-- Lógica de merge e normalização de dados robustecida.
-- Abas de simulação substituídas por projeções com KPIs acionáveis.
-- Corrigida a formatação de números nos KPIs e melhorada a legibilidade do código.
+Dashboard de Metas Operacionais - TOTALE (Versão Enterprise v4.2.0 - UI Premium)
+- Interface 100% baseada no design system components/componentes.py.
+- KPIs renderizados com cards premium coloridos (render_kpi por tema).
+- Faltantes calculados como Meta - Realizado (não mais projeção).
+- Número de técnicos editável manualmente por base (number_input).
+- Progress bars, insights e empty states padronizados pelo design system.
+- Backend inalterado: carga, enriquecimento, filtros e projeções preservados.
+- Regra de agrupamento: Produção por PROJETO, Consultivo por BASE.
 """
 
 from __future__ import annotations
 
 import io
 import logging
-import os
 import re
 import tempfile
 import unicodedata
@@ -45,7 +42,7 @@ else:
         DeltaGenerator = Any
 
 # =============================================================================
-# Mock de Componentes UI
+# Componentes UI (Design System TOTALE)
 # =============================================================================
 try:
     from components.componentes import (
@@ -55,6 +52,7 @@ try:
         render_hero_totale_2,
         render_insight,
         render_kpi,
+        render_metric_card,
         render_progress_bar,
         render_section_header,
         render_sidebar_brand,
@@ -71,22 +69,60 @@ except ImportError:
     def _noop(*args: Any, **kwargs: Any) -> None:
         pass
 
-    def _default_kpi(container: Any, label: str, value: str, **kwargs: Any) -> None:
-        container.metric(label, value)
+    def _fallback_kpi(
+        container: Any,
+        label: str,
+        valor: str,
+        sub: str = "",
+        tema: str = "azul",
+        icone: str = "",
+        **kwargs: Any,
+    ) -> None:
+        container.metric(label, valor, help=sub or None)
+
+    def _fallback_metric_card(
+        container: Any,
+        label: str,
+        valor: str,
+        trend: str = "none",
+        trend_valor: str = "",
+        sub: str = "",
+        **kwargs: Any,
+    ) -> None:
+        container.metric(label, valor, delta=trend_valor or None, help=sub or None)
+
+    def _fallback_section_header(*args: Any, **kwargs: Any) -> None:
+        titulo = (
+            kwargs.get("titulo")
+            or kwargs.get("title")
+            or (args[0] if args else "Seção")
+        )
+        st.subheader(titulo)
+
+    def _fallback_progress(
+        valor: float,
+        maximo: float = 100.0,
+        label: str = "",
+        **kwargs: Any,
+    ) -> None:
+        if label:
+            st.caption(label)
+        st.progress(min(valor / maximo, 1.0) if maximo else 0.0)
 
     aplicar_estilo = _noop
     aplicar_sidebar_corp = _noop
-    render_empty_state = lambda **k: st.info(k.get("titulo", "Sem dados"))
+    render_empty_state = lambda **k: st.info(k.get("titulo") or "Sem dados")
     render_hero_totale_2 = lambda **k: st.title(k.get("titulo", "Dashboard"))
     render_insight = lambda msg, tipo="info": st.info(msg)
-    render_kpi = _default_kpi
-    render_progress_bar = lambda v, m, l, **k: st.progress(min(v / m, 1.0) if m else 0)
-    render_section_header = lambda t, s, **k: st.subheader(t)
+    render_kpi = _fallback_kpi
+    render_metric_card = _fallback_metric_card
+    render_progress_bar = _fallback_progress
+    render_section_header = _fallback_section_header
     render_sidebar_brand = _noop
     render_sidebar_divider = _noop
     render_sidebar_footer_info = _noop
     render_sidebar_info = _noop
-    render_sidebar_section = lambda t: st.sidebar.header(t)
+    render_sidebar_section = lambda *a, **k: st.sidebar.header(a[0] if a else "")
     render_sidebar_spacer = _noop
     render_sidebar_status = lambda **k: st.sidebar.success(k.get("status", "OK"))
     render_table_html = lambda df, **k: st.dataframe(df, use_container_width=True)
@@ -183,7 +219,7 @@ METAS_CONSULTIVO_GERAL: dict[str, int] = {
 @st.cache_resource
 def http_session() -> requests.Session:
     s = requests.Session()
-    s.headers.update({"User-Agent": "totale-dashboard/4.1.6"})
+    s.headers.update({"User-Agent": "totale-dashboard/4.2.0"})
     return s
 
 
@@ -546,9 +582,7 @@ def _baixar_drive_csv(file_id: str) -> bytes:
             import gdown
 
             with tempfile.NamedTemporaryFile(suffix=".csv", delete=True) as tmp_file:
-                gdown.download(
-                    id=file_id, output=tmp_file.name, quiet=True, resume=True
-                )
+                gdown.download(id=file_id, output=tmp_file.name, quiet=True, resume=True) # type: ignore
                 tmp_file.seek(0)
                 return tmp_file.read()  # type: ignore
         except Exception as e2:
@@ -809,6 +843,121 @@ def enriquecer_dados_completos(
 
 
 # =============================================================================
+# Helpers de Apresentação (Formatação BR + Blocos de Cards Premium)
+# =============================================================================
+def _fmt_int(valor: Any) -> str:
+    """Formata inteiro no padrão BR: 33.000."""
+    return f"{int(round(_to_float_safe(valor))):,}".replace(",", ".")
+
+
+def _fmt_dec(valor: Any, casas: int = 1) -> str:
+    """Formata decimal no padrão BR: 447,9."""
+    txt = f"{_to_float_safe(valor):,.{casas}f}"
+    return txt.replace(",", "§").replace(".", ",").replace("§", ".")
+
+
+def render_resumo_cards(
+    *,
+    titulo: str,
+    icone: str,
+    realizado: float,
+    projetado: float,
+    meta: float,
+    faltantes: float,
+    media_diaria: float,
+    dias_restantes: int,
+    tema_progresso: str,
+    label_realizado: str,
+    label_projetado: str,
+    label_meta: str,
+    label_faltantes: str,
+    tecnico_dia: float | None = None,
+) -> None:
+    """
+    Bloco completo de uma métrica operacional:
+    - 3 cards principais (Realizado / Projetado / Meta) em cores distintas
+    - Barra de progresso do design system
+    - Linha de cálculo: Faltantes (Meta - Real) / Média diária / Por técnico
+    """
+    render_section_header(
+        titulo=titulo,
+        icone=icone,
+        subtitulo="Realizado, projeção de fechamento e ritmo necessário (Meta - Real)",
+    )
+
+    pct_real = calcular_atingimento_float(realizado, meta)
+    pct_proj = calcular_atingimento_float(projetado, meta)
+
+    c1, c2, c3 = st.columns(3, gap="large")
+    render_kpi(
+        c1,
+        label=label_realizado,
+        valor=_fmt_int(realizado),
+        sub=f"{pct_real:.1f}% da meta",
+        tema="verde",
+        icone="✅",
+    )
+    render_kpi(
+        c2,
+        label=label_projetado,
+        valor=_fmt_int(projetado),
+        sub=f"{pct_proj:.1f}% projetado da meta",
+        tema="azul",
+        icone="📈",
+    )
+    render_kpi(
+        c3,
+        label=label_meta,
+        valor=_fmt_int(meta),
+        sub="Meta mensal estabelecida",
+        tema="laranja",
+        icone="🎯",
+    )
+
+    render_progress_bar(
+        valor=float(realizado),
+        maximo=float(meta),
+        label=f"Progresso {titulo}",
+        mostrar_valor=True,
+        tema="azul",
+        altura="medio",
+    )
+
+    if dias_restantes > 0:
+        cols = st.columns(3 if tecnico_dia is not None else 2, gap="large")
+        render_kpi(
+            cols[0],
+            label=label_faltantes,
+            valor=_fmt_int(faltantes),
+            sub="Meta - Realizado",
+            tema="vermelho",
+            icone="⚠️",
+        )
+        render_kpi(
+            cols[1],
+            label="MÉDIA DIÁRIA NECESSÁRIA",
+            valor=_fmt_dec(media_diaria),
+            sub=f"{dias_restantes} dias úteis restantes",
+            tema="roxo",
+            icone="📅",
+        )
+        if tecnico_dia is not None:
+            render_kpi(
+                cols[2],
+                label="MÉDIA POR TÉCNICO / DIA",
+                valor=_fmt_dec(tecnico_dia),
+                sub="Distribuição individual",
+                tema="cinza",
+                icone="👨‍🔧",
+            )
+    else:
+        render_insight(
+            f"Período encerrado — sem dias úteis restantes para {titulo.lower()}.",
+            tipo="info",
+        )
+
+
+# =============================================================================
 # Carga e Enriquecimento
 # =============================================================================
 df_hierarquia_raw = carregar_hierarquia()
@@ -953,7 +1102,7 @@ if st.sidebar.button("Forçar Limpeza de Cache"):
     st.cache_data.clear()
     st.cache_resource.clear()
     st.rerun()
-render_sidebar_footer_info(versao="v4.1.6")
+render_sidebar_footer_info(versao="v4.2.0")
 
 
 def filtrar_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -993,9 +1142,8 @@ _data_fim_str = formatar_data_br(
 )
 render_hero_totale_2(
     titulo="Painel Consolidado de Metas",
-    subtitulo="Visão integrada de O.S., Consultivos, Rankings e Simulação de Cenários",
+    subtitulo="Visão integrada de O.S., Consultivos, Rankings e Projeções",
     badge_texto=f"Período: {_data_inicio_str} até {_data_fim_str}",
-    badge_tipo="info",
 )
 for err in (erro_prod, erro_cons):
     if err:
@@ -1027,49 +1175,68 @@ tabs = st.tabs(
     tab_guarulhos,
 ) = tabs
 
+# -----------------------------------------------------------------------------
+# ABA: Produção Geral
+# -----------------------------------------------------------------------------
 with tab_prod:
-    render_section_header(
-        "Volume de Produção Geral", "Acompanhamento de O.S. contra metas", icone="📊"
-    )
-    real_prod, proj_prod, meta_prod = (
-        len(df_prod_f),
-        int(len(df_prod_f) * fator_global_os),
-        METAS_PRODUCAO_OS_GERAL["meta_base"],
-    )
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("O.S. Realizadas", f"{real_prod:,}".replace(",", "."))
-    c2.metric("Meta Base Mensal", f"{meta_prod:,}".replace(",", "."))
-    c3.metric("Projeção de Fim de Mês", f"{proj_prod:,}".replace(",", "."))
-    c4.metric(
-        "Status do Período",
-        resolver_status_atingimento(proj_prod, METAS_PRODUCAO_OS_GERAL)[0],
-    )
-    render_progress_bar(
-        float(real_prod), float(meta_prod), "Execução Totale", tema="azul"
+    real_prod = len(df_prod_f)
+    proj_prod = int(real_prod * fator_global_os)
+    meta_prod = METAS_PRODUCAO_OS_GERAL["meta_base"]
+
+    os_faltantes_geral = max(0, meta_prod - real_prod)
+    os_media_diaria_geral = (
+        os_faltantes_geral / dias_rest_os if dias_rest_os > 0 else 0
     )
 
+    render_resumo_cards(
+        titulo="Produção Geral",
+        icone="📊",
+        realizado=float(real_prod),
+        projetado=float(proj_prod),
+        meta=float(meta_prod),
+        faltantes=float(os_faltantes_geral),
+        media_diaria=os_media_diaria_geral,
+        dias_restantes=dias_rest_os,
+        tema_progresso="azul",
+        label_realizado="O.S. REALIZADAS",
+        label_projetado="O.S. PROJETADAS",
+        label_meta="META MENSAL DE O.S.",
+        label_faltantes="O.S. FALTANTES",
+    )
+
+# -----------------------------------------------------------------------------
+# ABA: Consultivos Geral
+# -----------------------------------------------------------------------------
 with tab_cons:
-    render_section_header(
-        "Gestão de Consultivos", "Volume criados/finalizados", icone="💼"
+    real_cons = len(df_cons_f)
+    proj_cons = int(real_cons * fator_global_cons)
+    meta_cons = METAS_CONSULTIVO_GERAL["meta_base"]
+
+    cons_faltantes_geral = max(0, meta_cons - real_cons)
+    cons_media_diaria_geral = (
+        cons_faltantes_geral / dias_rest_c if dias_rest_c > 0 else 0
     )
-    real_cons, proj_cons, meta_cons = (
-        len(df_cons_f),
-        int(len(df_cons_f) * fator_global_cons),
-        METAS_CONSULTIVO_GERAL["meta_base"],
-    )
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Consultivos Realizados", f"{real_cons:,}".replace(",", "."))
-    c2.metric("Meta Base Mensal", f"{meta_cons:,}".replace(",", "."))
-    c3.metric("Projeção de Fim de Mês", f"{proj_cons:,}".replace(",", "."))
-    c4.metric(
-        "Status Operacional",
-        resolver_status_atingimento(proj_cons, METAS_CONSULTIVO_GERAL)[0],
-    )
-    render_progress_bar(
-        float(real_cons), float(meta_cons), "Meta Consultivos", tema="laranja"
+
+    render_resumo_cards(
+        titulo="Consultivos",
+        icone="💼",
+        realizado=float(real_cons),
+        projetado=float(proj_cons),
+        meta=float(meta_cons),
+        faltantes=float(cons_faltantes_geral),
+        media_diaria=cons_media_diaria_geral,
+        dias_restantes=dias_rest_c,
+        tema_progresso="laranja",
+        label_realizado="CONSULTIVOS REALIZADOS",
+        label_projetado="CONSULTIVOS PROJETADOS",
+        label_meta="META MENSAL DE CONSULTIVOS",
+        label_faltantes="CONSULTIVOS FALTANTES",
     )
 
 
+# -----------------------------------------------------------------------------
+# Resumo Agrupado (Produção por PROJETO, Consultivo por BASE)
+# -----------------------------------------------------------------------------
 def processar_resumo_agrupado(
     prod: pd.DataFrame, cons: pd.DataFrame, ft_os: float, ft_cons: float
 ) -> pd.DataFrame:
@@ -1139,9 +1306,9 @@ df_resumo_agrupado = processar_resumo_agrupado(
 
 with tab_bases:
     render_section_header(
-        "Visão Agrupada (Projetos e Bases)",
-        "Análise de produtividade por agrupamento",
+        titulo="Visão Agrupada",
         icone="🗂️",
+        subtitulo="Produção agrupada por projeto e consultivos agrupados por base",
     )
     cols_display = [
         "Agrupamento",
@@ -1173,431 +1340,157 @@ with tab_bases:
         )
         render_botao_exportacao(df_resumo_agrupado, "Resumo_Agrupado")
     else:
-        render_empty_state(titulo="Sem dados para a visão agrupada.")
+        render_empty_state(
+            tipo="dados",
+            titulo="Sem dados para a visão agrupada.",
+        )
 
 
+# -----------------------------------------------------------------------------
+# ABA: Projeção por Base (cards premium + técnicos manuais)
+# -----------------------------------------------------------------------------
 def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
     with tab:
         render_section_header(
-            f"Projeção de Desempenho — {base_nome}",
-            "Análise de performance e ritmo necessário para atingir a meta",
+            titulo=f"Projeção de Desempenho — {base_nome}",
             icone="📈",
+            subtitulo="Análise de performance e ritmo necessário para atingir a meta",
         )
+
         if df_resumo_agrupado.empty:
-            render_empty_state(tipo="dados", titulo="Sem dados")
+            render_empty_state(
+                tipo="dados",
+                titulo="Sem dados para projeção",
+                descricao="Não existem dados disponíveis para o período selecionado.",
+            )
             return
 
         b_data = df_resumo_agrupado[
-            df_resumo_agrupado["Agrupamento"].astype(str).str.upper()
-            == base_nome.upper()
+            df_resumo_agrupado["Agrupamento"].astype(str).str.strip().str.upper()
+            == base_nome.strip().upper()
         ]
+
         if b_data.empty:
             render_empty_state(
-                tipo="dados",
-                titulo="Sem dados",
-                descricao=f"Agrupamento '{base_nome}' não encontrado ou inativo.",
+                tipo="filtro",
+                titulo="Agrupamento sem dados",
+                descricao=f"O agrupamento '{base_nome}' não possui registros no período.",
             )
             return
 
         try:
-            os_real, os_projetado = _to_float_safe(
-                b_data["OS_Volume"].iloc[0]
-            ), _to_float_safe(b_data["O.S. Projetadas"].iloc[0])
-            cons_real, cons_projetado = _to_float_safe(
-                b_data["Cons_Volume"].iloc[0]
-            ), _to_float_safe(b_data["Consultivos Projetados"].iloc[0])
-
-            tecnicos_ativos_base = int(float(b_data["Tecnicos_Ativos"].iloc[0] or 0))
-            tecnicos_ativos_base = tecnicos_ativos_base if tecnicos_ativos_base > 0 else 1
-
-            meta_os_b, meta_cons_b = float(METAS_PRODUCAO_OS_BASE["meta_base"]), float(
-                METAS_CONSULTIVO_BASE["meta_base"]
+            os_real = _to_float_safe(b_data["OS_Volume"].iloc[0])
+            os_projetado = _to_float_safe(b_data["O.S. Projetadas"].iloc[0])
+            cons_real = _to_float_safe(b_data["Cons_Volume"].iloc[0])
+            cons_projetado = _to_float_safe(
+                b_data["Consultivos Projetados"].iloc[0]
             )
-        except (IndexError, ValueError, TypeError) as e:
+            tecnicos_base = max(
+                1, int(_to_float_safe(b_data["Tecnicos_Ativos"].iloc[0], default=1))
+            )
+        except (IndexError, KeyError, ValueError, TypeError) as exc:
             render_insight(
-                f"⚠️ Erro ao processar dados do agrupamento {base_nome}: {e}", "alerta"
+                f"Erro ao processar os dados de {base_nome}: {exc}",
+                tipo="critico",
             )
             return
 
-        # =======================================================
-        # CSS CUSTOMIZADO - TEMA E CORES
-        # =======================================================
-        st.markdown("""
-        <style>
-            .header-card {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(102,126,234,0.3);
-                margin-bottom: 1rem;
-            }
-            .header-card h4 {
-                margin: 0 0 0.5rem 0;
-                color: white;
-                font-size: 1.1rem;
-            }
-            .header-card .input-group {
-                background: rgba(255,255,255,0.15);
-                backdrop-filter: blur(10px);
-                border-radius: 8px;
-                padding: 0.75rem;
-                border: 1px solid rgba(255,255,255,0.2);
-            }
-            .header-card label {
-                color: white;
-                font-size: 0.85rem;
-                font-weight: 500;
-                display: block;
-                margin-bottom: 0.5rem;
-            }
-            .header-card input {
-                background: rgba(255,255,255,0.2) !important;
-                color: white !important;
-                border: 1px solid rgba(255,255,255,0.3) !important;
-                border-radius: 6px !important;
-            }
-            
-            /* Cards de Métricas - Estilos específicos */
-            .metric-card-realizado {
-                background: linear-gradient(135deg, #1cc88a 0%, #17a673 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(28,200,138,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-realizado:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(28,200,138,0.4);
-            }
-            
-            .metric-card-projetado {
-                background: linear-gradient(135deg, #4e73df 0%, #224abe 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(78,115,223,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-projetado:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(78,115,223,0.4);
-            }
-            
-            .metric-card-meta {
-                background: linear-gradient(135deg, #f6c23e 0%, #dda20a 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(246,194,62,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-meta:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(246,194,62,0.4);
-            }
-            
-            .metric-card-faltante {
-                background: linear-gradient(135deg, #e74a3b 0%, #be2617 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(231,74,59,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-faltante:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(231,74,59,0.4);
-            }
-            
-            .metric-card-nec {
-                background: linear-gradient(135deg, #36b9cc 0%, #258391 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(54,185,204,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-nec:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(54,185,204,0.4);
-            }
-            
-            .metric-card-tec {
-                background: linear-gradient(135deg, #6f42c1 0%, #553098 100%);
-                border-radius: 12px;
-                padding: 1.5rem;
-                color: white;
-                box-shadow: 0 4px 12px rgba(111,66,193,0.3);
-                transition: transform 0.2s;
-                height: 100%;
-            }
-            .metric-card-tec:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(111,66,193,0.4);
-            }
-            
-            .metric-icon {
-                font-size: 1.5rem;
-                margin-bottom: 0.5rem;
-                display: block;
-            }
-            .metric-label {
-                font-size: 0.85rem;
-                opacity: 0.95;
-                margin: 0;
-                font-weight: 500;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .metric-value {
-                font-size: 2.2rem;
-                font-weight: 800;
-                margin: 0.5rem 0;
-                line-height: 1;
-            }
-            .metric-sublabel {
-                font-size: 0.75rem;
-                opacity: 0.85;
-                margin-top: 0.25rem;
-            }
-            
-            /* Barra de progresso */
-            .progress-wrapper {
-                background: rgba(255,255,255,0.25);
-                border-radius: 10px;
-                height: 24px;
-                overflow: hidden;
-                margin: 1rem 0;
-                position: relative;
-                box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .progress-bar-fill {
-                height: 100%;
-                border-radius: 10px;
-                transition: width 0.5s ease;
-                position: relative;
-                display: flex;
-                align-items: center;
-                justify-content: flex-end;
-                padding-right: 0.75rem;
-                color: white;
-                font-weight: 600;
-                font-size: 0.8rem;
-            }
-            .progress-bar-fill.os {
-                background: linear-gradient(90deg, #4e73df 0%, #224abe 100%);
-            }
-            .progress-bar-fill.cons {
-                background: linear-gradient(90deg, #f6c23e 0%, #dda20a 100%);
-            }
-            
-            /* Títulos de seção */
-            .section-title {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                font-size: 1.3rem;
-                font-weight: 700;
-                color: #2c3e50;
-                margin: 1.5rem 0 1rem 0;
-                padding-bottom: 0.5rem;
-                border-bottom: 3px solid #667eea;
-            }
-            .section-title.cons {
-                border-bottom-color: #f6c23e;
-            }
-            
-            /* Grid de cards */
-            .cards-grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 1rem;
-                margin: 1rem 0;
-            }
-        </style>
-        """, unsafe_allow_html=True)
+        meta_os = float(METAS_PRODUCAO_OS_BASE["meta_base"])
+        meta_cons = float(METAS_CONSULTIVO_BASE["meta_base"])
 
-        # =======================================================
-        # CARD DE CONFIGURAÇÃO (HEADER)
-        # =======================================================
-        st.markdown(f"""
-        <div class="header-card">
-            <h4>⚙️ Parâmetros de Configuração — {base_nome}</h4>
-            <div class="input-group">
-                <label for="tecnicos-input">👥 Número de Técnicos Ativos</label>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        tecnicos_ativos = st.number_input(
-            "",
-            min_value=1,
-            value=tecnicos_ativos_base,
-            step=1,
-            key=f"tecnicos_manuais_{base_nome}",
-            help="Altere este valor para recalcular a média por técnico/dia.",
-            label_visibility="collapsed"
+        # ------------------------------------------------------------------
+        # Parâmetros da operação (técnicos manuais)
+        # ------------------------------------------------------------------
+        render_section_header(
+            titulo="Parâmetros da Operação",
+            icone="⚙️",
+            subtitulo="Ajuste manual da força de trabalho para o cálculo por técnico",
         )
 
-        # =======================================================
-        # SEÇÃO: PRODUÇÃO (O.S.)
-        # =======================================================
-        st.markdown("""
-        <div class="section-title">
-            <span>📊</span> Produção (O.S.)
-        </div>
-        """, unsafe_allow_html=True)
+        c_cfg1, c_cfg2 = st.columns([1, 2], gap="large")
+        with c_cfg1:
+            tecnicos_ativos = st.number_input(
+                "👥 Número de técnicos ativos (manual)",
+                min_value=1,
+                max_value=1000,
+                value=tecnicos_base,
+                step=1,
+                key=f"tecnicos_manuais_{base_nome}",
+                help="Altere para recalcular a média por técnico/dia.",
+            )
+        with c_cfg2:
+            render_insight(
+                f"**{base_nome}** — Técnicos detectados na hierarquia: **{tecnicos_base}** | "
+                f"Dias úteis restantes (O.S.): **{dias_rest_os}** | (Consultivos): **{dias_rest_c}**. "
+                f"Faltantes calculados como **Meta - Realizado**.",
+                tipo="info",
+            )
 
-        # Cards principais
-        st.markdown(f"""
-        <div class="cards-grid">
-            <div class="metric-card-realizado">
-                <span class="metric-icon">✅</span>
-                <p class="metric-label">Realizado</p>
-                <div class="metric-value">{int(os_real):,}</div>
-                <p class="metric-sublabel">O.S. concluídas no período</p>
-            </div>
-            <div class="metric-card-projetado">
-                <span class="metric-icon">📈</span>
-                <p class="metric-label">Projetado</p>
-                <div class="metric-value">{int(os_projetado):,}</div>
-                <p class="metric-sublabel">Projeção para o mês</p>
-            </div>
-            <div class="metric-card-meta">
-                <span class="metric-icon">🎯</span>
-                <p class="metric-label">Meta</p>
-                <div class="metric-value">{int(meta_os_b):,}</div>
-                <p class="metric-sublabel">Meta mensal estabelecida</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.divider()
 
-        # Barra de progresso OS
-        progress_os = min(100, (os_real / meta_os_b) * 100)
-        st.markdown(f"""
-        <div class="progress-wrapper">
-            <div class="progress-bar-fill os" style="width: {progress_os}%;">
-                {progress_os:.1f}%
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # ------------------------------------------------------------------
+        # Produção (O.S.) — Faltantes = Meta - Realizado
+        # ------------------------------------------------------------------
+        os_faltantes = max(0, meta_os - os_real)
+        os_media_diaria = os_faltantes / dias_rest_os if dias_rest_os > 0 else 0
+        os_por_tecnico = (
+            os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0
+        )
 
-        if dias_rest_os > 0:
-            os_faltantes = max(0, meta_os_b - os_real)
-            os_diario_nec = os_faltantes / dias_rest_os if dias_rest_os > 0 else 0
-            os_diario_tec_nec = os_diario_nec / tecnicos_ativos if tecnicos_ativos > 0 else 0
+        render_resumo_cards(
+            titulo="Produção (O.S.)",
+            icone="📊",
+            realizado=os_real,
+            projetado=os_projetado,
+            meta=meta_os,
+            faltantes=os_faltantes,
+            media_diaria=os_media_diaria,
+            dias_restantes=dias_rest_os,
+            tema_progresso="azul",
+            label_realizado="O.S. REALIZADAS",
+            label_projetado="O.S. PROJETADAS",
+            label_meta="META DE O.S.",
+            label_faltantes="O.S. FALTANTES",
+            tecnico_dia=os_por_tecnico,
+        )
 
-            st.markdown(f"""
-            <div class="cards-grid">
-                <div class="metric-card-faltante">
-                    <span class="metric-icon">⚠️</span>
-                    <p class="metric-label">O.S. Faltantes</p>
-                    <div class="metric-value">{int(os_faltantes):,}</div>
-                    <p class="metric-sublabel">Meta - Realizado</p>
-                </div>
-                <div class="metric-card-nec">
-                    <span class="metric-icon">📅</span>
-                    <p class="metric-label">Média Diária</p>
-                    <div class="metric-value">{os_diario_nec:,.1f}</div>
-                    <p class="metric-sublabel">Necessária por dia</p>
-                </div>
-                <div class="metric-card-tec">
-                    <span class="metric-icon">👨‍🔧</span>
-                    <p class="metric-label">Por Técnico/Dia</p>
-                    <div class="metric-value">{os_diario_tec_nec:,.1f}</div>
-                    <p class="metric-sublabel">Média individual</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.info("ℹ️ Mês encerrado para projeções de O.S.")
+        st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
 
-        # =======================================================
-        # SEÇÃO: CONSULTIVOS
-        # =======================================================
-        st.markdown("""
-        <div class="section-title cons">
-            <span>💼</span> Consultivos
-        </div>
-        """, unsafe_allow_html=True)
+        # ------------------------------------------------------------------
+        # Consultivos — Faltantes = Meta - Realizado
+        # ------------------------------------------------------------------
+        cons_faltantes = max(0, meta_cons - cons_real)
+        cons_media_diaria = cons_faltantes / dias_rest_c if dias_rest_c > 0 else 0
 
-        # Cards principais
-        st.markdown(f"""
-        <div class="cards-grid">
-            <div class="metric-card-realizado">
-                <span class="metric-icon">✅</span>
-                <p class="metric-label">Realizado</p>
-                <div class="metric-value">{int(cons_real):,}</div>
-                <p class="metric-sublabel">Consultivos concluídos</p>
-            </div>
-            <div class="metric-card-projetado">
-                <span class="metric-icon">📈</span>
-                <p class="metric-label">Projetado</p>
-                <div class="metric-value">{int(cons_projetado):,}</div>
-                <p class="metric-sublabel">Projeção para o mês</p>
-            </div>
-            <div class="metric-card-meta">
-                <span class="metric-icon">🎯</span>
-                <p class="metric-label">Meta</p>
-                <div class="metric-value">{int(meta_cons_b):,}</div>
-                <p class="metric-sublabel">Meta mensal estabelecida</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        render_resumo_cards(
+            titulo="Consultivos",
+            icone="💼",
+            realizado=cons_real,
+            projetado=cons_projetado,
+            meta=meta_cons,
+            faltantes=cons_faltantes,
+            media_diaria=cons_media_diaria,
+            dias_restantes=dias_rest_c,
+            tema_progresso="laranja",
+            label_realizado="CONSULTIVOS REALIZADOS",
+            label_projetado="CONSULTIVOS PROJETADOS",
+            label_meta="META DE CONSULTIVOS",
+            label_faltantes="CONSULTIVOS FALTANTES",
+        )
 
-        # Barra de progresso Consultivos
-        progress_cons = min(100, (cons_real / meta_cons_b) * 100)
-        st.markdown(f"""
-        <div class="progress-wrapper">
-            <div class="progress-bar-fill cons" style="width: {progress_cons}%;">
-                {progress_cons:.1f}%
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        if dias_rest_c > 0:
-            cons_faltantes = max(0, meta_cons_b - cons_real)
-            cons_diario_nec = cons_faltantes / dias_rest_c if dias_rest_c > 0 else 0
-
-            st.markdown(f"""
-            <div class="cards-grid">
-                <div class="metric-card-faltante">
-                    <span class="metric-icon">⚠️</span>
-                    <p class="metric-label">Cons. Faltantes</p>
-                    <div class="metric-value">{int(cons_faltantes):,}</div>
-                    <p class="metric-sublabel">Meta - Realizado</p>
-                </div>
-                <div class="metric-card-nec">
-                    <span class="metric-icon">📅</span>
-                    <p class="metric-label">Média Diária</p>
-                    <div class="metric-value">{cons_diario_nec:,.1f}</div>
-                    <p class="metric-sublabel">Necessária por dia</p>
-                </div>
-                <div class="metric-card-tec" style="background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%); color: #6c757d; box-shadow: none;">
-                    <span class="metric-icon">📊</span>
-                    <p class="metric-label">Status</p>
-                    <div class="metric-value" style="font-size: 1.3rem;">Em Análise</div>
-                    <p class="metric-sublabel">Aguardando dados</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.info("ℹ️ Mês encerrado para projeções de Consultivos.")
 
 render_aba_projecao_base(tab_abcdm, "NET-ABCDM")
 render_aba_projecao_base(tab_leste, "NET-LESTE")
 render_aba_projecao_base(tab_guarulhos, "NET-GUARULHOS")
 
+# -----------------------------------------------------------------------------
+# ABA: Monitores
+# -----------------------------------------------------------------------------
 with tab_monitores:
     render_section_header(
-        "Desempenho por Supervisor", "Exportação liberada", icone="👔"
+        titulo="Desempenho por Supervisor",
+        icone="👔",
+        subtitulo="Volume de O.S. consolidado por monitor — exportação liberada",
     )
     if not df_prod_f.empty and "MONITOR" in df_prod_f.columns:
         df_mon = (
@@ -1608,11 +1501,25 @@ with tab_monitores:
         )
         render_table_html(df_mon, fmt={"OS_Equipe": "{:,.0f}"})
         render_botao_exportacao(df_mon, "Resumo_Supervisores")
+    else:
+        render_empty_state(
+            tipo="dados",
+            titulo="Sem dados de supervisores",
+            descricao="Nenhum registro de produção disponível no período.",
+        )
 
+# -----------------------------------------------------------------------------
+# ABA: Alertas
+# -----------------------------------------------------------------------------
 with tab_alertas:
     render_section_header(
-        "Central de Alertas", "Auditoria Operacional", icone="🚨", badge_tipo="erro"
+        titulo="Central de Alertas",
+        icone="🚨",
+        subtitulo="Auditoria operacional",
+        badge="Monitoramento",
+        badge_tipo="erro",
     )
     render_insight(
-        "Sistema de alertas inteligente processado e validado em background.", "ok"
+        "Sistema de alertas inteligente processado e validado em background.",
+        tipo="ok",
     )
