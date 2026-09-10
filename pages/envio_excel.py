@@ -216,7 +216,7 @@ class ProcessadorDeDados:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
 
-                # 1) Produção (Corrigido com verificação de resposta None)
+        # 1) Produção (Corrigido com verificação de resposta None)
         try:
             resp_prod = requests.get(
                 Configuracoes.URL_PROD, headers=headers, timeout=Configuracoes.TIMEOUT
@@ -252,9 +252,13 @@ class ProcessadorDeDados:
                     raise RuntimeError(
                         "Erro 400 (Bad Request) ao acessar a Produção. Verifique se o ID da planilha na URL está correto."
                     ) from e
-                raise RuntimeError(f"Erro HTTP {e.response.status_code} ao carregar Produção: {e}") from e
+                raise RuntimeError(
+                    f"Erro HTTP {e.response.status_code} ao carregar Produção: {e}"
+                ) from e
             else:
-                raise RuntimeError(f"Erro de conexão sem resposta HTTP ao carregar Produção: {e}") from e
+                raise RuntimeError(
+                    f"Erro de conexão sem resposta HTTP ao carregar Produção: {e}"
+                ) from e
         except Exception as e:
             raise RuntimeError(f"Erro ao processar Produção Excel: {e}") from e
 
@@ -282,7 +286,7 @@ class ProcessadorDeDados:
 
         cons_dict = {"Consultivo": cons}
         return prod_raw, cons_dict, ativos
-    
+
 
 def _obter_dataframe(chave_state: str, nome_aba: str | None = None) -> pd.DataFrame:
     """Helper seguro para extrair DataFrames do st.session_state."""

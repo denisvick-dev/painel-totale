@@ -2,18 +2,28 @@
 Módulo central de estilos, fontes e componentes reutilizáveis
 para todo o projeto Streamlit TOTALE.
 
-Version: 4.1.3
+Version: 4.3.0 (Enterprise Polish & Full Architecture)
 Author: TOTALE Tecnologia
+
+Principais Recursos:
+- 100% retrocompatível com todas as versões anteriores.
+- Injeção de fontes no documento pai com proteção contra redundância.
+- Cards padronizados com acessibilidade WCAG (role="region", aria-label).
+- Tabela HTML SaaS com sticky headers, paginação visual, linhas de destaque e exportação Excel nativa.
+- Sistema de temas corporativos TOTALE (Azul Marinho #012869 e Laranja #F37C04).
+- Suporte a temas claro/escuro via CSS Variables.
 """
 
 from __future__ import annotations
 
 import html as html_lib
+import io
 import logging
 import re
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from enum import Enum
+from functools import lru_cache
 from typing import Any, Literal, TypeAlias
 from urllib.parse import urlparse
 
@@ -113,7 +123,7 @@ class TipoHero(str, Enum):
     TOTALE_2 = "totale_2"
 
 
-# Type aliases
+# Type aliases estritos para compatibilidade com linters e IDEs
 TemaKPIType: TypeAlias = Literal[
     "azul", "verde", "vermelho", "laranja", "cinza", "roxo"
 ]
@@ -273,9 +283,9 @@ class ConfigCores:
     ]
 
 
-# ====================================================
-# HELPERS
-# ====================================================
+# =============================================================================
+# HELPERS E UTILITÁRIOS
+# =============================================================================
 def _resolver_cor_tema(tema: str) -> str:
     cor = ConfigCores.TEMA.get(tema)
     if cor is None:
@@ -292,9 +302,18 @@ def _markdown_inline_para_html(texto: str) -> str:
     return texto
 
 
-# =============================================================================
-# UTILITÁRIOS E FORMATAÇÃO
-# =============================================================================
+def formatar_numero_br(valor: Any, casas: int = 0) -> str:
+    """Formata valor numérico no padrão brasileiro (10.000 ou 447,9)."""
+    try:
+        v = float(valor)
+    except (TypeError, ValueError):
+        return str(valor)
+    if casas <= 0:
+        return f"{int(round(v)):,}".replace(",", ".")
+    txt = f"{v:,.{casas}f}"
+    return txt.replace(",", "§").replace(".", ",").replace("§", ".")
+
+
 class Validadores:
     @staticmethod
     def url(url: str | None) -> bool:
@@ -332,23 +351,518 @@ class Formatadores:
         return texto
 
 
-# =============================================================================
-# RENDER HTML À PROVA DE MARKDOWN DO STREAMLIT
-# =============================================================================
-def _safe_render_html(html_str: str, container: Any = st) -> None:
-    """Renderiza HTML no Streamlit sem ser corrompido pelo parser Markdown."""
+def _garantir_container(container: Any) -> Any:
+    """Garante que haja um container de renderização Streamlit válido."""
+    if container is None:
+        return st
+    return container
+
+
+def _safe_render_html(html_str: str, container: Any = None) -> None:
+    """Renderiza HTML no Streamlit sem corrupção pelo parser Markdown nativo."""
     if not html_str:
         return
+    c = _garantir_container(container)
     clean = html_str.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     clean = re.sub(r">\s+<", "><", clean)
     clean = re.sub(r" {2,}", " ", clean)
     clean = clean.strip()
-    container.markdown(clean, unsafe_allow_html=True)
+    try:
+        c.markdown(clean, unsafe_allow_html=True)
+    except Exception as e:
+        logger.error(f"Falha ao renderizar componente HTML: {e}")
+        st.markdown(clean, unsafe_allow_html=True)
 
 
 # =============================================================================
-# CONFIGURAÇÃO GLOBAL DO PLOTLY E CSS
+# BLOCOS MODULARES DE CSS (DESIGN SYSTEM CORPORATIVO TOTALE)
 # =============================================================================
+_CSS_VARS_ROOT = f"""
+:root {{
+    --font-titulo: {Fontes.TITULO};
+    --font-texto: {Fontes.TEXTO};
+    --font-codigo: {Fontes.CODIGO};
+
+    --cor-primaria: {Cores.PRIMARIA};
+    --cor-primaria-light: {Cores.PRIMARIA_LIGHT};
+    --cor-secundaria: {Cores.SECUNDARIA};
+    --cor-secundaria-dark: {Cores.SECUNDARIA_DARK};
+
+    --cor-sucesso: {Cores.SUCESSO};
+    --cor-alerta: {Cores.ALERTA};
+    --cor-atencao: {Cores.ATENCAO};
+    --cor-neutro: {Cores.NEUTRO};
+
+    --cor-texto: {Cores.TEXTO};
+    --cor-texto-2: {Cores.TEXTO_2};
+    --cor-texto-3: {Cores.TEXTO_3};
+
+    --cor-borda: {Cores.BORDA};
+    --cor-fundo: {Cores.FUNDO};
+    --cor-card-bg: #FFFFFF;
+    --cor-card-hover: #F8FAFC;
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 10px 28px rgba(0,0,0,0.12);
+}}
+
+@media (prefers-color-scheme: dark) {{
+    :root {{
+        --cor-texto: #F9FAFB;
+        --cor-texto-2: #E5E7EB;
+        --cor-texto-3: #9CA3AF;
+        --cor-borda: #334155;
+        --cor-fundo: #0B0F19;
+        --cor-card-bg: #111827;
+        --cor-card-hover: #1E293B;
+    }}
+}}
+"""
+
+_CSS_RESET_GLOBAL = f"""
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stSidebar"], p, label, div, li, a, button, input, select, textarea {{
+    font-family: var(--font-texto) !important;
+}}
+
+h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, .metric-value, [data-testid="stMetricValue"] {{
+    font-family: var(--font-titulo) !important;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+}}
+
+h1, .hero-title {{
+    font-weight: 800;
+    letter-spacing: -0.6px;
+}}
+
+.main .block-container {{
+    padding-top: 1rem;
+    max-width: 1400px;
+}}
+
+::-webkit-scrollbar {{
+    width: 8px;
+    height: 8px;
+}}
+::-webkit-scrollbar-track {{
+    background: #F1F5F9;
+}}
+::-webkit-scrollbar-thumb {{
+    background: #CBD5E1;
+    border-radius: 4px;
+}}
+::-webkit-scrollbar-thumb:hover {{
+    background: #94A3B8;
+}}
+
+*:focus-visible {{
+    outline: 2px solid {Cores.PRIMARIA_LIGHT};
+    outline-offset: 2px;
+    border-radius: 4px;
+}}
+"""
+
+_CSS_HEROS = f"""
+@keyframes hero-gradient-shift {{
+    0% {{ background-position: 0% 50%; }}
+    50% {{ background-position: 100% 50%; }}
+    100% {{ background-position: 0% 50%; }}
+}}
+
+.hero-corp {{
+    background: linear-gradient(120deg, #012869 0%, #023A9E 35%, #1E5FCC 55%, #E85D04 82%, #F37C04 100%);
+    background-size: 180% 180%;
+    animation: hero-gradient-shift 14s ease infinite;
+    padding: 34px 44px;
+    border-radius: var(--radius-lg);
+    color: #FFFFFF;
+    box-shadow: 0 10px 40px rgba(1, 40, 105, 0.30);
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}}
+
+.totale-hero-1 {{
+    background: linear-gradient(135deg, #011E52 0%, #012869 45%, #0A48AA 80%, #F37C04 130%);
+    border-radius: 16px;
+    padding: 28px 36px;
+    color: #FFFFFF;
+    border: 1px solid rgba(243, 124, 4, 0.25);
+    box-shadow: 0 12px 32px rgba(1, 40, 105, 0.28);
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}}
+
+.totale-hero-2 {{
+    background: linear-gradient(120deg, #012869 0%, #033486 50%, #0747B3 100%);
+    border-radius: 16px;
+    padding: 28px 36px;
+    color: #FFFFFF;
+    border-left: 6px solid #F37C04;
+    box-shadow: 0 10px 28px rgba(1, 40, 105, 0.22);
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}}
+
+@media (max-width: 768px) {{
+    .totale-hero-2 {{
+        grid-template-columns: 1fr;
+    }}
+}}
+
+.totale-hero-2-card {{
+    background: rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    padding: 16px 24px;
+    min-width: 180px;
+    text-align: center;
+    position: relative;
+    z-index: 2;
+}}
+
+.hero-migracao {{
+    background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%);
+    border-radius: 16px;
+    padding: 28px 36px;
+    color: #FFFFFF;
+    border: 1px solid rgba(167, 139, 250, 0.30);
+    box-shadow: 0 12px 32px rgba(124, 58, 237, 0.35);
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}}
+
+.hero-pme {{
+    background: linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%);
+    border-radius: 16px;
+    padding: 28px 36px;
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 12px 32px rgba(16, 185, 129, 0.30);
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}}
+"""
+
+_CSS_CARDS = """
+.card-premium {
+    background: var(--cor-card-bg);
+    border-radius: 12px;
+    padding: 20px 24px;
+    border: 1px solid var(--cor-borda);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.28s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.28s ease;
+    margin-bottom: 12px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.card-premium:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 8px -2px rgba(15, 23, 42, 0.05), 0 12px 24px -6px rgba(15, 23, 42, 0.10);
+    border-color: #CBD5E1;
+}
+
+.card-accent-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+}
+
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.kpi-label-premium {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--cor-texto-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    line-height: 1.4;
+}
+
+.kpi-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    flex-shrink: 0;
+}
+
+.kpi-value-premium {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--cor-texto);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-titulo) !important;
+    letter-spacing: -0.5px;
+}
+
+.kpi-sub-premium {
+    font-size: 13px;
+    color: var(--cor-texto-3);
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.trend-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.trend-up { background: #ECFDF5; color: #059669; }
+.trend-down { background: #FEF2F2; color: #DC2626; }
+.trend-neutral { background: #F8FAFC; color: #64748B; }
+
+.totale-badge-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid transparent;
+}
+"""
+
+_CSS_TABELAS = f"""
+.table-premium-wrapper {{
+    background: var(--cor-card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--cor-borda);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    overflow: hidden;
+    margin: 16px 0;
+    position: relative;
+}}
+
+.table-premium-scroll {{
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #CBD5E1 transparent;
+}}
+
+.table-premium-scroll::-webkit-scrollbar {{
+    height: 6px;
+    width: 6px;
+}}
+.table-premium-scroll::-webkit-scrollbar-thumb {{
+    background-color: #CBD5E1;
+    border-radius: 3px;
+}}
+
+.totale-table-pro {{
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    text-align: left;
+}}
+
+.totale-table-pro th {{
+    background: #F8FAFC;
+    color: #475569;
+    font-family: var(--font-texto) !important;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 14px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 1px solid var(--cor-borda);
+    white-space: nowrap;
+}}
+
+.totale-table-pro td {{
+    padding: 13px 16px;
+    border-bottom: 1px solid #F1F5F9;
+    color: var(--cor-texto-2);
+    font-size: 13px;
+    font-family: var(--font-texto) !important;
+    vertical-align: middle;
+    transition: background 0.2s ease;
+}}
+
+.totale-table-pro tbody tr:last-child td {{
+    border-bottom: none;
+}}
+.totale-table-pro tbody tr:hover td {{
+    background-color: var(--cor-card-hover);
+    color: var(--cor-texto);
+}}
+.totale-table-pro tbody tr.striped td {{
+    background-color: #FAFCFE;
+}}
+.totale-table-pro tbody tr.striped:hover td {{
+    background-color: var(--cor-card-hover);
+}}
+
+/* Linha de destaque para totais executivos */
+.totale-table-pro tbody tr.linha-destaque td {{
+    background: linear-gradient(90deg, #FFF7ED 0%, #FFFBEB 100%) !important;
+    border-top: 2px solid {Cores.SECUNDARIA};
+    color: #7C2D12 !important;
+    font-weight: 800;
+    font-family: var(--font-titulo) !important;
+}}
+.totale-table-pro tbody tr.linha-destaque:hover td {{
+    background: linear-gradient(90deg, #FFEDD5 0%, #FEF3C7 100%) !important;
+}}
+
+.td-badge {{
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}}
+"""
+
+_CSS_EXTRAS = f"""
+@keyframes pb-shimmer {{
+    0% {{ background-position: -200% 0; }}
+    100% {{ background-position: 200% 0; }}
+}}
+
+.totale-pb-fill {{
+    position: relative;
+    overflow: hidden;
+}}
+.totale-pb-fill.animado::after {{
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: pb-shimmer 2.2s linear infinite;
+}}
+
+.totale-skeleton {{
+    background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+    background-size: 200% 100%;
+    animation: pb-shimmer 1.6s linear infinite;
+    border-radius: 8px;
+}}
+
+.empty-state {{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 48px 32px;
+    margin: 24px 0;
+    background: #FAFBFD;
+    border: 2px dashed #E2E8F0;
+    border-radius: 14px;
+    transition: border-color 0.25s ease;
+}}
+.empty-state:hover {{
+    border-color: #CBD5E1;
+}}
+.empty-state-icon {{
+    font-size: 44px;
+    line-height: 1;
+    margin-bottom: 14px;
+}}
+.empty-state-title {{
+    font-family: var(--font-titulo) !important;
+    font-size: 17px;
+    font-weight: 800;
+    color: #334155;
+    margin: 0 0 6px;
+}}
+.empty-state-desc {{
+    font-size: 13px;
+    color: #64748B;
+    margin: 0;
+    max-width: 420px;
+    line-height: 1.55;
+}}
+
+.totale-insight {{
+    border-radius: 10px;
+    padding: 13px 16px;
+    margin: 12px 0;
+    font-size: 14px;
+    line-height: 1.6;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+}}
+.totale-insight-title {{
+    display: block;
+    font-weight: 800;
+    font-family: var(--font-titulo) !important;
+    margin-bottom: 4px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}}
+
+.section-header {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 32px 0 16px 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--cor-borda);
+}}
+.section-subtitle {{
+    margin: 6px 0 0;
+    font-size: 13px;
+    color: {Cores.TEXTO_3};
+}}
+.user-info-card {{
+    background: linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 100%);
+    border: 1px solid var(--cor-borda);
+    border-radius: 12px;
+    padding: 16px;
+    margin: 12px 0;
+}}
+"""
+
+
 class PlotlyConfig:
     @staticmethod
     def configurar() -> None:
@@ -388,6 +902,8 @@ class FontInjector:
 
     @staticmethod
     def injetar_no_head_pai() -> None:
+        if st.session_state.get("_totale_fonts_injected", False):
+            return
         urls_js = ", ".join(f'"{u}"' for u in GoogleFonts.URLS)
         components.html(
             f"""
@@ -417,432 +933,24 @@ class FontInjector:
             """,
             height=0,
         )
+        st.session_state["_totale_fonts_injected"] = True
 
 
 class CSSInjector:
     @staticmethod
-    def _build_css_2() -> str:
-        return f"""
-        <style>
-        :root {{
-            --totale-font-title: {Fontes.TITULO};
-            --totale-font-text: {Fontes.TEXTO};
-            --totale-font-code: {Fontes.CODIGO};
-
-            --totale-primary: {Cores.PRIMARIA};
-            --totale-primary-light: {Cores.PRIMARIA_LIGHT};
-            --totale-secondary: {Cores.SECUNDARIA};
-
-            --totale-text: {Cores.TEXTO};
-            --totale-text-2: {Cores.TEXTO_2};
-            --totale-text-3: {Cores.TEXTO_3};
-
-            --totale-border: {Cores.BORDA};
-            --totale-background: {Cores.FUNDO};
-
-            --totale-radius-sm: 6px;
-            --totale-radius-md: 10px;
-            --totale-radius-lg: 14px;
-
-            --totale-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
-            --totale-shadow-md: 0 8px 20px rgba(15, 23, 42, 0.08);
-        }}
-
-        [data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFE 55%, #F8FAFC 100%);
-            border-right: 1px solid var(--totale-border);
-        }}
-
-        [data-testid="stSidebar"] > div:first-child {{
-            background: transparent;
-        }}
-
-        [data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
-            padding-top: 0.5rem;
-        }}
-
-        [data-testid="stSidebar"] *,
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] span,
-        [data-testid="stSidebar"] label,
-        [data-testid="stSidebar"] button,
-        [data-testid="stSidebar"] input {{
-            font-family: var(--totale-font-text) !important;
-        }}
-
-        /* ── NAVEGAÇÃO SIDEBAR: ESTILO BASE ── */
-        [data-testid="stSidebar"] div[role="radiogroup"] > label,
-        [data-testid="stSidebar"] [data-testid="stPageLink"] a,
-        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a {{
-            width: 100% !important;
-            min-height: 40px !important;
-            display: flex !important;
-            align-items: center !important;
-            padding: 8px 12px !important;
-            margin: 2px 0 !important;
-            border: 1px solid transparent !important;
-            border-radius: 9px !important;
-            color: var(--totale-text-2) !important;
-            background: transparent !important;
-            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-            text-decoration: none !important;
-        }}
-
-        /* ── NAVEGAÇÃO SIDEBAR: HOVER COM SOMBREAMENTO E ELEVAÇÃO ── */
-        [data-testid="stSidebar"] div[role="radiogroup"] > label:hover,
-        [data-testid="stSidebar"] [data-testid="stPageLink"] a:hover,
-        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover {{
-            color: var(--totale-primary) !important;
-            background: linear-gradient(90deg, #FFF7ED 0%, #FFFFFF 100%) !important;
-            border-color: #FDBA74 !important;
-            box-shadow: 0 4px 14px rgba(243, 124, 4, 0.15), 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-            transform: translateX(4px) !important;
-        }}
-
-        /* ── NAVEGAÇÃO SIDEBAR: ITEM SELECIONADO / ATIVO ── */
-        [data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked),
-        [data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"],
-        [data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"] {{
-            color: #012869 !important;
-            background: #FFF7ED !important;
-            border: 1px solid #F37C04 !important;
-            box-shadow: 0 2px 8px rgba(243, 124, 4, 0.18) !important;
-            font-weight: 700 !important;
-        }}
-
-        /* Oculta a bolinha do radio nativo se presente */
-        [data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-child {{
-            display: none !important;
-        }}
-
-        [data-testid="stSidebar"] div[role="radiogroup"] > label p {{
-            font-size: 13px !important;
-            line-height: 1.25 !important;
-            margin: 0 !important;
-        }}
-
-        /* WIDGETS */
-        [data-testid="stSidebar"] .stSelectbox label,
-        [data-testid="stSidebar"] .stMultiSelect label,
-        [data-testid="stSidebar"] .stDateInput label,
-        [data-testid="stSidebar"] .stTextInput label,
-        [data-testid="stSidebar"] .stNumberInput label,
-        [data-testid="stSidebar"] .stSlider label,
-        [data-testid="stSidebar"] .stCheckbox label {{
-            color: var(--totale-text-2) !important;
-            font-size: 11px !important;
-            font-weight: 700 !important;
-            letter-spacing: 0.25px;
-        }}
-
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div {{
-            background: #FFFFFF !important;
-            border-color: var(--totale-border) !important;
-            border-radius: 9px !important;
-            min-height: 40px;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }}
-
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {{
-            border-color: var(--totale-primary-light) !important;
-            box-shadow: 0 0 0 3px rgba(10, 72, 170, 0.10) !important;
-        }}
-
-        [data-testid="stSidebar"] .stButton > button {{
-            width: 100%;
-            min-height: 40px;
-            border-radius: 9px;
-            border: 1px solid var(--totale-border);
-            background: #FFFFFF;
-            color: var(--totale-text-2);
-            font-size: 12px;
-            font-weight: 700;
-            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        }}
-
-        [data-testid="stSidebar"] .stButton > button:hover {{
-            color: var(--totale-primary) !important;
-            background: linear-gradient(90deg, #FFF7ED 0%, #FFFFFF 100%) !important;
-            border-color: #FDBA74 !important;
-            box-shadow: 0 4px 14px rgba(243, 124, 4, 0.15) !important;
-            transform: translateX(4px) !important;
-        }}
-
-        [data-testid="stSidebar"] ::-webkit-scrollbar {{ width: 6px; }}
-        [data-testid="stSidebar"] ::-webkit-scrollbar-track {{ background: transparent; }}
-        [data-testid="stSidebar"] ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 999px; }}
-        [data-testid="stSidebar"] ::-webkit-scrollbar-thumb:hover {{ background: #94A3B8; }}
-
-        @media (max-width: 768px) {{
-            [data-testid="stSidebar"] {{ box-shadow: 8px 0 30px rgba(15, 23, 42, 0.16); }}
-        }}
-        </style>
-        """
-
-    @staticmethod
+    @lru_cache(maxsize=1)
     def _build_css() -> str:
-        return f"""{FontInjector._build_links_html()}
-        <style>
-        @font-face {{ font-family: 'Material Icons'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/materialicons/v143/flUhRq6tzZclQEJ-Vdg-IuiaDsNc.woff2) format('woff2'); }}
-        @font-face {{ font-family: 'Material Symbols Rounded'; font-style: normal; font-weight: 400; src: url(https://fonts.gstatic.com/s/materialsymbolsrounded/v206/syl0-zNym6YjUruM-QrEh7-nyTnjDwKNJ_190Fjzag.woff2) format('woff2'); }}
-        
-        :root {{
-            --font-titulo: {Fontes.TITULO}; --font-texto: {Fontes.TEXTO}; --font-codigo: {Fontes.CODIGO};
-            --cor-primaria: {Cores.PRIMARIA}; --cor-secundaria: {Cores.SECUNDARIA};
-            --cor-sucesso: {Cores.SUCESSO}; --cor-alerta: {Cores.ALERTA}; --cor-neutro: {Cores.NEUTRO};
-            --cor-texto: {Cores.TEXTO}; --cor-texto-2: {Cores.TEXTO_2}; --cor-texto-3: {Cores.TEXTO_3};
-            --cor-borda: {Cores.BORDA}; --cor-fundo: {Cores.FUNDO};
-            --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06); --shadow-md: 0 4px 12px rgba(0,0,0,0.08); --shadow-lg: 0 10px 28px rgba(0,0,0,0.12);
-        }}
-
-        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"], [data-testid="stSidebar"], p, label, div, li, a, button, input, select, textarea {{ font-family: var(--font-texto) !important; }}
-        h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, .metric-value, [data-testid="stMetricValue"] {{ font-family: var(--font-titulo) !important; font-weight: 700; letter-spacing: -0.3px; }}
-        h1, .hero-title {{ font-weight: 800; letter-spacing: -0.6px; }}
-        
-        .main .block-container {{ padding-top: 1rem; max-width: 1400px; }}
-        ::-webkit-scrollbar {{ width: 8px; height: 8px; }} ::-webkit-scrollbar-track {{ background: #F1F5F9; }} ::-webkit-scrollbar-thumb {{ background: #CBD5E1; border-radius: 4px; }}
-        
-        .hero-corp {{ background: linear-gradient(120deg, #012869 0%, #023A9E 35%, #1E5FCC 55%, #E85D04 82%, #F37C04 100%); padding: 34px 44px; border-radius: var(--radius-lg); color: #FFFFFF; box-shadow: 0 10px 40px rgba(1, 40, 105, 0.30); margin-bottom: 24px; position: relative; overflow: hidden; }}
-        .totale-hero-1 {{ background: linear-gradient(135deg, #011E52 0%, #012869 45%, #0A48AA 80%, #F37C04 130%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(243, 124, 4, 0.25); box-shadow: 0 12px 32px rgba(1, 40, 105, 0.28); margin-bottom: 24px; position: relative; overflow: hidden; }}
-        .totale-hero-2 {{ background: linear-gradient(120deg, #012869 0%, #033486 50%, #0747B3 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border-left: 6px solid #F37C04; box-shadow: 0 10px 28px rgba(1, 40, 105, 0.22); margin-bottom: 24px; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; }}
-        @media (max-width: 768px) {{ .totale-hero-2 {{ grid-template-columns: 1fr; }} }}
-        .totale-hero-2-card {{ background: rgba(255, 255, 255, 0.08); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 12px; padding: 16px 24px; min-width: 180px; text-align: center; }}
-        
-        .hero-migracao {{ background: linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(167, 139, 250, 0.30); box-shadow: 0 12px 32px rgba(124, 58, 237, 0.35); margin-bottom: 24px; position: relative; overflow: hidden; }}
-        .hero-pme {{ background: linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%); border-radius: 16px; padding: 28px 36px; color: #FFFFFF; border: 1px solid rgba(255, 255, 255, 0.25); box-shadow: 0 12px 32px rgba(16, 185, 129, 0.30); margin-bottom: 24px; position: relative; overflow: hidden; }}
-        
-        .card-premium {{
-            background: #FFFFFF;
-            border-radius: 12px;
-            padding: 20px 24px;
-            border: 1px solid #E2E8F0;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            margin-bottom: 12px;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }}
-        .card-premium:hover {{
-            transform: translateY(-4px);
-            box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -5px rgba(0, 0, 0, 0.04);
-            border-color: #CBD5E1;
-        }}
-        .card-accent-top {{
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 3px;
-        }}
-        .card-header-flex {{
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 12px;
-        }}
-        .kpi-label-premium {{
-            font-size: 12px;
-            font-weight: 600;
-            color: #64748B;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            line-height: 1.4;
-        }}
-        .kpi-icon-wrapper {{
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
-            flex-shrink: 0;
-        }}
-        .kpi-value-premium {{
-            font-size: 32px;
-            font-weight: 800;
-            color: #0F172A;
-            line-height: 1;
-            font-variant-numeric: tabular-nums;
-            font-family: var(--font-titulo) !important;
-            letter-spacing: -0.5px;
-        }}
-        .kpi-sub-premium {{
-            font-size: 13px;
-            color: #64748B;
-            margin-top: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }}
-        
-        .trend-pill {{
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-            line-height: 1;
-        }}
-        .trend-up {{ background: #ECFDF5; color: #059669; }}
-        .trend-down {{ background: #FEF2F2; color: #DC2626; }}
-        .trend-neutral {{ background: #F8FAFC; color: #64748B; }}
-        
-        .table-premium-wrapper {{
-            background: #FFFFFF;
-            border-radius: 12px;
-            border: 1px solid #E2E8F0;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-            overflow: hidden;
-            margin: 16px 0;
-            position: relative;
-        }}
-        .table-premium-scroll {{
-            width: 100%;
-            overflow-x: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #CBD5E1 transparent;
-        }}
-        .table-premium-scroll::-webkit-scrollbar {{ height: 6px; width: 6px; }}
-        .table-premium-scroll::-webkit-scrollbar-thumb {{ background-color: #CBD5E1; border-radius: 3px; }}
-        
-        .totale-table-pro {{
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            text-align: left;
-        }}
-        .totale-table-pro th {{
-            background: #F8FAFC;
-            color: #475569;
-            font-family: var(--font-texto) !important;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 14px 16px;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            border-bottom: 1px solid #E2E8F0;
-            white-space: nowrap;
-        }}
-        .totale-table-pro th::after {{
-            content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 5px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0) 100%);
-            pointer-events: none;
-        }}
-        .totale-table-pro td {{
-            padding: 14px 16px;
-            border-bottom: 1px solid #F1F5F9;
-            color: #334155;
-            font-size: 13px;
-            font-family: var(--font-texto) !important;
-            vertical-align: middle;
-            transition: background 0.2s ease;
-        }}
-        .totale-table-pro tbody tr:last-child td {{ border-bottom: none; }}
-        .totale-table-pro tbody tr:hover td {{ background-color: #F8FAFC; color: #0F172A; }}
-        .totale-table-pro tbody tr.striped td {{ background-color: #FAFCFE; }}
-        .totale-table-pro tbody tr.striped:hover td {{ background-color: #F8FAFC; }}
-        
-        .td-badge {{
-            display: inline-block; padding: 4px 10px; border-radius: 12px;
-            font-size: 11px; font-weight: 600; text-transform: uppercase;
-        }}
-        
-        .section-header {{ display: flex; align-items: center; gap: 12px; margin: 32px 0 16px 0; padding-bottom: 12px; border-bottom: 2px solid var(--cor-borda); }}
-        .user-info-card {{ background: linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 100%); border: 1px solid var(--cor-borda); border-radius: 12px; padding: 16px; margin: 12px 0; }}
-        .user-avatar {{ width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA}); display: flex; align-items: center; justify-content: center; font-size: 18px; color: #FFFFFF; font-weight: 700; flex-shrink: 0; object-fit: cover; }}
-        .filter-group {{ background: #FFFFFF; border: 1px solid var(--cor-borda); border-radius: 8px; margin: 8px 0; overflow: hidden; }}
-        
-        .totale-table-container {{ width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid var(--cor-borda); margin: 16px 0; background: #FFFFFF; box-shadow: var(--shadow-sm); }}
-        .totale-table {{ width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }}
-        .totale-table th {{ background-color: #F8FAFC; color: var(--cor-primaria); font-weight: 700; padding: 12px 16px; border-bottom: 2px solid var(--cor-borda); text-transform: uppercase; font-size: 11px; white-space: nowrap; }}
-        .totale-table td {{ padding: 10px 16px; border-bottom: 1px solid var(--cor-borda); color: var(--cor-texto-2); }}
-        .totale-table tbody tr.striped {{ background-color: #FAFCFE; }}
-        .totale-table tbody tr:hover {{ background-color: #F1F5F9; }}
-        
-        .th-title {{
-            margin: 0;
-            font-size: 30px;
-            font-weight: 800;
-            color: #FFFFFF;
-            font-family: var(--font-titulo) !important;
-            line-height: 1.2;
-            letter-spacing: -0.5px;
-        }}
-        .th-title-lg {{
-            margin: 0;
-            font-size: 32px;
-            font-weight: 800;
-            color: #FFFFFF;
-            font-family: var(--font-titulo) !important;
-            line-height: 1.2;
-            letter-spacing: -0.6px;
-        }}
-        .th-sub {{
-            margin: 6px 0 0 0;
-            font-size: 13px;
-            color: #E0E7FF;
-            font-family: var(--font-texto) !important;
-            line-height: 1.5;
-        }}
-        .th-sub-muted {{
-            margin: 8px 0 0 0;
-            font-size: 14px;
-            color: #E2E8F0;
-            font-family: var(--font-texto) !important;
-        }}
-        .th-badge {{
-            background: rgba(255,255,255,0.15);
-            border: 1px solid rgba(255,255,255,0.25);
-            color: #FFFFFF;
-            padding: 3px 10px;
-            border-radius: 14px;
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
-            display: inline-block;
-            margin-bottom: 8px;
-            letter-spacing: 0.5px;
-        }}
-        .th-tag {{
-            font-size: 11px;
-            color: #CBD5E1;
-            margin-left: 8px;
-        }}
-        .th-card-label {{
-            font-size: 10px;
-            font-weight: 700;
-            color: #CBD5E1;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-        .th-card-value {{
-            font-size: 26px;
-            font-weight: 800;
-            color: #F37C04;
-            font-family: var(--font-titulo) !important;
-            margin-top: 4px;
-            line-height: 1;
-        }}
-        .th-meta {{
-            margin-top: 14px;
-            font-size: 11px;
-            color: #94A3B8;
-            display: inline-block;
-            background: rgba(0,0,0,0.25);
-            padding: 4px 10px;
-            border-radius: 6px;
-        }}
-        
-        .material-icons, .material-symbols-outlined, .material-symbols-rounded {{ font-family: "Material Symbols Rounded", "Material Icons" !important; font-weight: normal !important; -webkit-font-smoothing: antialiased !important; }}
-        </style>
-        """
+        return (
+            f"{FontInjector._build_links_html()}\n"
+            f"<style>\n"
+            f"{_CSS_VARS_ROOT}\n"
+            f"{_CSS_RESET_GLOBAL}\n"
+            f"{_CSS_HEROS}\n"
+            f"{_CSS_CARDS}\n"
+            f"{_CSS_TABELAS}\n"
+            f"{_CSS_EXTRAS}\n"
+            f"</style>"
+        )
 
     @staticmethod
     def injetar() -> None:
@@ -1496,11 +1604,6 @@ def render_hero_pme(
     )
 
 
-# =============================================================================
-# OUTROS COMPONENTES
-# =============================================================================
-
-
 def render_sidebar_status(
     status: str = "Online",
     ultima_atualizacao: str = "",
@@ -1511,12 +1614,15 @@ def render_sidebar_status(
 ) -> None:
     detalhes_dict = detalhes or {}
 
-    detalhes_html = "".join(f"""
+    detalhes_html = "".join(
+        f"""
         <div class="sidebar-footer-item">
             <span class="sidebar-footer-label">{Validadores.html_escape(k)}</span>
             <span class="sidebar-footer-value">{Validadores.html_escape(v)}</span>
         </div>
-        """ for k, v in detalhes_dict.items())
+        """
+        for k, v in detalhes_dict.items()
+    )
 
     mapa_status_cor = {
         "ok": Cores.SUCESSO,
@@ -1589,16 +1695,19 @@ def render_section_header(
 
 
 # =============================================================================
-# COMPONENTES KPI E MÉTRICAS PREMIUM
+# FACTORY INTERNA DE CARDS (DRY & WCAG)
 # =============================================================================
-def render_kpi(
-    col: Any,
+def _card_premium(
+    container: Any,
     label: str,
     valor: str,
     sub: str = "",
     tema: TemaKPIType = "azul",
     icone: str = "",
+    delta: str = "",
+    delta_tipo: TipoTrendType = "none",
 ) -> None:
+    """Factory interna unificada para geração de cards de métricas padrão SaaS."""
     cor_hex = Validadores.resolver_cor_tema(tema)
 
     icone_html = ""
@@ -1609,26 +1718,66 @@ def render_kpi(
             f"</div>"
         )
 
-    sub_html = (
-        f'<div class="kpi-sub-premium">{Validadores.html_escape(sub)}</div>'
-        if sub
-        else ""
-    )
+    delta_html = ""
+    if delta and delta_tipo != "none":
+        trend_icone = ConfigCores.TREND_ICONS.get(delta_tipo, "")
+        classe = (
+            f"trend-{delta_tipo}" if delta_tipo in ("up", "down", "neutral") else ""
+        )
+        delta_html = (
+            f'<span class="trend-pill {classe}" style="margin-right:6px;">'
+            f"<span>{trend_icone}</span> {Validadores.html_escape(delta)}</span>"
+        )
+    elif delta:
+        delta_html = (
+            f'<span style="font-weight:700;color:{cor_hex};margin-right:6px;">'
+            f"{Validadores.html_escape(delta)}</span>"
+        )
+
+    sub_html = ""
+    if sub or delta_html:
+        sub_text = Validadores.html_escape(sub) if sub else ""
+        sub_html = f'<div class="kpi-sub-premium">{delta_html}{sub_text}</div>'
+
+    label_esc = Validadores.html_escape(label)
+    valor_esc = Validadores.html_escape(valor)
 
     markup = f"""
-    <div class="card-premium">
+    <div class="card-premium" role="region" aria-label="{label_esc}: {valor_esc}">
         <div class="card-accent-top" style="background-color:{cor_hex};"></div>
         <div class="card-header-flex">
-            <div class="kpi-label-premium">{Validadores.html_escape(label)}</div>
+            <div class="kpi-label-premium">{label_esc}</div>
             {icone_html}
         </div>
         <div>
-            <div class="kpi-value-premium">{Validadores.html_escape(valor)}</div>
+            <div class="kpi-value-premium">{valor_esc}</div>
             {sub_html}
         </div>
     </div>
     """
-    _safe_render_html(markup, col)
+    _safe_render_html(markup, container)
+
+
+def render_kpi(
+    col: Any,
+    label: str,
+    valor: str,
+    sub: str = "",
+    tema: TemaKPIType = "azul",
+    icone: str = "",
+    delta: str = "",
+    delta_tipo: TipoTrendType = "none",
+) -> None:
+    _card_premium(
+        container=col,
+        label=label,
+        valor=valor,
+        sub=sub,
+        tema=tema,
+        icone=icone,
+        delta=delta,
+        delta_tipo=delta_tipo,
+    )
 
 
 def render_metric_card(
@@ -1639,36 +1788,16 @@ def render_metric_card(
     trend_valor: str = "",
     sub: str = "",
 ) -> None:
-    trend_icone = ConfigCores.TREND_ICONS.get(trend, "")
-    trend_classe = f"trend-{trend}" if trend in ("up", "down", "neutral") else ""
-
-    trend_html = ""
-    if trend != "none" and trend_valor:
-        trend_html = (
-            f'<span class="trend-pill {trend_classe}">'
-            f"<span>{trend_icone}</span> {Validadores.html_escape(trend_valor)}"
-            f"</span>"
-        )
-
-    sub_html = ""
-    if sub or trend_html:
-        sub_text = (
-            f'<span style="margin-left:6px;">{Validadores.html_escape(sub)}</span>'
-            if sub
-            else ""
-        )
-        sub_html = f'<div class="kpi-sub-premium">{trend_html}{sub_text}</div>'
-
-    markup = f"""
-    <div class="card-premium">
-        <div class="kpi-label-premium" style="margin-bottom:12px;">{Validadores.html_escape(label)}</div>
-        <div>
-            <div class="kpi-value-premium">{Validadores.html_escape(valor)}</div>
-            {sub_html}
-        </div>
-    </div>
-    """
-    _safe_render_html(markup, col)
+    _card_premium(
+        container=col,
+        label=label,
+        valor=valor,
+        sub=sub,
+        tema="azul",
+        icone="",
+        delta=trend_valor,
+        delta_tipo=trend,
+    )
 
 
 def render_kpi_sm(
@@ -1680,31 +1809,67 @@ def render_kpi_sm(
     icone: str = "",
 ) -> None:
     cor = _resolver_cor_tema(tema)
-    container.markdown(
-        f"""
-        <div style="background:white;border-radius:6px;padding:12px 16px;
-             border-left:3px solid {cor};margin-bottom:8px;
-             box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-family:{Cores.TEXTO};font-size:10px;
-                 color:{Cores.TEXTO_3};text-transform:uppercase;
-                 letter-spacing:1px;font-weight:700;">{label}</div>
-            <div style="font-family:{Fontes.TITULO};font-size:20px;
-                 color:{cor};font-weight:800;line-height:1.2;
-                 margin-top:4px;font-variant-numeric:tabular-nums;">{valor}</div>
-            <div style="font-family:{Fontes.TEXTO};font-size:11px;
-                 color:{Cores.TEXTO_3};margin-top:2px;">{sub}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    markup = f"""
+    <div style="background:white;border-radius:6px;padding:12px 16px;
+         border-left:3px solid {cor};margin-bottom:8px;
+         box-shadow:0 1px 4px rgba(0,0,0,0.06);" role="region" aria-label="{Validadores.html_escape(label)}">
+        <div style="font-family:{Cores.TEXTO};font-size:10px;
+             color:{Cores.TEXTO_3};text-transform:uppercase;
+             letter-spacing:1px;font-weight:700;">{Validadores.html_escape(label)}</div>
+        <div style="font-family:{Fontes.TITULO};font-size:20px;
+             color:{cor};font-weight:800;line-height:1.2;
+             margin-top:4px;font-variant-numeric:tabular-nums;">{Validadores.html_escape(valor)}</div>
+        <div style="font-family:{Fontes.TEXTO};font-size:11px;
+             color:{Cores.TEXTO_3};margin-top:2px;">{Validadores.html_escape(sub)}</div>
+    </div>
+    """
+    _safe_render_html(markup, container)
 
 
-def render_insight(msg: str, tipo: TipoInsightType = "info") -> None:
+def render_insight(
+    msg: str,
+    tipo: TipoInsightType = "info",
+    titulo: str = "",
+) -> None:
     if not msg:
         return
     bg, texto, borda, icone = ConfigCores.INSIGHT.get(tipo, ConfigCores.INSIGHT["info"])
     msg_html = Formatadores.markdown_para_html(msg)
-    markup = f'<div style="background:{bg};color:{texto};border-left:4px solid {borda};padding:12px 16px;border-radius:6px;margin:10px 0;font-size:14px;line-height:1.6;"><span style="margin-right:8px;">{icone}</span>{msg_html}</div>'
+    titulo_html = (
+        f'<span class="totale-insight-title">{Validadores.html_escape(titulo)}</span>'
+        if titulo
+        else ""
+    )
+    markup = (
+        f'<div class="totale-insight" style="background:{bg};color:{texto};'
+        f'border-left:4px solid {borda};">'
+        f'<span style="margin-right:8px;">{icone}</span>{titulo_html}{msg_html}</div>'
+    )
+    _safe_render_html(markup)
+
+
+def render_notification(
+    mensagem: str,
+    tipo: TipoNotificationType = "info",
+    titulo: str = "",
+) -> None:
+    """Renderiza box de notificação institucional na página."""
+    if not mensagem:
+        return
+    bg, fg, borda, icone = ConfigCores.NOTIFICATION.get(
+        tipo, ConfigCores.NOTIFICATION["info"]
+    )
+    titulo_html = (
+        f'<strong style="display:block;margin-bottom:2px;font-size:13px;">{Validadores.html_escape(titulo)}</strong>'
+        if titulo
+        else ""
+    )
+    markup = f"""
+    <div style="background:{bg};color:{fg};border:1px solid {borda};border-radius:8px;padding:12px 16px;margin:10px 0;display:flex;align-items:flex-start;gap:10px;">
+        <span style="font-size:18px;line-height:1.2;">{icone}</span>
+        <div>{titulo_html}<span style="font-size:13px;line-height:1.4;">{Formatadores.markdown_para_html(mensagem)}</span></div>
+    </div>
+    """
     _safe_render_html(markup)
 
 
@@ -1748,45 +1913,50 @@ def render_progress_bar(
     tema: TipoProgressBarType = "azul",
     altura: str = "medio",
     unidade: str = "%",
+    animado: bool = True,
 ) -> None:
-    # Alturas levemente ajustadas para um visual mais elegante
-    altura_px = {"pequeno": "6px", "medio": "8px", "grande": "12px"}.get(
-        altura, "8px"
-    )
+    altura_px = {"pequeno": "6px", "medio": "8px", "grande": "12px"}.get(altura, "8px")
     porcentagem = min(100.0, max(0.0, (valor / maximo) * 100)) if maximo > 0 else 0.0
-    
+
     bg_style = (
         f"linear-gradient(90deg, {Cores.PRIMARIA}, {Cores.SECUNDARIA})"
         if tema == "gradiente"
         else ConfigCores.PROGRESS_BAR.get(tema, Cores.PRIMARIA)
     )
 
-    # Header com Flexbox para separar perfeitamente o Label do Valor numérico
     header_html = ""
     if label or mostrar_valor:
         lbl_html = (
-            f'<span style="font-size:13px; font-weight:600; color:{Cores.TEXTO_2};">'
-            f'{Validadores.html_escape(label)}</span>'
-        ) if label else "<span></span>"
-        
+            (
+                f'<span style="font-size:13px; font-weight:600; color:{Cores.TEXTO_2};">'
+                f"{Validadores.html_escape(label)}</span>"
+            )
+            if label
+            else "<span></span>"
+        )
+
         val_html = (
-            f'<span style="font-size:14px; font-weight:800; color:{Cores.TEXTO}; '
-            f'font-family:var(--font-titulo) !important; font-variant-numeric:tabular-nums;">'
-            f'{porcentagem:.1f}{unidade}</span>'
-        ) if mostrar_valor else ""
+            (
+                f'<span style="font-size:14px; font-weight:800; color:{Cores.TEXTO}; '
+                f'font-family:var(--font-titulo) !important; font-variant-numeric:tabular-nums;">'
+                f"{porcentagem:.1f}{unidade}</span>"
+            )
+            if mostrar_valor
+            else ""
+        )
 
         header_html = (
             f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:8px;">'
-            f'{lbl_html}{val_html}'
-            f'</div>'
+            f"{lbl_html}{val_html}"
+            f"</div>"
         )
 
-    # O wrapper contém o header e a barra arredondada com fundo cinza claro (Track)
+    classe_anim = "totale-pb-fill animado" if animado else "totale-pb-fill"
     markup = f"""
     <div style="margin: 14px 0;">
         {header_html}
         <div style="width:100%; background-color:#E2E8F0; border-radius:999px; overflow:hidden; height:{altura_px};">
-            <div style="width:{porcentagem}%; height:100%; background:{bg_style}; border-radius:999px; transition:width 0.6s ease-out;"></div>
+            <div class="{classe_anim}" style="width:{porcentagem}%; height:100%; background:{bg_style}; border-radius:999px; transition:width 0.6s ease-out;"></div>
         </div>
     </div>
     """
@@ -1794,8 +1964,15 @@ def render_progress_bar(
 
 
 # =============================================================================
-# TABELA HTML PREMIUM
+# TABELA HTML PREMIUM (COM LINHA DESTAQUE E EXPORTAÇÃO EXCEL OPCIONAL)
 # =============================================================================
+def _converter_df_para_excel_bytes(df: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Dados")
+    return buffer.getvalue()
+
+
 def render_table_html(
     df: pd.DataFrame,
     titulo: str = "",
@@ -1808,11 +1985,19 @@ def render_table_html(
     colunas_num: Sequence[str] | None = None,
     height: int | None = 400,
     mostrar_data: bool = True,
+    linha_destaque: dict[str, str] | None = None,
+    condicoes_colunas: dict[str, Any] | None = None,
+    caption: str = "",
+    exportar_excel: bool = False,
+    nome_arquivo: str = "relatorio_totale",
 ) -> None:
-    """Renderiza uma tabela premium (SaaS UI) com Sticky Headers protegida contra ambiguidade booleana."""
     if not isinstance(df, pd.DataFrame) or df.empty:
         render_empty_state(tipo="dados", descricao="Nenhum dado disponível na tabela.")
         return
+
+    # Alias retrocompatível: condicoes_colunas → color_rules
+    if color_rules is None and condicoes_colunas is not None:
+        color_rules = condicoes_colunas
 
     df_clean = df.loc[:, ~df.columns.duplicated()].copy()
 
@@ -1831,6 +2016,11 @@ def render_table_html(
             if c in df_display.columns:
                 alinhamentos[c] = "right"
 
+    ld_coluna = str(linha_destaque.get("coluna", "")) if linha_destaque else ""
+    ld_valor = (
+        str(linha_destaque.get("valor", "")).strip().upper() if linha_destaque else ""
+    )
+
     th_parts: list[str] = []
     for col in df_display.columns:
         align = alinhamentos.get(col, "left")
@@ -1842,6 +2032,14 @@ def render_table_html(
     tr_parts: list[str] = []
     for i, (_, row) in enumerate(df_display.iterrows()):
         td_parts: list[str] = []
+
+        eh_destaque = False
+        if ld_coluna and ld_coluna in df_display.columns and ld_valor:
+            raw_ld = row[ld_coluna]
+            if isinstance(raw_ld, (pd.Series, np.ndarray)):
+                raw_ld = raw_ld.iloc[0] if isinstance(raw_ld, pd.Series) else raw_ld[0]
+            eh_destaque = ld_valor in str(raw_ld).strip().upper()
+
         for col in df_display.columns:
             val = row[col]
             if isinstance(val, (pd.Series, np.ndarray)):
@@ -1898,12 +2096,20 @@ def render_table_html(
                 f'<td style="text-align:{align}; {font_style}">{val_str}</td>'
             )
 
-        classe_linha = ' class="striped"' if striped and i % 2 == 1 else ""
-        tr_parts.append(f'<tr{classe_linha}>{"".join(td_parts)}</tr>')
+        if eh_destaque:
+            classe_linha = ' class="linha-destaque"'
+        else:
+            classe_linha = ' class="striped"' if striped and i % 2 == 1 else ""
+        tr_parts.append(f"<tr{classe_linha}>{''.join(td_parts)}</tr>")
 
     titulo_html = (
         f'<div style="font-weight:800;font-size:16px;color:#0F172A;margin-bottom:12px;font-family:var(--font-titulo) !important;">{Validadores.html_escape(titulo)}</div>'
         if titulo
+        else ""
+    )
+    caption_html = (
+        f'<div style="font-size:11px;color:#94A3B8;margin-top:8px;font-weight:500;">{Validadores.html_escape(caption)}</div>'
+        if caption
         else ""
     )
     data_html = (
@@ -1925,7 +2131,135 @@ def render_table_html(
                 </table>
             </div>
         </div>
+        {caption_html}
         {data_html}
     </div>
     """
     _safe_render_html(markup)
+
+    if exportar_excel and not df_display.empty:
+        c1, c2 = st.columns([4, 1])
+        with c2:
+            st.download_button(
+                label="📥 Exportar Excel",
+                data=_converter_df_para_excel_bytes(df_display),
+                file_name=f"{nome_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+
+# =============================================================================
+# NOVOS COMPONENTES VISUAIS (v4.3.0)
+# =============================================================================
+def render_spacer(altura: int | str = 16) -> None:
+    """Insere espaçamento vertical preciso na página."""
+    css = f"{altura}px" if isinstance(altura, int) else str(altura)
+    _safe_render_html(
+        f'<div style="height:{css};width:100%;display:block;" aria-hidden="true"></div>'
+    )
+
+
+def render_badge(
+    texto: str,
+    tipo: TipoBadgeType = "default",
+    icone: str = "",
+) -> None:
+    """Badge pill independente para tags de status e categorização."""
+    if not texto:
+        return
+    bg, fg, borda = ConfigCores.BADGE.get(tipo, ConfigCores.BADGE["default"])
+    icone_html = (
+        f'<span style="line-height:1;">{Validadores.html_escape(icone)}</span>'
+        if icone
+        else ""
+    )
+    markup = (
+        f'<span class="totale-badge-pill" style="background:{bg};color:{fg};'
+        f'border-color:{borda};">{icone_html}'
+        f"{Validadores.html_escape(texto)}</span>"
+    )
+    _safe_render_html(markup)
+
+
+def render_skeleton(
+    linhas: int = 3,
+    altura_linha: int = 16,
+    largura_ultima: str = "60%",
+) -> None:
+    """Placeholder animado (shimmer) para feedback visual de carregamento."""
+    rows: list[str] = []
+    for i in range(max(1, linhas)):
+        largura = largura_ultima if i == linhas - 1 else "100%"
+        rows.append(
+            f'<div class="totale-skeleton" style="height:{altura_linha}px;'
+            f'width:{largura};margin-bottom:10px;"></div>'
+        )
+    _safe_render_html(f'<div style="margin:12px 0;">{"".join(rows)}</div>')
+
+
+# =============================================================================
+# EXPORTAÇÕES PÚBLICAS
+# =============================================================================
+__all__ = [
+    # Tipos e Enums
+    "TemaKPI",
+    "TipoInsight",
+    "TipoStatus",
+    "TipoEmptyState",
+    "TipoBadge",
+    "TipoProgressBar",
+    "TipoTrend",
+    "TipoNotification",
+    "TipoTimelineItem",
+    "TipoHero",
+    "TemaKPIType",
+    "TipoInsightType",
+    "TipoStatusType",
+    "TipoEmptyStateType",
+    "TipoBadgeType",
+    "TipoProgressBarType",
+    "TipoTrendType",
+    "TipoNotificationType",
+    "TipoTimelineItemType",
+    "TipoHeroType",
+    # Configurações
+    "Fontes",
+    "Cores",
+    "ConfigCores",
+    # Estilização Global
+    "aplicar_estilo",
+    "aplicar_estilo_corp",
+    "aplicar_sidebar_corp",
+    # Sidebar
+    "render_sidebar_brand",
+    "render_sidebar_section",
+    "render_sidebar_divider",
+    "render_sidebar_footer_info",
+    "render_sidebar_info",
+    "render_sidebar_spacer",
+    "render_sidebar_status",
+    # Heroes
+    "render_hero",
+    "render_hero_totale_1",
+    "render_hero_totale_2",
+    "render_hero_migracao",
+    "render_hero_pme",
+    # Conteúdo Principal
+    "render_section_header",
+    "render_kpi",
+    "render_metric_card",
+    "render_kpi_sm",
+    "render_insight",
+    "render_notification",
+    "render_empty_state",
+    "render_progress_bar",
+    "render_table_html",
+    # Utilitários Visuais
+    "render_spacer",
+    "render_badge",
+    "render_skeleton",
+    "formatar_numero_br",
+    "Validadores",
+    "Formatadores",
+]

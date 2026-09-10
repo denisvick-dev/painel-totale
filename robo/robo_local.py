@@ -179,9 +179,7 @@ class ArquivoBloqueadoError(Exception):
     """Arquivo em gravação/sincronização — aguardar o próximo ciclo."""
 
 
-def _ler_excel_via_openpyxl_nativo(
-    raw: bytes, sheet_name: str | int
-) -> pd.DataFrame:
+def _ler_excel_via_openpyxl_nativo(raw: bytes, sheet_name: str | int) -> pd.DataFrame:
     """
     Bypass total do registry de engines do pandas (não usa io.excel.*).
     Robusto contra: worksheet None, linhas de tamanho irregular e

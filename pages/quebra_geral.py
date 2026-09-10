@@ -1523,7 +1523,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
     render_table_html(
         df_proc,
         fmt=fmt,
-        color_rules=color_rules,   # era condicoes_colunas
+        color_rules=color_rules,  # era condicoes_colunas
         colunas_num=[
             c
             for c in df_proc.columns
@@ -1543,6 +1543,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+
 
 def view_analise_detalhada(
     df: pd.DataFrame,

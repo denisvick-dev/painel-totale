@@ -472,13 +472,15 @@ def _busday_count(inicio: date, fim_inclusivo: date, feriados: tuple[date, ...])
 
 @lru_cache(maxsize=256)
 def _fator_por_data_max(data_max: date) -> tuple[float, int, int, int]:
-    inicio_mes, prox_mes = data_max.replace(day=1), (
-        data_max.replace(day=28) + timedelta(4)
-    ).replace(day=1)
+    inicio_mes, prox_mes = (
+        data_max.replace(day=1),
+        (data_max.replace(day=28) + timedelta(4)).replace(day=1),
+    )
     fim_mes = prox_mes - timedelta(1)
     feriados = _feriados_brasil(data_max.year)
-    total, decorridos = _busday_count(inicio_mes, fim_mes, feriados), _busday_count(
-        inicio_mes, data_max, feriados
+    total, decorridos = (
+        _busday_count(inicio_mes, fim_mes, feriados),
+        _busday_count(inicio_mes, data_max, feriados),
     )
     faltantes = max(0, total - decorridos)
     return (
@@ -582,7 +584,9 @@ def _baixar_drive_csv(file_id: str) -> bytes:
             import gdown
 
             with tempfile.NamedTemporaryFile(suffix=".csv", delete=True) as tmp_file:
-                gdown.download(id=file_id, output=tmp_file.name, quiet=True, resume=True) # type: ignore
+                gdown.download(
+                    id=file_id, output=tmp_file.name, quiet=True, resume=True
+                )  # type: ignore
                 tmp_file.seek(0)
                 return tmp_file.read()  # type: ignore
         except Exception as e2:
@@ -1184,9 +1188,7 @@ with tab_prod:
     meta_prod = METAS_PRODUCAO_OS_GERAL["meta_base"]
 
     os_faltantes_geral = max(0, meta_prod - real_prod)
-    os_media_diaria_geral = (
-        os_faltantes_geral / dias_rest_os if dias_rest_os > 0 else 0
-    )
+    os_media_diaria_geral = os_faltantes_geral / dias_rest_os if dias_rest_os > 0 else 0
 
     render_resumo_cards(
         titulo="Produção Geral",
@@ -1382,9 +1384,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
             os_real = _to_float_safe(b_data["OS_Volume"].iloc[0])
             os_projetado = _to_float_safe(b_data["O.S. Projetadas"].iloc[0])
             cons_real = _to_float_safe(b_data["Cons_Volume"].iloc[0])
-            cons_projetado = _to_float_safe(
-                b_data["Consultivos Projetados"].iloc[0]
-            )
+            cons_projetado = _to_float_safe(b_data["Consultivos Projetados"].iloc[0])
             tecnicos_base = max(
                 1, int(_to_float_safe(b_data["Tecnicos_Ativos"].iloc[0], default=1))
             )
@@ -1433,9 +1433,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
         # ------------------------------------------------------------------
         os_faltantes = max(0, meta_os - os_real)
         os_media_diaria = os_faltantes / dias_rest_os if dias_rest_os > 0 else 0
-        os_por_tecnico = (
-            os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0
-        )
+        os_por_tecnico = os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0
 
         render_resumo_cards(
             titulo="Produção (O.S.)",
