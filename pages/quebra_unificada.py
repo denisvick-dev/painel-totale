@@ -50,6 +50,7 @@ from components.componentes import (
     TipoInsightType,
     render_hero_migracao,
     render_hero_pme,
+    render_hero_novos_domicilios,
     render_insight,
     render_kpi,
     render_kpi_sm,
@@ -818,139 +819,54 @@ def _causa_raiz_segmento(
 
 
 # =====================================================================
-# HERO NOVOS DOMICÍLIOS
-# =====================================================================
-def render_hero_novos_domicilios(
-    titulo: str = " Novos Domicílios — Quebra de Agenda",
-    subtitulo: str = "Análise estratégica dedicada à adesão de novos clientes",
-    badge: str | None = None,
-    icone: str | None = None,
-) -> None:
-    html = f"""
-<div class="hero-novos-domicilios" style="
-    background: linear-gradient(135deg, #011D4E 0%, #0A2F6B 55%, #1D4ED8 100%);
-    padding: 2.2rem 2.5rem;
-    border-radius: 16px;
-    color: #FFFFFF;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(10, 47, 107, 0.25);
-">
-    <div style="position: relative; z-index: 1;">
-        <h1 style="
-            font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', sans-serif;
-            font-weight: 800;
-            font-size: 2.1rem;
-            letter-spacing: -0.6px;
-            margin: 0;
-            color: #FFFFFF;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            line-height: 1.2;
-        ">
-            <span>{titulo}</span>
-        </h1>
-        {f'<p style="font-family: Inter, sans-serif; font-size: 0.95rem; margin: 0.8rem 0 0 0; color: rgba(255, 255, 255, 0.88); line-height: 1.4;">{subtitulo}</p>' if subtitulo else ""}
-    </div>
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-
-
-# =====================================================================
 # CONFIGURAÇÕES DINÂMICAS POR SEGMENTO
 # =====================================================================
 SEGMENTOS_CONFIG: dict[str, Any] = {
     "Novos Domicílios": {
         "icone": "🏠",
         "subtitulo": "Análise estratégica dedicada à adesão de novos clientes e domicílios",
-        "cor_primaria": "#0A2F6B",
-        "cor_secundaria": "#1D4ED8",
-        "grad_hero": "linear-gradient(135deg, #011D4E 0%, #0A2F6B 55%, #1D4ED8 100%)",
-        "sombra_hero": "rgba(10, 47, 107, 0.25)",
+        "cor_primaria": "#012869",
+        "cor_secundaria": "#14B8A6",
+        "grad_hero": "linear-gradient(135deg, #012869 0%, #0A3D62 35%, #0D9488 70%, #14B8A6 100%)",
+        "sombra_hero": "rgba(1, 40, 105, 0.28)",
         "sla_default": SLA_NOVOS_DOMICILIOS_DEFAULT,
         "pdf_class": PDFExecutivoNovosDomicilios,
         "hero_fn": render_hero_novos_domicilios,
+        "hero_kwargs": {"badge": "NOVOS DOMICÍLIOS", "icone": "🏠"},
         "acoes": [
             (
                 "🔴 ALTA",
-                "Monitorar rota de instalação e taxa de comparecimento do cliente na 1ª visita.",
+                "Monitorar rota de instalação e taxa de comparecimento.",
                 "alerta",
             ),
-            (
-                "🟡 MÉDIA",
-                "Revisar triagem de viabilidade óptica e agendamento de slots no mesmo dia.",
-                "acao",
-            ),
-            (
-                "🟡 MÉDIA",
-                "Capacitar técnicos nas rotinas de ativação e teste de sinal.",
-                "acao",
-            ),
-            (
-                "🟢 BAIXA",
-                "Acompanhar confirmação prévia com o cliente via WhatsApp/SMS.",
-                "info",
-            ),
+            ("🟡 MÉDIA", "Revisar triagem de viabilidade óptica.", "acao"),
         ],
     },
     "Migração": {
         "icone": "🔄",
         "subtitulo": "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
-        "cor_primaria": "#0369A1",
-        "cor_secundaria": "#0284C7",
-        "grad_hero": "linear-gradient(135deg, #0C4A6E 0%, #0369A1 55%, #0284C7 100%)",
-        "sombra_hero": "rgba(12, 74, 110, 0.25)",
+        "cor_primaria": "#6D28D9",
+        "cor_secundaria": "#A78BFA",
+        "grad_hero": "linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%)",
+        "sombra_hero": "rgba(124, 58, 237, 0.35)",
         "sla_default": SLA_MIGRACAO_DEFAULT,
         "pdf_class": PDFExecutivoMigracao,
         "hero_fn": render_hero_migracao,
-        "acoes": [
-            (
-                " ALTA",
-                "Verificar estoque de equipamentos nos almoxarifados das regiões com maior quebra.",
-                "alerta",
-            ),
-            (
-                "🟡 MÉDIA",
-                "Confirmar certificação dos técnicos em instalação GPON.",
-                "acao",
-            ),
-            (
-                "🟡 MÉDIA",
-                "Priorizar agendamentos de migração no início do turno.",
-                "acao",
-            ),
-            (
-                "🟢 BAIXA",
-                "Validar se ordens com status 'Pendente' possuem pré-vistoria aprovada.",
-                "info",
-            ),
-        ],
+        "hero_kwargs": {"badge": "MIGRAÇÃO DE DADOS", "icone": "🔄"},
+        "acoes": [("🔴 ALTA", "Verificar estoque de equipamentos.", "alerta")],
     },
     "PME": {
         "icone": "🏢",
         "subtitulo": "Análise estratégica dedicada às Pequenas e Médias Empresas",
-        "cor_primaria": "#7C3AED",
-        "cor_secundaria": "#A855F7",
-        "grad_hero": "linear-gradient(135deg, #4C1D95 0%, #7C3AED 55%, #A855F7 100%)",
-        "sombra_hero": "rgba(76, 29, 149, 0.25)",
+        "cor_primaria": "#059669",
+        "cor_secundaria": "#3B82F6",
+        "grad_hero": "linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%)",
+        "sombra_hero": "rgba(16, 185, 129, 0.30)",
         "sla_default": SLA_PME_DEFAULT,
         "pdf_class": PDFExecutivoPME,
         "hero_fn": render_hero_pme,
-        "acoes": [
-            (
-                "🔴 ALTA",
-                "Verificar disponibilidade de técnicos habilitados em PME.",
-                "acao",
-            ),
-            (
-                "🟡 MÉDIA",
-                "Acionar equipe comercial PME para comunicação proativa.",
-                "acao",
-            ),
-            ("🟢 BAIXA", "Revisar janelas de atendimento PME.", "info"),
-        ],
+        "hero_kwargs": {"badge": "PME CONNECT", "icone": "🚀"},
+        "acoes": [("🔴 ALTA", "Verificar técnicos habilitados em PME.", "acao")],
     },
 }
 
@@ -978,14 +894,14 @@ div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
     top: 0.75rem !important;
     z-index: 1000 !important;
 }}
-.topo-fixo-dinamico {{
-    background: rgba(248,250,252,0.96);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    padding: 0.5rem 0 0.25rem 0;
-    border-radius: 16px;
+.topo-fixo-dinamico .hero-domicilios,
+.topo-fixo-dinamico .hero-migracao,
+.topo-fixo-dinamico .hero-pme {{
+    margin-bottom: 12px !important;
+    border-radius: 16px !important;
+    box-shadow: 0 10px 40px rgba(1, 40, 105, 0.25) !important;
 }}
-.topo-fixo-dinamico .hero-novos-domicilios,
+.topo-fixo-dinamico .hero-domicilios,
 .topo-fixo-dinamico .hero-migracao,
 .topo-fixo-dinamico .hero-pme {{
     margin-bottom: 12px !important;
@@ -1094,8 +1010,16 @@ def _html_resultado_base(regioes: list[str], total: int) -> str:
 def _render_topo_fixo(segmento: str, regioes: list[str], total: int) -> None:
     conf = SEGMENTOS_CONFIG[segmento]
     hero_fn = conf["hero_fn"]
+    hero_kwargs = conf.get("hero_kwargs", {})
+
     st.markdown('<div class="topo-fixo-dinamico">', unsafe_allow_html=True)
-    hero_fn(titulo=f"{segmento} — Quebra de Agenda", subtitulo=conf["subtitulo"])
+
+    hero_fn(
+        titulo=f"{segmento} — Quebra de Agenda",
+        subtitulo=conf["subtitulo"],
+        **hero_kwargs,
+    )
+
     st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1335,18 +1259,38 @@ def _calcular_quebra_expurgada(
 # =====================================================================
 # SUB-ABAS
 # =====================================================================
-def render_section(titulo: str) -> None:
-    partes = titulo.strip().split(" ", 1)
-    primeiro_char = partes[0][0] if partes[0] else ""
-    if len(partes) == 2 and not primeiro_char.isascii():
-        icon, title = partes[0], partes[1]
-    else:
-        icon, title = "", titulo
-    try:
-        render_section_header(icon, title)
-    except TypeError:
-        render_section_header(title, icone=icon)
+def _token_parece_icone(token: str) -> bool:
+    """Identifica símbolos gráficos sem confundir palavras acentuadas."""
+    return any(
+        0x2300 <= ord(caractere) <= 0x2BFF
+        or 0x1F000 <= ord(caractere) <= 0x1FAFF
+        for caractere in token
+    )
 
+
+def render_section(titulo: str) -> None:
+    """
+    Separa um eventual emoji inicial e renderiza o cabeçalho
+    usando argumentos nomeados.
+    """
+    texto = str(titulo or "").strip()
+
+    if not texto:
+        return
+
+    partes = texto.split(maxsplit=1)
+
+    icone_final = ""
+    titulo_final = texto
+
+    if len(partes) == 2 and _token_parece_icone(partes[0]):
+        icone_final = partes[0]
+        titulo_final = partes[1]
+
+    render_section_header(
+        titulo=titulo_final,
+        icone=icone_final,
+    )
 
 def _sub_visao_geral(
     segmento: str,
@@ -1373,7 +1317,7 @@ def _sub_visao_geral(
     )
 
     st.markdown("")
-    render_section(" Projeções de Fechamento")
+    render_section("📈 Projeções de Fechamento")
     cen = {
         n: Motor.projetar(df_seg, p)
         for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
@@ -1733,7 +1677,7 @@ def _sub_plano_acao(
     p_base: float,
     sla_meta: float,
 ) -> None:
-    render_section(f" Plano de Ação — {segmento}")
+    render_section(f"🎯 Plano de Ação — {segmento}")
     folga = Motor.folga_sla(df_seg, sla_meta)
     cen = Motor.projetar(df_seg, p_base)
     excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])

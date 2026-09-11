@@ -320,7 +320,7 @@ def mapear_colunas(df: pd.DataFrame, regras: dict[str, list[str]]) -> pd.DataFra
 
 
 def garantir_datetime(
-    df: pd.DataFrame, col: str = "DATA", origem: str = "br"
+    df: pd.DataFrame, col: str = "DATA", origem: str = ""
 ) -> pd.DataFrame:
     if col not in df.columns or df.empty:
         return df.copy()
@@ -368,6 +368,47 @@ def garantir_datetime(
             logger.debug(f"Parse final falhou: {e}")
     df_copia[col] = resultado
     return df_copia
+
+
+def garantir_datetime_auto(
+    df: pd.DataFrame, col: str = "DATA", nome_fonte: str = ""
+) -> pd.DataFrame:
+    """
+    Testa a leitura como BR (DD/MM) e US (MM/DD) e escolhe a que produz
+    datas mais coerentes com a operação (mais próximas de hoje).
+
+    Resolve a inversão dia/mês causada por fontes em locale americano
+    sem precisar hardcodar a origem de cada base.
+    """
+    if col not in df.columns or df.empty:
+        return df.copy()
+
+    hoje = pd.Timestamp(datetime.now(CFG.TZ).date())
+
+    candidatos: dict[str, pd.Series] = {}
+    for origem in ("br", "us"):
+        df_t = garantir_datetime(df, col=col, origem=origem)
+        candidatos[origem] = df_t[col]
+
+    def _score(s: pd.Series) -> float:
+        validas = s.dropna()
+        if validas.empty:
+            return float("inf")
+        # Penaliza fontes com muitos NaT e datas distantes de hoje.
+        taxa_nat = 1.0 - (len(validas) / max(len(s), 1))
+        dist_media = (validas - hoje).abs().dt.days.median()
+        return float(taxa_nat * 3650 + dist_media)
+
+    melhor = min(candidatos, key=lambda o: _score(candidatos[o]))
+    logger.info(
+        "Leitura de datas (%s): origem '%s' escolhida automaticamente.",
+        nome_fonte or col,
+        melhor,
+    )
+
+    df_out = df.copy()
+    df_out[col] = candidatos[melhor]
+    return df_out
 
 
 def garantir_login(df: pd.DataFrame, col: str = "LOGIN") -> pd.DataFrame:
@@ -471,23 +512,50 @@ def _busday_count(inicio: date, fim_inclusivo: date, feriados: tuple[date, ...])
 
 
 @lru_cache(maxsize=256)
-def _fator_por_data_max(data_max: date) -> tuple[float, int, int, int]:
-    inicio_mes, prox_mes = (
-        data_max.replace(day=1),
-        (data_max.replace(day=28) + timedelta(4)).replace(day=1),
-    )
+def resumo_dias_uteis_mes(data_referencia: date) -> dict[str, Any]:
+    """
+    Dias úteis de SEGUNDA a SÁBADO do mês de `data_referencia`,
+    excluindo DOMINGOS e FERIADOS nacionais.
+
+    Contagem via np.busday_count:
+        weekmask="Mon Tue Wed Thu Fri Sat"  -> seg..sáb (domingo fora)
+        holidays=<feriados>                 -> feriados subtraídos
+    """
+    inicio_mes = data_referencia.replace(day=1)
+    prox_mes = (data_referencia.replace(day=28) + timedelta(4)).replace(day=1)
     fim_mes = prox_mes - timedelta(1)
-    feriados = _feriados_brasil(data_max.year)
-    total, decorridos = (
-        _busday_count(inicio_mes, fim_mes, feriados),
-        _busday_count(inicio_mes, data_max, feriados),
-    )
-    faltantes = max(0, total - decorridos)
+
+    feriados_ano = _feriados_brasil(data_referencia.year)
+    feriados_mes = tuple(f for f in feriados_ano if f.month == data_referencia.month)
+
+    total = _busday_count(inicio_mes, fim_mes, feriados_ano)
+    decorridos = _busday_count(inicio_mes, data_referencia, feriados_ano)
+    restantes = max(0, total - decorridos)
+    fator = float(total / decorridos) if decorridos > 0 else 1.0
+
+    return {
+        "inicio_mes": inicio_mes,
+        "fim_mes": fim_mes,
+        "total_uteis": total,
+        "uteis_decorridos": decorridos,
+        "uteis_restantes": restantes,
+        "fator": fator,
+        "feriados_do_mes": feriados_mes,
+    }
+
+
+@lru_cache(maxsize=256)
+def _fator_por_data_max(data_max: date) -> tuple[float, int, int, int]:
+    """
+    Mantém a assinatura original (fator, restantes, total, decorridos).
+    A contagem já é segunda a sábado, excluindo domingos e feriados.
+    """
+    r = resumo_dias_uteis_mes(data_max)
     return (
-        float(total / decorridos) if decorridos > 0 else 1.0,
-        faltantes,
-        total,
-        decorridos,
+        r["fator"],
+        r["uteis_restantes"],
+        r["total_uteis"],
+        r["uteis_decorridos"],
     )
 
 
@@ -581,14 +649,15 @@ def _baixar_drive_csv(file_id: str) -> bytes:
     except Exception as e:
         logger.warning(f"Abordagem nativa falhou ({e}). Tentando gdown...")
         try:
-            import gdown
+            from gdown.download import download as gdown_download
 
             with tempfile.NamedTemporaryFile(suffix=".csv", delete=True) as tmp_file:
-                gdown.download(
-                    id=file_id, output=tmp_file.name, quiet=True, resume=True
-                )  # type: ignore
-                tmp_file.seek(0)
-                return tmp_file.read()  # type: ignore
+                tmp_path = tmp_file.name
+
+            gdown_download(id=file_id, output=tmp_path, quiet=True, resume=True)
+
+            with open(tmp_path, "rb") as f:
+                return f.read()
         except Exception as e2:
             logger.error(f"gdown fallback também falhou: {e2}")
             raise e
@@ -677,7 +746,7 @@ def carregar_consultivos() -> tuple[pd.DataFrame, str | None]:
             return pd.DataFrame(), "Coluna DATA não encontrada em Consultivos."
         if col_data_detectada != "DATA":
             df = df.rename(columns={col_data_detectada: "DATA"})
-        df = garantir_datetime(df, col="DATA", origem="br")
+        df = garantir_datetime_auto(df, col="DATA", nome_fonte="Consultivos")
         if df["DATA"].isna().all():
             return pd.DataFrame(), "Todas as datas são inválidas em Consultivos."
         return df, None
@@ -745,7 +814,7 @@ def carregar_producao() -> tuple[pd.DataFrame, str | None]:
             return pd.DataFrame(), "Coluna DATA não encontrada na planilha."
         if col_data_detectada != "DATA":
             df = df.rename(columns={col_data_detectada: "DATA"})
-        df = garantir_datetime(df, col="DATA", origem="br")
+        df = garantir_datetime_auto(df, col="DATA", nome_fonte="Produção")
         if df["DATA"].isna().all():
             return pd.DataFrame(), "Datas inválidas na planilha."
         return df, None
@@ -977,26 +1046,6 @@ if not df_prod.empty and any(
         f"🚨 Colunas críticas perdidas em Produção: {[c for c in ['DATA', 'LOGIN', 'BASE', 'PROJETO'] if c not in df_prod.columns]}"
     )
     st.stop()
-
-with st.expander("🔍 Debug de Carga"):
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Produção RAW", len(df_prod_raw))
-    c2.metric("Consultivos RAW", len(df_cons_raw))
-    c3.metric("Produção Final", len(df_prod))
-    c4.metric("Consultivos Final", len(df_cons))
-    st.write(
-        "**Colunas Produção (Final):**",
-        list(df_prod.columns) if not df_prod.empty else "VAZIO",
-    )
-    st.write(
-        "**Colunas Consultivo (Final):**",
-        list(df_cons.columns) if not df_cons.empty else "VAZIO",
-    )
-    if st.button(" Forçar Recarga Total"):
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        st.session_state.clear()
-        st.rerun()
 
 
 # =============================================================================

@@ -503,9 +503,16 @@ def main() -> None:
     # 3. Status operacional
     dados_prod = st.session_state.get("dados_prod")
     if dados_prod is not None:
-        render_sidebar_status(label="Bases Atualizadas", status="ativo")
+        render_sidebar_status(
+            label="Dados Sincronizados",
+            status="Atualizado",
+            tipo="ok",
+            ultima_atualizacao=str(st.session_state.get("ultima_atualizacao")),
+        )
     else:
-        render_sidebar_status(label="Aguardando Sincronismo", status="pendente")
+        render_sidebar_status(
+            label="Aguardando Sincronismo", status="Aguardando", tipo="alerta"
+        )
 
     # 4. Navegação nativa
     paginas = GerenciadorNavegacao._definir_paginas()
