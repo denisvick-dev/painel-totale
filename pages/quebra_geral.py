@@ -32,8 +32,6 @@ for _p in (_DIR, _ROOT):
         sys.path.insert(0, str(_p))
 
 # ── Componentes visuais globais ─────────────────────────────────────
-# ── Robô de Sincronismo Local ───────────────────────────────────────
-
 from components.componentes import (
     Fontes,
     render_section_header,
@@ -57,7 +55,6 @@ def _tentar_import_robo() -> Any:
         if s not in sys.path:
             sys.path.insert(0, s)
 
-    # 1) Pacote oficial
     try:
         import robo.robo_local as mod  # type: ignore
         from robo.robo_local import renderizar_robo_local as fn  # type: ignore
@@ -66,7 +63,6 @@ def _tentar_import_robo() -> Any:
     except Exception as e1:
         err1 = f"robo.robo_local: {type(e1).__name__}: {e1}"
 
-    # 2) Fallback: função com outro nome no mesmo módulo
     try:
         import robo.robo_local as mod  # type: ignore
 
@@ -96,7 +92,7 @@ def renderizar_robo_local(*args: Any, **kwargs: Any) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# CONFIGURAÇÕES DO ROBÔ (Integrado)
+# CONFIGURAÇÕES DO ROBÔ
 # ═══════════════════════════════════════════════════════════════════════
 class PaginaConfig(TypedDict, total=False):
     titulo: str
@@ -109,11 +105,9 @@ class PaginaConfig(TypedDict, total=False):
 
 
 class ConfigRobo:
-    """Configurações centralizadas do robô auto-sincronizador."""
-
     PASTA_PADRAO: str | None = None
-    TEMPO_VERIFICACAO_SEGUNDOS: int = 1  # Sincronização imediata (1 segundo)
-    CICLOS_ESTABILIDADE: int = 1  # Estabilidade imediata (1 ciclo)
+    TEMPO_VERIFICACAO_SEGUNDOS: int = 1
+    CICLOS_ESTABILIDADE: int = 1
 
     COLUNAS_ROTA: list[str] = [
         "CONTRATO",
@@ -159,9 +153,9 @@ TemaKPI = Literal[
     "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "amarelo", "escuro"
 ]
 
-# ═════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # MAPEAMENTO DE DEPARA (CÓD DE BAIXA 1)
-# ══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 MAPA_CODIGO_NUMERICO: dict[int, str] = {
     100: "Não Executada",
     101: "Não Executada",
@@ -274,7 +268,7 @@ MAPA_COD_BAIXA_TEXTO: dict[str, str] = {
 }
 
 
-# ══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # CONSTANTES DE DOMÍNIO
 # ═══════════════════════════════════════════════════════════════════════
 class Config:
@@ -422,7 +416,7 @@ def _fmt_int_br(v: Any) -> str:
 
 # ═══════════════════════════════════════════════════════════════════════
 # UTILITÁRIOS OPERACIONAIS
-# ══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 class Utils:
     @staticmethod
     def buscar_coluna(df: pd.DataFrame, palavras: list) -> str | None:
@@ -749,14 +743,11 @@ class DataLoader:
             return pd.DataFrame()
 
         df = df.copy()
-        # 1. Normalizar TODAS as colunas para UPPERCASE
         df.columns = df.columns.astype(str).str.strip().str.upper()
         df.attrs["total_importado"] = len(df)
 
-        # 2. Status Contrato
         df["STATUS CONTRATO"] = Utils.classificar_status_excel(df)
 
-        # 3. Remoção de Cancelados e Suspensos
         col_atv = detectar_col_status_atividade(df)
         n_susp = int(df["STATUS CONTRATO"].isin(["SUSPENSO", "CANCELADO"]).sum())
         df = df[~df["STATUS CONTRATO"].isin(["SUSPENSO", "CANCELADO"])].copy()
@@ -764,7 +755,6 @@ class DataLoader:
         df.attrs["col_status_atividade"] = col_atv
         df.attrs["removidos_suspensos"] = n_susp
 
-        # 4. Eliminar Contratos Inválidos
         col_con = detectar_col_contrato(df)
         n_invalidos = 0
         if col_con:
@@ -785,7 +775,6 @@ class DataLoader:
         if df.empty:
             return pd.DataFrame()
 
-        # 5. Total de Tarefas
         col_tot = Utils.buscar_coluna(
             df, ["TOTAL DE TAREFAS", "QTD TAREFAS", "QUANTIDADE", "VOLUME"]
         )
@@ -801,7 +790,6 @@ class DataLoader:
         else:
             df["TOTAL DE TAREFAS"] = pd.Series(1, index=df.index, dtype="int64")
 
-        # 6. Técnicos e Monitores
         col_login = Utils.buscar_coluna(
             df,
             ["LOGIN DO TÉCNICO", "LOGIN DO TECNICO", "LOGIN", "USUÁRIO", "MATRÍCULA"],
@@ -826,7 +814,6 @@ class DataLoader:
 
         df.attrs["merge_aplicado"] = False
 
-        # Garante que as colunas do GSheets fiquem em UPPERCASE
         if df_gs is not None and not df_gs.empty:
             df_gs = df_gs.copy()
             df_gs.columns = df_gs.columns.astype(str).str.strip().str.upper()
@@ -855,7 +842,6 @@ class DataLoader:
             df = df.merge(df_gs_unico, left_on=col_login, right_on="LOGIN", how="left")
             df.attrs["merge_aplicado"] = True
 
-        # Prioriza colunas vindas do GSheets, caindo de volta para a base ou backup
         if "TÉCNICO_GS" in df.columns:
             df["TÉCNICO"] = df["TÉCNICO_GS"].fillna(s_tec_backup)
         elif "TÉCNICO" in df.columns:
@@ -874,7 +860,6 @@ class DataLoader:
         else:
             df["MONITOR"] = "SEM MONITOR"
 
-        # Padronização e sanitização final de strings
         df["TÉCNICO"] = df["TÉCNICO"].astype(str).str.strip().str.upper()
         df["MONITOR"] = df["MONITOR"].astype(str).str.strip().str.upper()
 
@@ -885,10 +870,8 @@ class DataLoader:
             "SEM MONITOR"
         )
 
-        # Limpeza de colunas auxiliares do merge
         df = df.drop(columns=["TÉCNICO_GS", "MONITOR_GS", "BASE_GS"], errors="ignore")
 
-        # 7. Regiões (TUDO EM UPPERCASE)
         col_cid = Utils.buscar_coluna(df, ["CIDADE", "LOCALIDADE", "MUNICÍPIO", "CITY"])
         col_reg_existente = Utils.buscar_coluna(
             df, ["REGIÃO", "REGIAO", "BASE", "FILIAL"]
@@ -953,7 +936,6 @@ class DataLoader:
         else:
             df["REGIÃO"] = "OUTRAS"
 
-        # 8. Tipo de Serviço
         try:
             res = classificar_tipo_servico(df)
             if isinstance(res, tuple) and len(res) == 2:
@@ -965,7 +947,6 @@ class DataLoader:
             df["TIPO_SERVICO"] = "Outros"
         df["TIPO_SERVICO"] = df["TIPO_SERVICO"].fillna("Outros").astype(str).str.strip()
 
-        # 9. Código de Baixa
         col_cod = Utils.buscar_coluna(
             df, ["CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA"]
         )
@@ -977,7 +958,6 @@ class DataLoader:
         )
         df.attrs["_COL_BAIXA"] = nome_col_baixa
 
-        # 10. GARANTIA DE COLUNAS
         colunas_obrigatorias = {
             "STATUS CONTRATO": "Pendente",
             "REGIÃO": "OUTRAS",
@@ -991,7 +971,6 @@ class DataLoader:
                 df[col] = default
 
         df["Status Contrato"] = df["STATUS CONTRATO"]
-
         return df
 
     @staticmethod
@@ -1003,6 +982,10 @@ class DataLoader:
 
         df_processado = DataLoader.preparar_base(df_raw, df_gs, filename=nome_arquivo)
 
+        # Guarda dados no estado
+        st.session_state["_robo_df_pronto"] = df_processado
+        st.session_state["_robo_nome_arquivo"] = nome_arquivo
+        st.session_state["_robo_dados_disponiveis"] = True
         st.session_state["df_memoria"] = df_processado
         st.session_state["origem_dados"] = f"Robô Local ({nome_arquivo})"
         st.session_state["robo_hora_sucesso"] = datetime.now()
@@ -1164,14 +1147,12 @@ class Motor:
             default="⚪ BAIXA",
         )
 
-        # 1. Renomeamos as colunas do dataframe pivot PRIMEIRO
         rename_map = {"MONITOR": "Monitor", "TÉCNICO": "Técnico"}
         if "TIPO_SERVICO" in pivot.columns:
             rename_map["TIPO_SERVICO"] = "Segmento"
 
         pivot = pivot.rename(columns=rename_map)
 
-        # 2. Agora montamos as colunas finais com os nomes já devidamente traduzidos
         cols_final = [
             "Classificação",
             "Monitor",
@@ -1251,75 +1232,6 @@ class Motor:
         total_row["Quebra Geral"] = (ne_g / (ex_g + ne_g)) if (ex_g + ne_g) > 0 else 0.0
         total_row["Total Tarefas"] = int(df_valid["TOTAL DE TAREFAS"].sum())
         return pd.concat([pivot, pd.DataFrame([total_row])], ignore_index=True)
-
-    @staticmethod
-    def projetar(df: pd.DataFrame, p: float) -> dict[str, float]:
-        if df.empty:
-            return dict(
-                alocado=0,
-                exec=0,
-                naoexec=0,
-                pend=0,
-                quebra_atual=0,
-                fechamento_proj=0,
-                naoexec_proj=0,
-            )
-        aloc = float(df["TOTAL DE TAREFAS"].sum())
-        exe = float(
-            df.loc[df["Status Contrato"] == "Executada", "TOTAL DE TAREFAS"].sum()
-        )
-        nex = float(
-            df.loc[df["Status Contrato"] == "Não Executada", "TOTAL DE TAREFAS"].sum()
-        )
-        pen = max(0.0, aloc - exe - nex)
-        _, qa = Motor.quebra_atual(df)
-        nex_proj = nex + (pen * p)
-        return dict(
-            alocado=aloc,
-            exec=exe,
-            naoexec=nex,
-            pend=pen,
-            quebra_atual=qa,
-            fechamento_proj=(nex_proj / aloc) if aloc > 0 else 0,
-            naoexec_proj=nex_proj,
-        )
-
-    @staticmethod
-    def folga_sla(df: pd.DataFrame, sla: float) -> dict[str, Any]:
-        if df.empty:
-            return dict(
-                alocado=0,
-                exec=0,
-                naoexec=0,
-                pend=0,
-                limite_ne_total=0,
-                folga_ne_pendente=0,
-                folga_pct_pendente=0,
-                precisa_executar_pendente=0,
-                estourado=False,
-            )
-        aloc = float(df["TOTAL DE TAREFAS"].sum())
-        exe = float(
-            df.loc[df["Status Contrato"] == "Executada", "TOTAL DE TAREFAS"].sum()
-        )
-        nex = float(
-            df.loc[df["Status Contrato"] == "Não Executada", "TOTAL DE TAREFAS"].sum()
-        )
-        pen = max(0.0, aloc - exe - nex)
-        limite = sla * aloc
-        folga_tot = limite - nex
-        folga_pen = max(0.0, min(pen, folga_tot))
-        return dict(
-            alocado=aloc,
-            exec=exe,
-            naoexec=nex,
-            pend=pen,
-            limite_ne_total=limite,
-            folga_ne_pendente=folga_pen,
-            folga_pct_pendente=(folga_pen / pen) if pen > 0 else 0,
-            precisa_executar_pendente=max(0.0, pen - folga_pen),
-            estourado=folga_tot < 0,
-        )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1421,8 +1333,126 @@ def render_dataframe_profundo(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# HEROS
+# NOVO COMPONENTE: HEADER & ALERTA DE IMPORTAÇÃO (CONFORME IMAGEM)
 # ═══════════════════════════════════════════════════════════════════════
+def render_bloco_importacao_robo(dados_prontos: bool = False) -> bool:
+    """
+    Renderiza exatamente o layout da imagem:
+    1. Título "Importação de Dados" + Badge "EXCEL, CSV OU AUTO"
+    2. Subtítulo descritivo
+    3. Linha divisória com gradiente
+    4. Caixa de alerta verde: "✅ Dados carregados automaticamente pelo robô!"
+    5. Botão vermelho: "🚀 Processar Dados do Robô"
+    """
+    st.markdown(
+        """
+        <style>
+        .import-header-title {
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            color: #1E293B;
+            letter-spacing: -0.5px;
+            margin: 0;
+            display: inline-block;
+        }
+        .import-header-badge {
+            display: inline-flex;
+            align-items: center;
+            background: #EEF2FF;
+            color: #3B82F6;
+            border: 1.5px solid #93C5FD;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 3px 12px;
+            border-radius: 9999px;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-left: 14px;
+            vertical-align: middle;
+        }
+        .import-header-sub {
+            font-size: 14px;
+            color: #64748B;
+            margin-top: 6px;
+            margin-bottom: 14px;
+            font-weight: 400;
+        }
+        .import-header-line {
+            height: 3px;
+            background: linear-gradient(90deg, #012869 0%, #1E40AF 30%, #F59E0B 65%, #EF4444 100%);
+            border-radius: 2px;
+            margin-bottom: 18px;
+        }
+        .import-alert-green {
+            background-color: #E8F8F0;
+            border: 1px solid #C2F0D9;
+            border-radius: 8px;
+            padding: 14px 20px;
+            color: #107C41;
+            font-size: 14.5px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        /* Estilização do Botão Vermelho de Processamento */
+        div[data-testid="stButton"] > button[kind="primary"] {
+            background: #FF3838 !important;
+            background-color: #FF3838 !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 12px 24px !important;
+            font-size: 14.5px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.3px !important;
+            box-shadow: 0 4px 14px rgba(255, 56, 56, 0.25) !important;
+            transition: all 0.2s ease-in-out !important;
+        }
+        div[data-testid="stButton"] > button[kind="primary"]:hover {
+            background: #E02828 !important;
+            background-color: #E02828 !important;
+            box-shadow: 0 6px 18px rgba(224, 40, 40, 0.35) !important;
+            transform: translateY(-1px);
+        }
+        </style>
+
+        <div style="margin-top: 6px; margin-bottom: 4px;">
+            <span class="import-header-title">Importação de Dados</span>
+            <span class="import-header-badge">EXCEL, CSV OU AUTO</span>
+        </div>
+        <div class="import-header-sub">
+            Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.
+        </div>
+        <div class="import-header-line"></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    clicou_processar = False
+    if dados_prontos:
+        st.markdown(
+            """
+            <div class="import-alert-green">
+                <span style="font-size: 16px;">✅</span>
+                <span>Dados carregados automaticamente pelo robô!</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        clicou_processar = st.button(
+            "🚀 Processar Dados do Robô",
+            type="primary",
+            use_container_width=True,
+            key="btn_processar_robo_central",
+        )
+
+    return clicou_processar
+
+
 def html_resultado_base(regioes: list[str], total: int, origem: str = "") -> str:
     badges = "".join(
         [
@@ -1478,25 +1508,6 @@ def render_hero_topo_fixo(
     )
 
 
-def render_hero_upload() -> None:
-    st.markdown(
-        '<div style="background:linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);'
-        "padding:32px 44px;border-radius:14px;color:white;box-shadow:0 10px 40px rgba(1,40,105,0.25);"
-        'margin-bottom:24px;position:relative;overflow:hidden;border:1px solid rgba(255,255,255,0.10);">'
-        '<div style="position:relative;z-index:2;"><h1 style="margin:0;font-size:34px;font-weight:800;'
-        'color:white!important;letter-spacing:-0.8px;text-shadow:0 2px 4px rgba(0,0,0,0.45);"> '
-        'Gestão de Quebra de Agenda</h1><p style="margin:8px 0 0 0;font-size:15px;opacity:0.95;'
-        'color:#F8FAFC;text-shadow:0 1px 3px rgba(0,0,0,0.40);">🤖 O <b>Robô Auto-Sincronizador</b> está ativo. '
-        "Coloque o arquivo <code>Atividades-*.csv</code> ou <code>.xlsx</code> na pasta monitorada "
-        "— o arquivo será capturado e processado automaticamente em segundo plano.</p>"
-        '<span style="display:inline-block;background:rgba(255,255,255,0.20);padding:5px 16px;'
-        "border-radius:20px;font-size:12px;font-weight:700;margin-top:12px;letter-spacing:0.6px;"
-        'text-transform:uppercase;color:white;border:1px solid rgba(255,255,255,0.30);">'
-        "SISTEMA TOTALE</span></div></div>",
-        unsafe_allow_html=True,
-    )
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # VISUALIZAÇÃO
 # ═══════════════════════════════════════════════════════════════════════
@@ -1509,13 +1520,11 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
 
     df_proc, fmt, color_rules = estilizar_matriz(df_matriz, meta_sla)
 
-    # Destaque visual da linha TOTAL GERAL (sem parâmetro nativo)
     if "Monitor" in df_proc.columns:
         mask_total = (
             df_proc["Monitor"].astype(str).str.strip().str.upper() == "TOTAL GERAL"
         )
         if mask_total.any():
-            # Mantém TOTAL no final e opcionalmente prefixa para leitura
             df_total = df_proc.loc[mask_total].copy()
             df_resto = df_proc.loc[~mask_total].copy()
             df_proc = pd.concat([df_resto, df_total], ignore_index=True)
@@ -1523,7 +1532,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
     render_table_html(
         df_proc,
         fmt=fmt,
-        color_rules=color_rules,  # era condicoes_colunas
+        color_rules=color_rules,
         colunas_num=[
             c
             for c in df_proc.columns
@@ -1591,15 +1600,13 @@ def view_analise_detalhada(
         render_dataframe_profundo(df_fila, "Fila Priorizada", "📋")
 
 
-# ══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # FLUXO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════
 def main() -> None:
-    # ── Injeção de JS/CSS para Ocultar Legendas Indesejadas Instantaneamente ──
     st.markdown(
         """
         <style>
-        /* Oculta mensagens de caption padrão na sidebar */
         div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
             display: none !important;
         }
@@ -1635,7 +1642,7 @@ def main() -> None:
         mostrar_data=True,
     )
 
-    # ─ 2. Configurações de Sistema (Botões) ──────────────────────
+    # ─ 2. Configurações de Sistema ────────────────────────────────────
     with st.sidebar.expander("⚙️ Configurações do Sistema", expanded=False):
         st.markdown("**Gerenciamento de Sessão**")
 
@@ -1672,16 +1679,13 @@ def main() -> None:
 
     st.sidebar.markdown("---")
 
-    # [Legenda da sidebar removida como requisitado]
-
     if ROBO_DISPONIVEL and _impl_robo is not None:
-        # ── Modo NATIVO: usa o robo_local.py com ciclos rápidos de sincronismo (1s) ─────
         try:
             _impl_robo(
                 etl_fn=DataLoader.callback_robo_etl,
                 gsheets_fn=DataLoader.buscar_gsheets,
                 pasta_padrao=st.session_state["robo_pasta_alvo"],
-                ciclos_estabilidade=1,  # Sincronização imediata
+                ciclos_estabilidade=1,
                 mostrar_toggle=True,
                 mostrar_config=True,
             )
@@ -1689,10 +1693,7 @@ def main() -> None:
             st.sidebar.error(f"Robô quebrou ao renderizar: {e}")
             st.sidebar.exception(e)
     else:
-        # ── Modo FALLBACK: import falhou, oferece botão manual ────────
         st.sidebar.error("Robô pacote offline — modo fallback")
-        st.sidebar.code(_ROBO_IMPORT_ERRO or "sem detalhes")
-
         pasta_fb = st.sidebar.text_input(
             "Pasta monitorada (fallback)",
             value=st.session_state.get(
@@ -1737,47 +1738,47 @@ def main() -> None:
                             )
                             st.session_state["origem_dados"] = f"Fallback ({arq.name})"
                             st.session_state["_fb_sig"] = sig
+                            st.session_state["_robo_dados_disponiveis"] = True
                         st.rerun()
                     except Exception as e:
                         st.sidebar.exception(e)
-            else:
-                st.sidebar.warning(f"Nenhum `Atividades-*.csv/xlsx` em `{pasta_fb}`")
 
-    # [Sessão "🐞 Debugger de Estado do Robô" totalmente removida]
-
-    # ─ 4. Área Central: Upload Manual de Contingência ────────────────
-    hero_area = st.container()
+    # ─ 4. Área Central: Bloco Visual de Importação + Alerta + Botão ───
     df_atual: pd.DataFrame | None = st.session_state.get("df_memoria")
-    origem_atual = str(st.session_state.get("origem_dados", ""))
-    robo_carregou = (
-        df_atual is not None
-        and not df_atual.empty
-        and not origem_atual.startswith("Upload")
+    robo_tem_dados = bool(
+        st.session_state.get("_robo_dados_disponiveis", False)
+        or (df_atual is not None and not df_atual.empty)
     )
 
+    # Renderiza o cabeçalho idêntico à imagem enviada
+    clicou_processar = render_bloco_importacao_robo(dados_prontos=robo_tem_dados)
+
+    if clicou_processar:
+        with st.spinner("Processando base detectada..."):
+            st.success("✅ Base processada com sucesso!", icon="🚀")
+            st.rerun()
+
+    # Opção de Upload Manual / Fallback
     uploaded_file = None
-    if not robo_carregou:
-        with hero_area:
-            render_hero_upload()
+    if not robo_tem_dados:
         uploaded_file = st.file_uploader(
             "⬇️ Ou carregue a base manualmente (CSV/XLSX)",
             type=["csv", "xlsx"],
-            help="O Robô monitora a pasta local. Use o upload apenas em contingência.",
+            help="O Robô monitora a pasta local. Use o upload caso o robô esteja desligado.",
         )
     else:
-        with st.sidebar.expander("📂 Substituir base manualmente", expanded=False):
+        with st.expander("📂 Substituir base com arquivo manual", expanded=False):
             uploaded_file = st.file_uploader(
-                "Base (CSV/XLSX)",
+                "Upload Manual (CSV/XLSX)",
                 type=["csv", "xlsx"],
-                key="upload_contingencia",
-                label_visibility="collapsed",
+                key="upload_contingencia_manual",
             )
 
-    # ─ 5. Processamento de Upload Manual ─────────────────────────────
+    # ─ 5. Processamento do Upload Manual ─────────────────────────────
     if uploaded_file is not None:
         file_id = (uploaded_file.name, uploaded_file.size)
         if st.session_state.get("arquivo_processado") != file_id:
-            with st.spinner("️ Processando upload manual..."):
+            with st.spinner("Processando upload manual..."):
                 try:
                     file_bytes = uploaded_file.getvalue()
                     raw_df = DataLoader.ler_arquivo(file_bytes, uploaded_file.name)
@@ -1787,6 +1788,7 @@ def main() -> None:
                     )
                     st.session_state["arquivo_processado"] = file_id
                     st.session_state["origem_dados"] = f"Upload ({uploaded_file.name})"
+                    st.session_state["_robo_dados_disponiveis"] = True
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Erro ao processar o arquivo: {e}")
@@ -1794,18 +1796,16 @@ def main() -> None:
 
     df: pd.DataFrame | None = st.session_state.get("df_memoria")
 
-    # ─ 6. Estado Vazio ───────────────────────────────────────────────
     if df is None or df.empty:
         return
 
-    # ─ 7. Sidebar: Filtros ──────────────────────────────────────────
+    # ─ 6. Sidebar: Filtros Operacionais ──────────────────────────────
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         "<div style='font-size:12px; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:0.8px;'>🎯 Filtros Operacionais</div>",
         unsafe_allow_html=True,
     )
 
-    # Filtro de Região oculto — todos os dados são exibidos
     df_filtrado = df.copy()
 
     p_ot = st.sidebar.slider("Probabilidade Otimista (%)", 0, 100, 15, step=5) / 100.0
@@ -1817,7 +1817,7 @@ def main() -> None:
         st.sidebar.number_input("Mínimo de Alocações", value=5, min_value=1)
     )
 
-    # ─ 8. Hero Principal ─────────────────────────────────────────────
+    # ─ 7. Hero Principal com KPIs e Base Ativa ───────────────────────
     regioes_sel = (
         sorted(df_filtrado["REGIÃO"].dropna().unique().tolist())
         if "REGIÃO" in df_filtrado.columns
@@ -1835,7 +1835,7 @@ def main() -> None:
         origem=origem_base,
     )
 
-    # ─ 9. Navegação por Abas ─────────────────────────────────────────
+    # ─ 8. Navegação por Abas ─────────────────────────────────────────
     aba = st.radio(
         "Navegação",
         ["Resumo Executivo", "Análise Detalhada", "Auditoria"],
