@@ -1,19 +1,23 @@
 """
 quebra_unificada.py
 ===================
-Análise de Quebra por Segmento (Novos Domicílios / Migração / PME)
+Análise de Quebra por Segmento (Novos Domicílios / Migração / PME + Comparativo)
 Inclui aba dedicada para contratos com MOTIVO DE BAIXA = SEM REGISTRO.
-- Layout vertical: Tabela 100% largura e Gráficos de Pareto expandidos.
-- Tipografia e fontes aumentadas para alta visibilidade.
 
-Version: 2.0.2
+Version: 2.2.2
 Author: TOTALE Tecnologia
 """
 
 from __future__ import annotations
 
+import hashlib
 import sys
+import unicodedata
+from datetime import datetime
+from html import escape
+from io import BytesIO
 from pathlib import Path
+from typing import Any, cast, Dict
 
 # ── Bootstrap sys.path ───────────────────────────────────────────────
 _DIR = Path(__file__).resolve().parent
@@ -22,63 +26,149 @@ for _p in (_DIR, _ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from datetime import datetime
-from html import escape
-from io import BytesIO
-from typing import Any, cast
-
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import (
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-# ─ Imports do Design System ──────────────────────────────────────────
 from components.componentes import (
     TemaKPIType,
     TipoInsightType,
     render_hero_migracao,
-    render_hero_pme,
     render_hero_novos_domicilios,
+    render_hero_pme,
     render_insight,
     render_kpi,
     render_kpi_sm,
     render_section_header,
     render_table_html,
-)
-from components.componentes import (
     aplicar_estilo as _aplicar_estilo_global,
 )
+from components.criterios import classificar_tipo_servico, render_debug_criterios
+from pages.quebra_geral import Config, Motor, Utils
 
-# ── Import do módulo principal ───────────────────────────────────────
-from components.criterios import (
-    classificar_tipo_servico,
-    render_debug_criterios,
-)
-from pages.quebra_geral import (
-    Config,
-    Motor,
-    Utils,
-)
+# ── Correções Avançadas Pylance (Type Safety) ────────────────────────
+_COL_REGIAO: str = str(getattr(Config, "COL_REGIAO", "REGIÃO"))
 
-# =====================================================================
-# CONFIGURAÇÃO DA PÁGINA
-# =====================================================================
+
+def _obter_folga_sla(df: pd.DataFrame, sla_meta: float) -> dict[str, Any]:
+    """Wrapper seguro com tipagem explícita para evitar o erro do Pylance sobre Motor.folga_sla"""
+    if hasattr(Motor, "folga_sla"):
+        return getattr(Motor, "folga_sla")(df, sla_meta)
+
+    # Lógica de fallback para evitar quebra no runtime
+    if df.empty or "Status Contrato" not in df.columns:
+        return {
+            "estourado": False,
+            "folga_ne_pendente": 0.0,
+            "precisa_executar_pendente": 0.0,
+            "limite_ne_total": 0.0,
+            "naoexec": 0.0,
+            "alocado": 0.0,
+        }
+
+    df_ne = df[
+        df["Status Contrato"]
+        .astype(str)
+        .str.upper()
+        .isin(["NÃO EXECUTADA", "NAO EXECUTADA"])
+    ]
+    df_pend = df[
+        df["Status Contrato"]
+        .astype(str)
+        .str.upper()
+        .isin(["PENDENTE", "EM ABERTO", "ABERTO", "EM ROTA"])
+    ]
+
+    if "TOTAL DE TAREFAS" in df.columns:
+        naoexec = float(
+            pd.to_numeric(df_ne["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+        pend = float(
+            pd.to_numeric(df_pend["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+        alocado = float(
+            pd.to_numeric(df["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+    else:
+        naoexec, pend, alocado = float(len(df_ne)), float(len(df_pend)), float(len(df))
+
+    limite = alocado * sla_meta
+    folga = limite - naoexec
+    return {
+        "estourado": folga < 0,
+        "folga_ne_pendente": folga,
+        "precisa_executar_pendente": max(0.0, pend - folga),
+        "limite_ne_total": limite,
+        "naoexec": naoexec,
+        "alocado": alocado,
+    }
+
+
+def _obter_resumo_segmento(df: pd.DataFrame, probabilidade: float) -> dict[str, Any]:
+    """Calcula as volumetrias e projeções e devolve em formato Dicionário (Tipado)."""
+    if df.empty or "Status Contrato" not in df.columns:
+        return {
+            "alocado": 0,
+            "exec": 0,
+            "naoexec": 0,
+            "pend": 0,
+            "quebra_atual": 0.0,
+            "fechamento_proj": 0.0,
+            "naoexec_proj": 0,
+        }
+
+    s_status = df["Status Contrato"].astype(str).str.upper()
+
+    if "TOTAL DE TAREFAS" in df.columns:
+        df_exec = df[s_status == "EXECUTADA"]
+        df_ne = df[s_status.isin(["NÃO EXECUTADA", "NAO EXECUTADA"])]
+        df_pend = df[s_status.isin(["PENDENTE", "EM ABERTO", "ABERTO", "EM ROTA"])]
+
+        executadas = int(
+            pd.to_numeric(df_exec["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+        nao_exec = int(
+            pd.to_numeric(df_ne["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+        pendentes = int(
+            pd.to_numeric(df_pend["TOTAL DE TAREFAS"], errors="coerce").fillna(1).sum()
+        )
+    else:
+        executadas = int((s_status == "EXECUTADA").sum())
+        nao_exec = int(s_status.isin(["NÃO EXECUTADA", "NAO EXECUTADA"]).sum())
+        pendentes = int(
+            s_status.isin(["PENDENTE", "EM ABERTO", "ABERTO", "EM ROTA"]).sum()
+        )
+
+    considerado = executadas + nao_exec
+    alocado = considerado + pendentes
+
+    quebra_atual = (nao_exec / considerado) if considerado > 0 else 0.0
+    naoexec_proj = nao_exec + (pendentes * (1.0 - probabilidade))
+    fechamento_proj = (naoexec_proj / alocado) if alocado > 0 else 0.0
+
+    return {
+        "alocado": alocado,
+        "exec": executadas,
+        "naoexec": nao_exec,
+        "pend": pendentes,
+        "quebra_atual": quebra_atual,
+        "fechamento_proj": fechamento_proj,
+        "naoexec_proj": int(naoexec_proj),
+    }
+
+
+# ── Streamlit Config ─────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Análise de Quebra | TOTALE",
-    page_icon="📉",
-    layout="wide",
+    page_title="Análise de Quebra | TOTALE", page_icon="📉", layout="wide"
 )
 _aplicar_estilo_global()
 
@@ -87,51 +177,191 @@ if "df_memoria" not in st.session_state:
 
 
 # =====================================================================
-# SLA POR SEGMENTO
+# CONSTANTES E PARÂMETROS OPERACIONAIS
 # =====================================================================
 SLA_NOVOS_DOMICILIOS_DEFAULT: float = 0.20
 SLA_MIGRACAO_DEFAULT: float = 0.25
 SLA_PME_DEFAULT: float = 0.20
 
+CANDIDATOS_COL_BAIXA: list[str] = [
+    "_COL_BAIXA",
+    "MOTIVO DE BAIXA",
+    "CÓD DE BAIXA 1",
+    "COD DE BAIXA 1",
+    "MOTIVO BAIXA",
+]
+CANDIDATOS_DATA: list[str] = [
+    "DATA",
+    "DATA OS",
+    "DATA DA OS",
+    "DATA BAIXA",
+    "DATA EXECUÇÃO",
+    "DATA EXECUCAO",
+    "DATA AGENDAMENTO",
+    "DATA_AGENDAMENTO",
+]
+STATUS_PENDENTE: set[str] = {"PENDENTE", "PENDING", "ABERTO", "EM ABERTO"}
+COLS_TECNICOS_PDF: list[str] = [
+    "TÉCNICO",
+    "Alocado",
+    "Executada",
+    "Não Executada",
+    "Pendente",
+    "Quebra Atual",
+    "Fechamento Otimista",
+    "Fechamento Base",
+    "Fechamento Pessimista",
+]
 
+
+# =====================================================================
+# HELPERS DE TRATAMENTO DE DADOS
+# =====================================================================
 def _fmt_int(v: Any) -> str:
-    """Formata número inteiro no padrão brasileiro (1.234)."""
     try:
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return "0"
         return f"{int(float(v)):,}".replace(",", ".")
-    except (TypeError, ValueError):
+    except Exception:
         return "0"
 
 
+def _norm_txt(s: Any) -> str:
+    return (
+        unicodedata.normalize("NFKD", str(s))
+        .encode("ascii", errors="ignore")
+        .decode("ascii")
+        .upper()
+        .strip()
+        .replace("_", " ")
+        .replace(".", "")
+    )
+
+
+def _resolver_col_baixa(df: pd.DataFrame) -> str | None:
+    if df is None or df.empty:
+        return None
+    col_attr = df.attrs.get("_COL_BAIXA") if hasattr(df, "attrs") else None
+    if col_attr and col_attr in df.columns:
+        return str(col_attr)
+    for c in CANDIDATOS_COL_BAIXA:
+        if c in df.columns:
+            return c
+    cols_norm = {_norm_txt(c): c for c in df.columns}
+    for c in CANDIDATOS_COL_BAIXA:
+        if _norm_txt(c) in cols_norm:
+            return cols_norm[_norm_txt(c)]
+    return None
+
+
+def _resolver_col_data(df: pd.DataFrame) -> str | None:
+    if df is None or df.empty:
+        return None
+    cols_norm = {_norm_txt(c): c for c in df.columns}
+    for cand in CANDIDATOS_DATA:
+        if _norm_txt(cand) in cols_norm:
+            return cols_norm[_norm_txt(cand)]
+    return None
+
+
+def _slug(s: str) -> str:
+    return s.lower().replace(" ", "_")
+
+
+def _hash_df(df: pd.DataFrame) -> str:
+    try:
+        b = pd.util.hash_pandas_object(df, index=True).to_numpy().tobytes()
+        return hashlib.md5(b).hexdigest()[:10]
+    except Exception:
+        return str(len(df))
+
+
+def _causa_raiz_segmento(
+    df: pd.DataFrame, segmento: str, top_n: int = 8
+) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if segmento and segmento != "Todos os Segmentos" and "TIPO_SERVICO" in df.columns:
+        df_seg = df[df["TIPO_SERVICO"] == segmento].copy()
+    else:
+        df_seg = df.copy()
+    if df_seg.empty:
+        return pd.DataFrame()
+    df_seg.attrs = dict(getattr(df, "attrs", {}))
+    col_baixa = _resolver_col_baixa(df_seg)
+    if not col_baixa:
+        return pd.DataFrame()
+    try:
+        return Motor.causa_raiz(df_seg, col_baixa, top_n=top_n)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _preparar_base(df: pd.DataFrame) -> pd.DataFrame:
+    if "Status Contrato" not in df.columns:
+        df["Status Contrato"] = Utils.classificar_status_excel(df)
+    if "TIPO_SERVICO" not in df.columns:
+        res = classificar_tipo_servico(df)
+        if isinstance(res, tuple):
+            df_res, serie = res
+            df = df_res if isinstance(df_res, pd.DataFrame) else df
+            df["TIPO_SERVICO"] = serie
+        elif isinstance(res, pd.DataFrame):
+            df = res
+        else:
+            df["TIPO_SERVICO"] = res
+    return df
+
+
+def _opcoes_filtro(df: pd.DataFrame, col: str, excluir: set[str]) -> list[str]:
+    if col not in df.columns:
+        return ["Todos"]
+    return ["Todos"] + sorted(
+        str(x) for x in df[col].dropna().unique() if str(x).strip() not in excluir
+    )
+
+
 # =====================================================================
-# PDF EXECUTIVO — BASE COMPARTILHADA
+# PDF REPORTLAB ENGINE
 # =====================================================================
 class _PDFExecutivoBase:
-    """Classe base compartilhada para PDFs Executivos."""
-
-    COR_PRIMARIA: str = "#0C4A6E"
-    COR_SECUNDARIA: str = "#0369A1"
-    COR_TEXTO: str = "#0F172A"
-    COR_SUBTEXTO: str = "#6B7280"
-    COR_OK: str = "#059669"
-    COR_ALERTA: str = "#D97706"
-    COR_CRITICO: str = "#DC2626"
-    COR_LINHA: str = "#E5E7EB"
-    COR_LINHA_ALT: str = "#F0F9FF"
-    LARGURA_UTIL: float = 27.7
-    MARGEM_H: float = 0.8
-    MARGEM_TOP: float = 0.8
-    MARGEM_BOT: float = 1.3
-    NOME_SEGMENTO: str = ""
+    COR_PRIMARIA = "#0C4A6E"
+    COR_SECUNDARIA = "#0369A1"
+    COR_TEXTO = "#0F172A"
+    COR_SUBTEXTO = "#6B7280"
+    COR_SUBTITULO = "#BAE6FD"
+    COR_OK = "#059669"
+    COR_ALERTA = "#D97706"
+    COR_CRITICO = "#DC2626"
+    COR_LINHA = "#E5E7EB"
+    COR_LINHA_ALT = "#F0F9FF"
+    LARGURA_UTIL = 27.7
+    MARGEM_H = 0.8
+    MARGEM_TOP = 0.8
+    MARGEM_BOT = 1.3
+    NOME_SEGMENTO = ""
+    DESCRICAO = ""
+    LIMITE_TECNICOS = 15
+    LARGURAS_CENARIOS = None
+    LARGURAS_CAUSAS = None
 
     @classmethod
-    def _fmt(cls, v: Any, col: str = "") -> str:
-        if pd.isna(v):
+    def _fmt(cls, v, col=""):
+        if v is None or (not isinstance(v, str) and pd.isna(v)):
             return "—"
         col_u = str(col).upper()
-        pct_keys = {"QUEBRA", "FECHAMENTO", "META", "PROBAB", "%", "ACUMULADO"}
+        pct_keys = {
+            "QUEBRA",
+            "FECHAMENTO",
+            "META",
+            "PROBAB",
+            "%",
+            "ACUMULADO",
+            "VS META",
+        }
         if isinstance(v, (float, np.floating)):
             if any(k in col_u for k in pct_keys):
-                return f"{v:.2%}"
+                return f"{v:.2%}".replace(".", ",")
             if float(v).is_integer():
                 return f"{int(v):,}".replace(",", ".")
             return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -140,32 +370,98 @@ class _PDFExecutivoBase:
         return escape(str(v))
 
     @classmethod
-    def _calcular_larguras(cls, df: pd.DataFrame) -> list[float]:
+    def _calcular_larguras(cls, df):
         if df.empty:
             return [cls.LARGURA_UTIL]
-        pesos: list[float] = []
+        pesos = []
         for col in df.columns:
             max_len = len(str(col))
             for val in df[col].head(50):
                 max_len = max(max_len, len(cls._fmt(val, col)))
             pesos.append(min(max(max_len, 5), 30))
-        total = sum(pesos)
+        total = sum(pesos) or 1
         return [(p / total) * cls.LARGURA_UTIL for p in pesos]
 
     @classmethod
-    def _tab(
-        cls,
-        df: pd.DataFrame,
-        limite: int | None = None,
-        larguras: list[float] | None = None,
-        cor_col_quebra: str | None = None,
-        sla_meta: float = 0.25,
-    ) -> Table:
-        def _interna() -> Table:
+    def _estilos(cls):
+        s = getSampleStyleSheet()
+        s.add(
+            ParagraphStyle(
+                name="X_Titulo",
+                parent=s["Normal"],
+                fontName="Helvetica-Bold",
+                fontSize=20,
+                leading=24,
+                textColor=colors.white,
+                alignment=TA_CENTER,
+                spaceAfter=2,
+            )
+        )
+        s.add(
+            ParagraphStyle(
+                name="X_Subtitulo",
+                parent=s["Normal"],
+                fontName="Helvetica",
+                fontSize=9,
+                leading=13,
+                textColor=colors.HexColor(cls.COR_SUBTITULO),
+                alignment=TA_CENTER,
+            )
+        )
+        s.add(
+            ParagraphStyle(
+                name="X_Secao",
+                parent=s["Normal"],
+                fontName="Helvetica-Bold",
+                fontSize=11,
+                leading=15,
+                textColor=colors.HexColor(cls.COR_PRIMARIA),
+                spaceBefore=8,
+                spaceAfter=4,
+                alignment=TA_LEFT,
+            )
+        )
+        return s
+
+    @classmethod
+    def _cabecalho(cls, s):
+        titulo = f"RELATÓRIO EXECUTIVO — {cls.NOME_SEGMENTO.upper()}"
+        sub = f"{escape(cls.DESCRICAO)} • Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
+        t = Table(
+            [
+                [Paragraph(escape(titulo), s["X_Titulo"])],
+                [Paragraph(sub, s["X_Subtitulo"])],
+            ],
+            colWidths=[cls.LARGURA_UTIL * cm],
+        )
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(cls.COR_PRIMARIA)),
+                    (
+                        "LINEBELOW",
+                        (0, -1),
+                        (-1, -1),
+                        2,
+                        colors.HexColor(cls.COR_SECUNDARIA),
+                    ),
+                    ("TOPPADDING", (0, 0), (-1, 0), 14),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+                    ("TOPPADDING", (0, 1), (-1, 1), 2),
+                    ("BOTTOMPADDING", (0, 1), (-1, 1), 14),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ]
+            )
+        )
+        return t
+
+    @classmethod
+    def _tab(cls, df, limite=None, larguras=None, cor_col_quebra=None, sla_meta=0.25):
+        def _interna():
             if df is None or df.empty:
                 t = Table(
-                    [["Sem dados disponíveis"]],
-                    colWidths=[cls.LARGURA_UTIL * cm],
+                    [["Sem dados disponíveis"]], colWidths=[cls.LARGURA_UTIL * cm]
                 )
                 t.setStyle(
                     TableStyle(
@@ -198,7 +494,6 @@ class _PDFExecutivoBase:
                     )
                 )
                 return t
-
             base = df.head(limite) if limite else df.copy()
             st_h = ParagraphStyle(
                 "h",
@@ -224,8 +519,7 @@ class _PDFExecutivoBase:
                 textColor=colors.HexColor(cls.COR_TEXTO),
                 alignment=TA_LEFT,
             )
-
-            dados = [[Paragraph(str(c), st_h) for c in base.columns]]
+            dados = [[Paragraph(escape(str(c)), st_h) for c in base.columns]]
             for _, row in base.iterrows():
                 dados.append(
                     [
@@ -233,15 +527,20 @@ class _PDFExecutivoBase:
                         for i, c in enumerate(base.columns)
                     ]
                 )
-
             col_widths = (
                 [w * cm for w in larguras]
-                if larguras
+                if larguras and len(larguras) == len(base.columns)
                 else [w * cm for w in cls._calcular_larguras(base)]
             )
             if sum(col_widths) > cls.LARGURA_UTIL * cm:
                 fator = (cls.LARGURA_UTIL * cm) / sum(col_widths)
                 col_widths = [w * fator for w in col_widths]
+
+            # Garantia contra valores nulos de dimensionamento
+            if not col_widths or sum(col_widths) == 0:
+                col_widths = [cls.LARGURA_UTIL * cm / max(1, len(base.columns))] * len(
+                    base.columns
+                )
 
             tab = Table(dados, colWidths=col_widths, repeatRows=1)
             style = [
@@ -281,39 +580,37 @@ class _PDFExecutivoBase:
                         ),
                     )
                 )
-
             if cor_col_quebra and cor_col_quebra in base.columns:
                 col_idx = list(base.columns).index(cor_col_quebra)
                 for row_i, (_, row) in enumerate(base.iterrows(), start=1):
                     try:
                         val = float(row[cor_col_quebra])
-                        if val > sla_meta:
-                            bg_c, tx_c = (
-                                colors.HexColor("#FEE2E2"),
-                                colors.HexColor(cls.COR_CRITICO),
-                            )
-                        elif val > sla_meta * 0.85:
-                            bg_c, tx_c = (
-                                colors.HexColor("#FEF9C3"),
-                                colors.HexColor(cls.COR_ALERTA),
-                            )
-                        else:
-                            bg_c, tx_c = (
-                                colors.HexColor("#DCFCE7"),
-                                colors.HexColor(cls.COR_OK),
-                            )
-                        style += [
-                            ("BACKGROUND", (col_idx, row_i), (col_idx, row_i), bg_c),
-                            ("TEXTCOLOR", (col_idx, row_i), (col_idx, row_i), tx_c),
-                            (
-                                "FONTNAME",
-                                (col_idx, row_i),
-                                (col_idx, row_i),
-                                "Helvetica-Bold",
-                            ),
-                        ]
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception:
+                        continue
+                    if np.isnan(val):
+                        continue
+                    if val > sla_meta:
+                        bg_c, tx_c = colors.HexColor("#FEE2E2"), colors.HexColor(
+                            cls.COR_CRITICO
+                        )
+                    elif val > sla_meta * 0.85:
+                        bg_c, tx_c = colors.HexColor("#FEF9C3"), colors.HexColor(
+                            cls.COR_ALERTA
+                        )
+                    else:
+                        bg_c, tx_c = colors.HexColor("#DCFCE7"), colors.HexColor(
+                            cls.COR_OK
+                        )
+                    style += [
+                        ("BACKGROUND", (col_idx, row_i), (col_idx, row_i), bg_c),
+                        ("TEXTCOLOR", (col_idx, row_i), (col_idx, row_i), tx_c),
+                        (
+                            "FONTNAME",
+                            (col_idx, row_i),
+                            (col_idx, row_i),
+                            "Helvetica-Bold",
+                        ),
+                    ]
             tab.setStyle(TableStyle(style))
             return tab
 
@@ -335,7 +632,7 @@ class _PDFExecutivoBase:
         return wrapper
 
     @classmethod
-    def _rodape(cls, canvas: Any, doc: Any) -> None:
+    def _rodape(cls, canvas, doc):
         canvas.saveState()
         page_w, _ = landscape(A4)
         canvas.setStrokeColor(colors.HexColor(cls.COR_LINHA))
@@ -346,232 +643,126 @@ class _PDFExecutivoBase:
         canvas.drawString(
             cls.MARGEM_H * cm,
             0.52 * cm,
-            f"{cls.NOME_SEGMENTO} — Gestão de Quebra de Agenda  |  "
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}  |  Confidencial",
+            f"{cls.NOME_SEGMENTO} — Gestão de Quebra | {datetime.now().strftime('%d/%m/%Y %H:%M')} | Confidencial",
         )
         canvas.drawRightString(
-            page_w - cls.MARGEM_H * cm,
-            0.52 * cm,
-            f"Página {doc.page}",
+            page_w - cls.MARGEM_H * cm, 0.52 * cm, f"Página {doc.page}"
         )
         canvas.restoreState()
 
+    @classmethod
+    def gerar(cls, df, sla_meta, p_ot, p_base, p_pess, min_aloc=1.0, top_n=10):
+        buf = BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=landscape(A4),
+            rightMargin=cls.MARGEM_H * cm,
+            leftMargin=cls.MARGEM_H * cm,
+            topMargin=cls.MARGEM_TOP * cm,
+            bottomMargin=cls.MARGEM_BOT * cm,
+            title=f"Relatório Executivo — {cls.NOME_SEGMENTO}",
+            author="TOTALE",
+        )
+        s = cls._estilos()
+        el = []
+        el.append(cls._cabecalho(s))
+        el.append(Spacer(1, 0.8 * cm))
+        el.append(Paragraph("1 ─ Cenários de Fechamento", s["X_Secao"]))
+        cenarios = []
+        for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
+            proj = _obter_resumo_segmento(df, p)
+            cenarios.append(
+                {
+                    "Cenário": nome,
+                    "Probab. Pendente": p,
+                    "Fechamento Proj.": proj["fechamento_proj"],
+                    "Não Exec. Proj.": proj["naoexec_proj"],
+                    "vs Meta": proj["fechamento_proj"] - sla_meta,
+                }
+            )
+        el.append(
+            cls._tab(
+                pd.DataFrame(cenarios),
+                larguras=cls.LARGURAS_CENARIOS,
+                cor_col_quebra="Fechamento Proj.",
+                sla_meta=sla_meta,
+            )
+        )
+        el.append(Spacer(1, 0.5 * cm))
+        el.append(Paragraph("2 ─ Técnicos Críticos", s["X_Secao"]))
+        df_tec = Motor.tecnicos_criticos(
+            df,
+            cls.NOME_SEGMENTO,
+            p_base,
+            float(min_aloc),
+            int(top_n),
+            p_ot=p_ot,
+            p_pess=p_pess,
+        )
+        cols_tec = [c for c in COLS_TECNICOS_PDF if c in df_tec.columns]
+        el.append(
+            cls._tab(
+                df_tec[cols_tec] if not df_tec.empty else df_tec,
+                limite=cls.LIMITE_TECNICOS,
+                cor_col_quebra="Fechamento Base",
+                sla_meta=sla_meta,
+            )
+        )
+        el.append(Spacer(1, 0.5 * cm))
+        el.append(Paragraph("3 ─ Principais Causas de Quebra (Pareto)", s["X_Secao"]))
+        el.append(
+            cls._tab(
+                _causa_raiz_segmento(df, cls.NOME_SEGMENTO, top_n=8),
+                limite=8,
+                larguras=cls.LARGURAS_CAUSAS,
+            )
+        )
+        doc.build(el, onFirstPage=cls._rodape, onLaterPages=cls._rodape)
+        buf.seek(0)
+        return buf.getvalue()
 
-# =====================================================================
-# PDF EXECUTIVO NOVOS DOMICÍLIOS
-# =====================================================================
+
 class PDFExecutivoNovosDomicilios(_PDFExecutivoBase):
-    COR_PRIMARIA: str = "#0A2F6B"
-    COR_SECUNDARIA: str = "#1D4ED8"
-    COR_TEXTO: str = "#0F172A"
-    COR_LINHA_ALT: str = "#EFF6FF"
-    NOME_SEGMENTO: str = "Novos Domicílios"
-
-    @classmethod
-    def _estilos(cls) -> Any:
-        s = getSampleStyleSheet()
-        estilos: list[tuple[str, dict[str, Any]]] = [
-            (
-                "ND_Titulo",
-                dict(
-                    fontName="Helvetica-Bold",
-                    fontSize=22,
-                    leading=28,
-                    textColor=colors.white,
-                    alignment=TA_CENTER,
-                    spaceAfter=2,
-                ),
-            ),
-            (
-                "ND_Subtitulo",
-                dict(
-                    fontName="Helvetica",
-                    fontSize=9,
-                    leading=13,
-                    textColor=colors.HexColor("#BFDBFE"),
-                    alignment=TA_CENTER,
-                    spaceAfter=0,
-                ),
-            ),
-            (
-                "ND_Secao",
-                dict(
-                    fontName="Helvetica-Bold",
-                    fontSize=11,
-                    leading=15,
-                    textColor=colors.HexColor(cls.COR_PRIMARIA),
-                    spaceBefore=8,
-                    spaceAfter=4,
-                    alignment=TA_LEFT,
-                ),
-            ),
-        ]
-        for nome, props in estilos:
-            s.add(ParagraphStyle(name=nome, parent=s["Normal"], **props))
-        return s
-
-    @classmethod
-    def gerar(
-        cls,
-        df: pd.DataFrame,
-        sla_meta: float,
-        p_ot: float,
-        p_base: float,
-        p_pess: float,
-        min_aloc: float = 1.0,
-        top_n: int = 10,
-    ) -> bytes:
-        buf = BytesIO()
-        doc = SimpleDocTemplate(
-            buf,
-            pagesize=landscape(A4),
-            rightMargin=cls.MARGEM_H * cm,
-            leftMargin=cls.MARGEM_H * cm,
-            topMargin=cls.MARGEM_TOP * cm,
-            bottomMargin=cls.MARGEM_BOT * cm,
-        )
-        s, el = cls._estilos(), []
-
-        el.append(Paragraph("RELATÓRIO EXECUTIVO — NOVOS DOMICÍLIOS", s["ND_Titulo"]))
-        el.append(
-            Paragraph(
-                f"Adesão e Novas Instalações • "
-                f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
-                s["ND_Subtitulo"],
-            )
-        )
-        el.append(Spacer(1, 1 * cm))
-
-        el.append(Paragraph("1 ─ Cenários de Fechamento", s["ND_Secao"]))
-        cenarios = []
-        for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
-            proj = Motor.projetar(df, p)
-            cenarios.append(
-                {
-                    "Cenário": nome,
-                    "Probab. Pendente": p,
-                    "Fechamento Proj.": proj["fechamento_proj"],
-                    "Não Exec. Proj.": proj["naoexec_proj"],
-                    "vs Meta": proj["fechamento_proj"] - sla_meta,
-                }
-            )
-        el.append(
-            cls._tab(
-                pd.DataFrame(cenarios),
-                cor_col_quebra="Fechamento Proj.",
-                sla_meta=sla_meta,
-            )
-        )
-        el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("2 ─ Técnicos Críticos", s["ND_Secao"]))
-        df_tec = Motor.tecnicos_criticos(
-            df,
-            "Novos Domicílios",
-            p_base,
-            float(min_aloc),
-            int(top_n),
-            p_ot=p_ot,
-            p_pess=p_pess,
-        )
-        cols_tec = [
-            c
-            for c in [
-                "TÉCNICO",
-                "Alocado",
-                "Executada",
-                "Não Executada",
-                "Pendente",
-                "Quebra Atual",
-                "Fechamento Otimista",
-                "Fechamento Base",
-                "Fechamento Pessimista",
-            ]
-            if c in df_tec.columns
-        ]
-        el.append(
-            cls._tab(
-                df_tec[cols_tec] if not df_tec.empty else df_tec,
-                limite=15,
-                cor_col_quebra="Fechamento Base",
-                sla_meta=sla_meta,
-            )
-        )
-        el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("3 ─ Principais Causas de Quebra", s["ND_Secao"]))
-        df_causa = _causa_raiz_segmento(df, "Novos Domicílios", top_n=8)
-        el.append(cls._tab(df_causa, limite=8))
-
-        doc.build(el, onFirstPage=cls._rodape, onLaterPages=cls._rodape)
-        buf.seek(0)
-        return buf.getvalue()
+    COR_PRIMARIA = "#0A2F6B"
+    COR_SECUNDARIA = "#1D4ED8"
+    COR_LINHA_ALT = "#EFF6FF"
+    COR_SUBTITULO = "#BFDBFE"
+    NOME_SEGMENTO = "Novos Domicílios"
+    DESCRICAO = "Adesão e Novas Instalações"
 
 
-# =====================================================================
-# PDF EXECUTIVO MIGRAÇÃO
-# =====================================================================
 class PDFExecutivoMigracao(_PDFExecutivoBase):
-    COR_PRIMARIA: str = "#0C4A6E"
-    COR_SECUNDARIA: str = "#0369A1"
-    COR_TEXTO: str = "#0F172A"
-    COR_LINHA_ALT: str = "#F0F9FF"
-    NOME_SEGMENTO: str = "Migração"
+    COR_PRIMARIA = "#0C4A6E"
+    COR_SECUNDARIA = "#0369A1"
+    COR_LINHA_ALT = "#F0F9FF"
+    COR_SUBTITULO = "#BAE6FD"
+    NOME_SEGMENTO = "Migração"
+    DESCRICAO = "Mudança de Pacote + FLAG_GPON = Sim"
+
+
+class PDFExecutivoPME(_PDFExecutivoBase):
+    COR_PRIMARIA = "#4C1D95"
+    COR_SECUNDARIA = "#7C3AED"
+    COR_TEXTO = "#1E1B4B"
+    COR_LINHA_ALT = "#F9FAFB"
+    COR_SUBTITULO = "#DDD6FE"
+    NOME_SEGMENTO = "PME"
+    DESCRICAO = "Pequenas e Médias Empresas"
+    LIMITE_TECNICOS = 10
+    LARGURAS_CENARIOS = [4.5, 4.5, 5.5, 5.5, 5.0]
+    LARGURAS_CAUSAS = [9.0, 4.5, 4.5, 4.5]
+
+
+class PDFExecutivoComparativo(_PDFExecutivoBase):
+    COR_PRIMARIA = "#0F172A"
+    COR_SECUNDARIA = "#334155"
+    COR_SUBTITULO = "#CBD5E1"
+    COR_LINHA_ALT = "#F8FAFC"
+    NOME_SEGMENTO = "Comparativo Geral"
+    DESCRICAO = "Consolidado — Novos Domicílios + Migração + PME"
 
     @classmethod
-    def _estilos(cls) -> Any:
-        s = getSampleStyleSheet()
-        estilos: list[tuple[str, dict[str, Any]]] = [
-            (
-                "MIG_Titulo",
-                dict(
-                    fontName="Helvetica-Bold",
-                    fontSize=22,
-                    leading=28,
-                    textColor=colors.white,
-                    alignment=TA_CENTER,
-                    spaceAfter=2,
-                ),
-            ),
-            (
-                "MIG_Subtitulo",
-                dict(
-                    fontName="Helvetica",
-                    fontSize=9,
-                    leading=13,
-                    textColor=colors.HexColor("#BAE6FD"),
-                    alignment=TA_CENTER,
-                    spaceAfter=0,
-                ),
-            ),
-            (
-                "MIG_Secao",
-                dict(
-                    fontName="Helvetica-Bold",
-                    fontSize=11,
-                    leading=15,
-                    textColor=colors.HexColor(cls.COR_PRIMARIA),
-                    spaceBefore=8,
-                    spaceAfter=4,
-                    alignment=TA_LEFT,
-                ),
-            ),
-        ]
-        for nome, props in estilos:
-            s.add(ParagraphStyle(name=nome, parent=s["Normal"], **props))
-        return s
-
-    @classmethod
-    def gerar(
-        cls,
-        df: pd.DataFrame,
-        sla_meta: float,
-        p_ot: float,
-        p_base: float,
-        p_pess: float,
-        min_aloc: float = 1.0,
-        top_n: int = 10,
-    ) -> bytes:
+    def gerar(cls, df, sla_meta, p_ot, p_base, p_pess, min_aloc=1.0, top_n=10):
         buf = BytesIO()
         doc = SimpleDocTemplate(
             buf,
@@ -580,246 +771,76 @@ class PDFExecutivoMigracao(_PDFExecutivoBase):
             leftMargin=cls.MARGEM_H * cm,
             topMargin=cls.MARGEM_TOP * cm,
             bottomMargin=cls.MARGEM_BOT * cm,
+            title="Comparativo Geral",
+            author="TOTALE",
         )
-        s, el = cls._estilos(), []
-
-        el.append(Paragraph("RELATÓRIO EXECUTIVO — MIGRAÇÃO", s["MIG_Titulo"]))
-        el.append(
-            Paragraph(
-                f"Mudança de Pacote + FLAG_GPON = Sim • "
-                f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
-                s["MIG_Subtitulo"],
+        s = cls._estilos()
+        el = [cls._cabecalho(s), Spacer(1, 0.8 * cm)]
+        if "TIPO_SERVICO" in df.columns:
+            comp = []
+            for seg in sorted(df["TIPO_SERVICO"].dropna().unique()):
+                d = df[df["TIPO_SERVICO"] == seg]
+                proj = _obter_resumo_segmento(d, p_base)
+                comp.append(
+                    {
+                        "Segmento": seg,
+                        "Alocado": proj["alocado"],
+                        "Quebra Atual": proj["quebra_atual"],
+                        "Fechamento Base": proj["fechamento_proj"],
+                        "vs Meta": proj["fechamento_proj"] - sla_meta,
+                    }
+                )
+            el.append(Paragraph("1 ─ Comparativo por Segmento (Base)", s["X_Secao"]))
+            el.append(
+                cls._tab(
+                    pd.DataFrame(comp),
+                    cor_col_quebra="Fechamento Base",
+                    sla_meta=sla_meta,
+                )
             )
-        )
-        el.append(Spacer(1, 1 * cm))
-
-        el.append(Paragraph("1 ─ Cenários de Fechamento", s["MIG_Secao"]))
-        cenarios = []
+            el.append(Spacer(1, 0.5 * cm))
+        el.append(Paragraph("2 ─ Cenários Consolidados", s["X_Secao"]))
+        cen = []
         for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
-            proj = Motor.projetar(df, p)
-            cenarios.append(
+            proj = _obter_resumo_segmento(df, p)
+            cen.append(
                 {
                     "Cenário": nome,
-                    "Probab. Pendente": p,
-                    "Fechamento Proj.": proj["fechamento_proj"],
-                    "Não Exec. Proj.": proj["naoexec_proj"],
+                    "Probab.": p,
+                    "Fechamento": proj["fechamento_proj"],
                     "vs Meta": proj["fechamento_proj"] - sla_meta,
                 }
             )
         el.append(
-            cls._tab(
-                pd.DataFrame(cenarios),
-                cor_col_quebra="Fechamento Proj.",
-                sla_meta=sla_meta,
-            )
+            cls._tab(pd.DataFrame(cen), cor_col_quebra="Fechamento", sla_meta=sla_meta)
         )
         el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("2  Técnicos Críticos", s["MIG_Secao"]))
+        el.append(Paragraph("3 ─ Técnicos Críticos (Geral)", s["X_Secao"]))
         df_tec = Motor.tecnicos_criticos(
             df,
-            "Migração",
+            "Comparativo",
             p_base,
             float(min_aloc),
             int(top_n),
             p_ot=p_ot,
             p_pess=p_pess,
         )
-        cols_tec = [
-            c
-            for c in [
-                "TÉCNICO",
-                "Alocado",
-                "Executada",
-                "Não Executada",
-                "Pendente",
-                "Quebra Atual",
-                "Fechamento Otimista",
-                "Fechamento Base",
-                "Fechamento Pessimista",
-            ]
-            if c in df_tec.columns
-        ]
+        cols = [c for c in COLS_TECNICOS_PDF if c in df_tec.columns]
         el.append(
             cls._tab(
-                df_tec[cols_tec] if not df_tec.empty else df_tec,
+                df_tec[cols] if not df_tec.empty else df_tec,
                 limite=15,
                 cor_col_quebra="Fechamento Base",
                 sla_meta=sla_meta,
             )
         )
-        el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("3 ─ Principais Causas de Quebra", s["MIG_Secao"]))
-        df_causa = _causa_raiz_segmento(df, "Migração", top_n=8)
-        el.append(cls._tab(df_causa, limite=8))
-
         doc.build(el, onFirstPage=cls._rodape, onLaterPages=cls._rodape)
         buf.seek(0)
         return buf.getvalue()
 
 
 # =====================================================================
-# PDF EXECUTIVO PME
-# =====================================================================
-class PDFExecutivoPME(_PDFExecutivoBase):
-    COR_PRIMARIA: str = "#4C1D95"
-    COR_SECUNDARIA: str = "#7C3AED"
-    COR_TEXTO: str = "#1E1B4B"
-    COR_LINHA_ALT: str = "#F9FAFB"
-    NOME_SEGMENTO: str = "PME"
-
-    @classmethod
-    def _estilos(cls) -> Any:
-        s = getSampleStyleSheet()
-        s.add(
-            ParagraphStyle(
-                name="PME_Titulo",
-                fontName="Helvetica-Bold",
-                fontSize=24,
-                leading=30,
-                textColor=colors.white,
-                alignment=TA_CENTER,
-                spaceAfter=4,
-            )
-        )
-        s.add(
-            ParagraphStyle(
-                name="PME_Subtitulo",
-                fontName="Helvetica",
-                fontSize=10,
-                leading=14,
-                textColor=colors.HexColor("#DDD6FE"),
-                alignment=TA_CENTER,
-                spaceAfter=0,
-            )
-        )
-        s.add(
-            ParagraphStyle(
-                name="PME_Secao",
-                fontName="Helvetica-Bold",
-                fontSize=11,
-                leading=15,
-                textColor=colors.HexColor(cls.COR_PRIMARIA),
-                spaceBefore=10,
-                spaceAfter=4,
-            )
-        )
-        return s
-
-    @classmethod
-    def gerar(
-        cls,
-        df: pd.DataFrame,
-        sla_meta: float,
-        p_ot: float,
-        p_base: float,
-        p_pess: float,
-        min_aloc: float = 1,
-        top_n: int = 10,
-    ) -> bytes:
-        buf = BytesIO()
-        doc = SimpleDocTemplate(
-            buf,
-            pagesize=landscape(A4),
-            rightMargin=cls.MARGEM_H * cm,
-            leftMargin=cls.MARGEM_H * cm,
-            topMargin=cls.MARGEM_TOP * cm,
-            bottomMargin=cls.MARGEM_BOT * cm,
-        )
-        s, el = cls._estilos(), []
-
-        el.append(Paragraph("RELATÓRIO EXECUTIVO — PME", s["PME_Titulo"]))
-        el.append(
-            Paragraph(
-                f"Pequenas e Médias Empresas • "
-                f"Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
-                s["PME_Subtitulo"],
-            )
-        )
-        el.append(Spacer(1, 1 * cm))
-
-        el.append(Paragraph("1. Cenários de Fechamento", s["PME_Secao"]))
-        cenarios = []
-        for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
-            proj = Motor.projetar(df, p)
-            cenarios.append(
-                {
-                    "Cenário": nome,
-                    "Probab. Pend.": p,
-                    "Fechamento": proj["fechamento_proj"],
-                    "Não Exec. Proj.": proj["naoexec_proj"],
-                    "vs Meta": proj["fechamento_proj"] - sla_meta,
-                }
-            )
-        el.append(
-            cls._tab(
-                pd.DataFrame(cenarios),
-                larguras=[4.5, 4.5, 5.5, 5.5, 5.0],
-                cor_col_quebra="Fechamento",
-                sla_meta=sla_meta,
-            )
-        )
-        el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("2. Técnicos Críticos", s["PME_Secao"]))
-        df_tec = Motor.tecnicos_criticos(
-            df, "PME", p_base, float(min_aloc), int(top_n), p_ot=p_ot, p_pess=p_pess
-        )
-        cols_tec = [
-            c
-            for c in [
-                "TÉCNICO",
-                "Alocado",
-                "Executada",
-                "Não Executada",
-                "Pendente",
-                "Quebra Atual",
-                "Fechamento Otimista",
-                "Fechamento Base",
-                "Fechamento Pessimista",
-            ]
-            if c in df_tec.columns
-        ]
-        el.append(
-            cls._tab(
-                df_tec[cols_tec] if not df_tec.empty else df_tec,
-                limite=10,
-                cor_col_quebra="Fechamento Base",
-                sla_meta=sla_meta,
-            )
-        )
-        el.append(Spacer(1, 0.5 * cm))
-
-        el.append(Paragraph("3. Principais Causas de Quebra (Pareto)", s["PME_Secao"]))
-        df_causa = _causa_raiz_segmento(df, "PME", top_n=8)
-        el.append(cls._tab(df_causa, limite=8, larguras=[9.0, 4.5, 4.5, 4.5]))
-
-        doc.build(el, onFirstPage=cls._rodape, onLaterPages=cls._rodape)
-        buf.seek(0)
-        return buf.getvalue()
-
-
-# =====================================================================
-# HELPER — Causa Raiz por Segmento
-# =====================================================================
-def _causa_raiz_segmento(
-    df: pd.DataFrame, segmento: str, top_n: int = 8
-) -> pd.DataFrame:
-    """Filtra df por segmento e delega para Motor.causa_raiz."""
-    if df.empty or "TIPO_SERVICO" not in df.columns:
-        return pd.DataFrame()
-    df_seg = df[df["TIPO_SERVICO"] == segmento].copy()
-    if df_seg.empty:
-        return pd.DataFrame()
-    col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", "_COL_BAIXA"))
-    if col_baixa not in df_seg.columns and "_COL_BAIXA" in df_seg.columns:
-        col_baixa = "_COL_BAIXA"
-    return Motor.causa_raiz(df_seg, col_baixa, top_n=top_n)
-
-
-# =====================================================================
-# CONFIGURAÇÕES DINÂMICAS POR SEGMENTO
+# CONFIGURAÇÕES E ESTILOS DINÂMICOS
 # =====================================================================
 SEGMENTOS_CONFIG: dict[str, Any] = {
     "Novos Domicílios": {
@@ -828,8 +849,9 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
         "cor_primaria": "#012869",
         "cor_secundaria": "#14B8A6",
         "grad_hero": "linear-gradient(135deg, #012869 0%, #0A3D62 35%, #0D9488 70%, #14B8A6 100%)",
-        "sombra_hero": "rgba(1, 40, 105, 0.28)",
+        "sombra_hero": "rgba(1,40,105,0.28)",
         "sla_default": SLA_NOVOS_DOMICILIOS_DEFAULT,
+        "p_base_default": 20,
         "pdf_class": PDFExecutivoNovosDomicilios,
         "hero_fn": render_hero_novos_domicilios,
         "hero_kwargs": {"badge": "NOVOS DOMICÍLIOS", "icone": "🏠"},
@@ -848,12 +870,15 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
         "cor_primaria": "#6D28D9",
         "cor_secundaria": "#A78BFA",
         "grad_hero": "linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%)",
-        "sombra_hero": "rgba(124, 58, 237, 0.35)",
+        "sombra_hero": "rgba(124,58,237,0.35)",
         "sla_default": SLA_MIGRACAO_DEFAULT,
+        "p_base_default": 25,
         "pdf_class": PDFExecutivoMigracao,
         "hero_fn": render_hero_migracao,
         "hero_kwargs": {"badge": "MIGRAÇÃO DE DADOS", "icone": "🔄"},
-        "acoes": [("🔴 ALTA", "Verificar estoque de equipamentos.", "alerta")],
+        "acoes": [
+            ("🔴 ALTA", "Verificar estoque de equipamentos (ONT/ONU).", "alerta")
+        ],
     },
     "PME": {
         "icone": "🏢",
@@ -861,8 +886,9 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
         "cor_primaria": "#059669",
         "cor_secundaria": "#3B82F6",
         "grad_hero": "linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%)",
-        "sombra_hero": "rgba(16, 185, 129, 0.30)",
+        "sombra_hero": "rgba(16,185,129,0.30)",
         "sla_default": SLA_PME_DEFAULT,
+        "p_base_default": 20,
         "pdf_class": PDFExecutivoPME,
         "hero_fn": render_hero_pme,
         "hero_kwargs": {"badge": "PME CONNECT", "icone": "🚀"},
@@ -871,443 +897,318 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
 }
 
 
-# =====================================================================
-# CSS DINÂMICO
-# =====================================================================
-def _injetar_css_dinamico(segmento: str) -> None:
-    conf = SEGMENTOS_CONFIG[segmento]
+def _injetar_css_dinamico(segmento: str):
+    conf = SEGMENTOS_CONFIG.get(
+        segmento, {"sombra_hero": "rgba(0,0,0,0.15)", "cor_primaria": "#0F172A"}
+    )
     st.markdown(
         f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-.topo-fixo-dinamico, .resultado-base, .resultado-base-regiao,
-.resultado-base-label, .resultado-base-count,
-.table-html-container, .table-html-container table,
-.table-html-container th, .table-html-container td {{
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 Roboto, Helvetica, Arial, sans-serif !important;
-}}
-
-div[data-testid="stElementContainer"]:has(.topo-fixo-dinamico) {{
-    position: sticky !important;
-    top: 0.75rem !important;
-    z-index: 1000 !important;
-}}
-.topo-fixo-dinamico .hero-domicilios,
-.topo-fixo-dinamico .hero-migracao,
-.topo-fixo-dinamico .hero-pme {{
-    margin-bottom: 12px !important;
-    border-radius: 16px !important;
-    box-shadow: 0 10px 40px rgba(1, 40, 105, 0.25) !important;
-}}
-.topo-fixo-dinamico .hero-domicilios,
-.topo-fixo-dinamico .hero-migracao,
-.topo-fixo-dinamico .hero-pme {{
-    margin-bottom: 12px !important;
-    border-radius: 16px !important;
-    box-shadow: 0 10px 40px {conf["sombra_hero"]} !important;
-}}
-.resultado-base {{
-    margin-bottom: 0 !important;
-    background: linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%);
-    padding: 1rem 1.5rem; border-radius: 0.75rem; display: flex;
-    align-items: center; flex-wrap: wrap; gap: 0.6rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}}
-.resultado-base-label {{
-    color: #94A3B8; font-size: 0.8rem; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.08em;
-}}
-.resultado-base-regiao {{
-    padding: 0.3rem 0.9rem; border-radius: 999px;
-    font-size: 0.82rem; font-weight: 700; border: 2px solid;
-}}
-.resultado-base-count {{
-    color: #FFFFFF; font-size: 0.78rem; margin-left: auto; font-weight: 700;
-}}
-
-.card-sugestao {{
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
-    border-radius: 12px;
-    padding: 1.25rem;
-    height: 100%;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-}}
-.card-sugestao:hover {{
-    transform: translateY(-4px);
-    box-shadow: 0 12px 20px -8px rgba(0,0,0,0.08);
-    border-color: {conf["cor_primaria"]}40;
-}}
-.card-sugestao-titulo {{
-    font-size: 1rem;
-    font-weight: 700;
-    color: #1E293B;
-    margin-bottom: 0.5rem;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}}
-.card-sugestao-desc {{
-    font-size: 0.85rem;
-    color: #64748B;
-    line-height: 1.5;
-}}
-.card-sugestao-badge {{
-    display: inline-block;
-    padding: 2px 8px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    background: #F1F5F9;
-    color: #475569;
-    border-radius: 4px;
-    margin-top: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}}
+.hero-domicilios,.hero-migracao,.hero-pme,.resultado-base,.resultado-base-regiao,.resultado-base-label,.resultado-base-count,.table-html-container table{{font-family:'Inter',sans-serif!important}}
+div[data-testid="stElementContainer"]:has(.hero-domicilios),div[data-testid="stElementContainer"]:has(.hero-migracao),div[data-testid="stElementContainer"]:has(.hero-pme),div[data-testid="stElementContainer"]:has(.hero-comparativo){{position:sticky!important;top:0.75rem!important;z-index:1000!important}}
+.hero-domicilios,.hero-migracao,.hero-pme,.hero-comparativo{{margin-bottom:12px!important;border-radius:16px!important;box-shadow:0 10px 40px {conf["sombra_hero"]}!important}}
+.resultado-base{{background:linear-gradient(135deg,#0F172A 0%,#1E3A5F 100%);padding:1rem 1.5rem;border-radius:0.75rem;display:flex;align-items:center;flex-wrap:wrap;gap:0.6rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);margin-bottom:0!important}}
+.resultado-base-label{{color:#94A3B8;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em}}
+.resultado-base-regiao{{padding:0.3rem 0.9rem;border-radius:999px;font-size:0.82rem;font-weight:700;border:2px solid}}
+.resultado-base-count{{color:#FFF;font-size:0.78rem;margin-left:auto;font-weight:700}}
+.alert-chip{{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;margin:4px 6px 4px 0}}
 </style>""",
         unsafe_allow_html=True,
     )
 
 
 def _html_resultado_base(regioes: list[str], total: int) -> str:
-    cores_regiao = {
+    cores = {
         "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
         "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
         "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
         "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
     }
     badges = ""
-    for regiao in sorted(regioes):
-        r = str(regiao).strip().upper()
-        if not r or r in {"NAN", "NONE"}:
+    for r in sorted(set(regioes)):
+        rr = str(r).strip().upper()
+        if not rr or rr in {"NAN", "NONE"}:
             continue
-        cor = cores_regiao.get(r, cores_regiao["OUTRAS"])
-        badges += (
-            f'<span class="resultado-base-regiao" '
-            f'style="background:{cor["bg"]};color:{cor["text"]};'
-            f'border-color:{cor["border"]};">{escape(r)}</span>'
-        )
+        cor = cores.get(rr, cores["OUTRAS"])
+        badges += f'<span class="resultado-base-regiao" style="background:{cor["bg"]};color:{cor["text"]};border-color:{cor["border"]};">{escape(rr)}</span>'
     if not badges:
-        cor = cores_regiao["OUTRAS"]
-        badges = (
-            f'<span class="resultado-base-regiao" '
-            f'style="background:{cor["bg"]};color:{cor["text"]};'
-            f'border-color:{cor["border"]};">OUTRAS</span>'
-        )
-    total_fmt = f"{total:,}".replace(",", ".")
-    return (
-        f'<div class="resultado-base">'
-        f'<span class="resultado-base-label">📋 Resultado da Base:</span>'
-        f"{badges}"
-        f'<span class="resultado-base-count">{total_fmt} registros</span>'
-        f"</div>"
+        cor = cores["OUTRAS"]
+        badges = f'<span class="resultado-base-regiao" style="background:{cor["bg"]};color:{cor["text"]};border-color:{cor["border"]};">OUTRAS</span>'
+    return f'<div class="resultado-base"><span class="resultado-base-label">📋 Resultado da Base:</span>{badges}<span class="resultado-base-count">{_fmt_int(total)} registros</span></div>'
+
+
+def _render_hero_comparativo(total: int):
+    st.markdown(
+        f"""
+<div class="hero-comparativo" style="background:linear-gradient(135deg,#0F172A 0%,#1E293B 35%,#334155 70%,#475569 100%);padding:22px 26px;border-radius:16px;color:white">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+    <div><div style="font-size:11px;letter-spacing:0.12em;opacity:0.8;font-weight:700">CONSOLIDADO EXECUTIVO</div><div style="font-size:22px;font-weight:800;margin-top:4px">📊 Todos os Segmentos — Quebra de Agenda</div><div style="font-size:13px;opacity:0.85;margin-top:4px">Visão comparativa entre Novos Domicílios, Migração e PME • {total} registros</div></div>
+    <div style="background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);padding:10px 14px;border-radius:10px;text-align:center"><div style="font-size:11px;opacity:0.8">BASE TOTAL</div><div style="font-size:20px;font-weight:800">{_fmt_int(total)}</div></div>
+  </div>
+</div>""",
+        unsafe_allow_html=True,
     )
 
 
-def _render_topo_fixo(segmento: str, regioes: list[str], total: int) -> None:
+def _render_topo_fixo(segmento: str, regioes: list[str], total: int):
+    if segmento == "Todos os Segmentos":
+        _render_hero_comparativo(total)
+        st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
+        return
     conf = SEGMENTOS_CONFIG[segmento]
-    hero_fn = conf["hero_fn"]
-    hero_kwargs = conf.get("hero_kwargs", {})
-
-    st.markdown('<div class="topo-fixo-dinamico">', unsafe_allow_html=True)
-
-    hero_fn(
+    conf["hero_fn"](
         titulo=f"{segmento} — Quebra de Agenda",
         subtitulo=conf["subtitulo"],
-        **hero_kwargs,
+        **conf.get("hero_kwargs", {}),
     )
-
     st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _render_card_status(segmento: str, m_seg: dict[str, Any], sla_meta: float) -> None:
-    conf = SEGMENTOS_CONFIG[segmento]
-    quebra_atual = float(m_seg["quebra_atual"])
-    dentro_sla = quebra_atual <= sla_meta
-
-    if dentro_sla:
-        status_label, status_icone = "DENTRO DO SLA", "✓"
-        cor_status, cor_bg, cor_txt = "#059669", "#D1FAE5", "#065F46"
-        mensagem = (
-            f"{segmento} com folga de "
-            f"<strong>{sla_meta - quebra_atual:.2%}</strong> "
-            "em relação à meta."
+def _render_card_status(segmento: str, m_seg: Any, sla_meta: float):
+    conf = SEGMENTOS_CONFIG.get(
+        segmento,
+        {
+            "icone": "📊",
+            "grad_hero": "linear-gradient(135deg,#0F172A,#334155)",
+            "sombra_hero": "rgba(0,0,0,0.2)",
+            "cor_primaria": "#0F172A",
+            "cor_secundaria": "#475569",
+        },
+    )
+    quebra = float(m_seg["quebra_atual"])
+    dentro = quebra <= sla_meta
+    if dentro:
+        status_label, status_icone, cor_status, cor_bg, cor_txt = (
+            "DENTRO DO SLA",
+            "✓",
+            "#059669",
+            "#D1FAE5",
+            "#065F46",
         )
-        icone_mensagem = "✅"
     else:
-        status_label, status_icone = "FORA DO SLA", "!"
-        cor_status, cor_bg, cor_txt = "#DC2626", "#FEE2E2", "#991B1B"
-        mensagem = (
-            f"{segmento} acima da meta em "
-            f"<strong>{quebra_atual - sla_meta:.2%}</strong>. "
-            "Ação corretiva imediata necessária."
+        status_label, status_icone, cor_status, cor_bg, cor_txt = (
+            "FORA DO SLA",
+            "!",
+            "#DC2626",
+            "#FEE2E2",
+            "#991B1B",
         )
-        icone_mensagem = "🚨"
-
-    pct_barra = min(100.0, (quebra_atual / (sla_meta * 2)) * 100 if sla_meta > 0 else 0)
-    font_family = (
-        "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+    pct = min(100.0, (quebra / (sla_meta * 2)) * 100) if sla_meta > 0 else 0
+    st.markdown(
+        f"""
+<div style="background:white;border:1px solid #E5E7EB;border-radius:14px;padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);margin:16px 0 12px 0;border-top:3px solid {conf["cor_primaria"]};font-family:Inter,sans-serif">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px;align-items:center">
+    <div style="display:flex;gap:14px;align-items:center"><div style="width:44px;height:44px;background:{conf["grad_hero"]};border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px {conf["sombra_hero"]}"><span style="font-size:22px">{conf["icone"]}</span></div><div><div style="font-size:18px;font-weight:800;color:#1F2937">{escape(segmento)}</div><div style="font-size:12px;color:#6B7280">Análise de Quebra</div></div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:{cor_bg};border-radius:999px;border:1px solid {cor_status}"><span style="width:18px;height:18px;background:{cor_status};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">{status_icone}</span><span style="font-size:11px;font-weight:700;color:{cor_txt}">{status_label}</span></div><div style="padding:6px 14px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD"><div style="font-size:10px;color:#6B7280;font-weight:600">QUEBRA ATUAL</div><div style="font-size:16px;color:{cor_status};font-weight:800">{quebra:.2%}</div></div><div style="padding:6px 14px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD"><div style="font-size:10px;color:#6B7280;font-weight:600">META SLA</div><div style="font-size:16px;color:{conf["cor_secundaria"]};font-weight:800">{sla_meta:.2%}</div></div></div>
+  </div>
+  <div style="margin:16px 0 6px 0;display:flex;justify-content:space-between;font-size:11px;color:#6B7280;font-weight:600"><span>0%</span><span>Meta {sla_meta:.2%}</span><span>{sla_meta*2:.0%}</span></div>
+  <div style="height:8px;background:#E5E7EB;border-radius:4px;overflow:hidden;position:relative"><div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#374151;z-index:2"></div><div style="width:{pct}%;height:100%;background:linear-gradient(90deg,{cor_status},{cor_status}CC);border-radius:4px"></div></div>
+</div>""",
+        unsafe_allow_html=True,
     )
 
-    html = f"""
-<div style="background:white;border:1px solid #E5E7EB;border-radius:14px;
-            padding:20px 24px;box-shadow:0 2px 8px rgba(0,0,0,0.04);
-            margin:16px 0 24px 0;border-top:3px solid {conf["cor_primaria"]};
-            font-family: {font_family};">
-    <div style="display:flex;align-items:center;justify-content:space-between;
-                flex-wrap:wrap;gap:16px;">
-        <div style="display:flex;align-items:center;gap:14px;">
-            <div style="width:44px;height:44px;background:{conf["grad_hero"]};
-                        border-radius:10px;display:flex;align-items:center;
-                        justify-content:center;
-                        box-shadow:0 4px 12px {conf["sombra_hero"]};">
-                <span style="font-size:22px;">{conf["icone"]}</span>
-            </div>
-            <div>
-                <div style="font-size:18px;font-weight:800;color:#1F2937;">{segmento}</div>
-                <div style="font-size:12px;color:#6B7280;font-weight:500;">Análise de Quebra</div>
-            </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div style="display:inline-flex;align-items:center;gap:6px;
-                        padding:6px 14px;background:{cor_bg};
-                        border-radius:999px;border:1px solid {cor_status};">
-                <span style="display:inline-flex;align-items:center;
-                             justify-content:center;width:18px;height:18px;
-                             background:{cor_status};color:white;
-                             border-radius:50%;font-size:11px;
-                             font-weight:800;">{status_icone}</span>
-                <span style="font-size:11px;font-weight:700;color:{cor_txt};
-                             text-transform:uppercase;">{status_label}</span>
-            </div>
-            <div style="display:inline-flex;flex-direction:column;padding:6px 14px;
-                        background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;">
-                <span style="font-size:10px;color:#6B7280;font-weight:600;
-                             text-transform:uppercase;">Quebra Atual</span>
-                <span style="font-size:16px;color:{cor_status};font-weight:800;">{quebra_atual:.2%}</span>
-            </div>
-            <div style="display:inline-flex;flex-direction:column;padding:6px 14px;
-                        background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD;">
-                <span style="font-size:10px;color:#6B7280;font-weight:600;
-                             text-transform:uppercase;">Meta SLA</span>
-                <span style="font-size:16px;color:{conf["cor_secundaria"]};font-weight:800;">{sla_meta:.2%}</span>
-            </div>
-        </div>
-    </div>
-    <div style="margin:16px 0 12px 0;">
-        <div style="display:flex;justify-content:space-between;margin-bottom:6px;
-                    font-size:11px;color:#6B7280;font-weight:600;">
-            <span>0%</span><span>Meta {sla_meta:.2%}</span>
-            <span>{sla_meta * 2:.0%}</span>
-        </div>
-        <div style="position:relative;height:8px;background:#E5E7EB;
-                    border-radius:4px;overflow:hidden;">
-            <div style="position:absolute;left:50%;top:0;width:2px;height:100%;
-                        background:#374151;z-index:2;"></div>
-            <div style="width:{pct_barra}%;height:100%;
-                        background:linear-gradient(90deg,{cor_status} 0%,
-                        {cor_status}CC 100%);border-radius:4px;"></div>
-        </div>
-    </div>
-    <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;
-                background:{cor_bg};border-left:3px solid {cor_status};
-                border-radius:6px;">
-        <span style="font-size:16px;line-height:1;flex-shrink:0;">{icone_mensagem}</span>
-        <div style="font-size:13px;color:{cor_txt};line-height:1.55;font-weight:500;">{mensagem}</div>
-    </div>
-</div>"""
+
+def _gerar_alertas(
+    df_seg: pd.DataFrame, m_seg: dict, sla_meta: float, folga: dict
+) -> list[dict]:
+    alerts = []
+    quebra = float(m_seg.get("quebra_atual", 0))
+    pend = float(m_seg.get("pend", 0))
+    if quebra > sla_meta:
+        alerts.append(
+            {
+                "tipo": "critico",
+                "icone": "🔴",
+                "msg": f"Quebra {quebra:.2%} acima da meta {sla_meta:.0%} (+{quebra-sla_meta:.2%})",
+            }
+        )
+    if folga.get("estourado"):
+        alerts.append(
+            {
+                "tipo": "critico",
+                "icone": "🚨",
+                "msg": f"Estouro de {int(folga['naoexec']-folga['limite_ne_total'])} OS além do limite",
+            }
+        )
+    if pend > 300:
+        alerts.append(
+            {
+                "tipo": "alerta",
+                "icone": "⚠️",
+                "msg": f"Backlog elevado: {_fmt_int(pend)} pendentes",
+            }
+        )
+    col_baixa = _resolver_col_baixa(df_seg)
+    if col_baixa:
+        try:
+            df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=1)
+            if (
+                not df_c.empty
+                and "% do Total" in df_c.columns
+                and float(df_c.iloc[0]["% do Total"]) > 0.3
+            ):
+                alerts.append(
+                    {
+                        "tipo": "acao",
+                        "icone": "🎯",
+                        "msg": f"Concentração: '{df_c.iloc[0]['Motivo de Baixa']}' = {df_c.iloc[0]['% do Total']:.0%} das quebras",
+                    }
+                )
+        except Exception:
+            pass
+    return alerts
+
+
+def _render_alerts_chips(alerts: list[Dict]):
+    if not alerts:
+        return
+    cores = {
+        "critico": ("#FEE2E2", "#991B1B", "#FCA5A5"),
+        "alerta": ("#FEF3C7", "#92400E", "#FCD34D"),
+        "acao": ("#DBEAFE", "#1E40AF", "#93C5FD"),
+    }
+    html = '<div style="display:flex;flex-wrap:wrap;margin:8px 0 16px 0">'
+    for a in alerts:
+        bg, txt, bd = cores.get(a["tipo"], ("#F1F5F9", "#475569", "#E2E8F0"))
+        html += f'<span class="alert-chip" style="background:{bg};color:{txt};border:1px solid {bd}">{a["icone"]} {escape(a["msg"])}</span>'
+    html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
 
 # =====================================================================
-# UTILITÁRIOS — DataFrames auxiliares (Pendentes e Sem Registro)
+# GESTÃO DE BACKLOG E EXPURGOS SIMULADOS
 # =====================================================================
-def _build_df_pendentes(df_seg: pd.DataFrame) -> pd.DataFrame:
-    import unicodedata
+_MAPA_PENDENTES = {
+    "Contrato": [
+        "CONTRATO",
+        "Nº CONTRATO",
+        "NUM_CONTRATO",
+        "NUMERO CONTRATO",
+        "NÚMERO CONTRATO",
+        "CONTRATO_ID",
+        "COD_CONTRATO",
+        "CÓDIGO CONTRATO",
+    ],
+    "Login": [
+        "LOGIN DO TÉCNICO",
+        "LOGIN DO TECNICO",
+        "LOGIN_DO_TECNICO",
+        "LOGIN_TECNICO",
+        "LOGIN TÉCNICO",
+        "LOGIN TECNICO",
+        "LOGIN",
+        "USER",
+        "USUÁRIO",
+        "USUARIO",
+        "USERNAME",
+        "MATRÍCULA",
+        "MATRICULA",
+    ],
+    "Técnico": [
+        "TÉCNICO",
+        "TECNICO",
+        "NOME TÉCNICO",
+        "NOME_TECNICO",
+        "NOME DO TÉCNICO",
+    ],
+    "Monitor": ["MONITOR", "SUPERVISOR", "NOME MONITOR", "NOME_MONITOR"],
+    "Qtde. O.S.": ["TOTAL DE TAREFAS"],
+}
 
-    MAPA = {
-        "Contrato": [
-            "CONTRATO",
-            "Nº CONTRATO",
-            "NUM_CONTRATO",
-            "NUMERO CONTRATO",
-            "NÚMERO CONTRATO",
-            "CONTRATO_ID",
-            "COD_CONTRATO",
-            "CÓDIGO CONTRATO",
-        ],
-        "Login": [
-            "LOGIN DO TÉCNICO",
-            "LOGIN DO TECNICO",
-            "LOGIN_DO_TECNICO",
-            "LOGIN_TECNICO",
-            "LOGIN TÉCNICO",
-            "LOGIN TECNICO",
-            "LOGIN",
-            "USER",
-            "USUÁRIO",
-            "USUARIO",
-            "USERNAME",
-            "MATRÍCULA",
-            "MATRICULA",
-        ],
-        "Técnico": [
-            "TÉCNICO",
-            "TECNICO",
-            "NOME TÉCNICO",
-            "NOME_TECNICO",
-            "NOME DO TÉCNICO",
-        ],
-        "Monitor": ["MONITOR", "SUPERVISOR", "NOME MONITOR", "NOME_MONITOR"],
-        "Qtde. O.S.": ["TOTAL DE TAREFAS"],
-    }
 
-    def _norm(s: str) -> str:
-        return (
-            unicodedata.normalize("NFKD", str(s))
-            .encode("ascii", errors="ignore")
-            .decode("ascii")
-            .upper()
-            .strip()
-            .replace("_", " ")
-            .replace(".", "")
-        )
+def _achar_coluna(df, cands):
+    cols_norm = {_norm_txt(c): c for c in df.columns}
+    for cand in cands:
+        if _norm_txt(cand) in cols_norm:
+            return cols_norm[_norm_txt(cand)]
+    for cand in cands:
+        for cn, cr in cols_norm.items():
+            if _norm_txt(cand) in cn:
+                return cr
+    return None
 
-    def _achar(df: pd.DataFrame, cands: list[str]) -> str | None:
-        cols_norm = {_norm(c): c for c in df.columns}
-        for cand in cands:
-            cn = _norm(cand)
-            if cn in cols_norm:
-                return cols_norm[cn]
-        for cand in cands:
-            cn = _norm(cand)
-            for col_norm, col_real in cols_norm.items():
-                if cn in col_norm:
-                    return col_real
-        return None
 
+def _build_df_pendentes(df_seg):
+    cols_saida = list(_MAPA_PENDENTES.keys())
     if "Status Contrato" in df_seg.columns:
         mask = (
             df_seg["Status Contrato"]
             .astype(str)
+            .str.strip()
             .str.upper()
-            .isin(["PENDENTE", "PENDING", "ABERTO", "EM ABERTO", "NÃO EXECUTADA"])
+            .isin(STATUS_PENDENTE)
         )
     else:
         mask = pd.Series(True, index=df_seg.index)
-
     df_p = df_seg[mask].copy()
     if df_p.empty:
-        return pd.DataFrame(
-            columns=["Contrato", "Login", "Técnico", "Monitor", "Qtde. O.S."]
-        )
-
+        return pd.DataFrame(columns=cols_saida)
     df_out = pd.DataFrame(index=df_p.index)
-    for nome, cands in MAPA.items():
-        col = _achar(df_p, cands)
+    for nome, cands in _MAPA_PENDENTES.items():
+        col = _achar_coluna(df_p, cands)
         df_out[nome] = df_p[col].values if col else "N/D"
-
-    if "Qtde. O.S." in df_out.columns:
-        df_out["Qtde. O.S."] = (
-            pd.to_numeric(df_out["Qtde. O.S."], errors="coerce").fillna(0).astype(int)
-        )
-
-    return (
-        df_out.drop_duplicates()
-        .sort_values("Técnico", na_position="last")
-        .reset_index(drop=True)
-        .pipe(lambda d: d.set_index(d.index + 1))
+    df_out["Qtde. O.S."] = (
+        pd.to_numeric(df_out["Qtde. O.S."], errors="coerce").fillna(0).astype(int)
     )
+    if "Contrato" in df_out.columns:
+        df_out = df_out.drop_duplicates(subset=["Contrato"])
+    else:
+        df_out = df_out.drop_duplicates()
+    df_out = df_out.sort_values("Técnico", na_position="last").reset_index(drop=True)
+    df_out.index = df_out.index + 1
+    return df_out
 
 
-# =====================================================================
-# SIMULAÇÃO DE EXPURGO DO MAIOR OFENSOR
-# =====================================================================
-def _calcular_quebra_expurgada(
-    df_seg: pd.DataFrame, m_seg: dict[str, Any], segmento: str
-) -> dict[str, Any] | None:
-    """Calcula o impacto na quebra caso o maior ofensor seja expurgado."""
+def _calcular_quebra_expurgada(df_seg, m_seg, segmento):
     df_c = _causa_raiz_segmento(df_seg, segmento, top_n=1)
-    if df_c.empty:
+    if df_c.empty or not {"Motivo de Baixa", "Volume"}.issubset(df_c.columns):
         return None
-
-    top_row = df_c.iloc[0]
-    motivo = str(top_row["Motivo de Baixa"])
-    volume = float(top_row["Volume"])
-
+    motivo = str(df_c.iloc[0]["Motivo de Baixa"])
+    volume = float(df_c.iloc[0]["Volume"])
     naoexec = float(m_seg["naoexec"])
     alocado = float(m_seg["alocado"])
-
-    if alocado > volume:
-        quebra_expurgada = max(0.0, (naoexec - volume) / (alocado - volume))
-    else:
-        quebra_expurgada = 0.0
-
+    volume = max(0.0, min(volume, naoexec))
+    if alocado <= volume or volume <= 0:
+        return None
+    quebra_exp = max(0.0, (naoexec - volume) / (alocado - volume))
     return {
         "motivo": motivo,
         "volume": int(volume),
         "quebra_atual": float(m_seg["quebra_atual"]),
-        "quebra_expurgada": quebra_expurgada,
-        "impacto_abs": float(m_seg["quebra_atual"]) - quebra_expurgada,
+        "quebra_expurgada": quebra_exp,
+        "impacto_abs": float(m_seg["quebra_atual"]) - quebra_exp,
     }
 
 
 # =====================================================================
-# SUB-ABAS
+# RENDERIZAÇÃO DE SEÇÕES E SUB-ABAS (STREAMLIT ENGINE)
 # =====================================================================
-def _token_parece_icone(token: str) -> bool:
-    """Identifica símbolos gráficos sem confundir palavras acentuadas."""
+def _token_parece_icone(token: str):
     return any(
-        0x2300 <= ord(caractere) <= 0x2BFF
-        or 0x1F000 <= ord(caractere) <= 0x1FAFF
-        for caractere in token
+        0x2300 <= ord(c) <= 0x2BFF or 0x1F000 <= ord(c) <= 0x1FAFF for c in token
     )
 
 
-def render_section(titulo: str) -> None:
-    """
-    Separa um eventual emoji inicial e renderiza o cabeçalho
-    usando argumentos nomeados.
-    """
+def render_section(titulo: str):
     texto = str(titulo or "").strip()
-
     if not texto:
         return
-
     partes = texto.split(maxsplit=1)
-
-    icone_final = ""
-    titulo_final = texto
-
+    icone_final, titulo_final = "", texto
     if len(partes) == 2 and _token_parece_icone(partes[0]):
-        icone_final = partes[0]
-        titulo_final = partes[1]
+        icone_final, titulo_final = partes[0], partes[1]
+    render_section_header(titulo=titulo_final, icone=icone_final)
 
-    render_section_header(
-        titulo=titulo_final,
-        icone=icone_final,
-    )
 
-def _sub_visao_geral(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    m_seg: dict[str, Any],
-    p_ot: float,
-    p_base: float,
-    p_pess: float,
-    sla_meta: float,
-) -> None:
+def _sub_visao_geral(segmento, df_seg, m_seg, p_ot, p_base, p_pess, sla_meta):
     render_section(f"📊 Resumo Operacional — {segmento}")
     tema_q: TemaKPIType = "vermelho" if m_seg["quebra_atual"] > sla_meta else "verde"
     c1, c2, c3, c4, c5 = st.columns(5)
-    render_kpi(c1, "Alocado", f"{int(m_seg['alocado']):,}", tema="azul")
-    render_kpi(c2, "Executadas", f"{int(m_seg['exec']):,}", tema="verde")
-    render_kpi(c3, "Não Exec.", f"{int(m_seg['naoexec']):,}", tema="laranja")
-    render_kpi(c4, "Pendentes", f"{int(m_seg['pend']):,}", tema="cinza")
+    render_kpi(c1, "Alocado", _fmt_int(m_seg["alocado"]), tema="azul")
+    render_kpi(c2, "Executadas", _fmt_int(m_seg["exec"]), tema="verde")
+    render_kpi(c3, "Não Exec.", _fmt_int(m_seg["naoexec"]), tema="laranja")
+    render_kpi(c4, "Pendentes", _fmt_int(m_seg["pend"]), tema="cinza")
     render_kpi(
         c5,
         "Quebra Atual",
@@ -1316,29 +1217,28 @@ def _sub_visao_geral(
         tema=tema_q,
     )
 
-    st.markdown("")
-    render_section("📈 Projeções de Fechamento")
-    cen = {
-        n: Motor.projetar(df_seg, p)
-        for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
-    }
-    c_cen, c_gauge = st.columns([2, 3])
-
-    with c_cen:
-        for nome, cd in cen.items():
-            cor_p: TemaKPIType = (
-                "vermelho" if cd["fechamento_proj"] > sla_meta else "verde"
+    col_pie, col_gauge = st.columns([1, 2])
+    with col_pie:
+        fig_pie = go.Figure(
+            go.Pie(
+                labels=["Executadas", "Não Exec.", "Pendentes"],
+                values=[m_seg["exec"], m_seg["naoexec"], m_seg["pend"]],
+                hole=0.55,
+                marker_colors=["#10B981", "#EF4444", "#94A3B8"],
             )
-            render_kpi_sm(
-                st,
-                nome,
-                f"{cd['fechamento_proj']:.2%}",
-                sub=f"Não Exec. proj.: {int(cd['naoexec_proj']):,}",
-                tema=cor_p,
-            )
-
-    with c_gauge:
+        )
+        fig_pie.update_layout(
+            height=280,
+            margin=dict(t=20, b=10, l=10, r=10),
+            showlegend=True,
+            legend=dict(orientation="h"),
+        )
+        st.plotly_chart(
+            fig_pie, use_container_width=True, config={"displayModeBar": False}
+        )
+    with col_gauge:
         cor_bar = "#EF4444" if m_seg["quebra_atual"] > sla_meta else "#10B981"
+        limite_eixo = max(50.0, sla_meta * 100 * 1.6, m_seg["quebra_atual"] * 100 * 1.2)
         fig = go.Figure(
             go.Indicator(
                 mode="gauge+number+delta",
@@ -1349,14 +1249,14 @@ def _sub_visao_geral(
                     "decreasing": {"color": "#10B981"},
                     "suffix": "%",
                 },
-                number={"suffix": "%", "font": {"size": 40}},
+                number={"suffix": "%", "font": {"size": 36}},
                 gauge={
-                    "axis": {"range": [0, 50], "ticksuffix": "%"},
+                    "axis": {"range": [0, limite_eixo], "ticksuffix": "%"},
                     "bar": {"color": cor_bar},
                     "steps": [
                         {"range": [0, sla_meta * 100], "color": "#DCFCE7"},
                         {"range": [sla_meta * 100, sla_meta * 120], "color": "#FEF9C3"},
-                        {"range": [sla_meta * 120, 50], "color": "#FEE2E2"},
+                        {"range": [sla_meta * 120, limite_eixo], "color": "#FEE2E2"},
                     ],
                     "threshold": {
                         "line": {"color": "#DC2626", "width": 3},
@@ -1371,8 +1271,58 @@ def _sub_visao_geral(
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     st.markdown("")
+    render_section("📈 Projeções de Fechamento")
+    cen = {
+        n: _obter_resumo_segmento(df_seg, p)
+        for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
+    }
+    c_cen, _ = st.columns([2, 1])
+    with c_cen:
+        cols = st.columns(3)
+        for (nome, cd), col in zip(cen.items(), cols):
+            cor_p: TemaKPIType = (
+                "vermelho" if cd["fechamento_proj"] > sla_meta else "verde"
+            )
+            render_kpi_sm(
+                col,
+                nome,
+                f"{cd['fechamento_proj']:.2%}",
+                sub=f"NE proj.: {_fmt_int(cd['naoexec_proj'])}",
+                tema=cor_p,
+            )
+
+    col_data = _resolver_col_data(df_seg)
+    if col_data:
+        try:
+            render_section(f"📅 Tendência Temporal — {col_data}")
+            df_tmp = df_seg.copy()
+            df_tmp[col_data] = pd.to_datetime(df_tmp[col_data], errors="coerce")
+            df_tmp = df_tmp.dropna(subset=[col_data])
+            if not df_tmp.empty:
+                df_tmp["SEMANA"] = df_tmp[col_data].dt.to_period("W").astype(str)
+                df_tmp["IS_NE"] = (
+                    df_tmp["Status Contrato"].astype(str).str.upper() == "NÃO EXECUTADA"
+                    if "Status Contrato" in df_tmp.columns
+                    else False
+                )
+
+                # Agrupamento temporal otimizado (sem apply genérico)
+                trend = (
+                    df_tmp.groupby("SEMANA")["IS_NE"].mean().reset_index(name="QUEBRA")
+                )
+
+                fig_line = px.line(trend, x="SEMANA", y="QUEBRA", markers=True)
+                fig_line.add_hline(y=sla_meta, line_dash="dash", line_color="#DC2626")
+                fig_line.update_layout(yaxis_tickformat=".1%", height=300)
+                st.plotly_chart(
+                    fig_line, use_container_width=True, config={"displayModeBar": False}
+                )
+        except Exception:
+            pass
+
+    st.markdown("")
     render_section("🛡️ Folga de SLA")
-    folga = Motor.folga_sla(df_seg, sla_meta)
+    folga = _obter_folga_sla(df_seg, sla_meta)
     f1, f2, f3 = st.columns(3)
     cor_f: TemaKPIType = (
         "vermelho"
@@ -1382,22 +1332,22 @@ def _sub_visao_geral(
     render_kpi(
         f1,
         "Folga (OS)",
-        f"{int(np.floor(folga['folga_ne_pendente'])):,}",
+        _fmt_int(np.floor(folga["folga_ne_pendente"])),
         sub="Não Exec. ainda permitidas",
         tema=cor_f,
     )
     render_kpi(
         f2,
         "Execução Mínima",
-        f"{int(np.ceil(folga['precisa_executar_pendente'])):,}",
-        sub="Pendentes a executar para atingir meta",
+        _fmt_int(np.ceil(folga["precisa_executar_pendente"])),
+        sub="Pendentes a executar",
         tema="azul",
     )
     render_kpi(
         f3,
         "Limite NE Total",
-        f"{int(folga['limite_ne_total']):,}",
-        sub=f"= {sla_meta:.0%} × {int(folga['alocado']):,}",
+        _fmt_int(folga["limite_ne_total"]),
+        sub=f"= {sla_meta:.0%} × {_fmt_int(folga['alocado'])}",
         tema="cinza",
     )
 
@@ -1405,129 +1355,66 @@ def _sub_visao_geral(
     if sim:
         st.markdown("<br>", unsafe_allow_html=True)
         render_section("🔮 Simulação de Expurgo do Maior Ofensor")
-
-        dentro_sla_apos = sim["quebra_expurgada"] <= sla_meta
-        if dentro_sla_apos:
-            bg_grad = "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)"
-            border_color = "#10B981"
-            badge_bg = "#10B981"
-            status_text = "DENTRO DA META SLA"
-            call_to_action = (
-                f"🎯 <b>Alvo Estratégico Prático:</b> Atuar diretamente na causa raiz "
-                f"<b>'{escape(sim['motivo'])}'</b> resolve o desvio de SLA deste segmento!"
-            )
-        else:
-            bg_grad = "linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)"
-            border_color = "#F59E0B"
-            badge_bg = "#F59E0B"
-            status_text = "AINDA FORA DA META SLA"
-            call_to_action = (
-                f"⚠️ <b>Aviso:</b> Eliminar <b>'{escape(sim['motivo'])}'</b> ajuda "
-                f"significativamente, mas ações complementares em outros motivos ainda "
-                f"serão necessárias para atingir a meta de {sla_meta:.0%}."
-            )
-
-        html_sim = f"""
-<div style="background:{bg_grad};border:1px solid {border_color};border-radius:14px;padding:20px 24px;box-shadow:0 4px 15px rgba(0,0,0,0.05);font-family:'Inter',sans-serif;margin:8px 0 20px 0;">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <span style="font-size:24px;">🔮</span>
-      <div>
-        <h4 style="margin:0;color:#1E293B;font-size:16px;font-weight:800;">Cenário Hipotético: Expurgando a Maior Ofensora</h4>
-        <p style="margin:2px 0 0 0;color:#475569;font-size:12px;">Simulação matemática desconsiderando o motivo mais recorrente de quebra</p>
-      </div>
-    </div>
-    <span style="background:{badge_bg};color:#FFFFFF;font-size:10px;font-weight:700;padding:4px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:0.05em;">{status_text}</span>
-  </div>
-
-  <div style="background:rgba(255,255,255,0.65);border-radius:10px;padding:14px;border:1px dashed rgba(0,0,0,0.08);margin-bottom:16px;">
-    <div style="font-size:11px;text-transform:uppercase;color:#64748B;font-weight:700;letter-spacing:0.03em;">Maior Ofensora Identificada</div>
-    <div style="font-size:16px;color:#0F172A;font-weight:700;margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <span style="color:#DC2626;">❌ {escape(sim["motivo"])}</span>
-      <span style="background:#FEE2E2;color:#991B1B;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;">{sim["volume"]:,} ocorrências</span>
-    </div>
-  </div>
-
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:16px;">
-    <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
-      <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Quebra Atual</div>
-      <div style="font-size:24px;color:#64748B;font-weight:800;margin-top:4px;">{sim["quebra_atual"]:.2%}</div>
-    </div>
-    <div style="background:white;border-radius:8px;padding:12px;border:2px solid {border_color};text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.02);">
-      <div style="font-size:10px;color:#1F2937;text-transform:uppercase;font-weight:700;">Quebra com Expurgo</div>
-      <div style="font-size:26px;color:{border_color};font-weight:900;margin-top:4px;">{sim["quebra_expurgada"]:.2%}</div>
-    </div>
-    <div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center;">
-      <div style="font-size:10px;color:#64748B;text-transform:uppercase;font-weight:600;">Redução Absoluta</div>
-      <div style="font-size:24px;color:#2563EB;font-weight:800;margin-top:4px;">📉 −{sim["impacto_abs"]:.2%}</div>
-    </div>
-  </div>
-
-  <div style="font-size:13px;color:#1E293B;line-height:1.5;font-weight:500;">
-    {call_to_action}
-  </div>
-</div>
-"""
-        st.markdown(html_sim, unsafe_allow_html=True)
-
-
-def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"🔍 Causa Raiz — {segmento}")
-
-    col_baixa = cast(str, df_seg.attrs.get("_COL_BAIXA", ""))
-    if not col_baixa or col_baixa not in df_seg.columns:
-        col_baixa = "_COL_BAIXA" if "_COL_BAIXA" in df_seg.columns else ""
-
-    if not col_baixa:
-        cands = ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"]
-        for c in cands:
-            if c in df_seg.columns:
-                col_baixa = c
-                break
-
-    if not col_baixa:
-        render_insight(
-            "Coluna de código/motivo de baixa não identificada.", tipo="alerta"
+        motivo_html = escape(sim["motivo"])
+        dentro = sim["quebra_expurgada"] <= sla_meta
+        bg_grad = (
+            "linear-gradient(135deg,#ECFDF5 0%,#D1FAE5 100%)"
+            if dentro
+            else "linear-gradient(135deg,#FFFBEB 0%,#FEF3C7 100%)"
         )
-        return
+        border_color = badge_bg = "#10B981" if dentro else "#F59E0B"
+        status_text = "DENTRO DA META SLA" if dentro else "AINDA FORA DA META SLA"
+        call = (
+            f"🎯 <b>Alvo Prático:</b> Atuar em <b>'{motivo_html}'</b> resolve o desvio!"
+            if dentro
+            else f"⚠️ Eliminar <b>'{motivo_html}'</b> ajuda, mas precisa de ações complementares para meta {sla_meta:.0%}."
+        )
+        st.markdown(
+            f"""
+<div style="background:{bg_grad};border:1px solid {border_color};border-radius:14px;padding:20px 24px;margin:8px 0 20px 0">
+  <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px"><div style="display:flex;gap:10px;align-items:center"><span style="font-size:24px">🔮</span><div><h4 style="margin:0;color:#1E293B;font-size:16px;font-weight:800">Cenário Hipotético: Expurgando a Maior Ofensora</h4><p style="margin:2px 0 0 0;color:#475569;font-size:12px">Simulação desconsiderando o motivo mais recorrente</p></div></div><span style="background:{badge_bg};color:#FFF;font-size:10px;font-weight:700;padding:4px 12px;border-radius:999px">{status_text}</span></div>
+  <div style="background:rgba(255,255,255,0.65);border-radius:10px;padding:14px;border:1px dashed rgba(0,0,0,0.08);margin-bottom:16px"><div style="font-size:11px;color:#64748B;font-weight:700">MAIOR OFENSORA</div><div style="font-size:16px;font-weight:700;margin-top:4px;display:flex;gap:8px;flex-wrap:wrap"><span style="color:#DC2626">❌ {motivo_html}</span><span style="background:#FEE2E2;color:#991B1B;font-size:11px;padding:2px 8px;border-radius:4px">{_fmt_int(sim["volume"])} ocorrências</span></div></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:16px"><div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center"><div style="font-size:10px;color:#64748B">Quebra Atual</div><div style="font-size:24px;font-weight:800">{sim["quebra_atual"]:.2%}</div></div><div style="background:white;border-radius:8px;padding:12px;border:2px solid {border_color};text-align:center"><div style="font-size:10px;font-weight:700">Quebra com Expurgo</div><div style="font-size:26px;color:{border_color};font-weight:900">{sim["quebra_expurgada"]:.2%}</div></div><div style="background:white;border-radius:8px;padding:12px;border:1px solid #E2E8F0;text-align:center"><div style="font-size:10px;color:#64748B">Redução</div><div style="font-size:24px;color:#2563EB;font-weight:800">📉 −{sim["impacto_abs"]:.2%}</div></div></div>
+  <div style="font-size:13px;color:#1E293B">{call}</div>
+</div>""",
+            unsafe_allow_html=True,
+        )
 
+
+def _sub_causa_raiz(segmento, df_seg):
+    render_section(f"🔍 Causa Raiz — {segmento}")
+    col_baixa = _resolver_col_baixa(df_seg)
+    if not col_baixa:
+        render_insight("Coluna de motivo de baixa não identificada.", tipo="alerta")
+        return
     df_c = Motor.causa_raiz(df_seg, col_baixa, top_n=8)
-
     if df_c.empty:
-        render_insight("Não há motivos de quebra para compor o Pareto.", tipo="info")
+        render_insight("Sem dados para Pareto.", tipo="info")
         return
-
     render_table_html(
         df_c,
-        fmt={
-            "Volume": "{:,.0f}",
-            "% do Total": "{:.2%}",
-            "Acumulado": "{:.2%}",
-        },
-        colunas_num=(
-            ["Volume", "% do Total", "Acumulado"] if "Volume" in df_c.columns else None
-        ),
+        fmt={"Volume": "{:,.0f}", "% do Total": "{:.2%}", "Acumulado": "{:.2%}"},
+        colunas_num=[
+            c for c in ["Volume", "% do Total", "Acumulado"] if c in df_c.columns
+        ],
         height=380,
     )
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-    cor_bar = SEGMENTOS_CONFIG[segmento]["cor_primaria"]
-    cor_linha = SEGMENTOS_CONFIG[segmento]["cor_secundaria"]
+    st.markdown("<br>")
+    conf = SEGMENTOS_CONFIG.get(
+        segmento, {"cor_primaria": "#0F172A", "cor_secundaria": "#475569"}
+    )
     fig = go.Figure()
-
     fig.add_trace(
         go.Bar(
             x=df_c["Motivo de Baixa"],
             y=df_c["Volume"],
             name="Volume",
-            marker_color=cor_bar,
+            marker_color=conf["cor_primaria"],
             text=df_c["Volume"],
             textposition="outside",
-            textfont=dict(size=14, color="#1F2937", family="Inter"),
+            textfont=dict(size=13),
         )
     )
-
     fig.add_trace(
         go.Scatter(
             x=df_c["Motivo de Baixa"],
@@ -1535,89 +1422,78 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
             name="Acumulado %",
             yaxis="y2",
             mode="lines+markers+text",
-            line=dict(color=cor_linha, width=3),
-            marker=dict(size=10, symbol="circle-dot"),
+            line=dict(color=conf["cor_secundaria"], width=3),
             text=[f"{v:.1%}" for v in df_c["Acumulado"]],
             textposition="top center",
-            textfont=dict(size=13, color="#1F2937", family="Inter"),
         )
     )
-
+    fig.add_shape(
+        type="line",
+        xref="paper",
+        x0=0,
+        x1=1,
+        yref="y2",
+        y0=0.8,
+        y1=0.8,
+        line=dict(color="#F59E0B", width=2, dash="dash"),
+    )
+    fig.add_annotation(
+        xref="paper",
+        x=1,
+        yref="y2",
+        y=0.8,
+        text="80% Pareto",
+        showarrow=False,
+        xanchor="right",
+        font=dict(color="#F59E0B", size=12),
+    )
     fig.update_layout(
-        title=dict(
-            text=f"Pareto de Motivos — {segmento} (com % Acumulado)",
-            font=dict(size=20, color="#1F2937", family="Inter"),
-        ),
-        font=dict(size=14, family="Inter"),
-        yaxis=dict(
-            title=dict(text="Volume", font=dict(size=15, weight="bold")),
-            tickfont=dict(size=13),
-            gridcolor="#E2E8F0",
-        ),
+        title=f"Pareto — {segmento}",
+        yaxis=dict(title="Volume"),
         yaxis2=dict(
-            title=dict(text="Acumulado %", font=dict(size=15, weight="bold")),
+            title="Acumulado %",
             overlaying="y",
             side="right",
             tickformat=".0%",
-            tickfont=dict(size=13),
             range=[0, 1.18],
-            gridcolor="rgba(226, 232, 240, 0.4)",
         ),
-        legend=dict(
-            font=dict(size=14),
-            orientation="h",
-            yanchor="bottom",
-            y=1.03,
-            xanchor="right",
-            x=1,
-        ),
-        height=580,
-        xaxis=dict(
-            tickfont=dict(size=13, color="#374151"),
-            tickangle=-35,
-        ),
-        margin=dict(l=40, r=40, t=90, b=160),
-        plot_bgcolor="rgba(248, 250, 252, 0.5)",
-        paper_bgcolor="rgba(0, 0, 0, 0)",
+        height=560,
+        xaxis=dict(tickangle=-30),
+        margin=dict(t=60, b=160),
     )
-
-    fig.add_hline(
-        y=0.8,
-        line_dash="dash",
-        line_color="#F59E0B",
-        line_width=2,
-        yref="y2",
-        annotation_text="80% Limiar de Pareto",
-        annotation_position="top right",
-        annotation_font=dict(size=13, color="#F59E0B"),
-    )
-
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    if len(df_c) >= 2:
-        t1, t2 = df_c.iloc[0], df_c.iloc[1]
-        render_insight(
-            f"Os 2 principais motivos (**{t1['Motivo de Baixa']}** e "
-            f"**{t2['Motivo de Baixa']}**) respondem por "
-            f"**{t2['Acumulado']:.1%}** das quebras.",
-            tipo="acao",
-        )
+    if _COL_REGIAO in df_seg.columns and col_baixa:
+        try:
+            render_section("🗺️ Quebra por Região")
+            reg_agg = (
+                df_seg.groupby(_COL_REGIAO)
+                .apply(lambda x: _obter_resumo_segmento(x, 0.2)["quebra_atual"])
+                .reset_index(name="Quebra")
+            )
+            fig_reg = px.bar(
+                reg_agg,
+                x=_COL_REGIAO,
+                y="Quebra",
+                color="Quebra",
+                color_continuous_scale="Reds",
+            )
+            fig_reg.update_layout(yaxis_tickformat=".1%", height=320)
+            st.plotly_chart(
+                fig_reg, use_container_width=True, config={"displayModeBar": False}
+            )
+        except Exception:
+            pass
 
 
-def _sub_tecnicos(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    p_base: float,
-    min_aloc: float,
-    top_n: int,
-    sla_meta: float,
-) -> None:
+def _sub_tecnicos(segmento, df_seg, p_ot, p_base, p_pess, min_aloc, top_n, sla_meta):
     render_section(f"👤 Técnicos com Maior Quebra — {segmento}")
-    df_tec = Motor.tecnicos_criticos(df_seg, segmento, p_base, min_aloc, top_n)
+    df_tec = Motor.tecnicos_criticos(
+        df_seg, segmento, p_base, min_aloc, top_n, p_ot=p_ot, p_pess=p_pess
+    )
     if df_tec.empty:
         render_insight("Não há técnicos com volume suficiente.", tipo="info")
         return
-
     render_table_html(
         df_tec,
         fmt={
@@ -1628,109 +1504,94 @@ def _sub_tecnicos(
         },
         height=450,
     )
-
     st.download_button(
         "📥 Exportar Técnicos",
         Utils.gerar_excel(df_tec, f"Tec_{segmento[:20]}"),
-        f"tecnicos_{segmento.lower().replace(' ', '_')}.xlsx",
+        f"tecnicos_{_slug(segmento)}.xlsx",
         key=f"dl_tec_{segmento}",
     )
-
-    df_plot = df_tec.head(10).sort_values("Fechamento Base")
-    cores = [
-        "#EF4444" if v > sla_meta else "#10B981" for v in df_plot["Fechamento Base"]
-    ]
-    fig = go.Figure(
-        go.Bar(
-            y=df_plot["TÉCNICO"],
-            x=df_plot["Fechamento Base"],
-            orientation="h",
-            marker_color=cores,
-            text=[f"{v:.1%}" for v in df_plot["Fechamento Base"]],
-            textposition="outside",
-            textfont=dict(size=13, weight="bold"),
+    if {"TÉCNICO", "Fechamento Base"}.issubset(df_tec.columns):
+        df_plot = df_tec.head(10).sort_values("Fechamento Base")
+        cores = [
+            "#EF4444" if v > sla_meta else "#10B981" for v in df_plot["Fechamento Base"]
+        ]
+        fig = go.Figure(
+            go.Bar(
+                y=df_plot["TÉCNICO"],
+                x=df_plot["Fechamento Base"],
+                orientation="h",
+                marker_color=cores,
+                text=[f"{v:.1%}" for v in df_plot["Fechamento Base"]],
+                textposition="outside",
+            )
         )
-    )
-    fig.add_vline(
-        x=sla_meta,
-        line_dash="dash",
-        line_color="#DC2626",
-        annotation_text=f"Meta {sla_meta:.0%}",
-        annotation_font=dict(size=13, color="#DC2626"),
-    )
-    fig.update_layout(
-        title=dict(
-            text="Quebra Projetada por Técnico", font=dict(size=18, family="Inter")
-        ),
-        font=dict(size=13, family="Inter"),
-        xaxis=dict(tickformat=".1%", tickfont=dict(size=13)),
-        yaxis=dict(tickfont=dict(size=13)),
-        height=max(360, len(df_plot) * 42),
-        margin=dict(t=50, b=30, l=10, r=70),
-    )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        fig.add_vline(
+            x=sla_meta,
+            line_dash="dash",
+            line_color="#DC2626",
+            annotation_text=f"Meta {sla_meta:.0%}",
+        )
+        fig.update_layout(
+            title="Quebra Projetada por Técnico",
+            xaxis_tickformat=".1%",
+            height=max(360, len(df_plot) * 42),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 
-def _sub_plano_acao(
-    segmento: str,
-    df_seg: pd.DataFrame,
-    p_base: float,
-    sla_meta: float,
-) -> None:
+def _sub_plano_acao(segmento, df_seg, p_base, sla_meta):
     render_section(f"🎯 Plano de Ação — {segmento}")
-    folga = Motor.folga_sla(df_seg, sla_meta)
-    cen = Motor.projetar(df_seg, p_base)
+    folga = _obter_folga_sla(df_seg, sla_meta)
+    cen = _obter_resumo_segmento(df_seg, p_base)
     excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])
     pend_exec = folga["precisa_executar_pendente"]
-
     col_d, col_a = st.columns([1, 1.5])
+
     with col_d:
         render_section("📋 Diagnóstico")
         render_kpi_sm(
-            st,
+            col_d,
             "Excesso de NE",
-            f"{int(excesso):,}",
+            _fmt_int(excesso),
             sub="OS além do permitido",
             tema="vermelho" if excesso > 0 else "verde",
         )
         render_kpi_sm(
-            st,
+            col_d,
             "Pendentes a Executar",
-            f"{int(np.ceil(pend_exec)):,}",
+            _fmt_int(np.ceil(pend_exec)),
             sub=f"Mínimo para meta {sla_meta:.0%}",
             tema="azul",
         )
         render_kpi_sm(
-            st,
+            col_d,
             "Proj. Base",
             f"{cen['fechamento_proj']:.2%}",
-            sub=f"c/ {p_base:.0%} de quebra nos pend.",
+            sub=f"c/ {p_base:.0%} quebra pend.",
             tema="vermelho" if cen["fechamento_proj"] > sla_meta else "verde",
         )
-
+    acoes = []
+    if folga["estourado"]:
+        acoes.append(
+            (
+                "🔴 IMEDIATA",
+                f"Acionar plantão para recuperar {_fmt_int(excesso)} OS não executadas.",
+                "alerta",
+            )
+        )
+    if pend_exec > 0:
+        acoes.append(
+            (
+                "🟠 ALTA",
+                f"Garantir execução de {_fmt_int(np.ceil(pend_exec))} OS pendentes.",
+                "alerta",
+            )
+        )
+    acoes.extend(SEGMENTOS_CONFIG.get(segmento, {"acoes": []})["acoes"])
     with col_a:
         render_section("✅ Ações Recomendadas")
-        acoes: list[tuple[str, str, str]] = []
-        if folga["estourado"]:
-            acoes.append(
-                (
-                    " IMEDIATA",
-                    f"Acionar plantão para recuperar {int(excesso):,} OS não executadas.",
-                    "critico",
-                )
-            )
-        if pend_exec > 0:
-            acoes.append(
-                (
-                    "🟠 ALTA",
-                    f"Garantir execução de {int(np.ceil(pend_exec)):,} OS pendentes para atingir meta.",
-                    "alerta",
-                )
-            )
-        acoes.extend(SEGMENTOS_CONFIG[segmento]["acoes"])
         for pri, ac, tp in acoes:
             render_insight(f"**{pri}** — {ac}", tipo=cast(TipoInsightType, tp))
-
     df_plano = pd.DataFrame(
         [{"Segmento": segmento, "Prioridade": p, "Ação": a} for p, a, _ in acoes]
     )
@@ -1738,398 +1599,487 @@ def _sub_plano_acao(
         st.download_button(
             "📥 Exportar Plano",
             Utils.gerar_excel(df_plano, f"Plano_{segmento[:20]}"),
-            f"plano_{segmento.lower().replace(' ', '_')}.xlsx",
+            f"plano_{_slug(segmento)}.xlsx",
             key=f"dl_plano_{segmento}",
         )
 
 
-def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
+def _sub_pendentes(segmento, df_seg):
     render_section(f"📋 Contratos Pendentes — {segmento}")
     df_pend = _build_df_pendentes(df_seg)
-    total_pend = len(df_pend)
+    total = len(df_pend)
+
+    def _nunique(col):
+        return (
+            int(df_pend[col].replace("N/D", pd.NA).dropna().nunique())
+            if col in df_pend.columns
+            else 0
+        )
 
     m1, m2, m3 = st.columns(3)
     render_kpi(
         m1,
         "Total Pendentes",
-        f"{total_pend:,}",
+        _fmt_int(total),
         sub="contratos sem execução",
-        tema="laranja" if total_pend > 0 else "verde",
+        tema="laranja" if total > 0 else "verde",
     )
-    render_kpi(
-        m2,
-        "Técnicos Envolvidos",
-        f"{df_pend['Técnico'].replace('N/D', pd.NA).dropna().nunique():,}",
-        sub="com contrato pendente",
-        tema="azul",
-    )
-    render_kpi(
-        m3,
-        "Monitores Envolvidos",
-        f"{df_pend['Monitor'].replace('N/D', pd.NA).dropna().nunique():,}",
-        sub="supervisionando pendências",
-        tema="cinza",
-    )
-
-    st.markdown("")
+    render_kpi(m2, "Técnicos", _fmt_int(_nunique("Técnico")), tema="azul")
+    render_kpi(m3, "Monitores", _fmt_int(_nunique("Monitor")), tema="cinza")
     if df_pend.empty:
-        render_insight("Nenhum contrato pendente encontrado.", tipo="ok")
+        render_insight("Nenhum pendente listado.", tipo="ok")
         return
 
-    f_tec, f_mon = "Todos", "Todos"
-    with st.expander("🔎 Filtros rápidos", expanded=False):
-        fc1, fc2 = st.columns(2)
-        with fc1:
-            f_tec = st.selectbox(
-                "Técnico",
-                ["Todos"]
-                + sorted(
-                    str(x)
-                    for x in df_pend["Técnico"].dropna().unique()
-                    if str(x) not in {"N/D", "nan"}
-                ),
-                key=f"pend_f_tec_{segmento}",
-            )
-        with fc2:
-            f_mon = st.selectbox(
-                "Monitor",
-                ["Todos"]
-                + sorted(
-                    str(x)
-                    for x in df_pend["Monitor"].dropna().unique()
-                    if str(x) not in {"N/D", "nan"}
-                ),
-                key=f"pend_f_mon_{segmento}",
-            )
+    def _opts(col):
+        return ["Todos"] + sorted(
+            str(x)
+            for x in df_pend[col].dropna().unique()
+            if str(x) not in {"N/D", "nan"}
+        )
 
+    with st.expander("🔎 Filtros rápidos"):
+        fc1, fc2 = st.columns(2)
+        f_tec = fc1.selectbox("Técnico", _opts("Técnico"), key=f"pend_f_tec_{segmento}")
+        f_mon = fc2.selectbox("Monitor", _opts("Monitor"), key=f"pend_f_mon_{segmento}")
     df_view = df_pend.copy()
     if f_tec != "Todos":
-        df_view = df_view[df_view["Técnico"] == f_tec]
+        df_view = df_view[df_view["Técnico"].astype(str) == f_tec]
     if f_mon != "Todos":
-        df_view = df_view[df_view["Monitor"] == f_mon]
-
-    st.markdown(f"**Exibindo {len(df_view):,} de {total_pend:,} contratos pendentes**")
-
+        df_view = df_view[df_view["Monitor"].astype(str) == f_mon]
+    st.markdown(f"**Exibindo {_fmt_int(len(df_view))} de {_fmt_int(total)}**")
     render_table_html(df_view.reset_index(drop=True), height=480)
-
-    st.markdown("")
-    col_exp1, col_exp2, _ = st.columns([1, 1, 2])
-    with col_exp1:
-        st.download_button(
-            " Exportar Filtrado",
-            Utils.gerar_excel(df_view, "Filtrado"),
-            f"pendentes_{segmento.lower().replace(' ', '_')}_filtrado.xlsx",
-            key=f"dl_pend_f_{segmento}",
-        )
-    with col_exp2:
-        st.download_button(
-            "📥 Exportar Completo",
-            Utils.gerar_excel(df_pend, "Completo"),
-            f"pendentes_{segmento.lower().replace(' ', '_')}_completo.xlsx",
-            key=f"dl_pend_c_{segmento}",
-        )
-
-
-def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"⚠️ Motivo de Baixa: Sem Registro — {segmento}")
-
-    def _buscar_coluna(df: pd.DataFrame, candidatos: list[str]) -> str | None:
-        for cand in candidatos:
-            if cand in df.columns:
-                return cand
-        cols_upper = {str(c).upper().strip(): c for c in df.columns}
-        for cand in candidatos:
-            cand_u = str(cand).upper().strip()
-            if cand_u in cols_upper:
-                return cols_upper[cand_u]
-        return None
-
-    col_baixa = (
-        "_COL_BAIXA"
-        if "_COL_BAIXA" in df_seg.columns
-        else _buscar_coluna(
-            df_seg,
-            ["MOTIVO DE BAIXA", "CÓD DE BAIXA 1", "MOTIVO BAIXA", "COD DE BAIXA 1"],
-        )
+    c1, c2, _ = st.columns([1, 1, 2])
+    c1.download_button(
+        "📥 Filtrado",
+        Utils.gerar_excel(df_view, "Filtrado"),
+        f"pendentes_{_slug(segmento)}_filtrado.xlsx",
+        key=f"dl_pend_f_{segmento}",
+        use_container_width=True,
+    )
+    c2.download_button(
+        "📥 Completo",
+        Utils.gerar_excel(df_pend, "Completo"),
+        f"pendentes_{_slug(segmento)}_completo.xlsx",
+        key=f"dl_pend_c_{segmento}",
+        use_container_width=True,
     )
 
-    if not col_baixa or col_baixa not in df_seg.columns:
-        render_insight(
-            "Coluna de motivo de baixa não encontrada na base.", tipo="alerta"
-        )
+
+def _sub_sem_registro(segmento, df_seg):
+    render_section(f"⚠️ Motivo de Baixa: Sem Registro — {segmento}")
+    col_baixa = _resolver_col_baixa(df_seg)
+    if not col_baixa:
+        render_insight("Coluna de baixa não encontrada.", tipo="alerta")
         return
-
-    serie_baixa = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
-    mask_sr = serie_baixa.isin(["SEM REGISTRO", "SEM_REGISTRO", "", "NAN", "NONE"])
-    df_sr = df_seg[mask_sr].copy()
-
-    total_sr = len(df_sr)
-
+    serie = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
+    mask = serie.isin(["SEM REGISTRO", "SEM_REGISTRO", "", "NAN", "NONE"])
+    if "Status Contrato" in df_seg.columns:
+        mask &= (
+            ~df_seg["Status Contrato"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .isin(STATUS_PENDENTE)
+        )
+    df_sr = df_seg[mask].copy()
     m1, m2, m3 = st.columns(3)
     render_kpi(
         m1,
         "Total Sem Registro",
-        _fmt_int(total_sr),
-        sub="contratos com baixa sem registro",
-        tema="vermelho" if total_sr > 0 else "verde",
+        _fmt_int(len(df_sr)),
+        tema="vermelho" if len(df_sr) > 0 else "verde",
     )
     render_kpi(
         m2,
-        "Técnicos Afetados",
-        _fmt_int(df_sr["TÉCNICO"].nunique() if "TÉCNICO" in df_sr.columns else 0),
-        sub="com ocorrências",
+        "Técnicos",
+        _fmt_int(df_sr["TÉCNICO"].nunique() if "TÉCNICO" in df_sr else 0),
         tema="laranja",
     )
     render_kpi(
         m3,
         "Monitores",
-        _fmt_int(df_sr["MONITOR"].nunique() if "MONITOR" in df_sr.columns else 0),
-        sub="supervisionando",
+        _fmt_int(df_sr["MONITOR"].nunique() if "MONITOR" in df_sr else 0),
         tema="azul",
     )
-
-    st.markdown("")
     if df_sr.empty:
-        render_insight(
-            "Nenhum contrato com motivo de baixa 'SEM REGISTRO' ou em branco encontrado neste segmento.",
-            tipo="ok",
-        )
+        render_insight("Nenhum contrato sem registro.", tipo="ok")
         return
-
-    cols_padrao = [
+    cols_pad = [
         c
         for c in [
             "CONTRATO",
             "TÉCNICO",
             "MONITOR",
-            "REGIÃO",
+            _COL_REGIAO,
             "Status Contrato",
             col_baixa,
             "TOTAL DE TAREFAS",
         ]
         if c in df_sr.columns
     ]
-    df_view = df_sr[cols_padrao].copy()
-
+    df_view = df_sr[cols_pad].copy() if cols_pad else df_sr.copy()
     render_table_html(df_view.reset_index(drop=True), height=480)
+    st.download_button(
+        "📥 Exportar Sem Registro",
+        Utils.gerar_excel(df_view, "Sem_Registro"),
+        f"sem_registro_{_slug(segmento)}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        key=f"dl_sr_{segmento}",
+        use_container_width=True,
+    )
 
-    st.markdown("")
-    col_exp1, _ = st.columns([1, 3])
-    with col_exp1:
-        stamp = datetime.now().strftime("%Y%m%d_%H%M")
-        st.download_button(
-            "📥 Exportar Sem Registro",
-            Utils.gerar_excel(df_view, "Sem_Registro"),
-            f"sem_registro_{segmento.lower().replace(' ', '_')}_{stamp}.xlsx",
-            key=f"dl_sr_{segmento}",
-            use_container_width=True,
+
+def _sub_comparativo(df_full, sla_meta, p_base, p_ot, p_pess):
+    render_section("📊 Comparativo entre Segmentos")
+    if "TIPO_SERVICO" not in df_full.columns:
+        render_insight("Sem coluna TIPO_SERVICO no arquivo atual.", tipo="alerta")
+        return
+    linhas = []
+    for seg in sorted(df_full["TIPO_SERVICO"].dropna().unique()):
+        d = df_full[df_full["TIPO_SERVICO"] == seg]
+        m = _obter_resumo_segmento(d, p_base)
+        f = _obter_folga_sla(d, sla_meta)
+        linhas.append(
+            {
+                "Segmento": seg,
+                "Alocado": m["alocado"],
+                "Quebra Atual": m["quebra_atual"],
+                "Fechamento Base": m["fechamento_proj"],
+                "Folga": f["folga_ne_pendente"],
+                "vs Meta": m["fechamento_proj"] - sla_meta,
+            }
+        )
+    df_comp = pd.DataFrame(linhas)
+    if df_comp.empty:
+        return
+
+    # Renderização de colunas sem aninhamento "with st" incorreto
+    c1, c2, c3 = st.columns(3)
+    for i, (_, row) in enumerate(df_comp.iterrows()):
+        col_target = [c1, c2, c3][i % 3]
+        tema = "vermelho" if row["Quebra Atual"] > sla_meta else "verde"
+        render_kpi(
+            col_target,
+            row["Segmento"],
+            f"{row['Quebra Atual']:.2%}",
+            sub=f"Alocado {_fmt_int(row['Alocado'])} | Folga {_fmt_int(row['Folga'])}",
+            tema=tema,
         )
 
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=df_comp["Segmento"],
+            y=df_comp["Quebra Atual"],
+            name="Quebra Atual",
+            marker_color="#0F172A",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            x=df_comp["Segmento"],
+            y=df_comp["Fechamento Base"],
+            name="Fechamento Base",
+            marker_color="#3B82F6",
+        )
+    )
+    fig.add_hline(
+        y=sla_meta,
+        line_dash="dash",
+        line_color="#DC2626",
+        annotation_text=f"Meta {sla_meta:.0%}",
+    )
+    fig.update_layout(barmode="group", yaxis_tickformat=".1%", height=380)
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    render_table_html(
+        df_comp,
+        fmt={
+            "Quebra Atual": "{:.2%}",
+            "Fechamento Base": "{:.2%}",
+            "vs Meta": "{:.2%}",
+        },
+        height=260,
+    )
+    if _COL_REGIAO in df_full.columns:
+        render_section("🗺️ Quebra por Região x Segmento")
+        try:
+            heat = (
+                df_full.groupby(["TIPO_SERVICO", _COL_REGIAO])
+                .apply(
+                    lambda x: _obter_resumo_segmento(x, p_base)["quebra_atual"],
+                    include_groups=False,
+                )
+                .reset_index(name="Quebra")
+            )
+            fig_h = px.density_heatmap(
+                heat,
+                x=_COL_REGIAO,
+                y="TIPO_SERVICO",
+                z="Quebra",
+                color_continuous_scale="Reds",
+                histfunc="avg",
+            )
+            fig_h.update_layout(height=320)
+            st.plotly_chart(
+                fig_h, use_container_width=True, config={"displayModeBar": False}
+            )
+        except Exception:
+            pass
+
 
 # =====================================================================
-# PONTO DE ENTRADA PRINCIPAL
+# FLUXO PRINCIPAL
 # =====================================================================
-def main() -> None:
+def main():
     if st.session_state.get("df_memoria") is None:
         render_insight(
-            "Nenhuma base carregada. Volte ao **Dashboard Geral** e faça o upload.",
+            "Nenhuma base carregada. Volte à página 'Dashboard Geral' e envie os dados do Excel.",
             tipo="alerta",
         )
         return
 
-    df_full = st.session_state["df_memoria"].copy()
-
-    if "Status Contrato" not in df_full.columns:
-        df_full["Status Contrato"] = Utils.classificar_status_excel(df_full)
-
-    if "TIPO_SERVICO" not in df_full.columns:
-        df_full, df_full["TIPO_SERVICO"] = classificar_tipo_servico(df_full)
+    # Cópia defensiva dos atributos e metadados
+    df_full = _preparar_base(st.session_state["df_memoria"].copy())
+    df_full.attrs = dict(getattr(st.session_state["df_memoria"], "attrs", {}))
 
     with st.sidebar:
         st.markdown("### 📁 Escolha a Carteira")
-        segmento_selecionado = st.selectbox(
-            "Segmento:",
-            ["Novos Domicílios", "Migração", "PME"],
-            index=0,
-            key="sel_segmento_principal",
+        opcoes = list(SEGMENTOS_CONFIG.keys()) + ["Todos os Segmentos"]
+        segmento = st.selectbox(
+            "Segmento:", opcoes, index=0, key="sel_segmento_principal"
+        )
+        conf = SEGMENTOS_CONFIG.get(
+            segmento, {"sla_default": 0.20, "p_base_default": 20}
         )
         st.divider()
-        st.header(f"🎯 Filtros {segmento_selecionado}")
-
-        monitores = ["Todos"] + sorted(
-            str(x)
-            for x in df_full["MONITOR"].dropna().unique()
-            if str(x) not in {"nan", "SEM MONITOR", "NÃO MAPEADO"}
+        st.header(f"🎯 Filtros {segmento}")
+        monitores = _opcoes_filtro(
+            df_full, "MONITOR", {"nan", "SEM MONITOR", "NÃO MAPEADO"}
         )
-        sel_mon = st.selectbox(
-            "👔 Monitor", monitores, key=f"mon_{segmento_selecionado}"
-        )
+        sel_mon = st.selectbox("👔 Monitor", monitores, key=f"mon_{segmento}")
         df_filt = (
-            df_full if sel_mon == "Todos" else df_full[df_full["MONITOR"] == sel_mon]
+            df_full
+            if sel_mon == "Todos" or "MONITOR" not in df_full.columns
+            else df_full[df_full["MONITOR"].astype(str) == sel_mon]
         )
-
-        tecnicos = ["Todos"] + sorted(
-            str(x)
-            for x in df_filt["TÉCNICO"].dropna().unique()
-            if str(x) not in {"nan", "NÃO MAPEADO"}
+        df_filt.attrs = dict(getattr(df_full, "attrs", {}))
+        tecnicos = _opcoes_filtro(df_filt, "TÉCNICO", {"nan", "NÃO MAPEADO"})
+        sel_tec = st.selectbox("👷 Técnico", tecnicos, key=f"tec_{segmento}")
+        df = (
+            df_filt
+            if sel_tec == "Todos" or "TÉCNICO" not in df_filt.columns
+            else df_filt[df_filt["TÉCNICO"].astype(str) == sel_tec]
         )
-        sel_tec = st.selectbox(" Técnico", tecnicos, key=f"tec_{segmento_selecionado}")
-        df = df_filt if sel_tec == "Todos" else df_filt[df_filt["TÉCNICO"] == sel_tec]
-
+        df.attrs = dict(getattr(df_filt, "attrs", {}))
         st.divider()
         st.subheader("🔮 Probabilidades")
-        p_ot = (
-            st.slider("Otimista (%)", 0, 100, 15, 5, key=f"pot_{segmento_selecionado}")
-            / 100.0
-        )
-
-        default_pbase = 25 if segmento_selecionado == "Migração" else 20
+        p_ot = st.slider("Otimista (%)", 0, 100, 15, 5, key=f"pot_{segmento}") / 100.0
         p_base = (
             st.slider(
                 "Base (%)",
                 0,
                 100,
-                default_pbase,
+                int(conf["p_base_default"]),
                 5,
-                key=f"pbase_{segmento_selecionado}",
+                key=f"pbase_{segmento}",
             )
             / 100.0
         )
         p_pess = (
-            st.slider(
-                "Pessimista (%)", 0, 100, 50, 5, key=f"ppess_{segmento_selecionado}"
-            )
-            / 100.0
+            st.slider("Pessimista (%)", 0, 100, 50, 5, key=f"ppess_{segmento}") / 100.0
         )
-
+        if not (p_ot <= p_base <= p_pess):
+            st.warning("⚠️ Ajuste recomendado: Otimista ≤ Base ≤ Pessimista")
         st.divider()
-        padrao_sla = float(SEGMENTOS_CONFIG[segmento_selecionado]["sla_default"] * 100)
         sla_meta = (
             st.number_input(
                 "Meta SLA (%)",
                 0.0,
                 100.0,
-                padrao_sla,
+                float(conf["sla_default"] * 100),
                 0.5,
-                key=f"sla_v_{segmento_selecionado}",
+                key=f"sla_v_{segmento}",
             )
             / 100.0
         )
-        min_aloc = 1.0
-        top_n = 999_999
-
+        min_aloc = st.number_input(
+            "Mín. OS por técnico", 1, 500, 1, 1, key=f"minaloc_{segmento}"
+        )
+        min_aloc = float(min_aloc)
+        top_n = st.number_input(
+            "Top N técnicos", 5, 1000, 50, 5, key=f"topn_{segmento}"
+        )
+        top_n = int(top_n)
         st.divider()
-        with st.sidebar.expander("⚙️ Configurações do Sistema", expanded=False):
-            st.markdown("**Gerenciamento de Sessão**")
-
-            if st.button(
-                "🔄 Reiniciar Aplicação", use_container_width=True, type="secondary"
-            ):
+        with st.expander("⚙️ Sistema", expanded=False):
+            if st.button("🔄 Reiniciar", use_container_width=True):
                 st.rerun()
-
-            if st.button(
-                "🗑️ Limpar Cache e Reiniciar",
-                use_container_width=True,
-                type="secondary",
-            ):
+            if st.button("🗑️ Limpar Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                st.success("Cache limpo! Recarregando...")
+                st.success("Cache limpo!")
                 st.rerun()
-
         st.divider()
         render_debug_criterios(df_full, expanded=False)
 
     if df.empty:
-        render_insight("Nenhum dado para os filtros selecionados.", tipo="alerta")
+        render_insight(
+            "Nenhum dado encontrado para os filtros e segmentação selecionados.",
+            tipo="alerta",
+        )
         return
-
-    _injetar_css_dinamico(segmento_selecionado)
-
+    _injetar_css_dinamico(segmento)
     regioes = (
         [
             str(r).strip().upper()
-            for r in df[Config.COL_REGIAO].dropna().unique()
+            for r in df[_COL_REGIAO].dropna().unique()
             if str(r).strip()
         ]
-        if Config.COL_REGIAO in df.columns
+        if _COL_REGIAO in df.columns
         else ["OUTRAS"]
     )
-    _render_topo_fixo(segmento_selecionado, regioes, len(df))
+    _render_topo_fixo(segmento, regioes, len(df))
 
-    df_seg = df[df["TIPO_SERVICO"] == segmento_selecionado].copy()
-    if df_seg.empty:
-        render_insight(
-            f"Nenhum registro classificado como **{segmento_selecionado}** "
-            "nos filtros atuais.  \nVerifique o expander **🔎 Diagnóstico "
-            "Técnico de Critérios** na sidebar.",
-            tipo="info",
+    if segmento == "Todos os Segmentos":
+        df_seg = df.copy()
+        df_seg.attrs = dict(getattr(df, "attrs", {}))
+        m_seg = _obter_resumo_segmento(df_seg, p_base)
+        folga = _obter_folga_sla(df_seg, sla_meta)
+        _render_card_status("Consolidado Geral", m_seg, sla_meta)
+        _render_alerts_chips(_gerar_alertas(df_seg, m_seg, sla_meta, folga))
+
+        c1, c2, _ = st.columns([1, 1, 2])
+        h = _hash_df(df_seg)
+        key_pdf = f"pdf_bytes_Todos_{h}_{sla_meta}_{p_base}"
+        with c1:
+            if st.button(
+                "⚙️ Gerar PDF Comparativo",
+                key="gen_pdf_todos",
+                type="primary",
+                use_container_width=True,
+            ):
+                with st.spinner("Gerando PDF Comparativo..."):
+                    try:
+                        st.session_state[key_pdf] = PDFExecutivoComparativo.gerar(
+                            df_seg, sla_meta, p_ot, p_base, p_pess, min_aloc, top_n
+                        )
+                    except Exception as e:
+                        st.error(f"Falha de PDF: {e}")
+        with c2:
+            if key_pdf in st.session_state:
+                st.download_button(
+                    "📄 Baixar PDF",
+                    st.session_state[key_pdf],
+                    f"comparativo_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    "application/pdf",
+                    key="dl_pdf_todos",
+                    use_container_width=True,
+                )
+        st.divider()
+        t1, t2, t3, t4, t5 = st.tabs(
+            [
+                "📊 Comparativo",
+                "🔍 Causa Raiz Global",
+                "👤 Técnicos Global",
+                "📋 Pendentes Global",
+                "⚠️ Sem Registro Global",
+            ]
         )
+        with t1:
+            _sub_comparativo(df, sla_meta, p_base, p_ot, p_pess)
+            _sub_visao_geral(
+                "Consolidado Geral", df_seg, m_seg, p_ot, p_base, p_pess, sla_meta
+            )
+        with t2:
+            _sub_causa_raiz("Todos os Segmentos", df_seg)
+        with t3:
+            _sub_tecnicos(
+                "Todos os Segmentos",
+                df_seg,
+                p_ot,
+                p_base,
+                p_pess,
+                min_aloc,
+                top_n,
+                sla_meta,
+            )
+        with t4:
+            _sub_pendentes("Todos os Segmentos", df_seg)
+        with t5:
+            _sub_sem_registro("Todos os Segmentos", df_seg)
         return
 
-    if "_COL_BAIXA" in df_full.attrs:
-        df_seg.attrs["_COL_BAIXA"] = df_full.attrs["_COL_BAIXA"]
-
-    m_seg = Motor.projetar(df_seg, p_base)
-    _render_card_status(segmento_selecionado, m_seg, sla_meta)
-    st.markdown("")
-
-    col_btn, col_desc = st.columns([1, 3])
-    with col_btn:
-        with st.spinner("Gerando PDF..."):
-            pdf_bytes = SEGMENTOS_CONFIG[segmento_selecionado]["pdf_class"].gerar(
-                df=df_seg,
-                sla_meta=sla_meta,
-                p_ot=p_ot,
-                p_base=p_base,
-                p_pess=p_pess,
-                min_aloc=min_aloc,
-                top_n=min(top_n, 15),
-            )
-        st.download_button(
-            label=f"📄 Baixar PDF — {segmento_selecionado}",
-            data=pdf_bytes,
-            file_name=(
-                f"relatorio_{segmento_selecionado.lower().replace(' ', '_')}_"
-                f"{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
-            ),
-            mime="application/pdf",
-            key=f"pdf_dl_{segmento_selecionado}",
-            use_container_width=True,
-            type="primary",
+    # Fluxo por segmento único
+    df_seg = (
+        df[df["TIPO_SERVICO"] == segmento].copy()
+        if "TIPO_SERVICO" in df.columns
+        else df.copy()
+    )
+    df_seg.attrs = dict(getattr(df, "attrs", {}))
+    if df_seg.empty:
+        render_insight(
+            f"Nenhum registro encontrado para o segmento **{segmento}**.", tipo="info"
         )
+        return
+    m_seg = _obter_resumo_segmento(df_seg, p_base)
+    folga = _obter_folga_sla(df_seg, sla_meta)
+    _render_card_status(segmento, m_seg, sla_meta)
+    _render_alerts_chips(_gerar_alertas(df_seg, m_seg, sla_meta, folga))
+
+    h = _hash_df(df_seg)
+    key_pdf = f"pdf_bytes_{_slug(segmento)}_{h}_{sla_meta}_{p_base}_{p_ot}_{p_pess}_{min_aloc}_{top_n}"
+    col_btn, col_dl, col_desc = st.columns([1, 1, 2])
+    with col_btn:
+        if st.button(
+            f"⚙️ Gerar PDF — {segmento}",
+            key=f"gen_pdf_{segmento}",
+            type="primary",
+            use_container_width=True,
+        ):
+            with st.spinner("Gerando PDF..."):
+                try:
+                    st.session_state[key_pdf] = SEGMENTOS_CONFIG[segmento][
+                        "pdf_class"
+                    ].gerar(df_seg, sla_meta, p_ot, p_base, p_pess, min_aloc, top_n)
+                except Exception as e:
+                    st.error(f"Falha de PDF: {e}")
+    with col_dl:
+        if key_pdf in st.session_state:
+            st.download_button(
+                "📄 Baixar PDF",
+                st.session_state[key_pdf],
+                f"relatorio_{_slug(segmento)}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                "application/pdf",
+                key=f"dl_pdf_{segmento}",
+                use_container_width=True,
+            )
     with col_desc:
         render_insight(
-            "O PDF inclui métricas, projeções, top técnicos e plano de ação.",
+            "O PDF Executivo inclui cenários, curva de Pareto e listagem de ofensores críticos.",
             tipo="info",
         )
-
     st.divider()
-
     sub1, sub2, sub3, sub4, sub5, sub6 = st.tabs(
         [
             "📊 Visão Geral",
             "🔍 Causa Raiz",
             "👤 Técnicos",
             "🎯 Plano de Ação",
-            " Pendentes",
+            "📋 Pendentes",
             "⚠️ Sem Registro",
         ]
     )
     with sub1:
-        _sub_visao_geral(
-            segmento_selecionado, df_seg, m_seg, p_ot, p_base, p_pess, sla_meta
-        )
+        _sub_visao_geral(segmento, df_seg, m_seg, p_ot, p_base, p_pess, sla_meta)
     with sub2:
-        _sub_causa_raiz(segmento_selecionado, df_seg)
+        _sub_causa_raiz(segmento, df_seg)
     with sub3:
-        _sub_tecnicos(segmento_selecionado, df_seg, p_base, min_aloc, top_n, sla_meta)
+        _sub_tecnicos(segmento, df_seg, p_ot, p_base, p_pess, min_aloc, top_n, sla_meta)
     with sub4:
-        _sub_plano_acao(segmento_selecionado, df_seg, p_base, sla_meta)
+        _sub_plano_acao(segmento, df_seg, p_base, sla_meta)
     with sub5:
-        _sub_pendentes(segmento_selecionado, df_seg)
+        _sub_pendentes(segmento, df_seg)
     with sub6:
-        _sub_sem_registro(segmento_selecionado, df_seg)
+        _sub_sem_registro(segmento, df_seg)
 
 
 if __name__ == "__main__":
