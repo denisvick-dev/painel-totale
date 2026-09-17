@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 import unicodedata
 from io import BytesIO
-from typing import Any, Literal
+from typing import Any, Literal, cast
+from pathlib import Path
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,14 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from streamlit_gsheets import GSheetsConnection
 
-# ── Componentes corporativos ──────────────────────────────────────────────────
+# ── Imports para o Mapa ───────────────────────────────────────────────────────
+import geobr
+import folium
+from streamlit_folium import st_folium
+from folium.plugins import MarkerCluster
+from folium import Element
+
+# ── Componentes corporativos ─────────────────────────────────────────────────
 from components.componentes import (
     Cores,
     aplicar_estilo,
@@ -26,6 +35,10 @@ from components.componentes import (
     render_kpi_sm,
     render_section_header,
 )
+
+# Pasta de cache local
+CACHE_DIR = Path(".streamlit_cache")
+CACHE_DIR.mkdir(exist_ok=True)
 
 # ====================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -352,7 +365,7 @@ def _injetar_css_local() -> None:
         table.rota-tab tbody tr:hover:not(.total-escalados):not(.total-montados) td
             { background: #F1F5F9; }
 
-        /* ── DataFrames estilizados ── */
+        /* ── DataFrames estilizados ─ */
         .styled-table-wrapper {
             background: #FFFFFF; border-radius: 0.75rem;
             padding: 1rem 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
@@ -399,7 +412,7 @@ def render_resultado_base(regioes: list[str], total: int) -> None:
 def render_dataframe_local(
     df: pd.DataFrame,
     titulo: str = "",
-    icone: str = "📊",
+    icone: str = "",
     badge: str = "",
     fmt: dict[str, Any] | None = None,
     color_col: str | None = None,
@@ -870,9 +883,7 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
         classe = (
             "total-escalados"
             if "Escalados" in monitor
-            else "total-montados"
-            if "Montados" in monitor
-            else ""
+            else "total-montados" if "Montados" in monitor else ""
         )
         linhas_html.append(
             f'<tr class="{classe}">'
@@ -925,7 +936,365 @@ def render_bloco_rota_turno(df_master: pd.DataFrame, total_montados: int) -> Non
 
 
 # ====================================================
-# 7. APLICAÇÃO PRINCIPAL
+# 7. FUNÇÕES DE MAPA COM DETECÇÃO INTELIGENTE
+# ====================================================
+
+# Lista completa de municípios da região de interesse (SP + GRU + ABCDM)
+MUNICIPIOS_REGIAO_INTERESSE = [
+    # São Paulo Capital
+    "São Paulo",
+    # Guarulhos e Região
+    "Guarulhos",
+    "Arujá",
+    "Mogi Das Cruzes",
+    "Suzano",
+    "Itaquaquecetuba",
+    "Ferraz De Vasconcelos",
+    "Poá",
+    # ABCDM + Grande ABC
+    "Santo André",
+    "São Bernardo Do Campo",
+    "São Caetano Do Sul",
+    "Diadema",
+    "Mauá",
+    "Ribeirão Pires",
+    "Rio Grande Da Serra",
+]
+
+
+@st.cache_data(ttl=86400, show_spinner=False)  # 24 horas
+def carregar_geometria_municipios_sp() -> pd.DataFrame | None:
+    """
+    Carrega geometrias dos municípios com cache otimizado.
+    Prioriza municípios da região de interesse.
+    """
+    try:
+        # Tenta carregar do cache em disco primeiro
+        cache_file = CACHE_DIR / "geo_sp_2022.pkl"
+        if cache_file.exists():
+            with open(cache_file, "rb") as f:
+                df_sp = pickle.load(f)
+                return cast(pd.DataFrame, df_sp)
+
+        # Carrega da API do IBGE
+        df_sp = geobr.read_municipality(code_muni="SP", year=2022)  # type: ignore
+
+        if not isinstance(df_sp, pd.DataFrame):
+            return None
+
+        # Filtra apenas municípios de interesse (reduz dados em ~95%)
+        municipios_interesse = [
+            "São Paulo",
+            "Guarulhos",
+            "Arujá",
+            "Mogi Das Cruzes",
+            "Suzano",
+            "Itaquaquecetuba",
+            "Ferraz De Vasconcelos",
+            "Poá",
+            "Santo André",
+            "São Bernardo Do Campo",
+            "São Caetano Do Sul",
+            "Diadema",
+            "Mauá",
+            "Ribeirão Pires",
+            "Rio Grande Da Serra",
+        ]
+
+        df_sp["name_muni_norm"] = df_sp["name_muni"].astype(str).str.strip().str.title()
+
+        df_filtrado = df_sp[df_sp["name_muni_norm"].isin(municipios_interesse)].copy()
+
+        # Salva em disco para próxima execução
+        with open(cache_file, "wb") as f:
+            pickle.dump(df_filtrado, f)
+
+        return cast(pd.DataFrame, df_filtrado)
+
+    except Exception as e:
+        st.error(f"Erro ao carregar geometrias: {e}")
+        return None
+
+
+def detectar_municipios_presentes(df: pd.DataFrame) -> list[str]:
+    """
+    Detecção inteligente: identifica quais municípios estão presentes nos dados.
+
+    Args:
+        df: DataFrame com coluna CIDADE
+
+    Returns:
+        Lista de nomes normalizados dos municípios encontrados
+    """
+    if "CIDADE" not in df.columns or df.empty:
+        return []
+
+    # Normaliza os nomes das cidades nos dados
+    cidades_dados = (
+        df["CIDADE"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .apply(
+            lambda v: unicodedata.normalize("NFKD", v)
+            .encode("ASCII", errors="ignore")
+            .decode()
+        )
+        .unique()
+    )
+
+    # Mapeamento de variações comuns para nomes oficiais
+    mapeamento_cidades = {
+        "SAO PAULO": "São Paulo",
+        "S PAULO": "São Paulo",
+        "SP": "São Paulo",
+        "CAPITAL": "São Paulo",
+        "GUARULHOS": "Guarulhos",
+        "GRU": "Guarulhos",
+        "SANTO ANDRE": "Santo André",
+        "SAO BERNARDO DO CAMPO": "São Bernardo Do Campo",
+        "SBC": "São Bernardo Do Campo",
+        "SAO CAETANO DO SUL": "São Caetano Do Sul",
+        "SCS": "São Caetano Do Sul",
+        "DIADEMA": "Diadema",
+        "MAUA": "Mauá",
+        "MAUÁ": "Mauá",
+        "RIBEIRAO PIRES": "Ribeirão Pires",
+        "RIO GRANDE DA SERRA": "Rio Grande Da Serra",
+        "ARUJA": "Arujá",
+        "ARUJÁ": "Arujá",
+        "MOGI DAS CRUZES": "Mogi Das Cruzes",
+        "MOGI": "Mogi Das Cruzes",
+        "SUZANO": "Suzano",
+        "ITAQUAQUECETUBA": "Itaquaquecetuba",
+        "ITAQUA": "Itaquaquecetuba",
+        "FERRAZ DE VASCONCELOS": "Ferraz De Vasconcelos",
+        "FERRAZ": "Ferraz De Vasconcelos",
+        "POA": "Poá",
+        "POÁ": "Poá",
+    }
+
+    municipios_encontrados = set()
+
+    for cidade in cidades_dados:
+        if not cidade or cidade in {"", "NAN", "NONE", "NULL"}:
+            continue
+
+        # Tenta encontrar correspondência no mapeamento
+        if cidade in mapeamento_cidades:
+            municipios_encontrados.add(mapeamento_cidades[cidade])
+        else:
+            # Busca parcial nos municípios de interesse
+            for mun_oficial in MUNICIPIOS_REGIAO_INTERESSE:
+                mun_norm = (
+                    unicodedata.normalize("NFKD", mun_oficial)
+                    .encode("ASCII", errors="ignore")
+                    .decode()
+                    .upper()
+                )
+                if cidade in mun_norm or mun_norm in cidade:
+                    municipios_encontrados.add(mun_oficial)
+                    break
+
+    return sorted(list(municipios_encontrados))
+
+
+def filtrar_geometria_por_municipios(
+    df_geo: pd.DataFrame, municipios: list[str]
+) -> pd.DataFrame:
+    """
+    Filtra as geometrias apenas para os municípios detectados.
+    """
+    if df_geo is None or df_geo.empty or not municipios:
+        return pd.DataFrame()
+
+    # Normaliza nomes dos municípios para filtro
+    municipios_norm = [
+        unicodedata.normalize("NFKD", m)
+        .encode("ASCII", errors="ignore")
+        .decode()
+        .title()
+        for m in municipios
+    ]
+
+    df_filtrado = df_geo[df_geo["name_muni_norm"].isin(municipios_norm)].copy()
+    return df_filtrado
+
+
+def calcular_centroide_municipios(df_geo: pd.DataFrame | None) -> tuple[float, float]:
+    """
+    Calcula o centroide aproximado dos municípios para centralizar o mapa.
+    """
+    if df_geo is None or df_geo.empty:
+        return -23.70, -46.55  # Centro padrão ABCDM
+
+    try:
+        centroid = df_geo.geometry.centroid
+        lat = centroid.y.mean()
+        lon = centroid.x.mean()
+        return float(lat), float(lon)
+    except Exception:
+        return -23.70, -46.55
+
+
+def criar_mapa_rapido(df_pontos: pd.DataFrame | None) -> folium.Map:
+    """
+    Cria mapa apenas com pontos (sem bordas dos municípios).
+    Carregamento 10x mais rápido!
+    """
+    m = folium.Map(location=[-23.65, -46.55], zoom_start=11, tiles="OpenStreetMap")
+
+    if df_pontos is None or df_pontos.empty:
+        return m
+
+    marker_cluster = MarkerCluster().add_to(m)
+
+    for _, row in df_pontos.iterrows():
+        cor = "#EF4444" if row.get("STATUS_ATIVIDADE") == "PENDENTE" else "#10B981"
+
+        folium.CircleMarker(
+            location=[row["COORD_Y"], row["COORD_X"]],
+            radius=4,
+            color=cor,
+            fill=True,
+            fill_opacity=0.7,
+            popup=f"Téc: {row.get('NOME_OFICIAL', 'N/A')}<br>Status: {row.get('STATUS_ATIVIDADE', 'N/A')}",
+        ).add_to(marker_cluster)
+
+    legenda_html = """
+    <div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000;
+                background-color: white; padding: 10px; border-radius: 5px;
+                border: 2px solid #E2E8F0; font-size: 12px;">
+        <b> Legenda</b><br>
+        <span style="color: #EF4444;">●</span> Pendente<br>
+        <span style="color: #10B981;">●</span> Instalado/Concluído
+    </div>
+    """
+    m.get_root().add_child(Element(legenda_html))  # type: ignore
+
+    return m
+
+
+def criar_mapa_folium(
+    df_geo: pd.DataFrame | None,
+    df_pontos: pd.DataFrame | None,
+    municipios_detectados: list[str],
+) -> folium.Map:
+    """
+    Cria o mapa Folium com geometrias e pontos sobrepostos.
+    """
+    lat_center, lon_center = calcular_centroide_municipios(df_geo)
+    zoom_level = 10 if len(municipios_detectados) > 5 else 11
+
+    m = folium.Map(
+        location=[lat_center, lon_center],
+        zoom_start=zoom_level,
+        tiles="OpenStreetMap",
+        prefer_canvas=True,
+    )
+
+    cores_regiao = {
+        "São Paulo": {"fill": "#DBEAFE", "stroke": "#1E40AF"},
+        "Guarulhos": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Arujá": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Mogi Das Cruzes": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Suzano": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Itaquaquecetuba": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Ferraz De Vasconcelos": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Poá": {"fill": "#D1FAE5", "stroke": "#065F46"},
+        "Santo André": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "São Bernardo Do Campo": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "São Caetano Do Sul": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "Diadema": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "Mauá": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "Ribeirão Pires": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+        "Rio Grande Da Serra": {"fill": "#EDE9FE", "stroke": "#5B21B6"},
+    }
+
+    if df_geo is not None and not df_geo.empty:
+
+        def style_function(feature: dict) -> dict:  # type: ignore
+            properties = (
+                feature.get("properties", {}) if isinstance(feature, dict) else {}
+            )
+            name_muni = (
+                properties.get("name_muni", "") if isinstance(properties, dict) else ""
+            )
+
+            cores = cores_regiao.get(
+                name_muni, {"fill": "#F1F5F9", "stroke": "#94A3B8"}
+            )
+
+            return {
+                "fillColor": cores["fill"],
+                "color": cores["stroke"],
+                "weight": 2,
+                "fillOpacity": 0.25,
+            }
+
+        def highlight_function(feature: dict) -> dict:  # type: ignore
+            return {
+                "fillOpacity": 0.5,
+                "weight": 3,
+            }
+
+        folium.GeoJson(
+            df_geo,
+            name="Municípios",
+            style_function=style_function,
+            highlight_function=highlight_function,
+            tooltip=folium.GeoJsonTooltip(
+                fields=["name_muni"],
+                aliases=["Município:"],
+                localize=True,
+            ),
+        ).add_to(m)
+
+    if df_pontos is not None and not df_pontos.empty:
+        for status in df_pontos["STATUS_ATIVIDADE"].unique():
+            df_status = df_pontos[df_pontos["STATUS_ATIVIDADE"] == status]
+            cor = "#EF4444" if status == "PENDENTE" else "#10B981"
+
+            for _, row in df_status.iterrows():
+                folium.CircleMarker(
+                    location=[row["COORD_Y"], row["COORD_X"]],
+                    radius=5,
+                    color=cor,
+                    fill=True,
+                    fill_opacity=0.7,
+                    popup=folium.Popup(
+                        f"""
+                        <b>Técnico:</b> {row.get('NOME_OFICIAL', 'N/A')}<br>
+                        <b>Status:</b> {status}<br>
+                        <b>Contrato:</b> {row.get('CONTRATO', 'N/A')}<br>
+                        <b>Cidade:</b> {row.get('CIDADE', 'N/A')}
+                        """,
+                        max_width=250,
+                    ),
+                ).add_to(m)
+
+    legenda_html = """
+    <div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000;
+                background-color: white; padding: 10px; border-radius: 5px;
+                border: 2px solid #E2E8F0; font-size: 12px;">
+        <b> Legenda</b><br>
+        <span style="color: #EF4444;">●</span> Pendente<br>
+        <span style="color: #10B981;">●</span> Instalado/Concluído<br>
+        <hr style="margin: 5px 0;">
+        <b>🗺️ Regiões</b><br>
+        <span style="color: #1E40AF;">●</span> São Paulo (Leste)<br>
+        <span style="color: #065F46;">●</span> Guarulhos (GRU)<br>
+        <span style="color: #5B21B6;">●</span> ABCDM
+    </div>
+    """
+    m.get_root().add_child(Element(legenda_html))  # type: ignore
+
+    return m
+
+
+# ====================================================
+# 8. APLICAÇÃO PRINCIPAL
 # ====================================================
 def main() -> None:
     aplicar_estilo()
@@ -970,7 +1339,7 @@ def main() -> None:
             diag = df_proc.attrs.get("diagnostico", {})
             if diag.get("contrato_vazio", 0) > 0:
                 st.toast(
-                    f"🗑️ {diag['contrato_vazio']} linha(s) sem contrato removida(s).",
+                    f"️ {diag['contrato_vazio']} linha(s) sem contrato removida(s).",
                     icon="⚠️",
                 )
             st.rerun()
@@ -1013,7 +1382,7 @@ def main() -> None:
         st.divider()
         st.subheader("🎛️ Filtros Premium")
 
-        if st.checkbox("🟢 Apenas Adesão (ND)", key=f"chk_nd_{reset_key}"):
+        if st.checkbox(" Apenas Adesão (ND)", key=f"chk_nd_{reset_key}"):
             df_master = df_master[df_master["Check_ND"]]
 
         if st.checkbox(
@@ -1042,7 +1411,7 @@ def main() -> None:
             df_master = df_master[df_master["Check_Soundbox"]]
 
         if st.checkbox(
-            "📉 Baixa Velocidade",
+            " Baixa Velocidade",
             help="Exibe apenas contratos com velocidade identificada inferior a 400 Mbps. "
             "Contratos sem velocidade são excluídos.",
             key=f"filtro_vel_menor_400_{reset_key}",
@@ -1079,7 +1448,7 @@ def main() -> None:
     )
     render_resultado_base(regioes, len(df_master))
 
-    # ── KPIs Principais ─────────────────────────────
+    # ── KPIs Principais ────────────────────────────
     soma_os = int(df_master["TOTAL_TAREFAS"].sum())
     tecnicos = df_master["LOGIN_TECNICO"].nunique()
     monitores_qtd = df_master["Monitor"].nunique()
@@ -1125,7 +1494,7 @@ def main() -> None:
     render_bloco_rota_turno(df_master, st.session_state["total_montados_manual"])
 
     # ── Gráficos Executivos ──────────────────────────
-    render_section_header("📈", "Visão Executiva")
+    render_section_header("", "Visão Executiva")
     g1, g2 = st.columns([1, 1.2])
 
     with g1:
@@ -1194,7 +1563,7 @@ def main() -> None:
     aba_tec, aba_mapa, aba_base, aba_contratos, aba_equalizacao = st.tabs(
         [
             "🏆 Top Técnicos",
-            "🗺️ Mapa",
+            "️ Mapa",
             "🗃️ Base Completa",
             "📄 Resumo Contratos",
             "⚖️ Equalização de Rota",
@@ -1230,47 +1599,90 @@ def main() -> None:
         st.plotly_chart(fig_tec, use_container_width=True)
 
     # ============================================================
-    # ABA — MAPA (CORRIGIDA)
+    # ABA — MAPA (OTIMIZADO)
     # ============================================================
     with aba_mapa:
-        df_mapa = df_master.dropna(subset=["COORD_X", "COORD_Y"]).copy()
-        if (
-            not df_mapa.empty
-            and df_mapa["COORD_X"].astype(str).str.contains(r"\d").any()
-        ):
-            df_mapa["COORD_X"] = pd.to_numeric(
-                df_mapa["COORD_X"].astype(str).str.replace(",", "."), errors="coerce"
-            )
-            df_mapa["COORD_Y"] = pd.to_numeric(
-                df_mapa["COORD_Y"].astype(str).str.replace(",", "."), errors="coerce"
-            )
-            df_mapa = df_mapa.dropna(subset=["COORD_X", "COORD_Y"])
-            if not df_mapa.empty:
-                # Usando px.scatter_map compatível com Plotly 6.0+
-                fig_mapa = px.scatter_map(
-                    df_mapa,
-                    lat="COORD_Y",
-                    lon="COORD_X",
-                    color="STATUS_ATIVIDADE",
-                    zoom=9,
-                    height=550,
-                    hover_name="NOME_OFICIAL",
-                )
+        st.markdown("### 🗺️ Mapa de Distribuição Geográfica")
 
-                # Chamando o update_layout sem aninhamentos incorretos
-                fig_mapa.update_layout(
-                    map_style="open-street-map",
-                    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+        # 1. Detecção de Municípios
+        municipios_detectados = detectar_municipios_presentes(df_master)
+
+        # 2. Prepara pontos das O.S.
+        df_pontos: pd.DataFrame | None = None
+        if not df_master.empty:
+            df_pontos_temp = df_master.dropna(subset=["COORD_X", "COORD_Y"]).copy()
+            if not df_pontos_temp.empty:
+                df_pontos_temp["COORD_X"] = pd.to_numeric(
+                    df_pontos_temp["COORD_X"].astype(str).str.replace(",", "."),
+                    errors="coerce",
                 )
-                st.plotly_chart(fig_mapa, use_container_width=True)
+                df_pontos_temp["COORD_Y"] = pd.to_numeric(
+                    df_pontos_temp["COORD_Y"].astype(str).str.replace(",", "."),
+                    errors="coerce",
+                )
+                df_pontos = df_pontos_temp.dropna(subset=["COORD_X", "COORD_Y"])
+
+        # 3. Opções de visualização
+        col_opt1, col_opt2, col_opt3 = st.columns(3)
+        with col_opt1:
+            modo_mapa = st.radio(
+                "🗺️ Modo de Visualização",
+                ["📍 Apenas Pontos", "🗺️ Com Bordas (Lento)", "📊 Gráfico"],
+                horizontal=True,
+                index=0,
+                key=f"modo_mapa_{reset_key}",
+            )
+
+        # 4. Renderiza conforme escolha
+        if modo_mapa == "📍 Apenas Pontos":
+            if df_pontos is not None and not df_pontos.empty:
+                with st.spinner("Renderizando pontos..."):
+                    mapa = criar_mapa_rapido(df_pontos)
+                    st_folium(mapa, width=1200, height=600, returned_objects=[])
             else:
-                render_insight(
-                    "Coordenadas GPS não encontradas após limpeza.", tipo="info"
+                render_insight("⚠️ Sem coordenadas GPS na base.", tipo="alerta")
+
+        elif modo_mapa == "🗺️ Com Bordas (Lento)":
+            with st.spinner("Carregando base cartográfica (pode demorar na 1ª vez)..."):
+                df_geo = carregar_geometria_municipios_sp()
+
+                if df_geo is not None and not df_geo.empty:
+                    mapa = criar_mapa_folium(df_geo, df_pontos, municipios_detectados)
+                    st_folium(mapa, width=1200, height=600, returned_objects=[])
+                else:
+                    render_insight(
+                        "Não foi possível carregar as bordas.", tipo="alerta"
+                    )
+
+        else:  # Gráfico
+            if "CIDADE" in df_master.columns:
+                cidades_count = (
+                    df_master["CIDADE"].fillna("Não informado").value_counts().head(15)
                 )
-        else:
-            render_insight(
-                "A planilha não possui coordenadas GPS válidas para o mapa.",
-                tipo="info",
+                fig = px.bar(
+                    x=cidades_count.values,
+                    y=cidades_count.index,
+                    orientation="h",
+                    title="Distribuição por Cidade",
+                    color=cidades_count.values,
+                    color_continuous_scale="Blues",
+                    labels={"x": "Quantidade", "y": "Cidade"},
+                )
+                fig.update_layout(height=500, yaxis_title="", xaxis_title="Quantidade")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                render_insight("Coluna CIDADE não encontrada.", tipo="alerta")
+
+        # 5. Resumo
+        col_info1, col_info2, col_info3 = st.columns(3)
+        with col_info1:
+            st.metric(" Pontos no Mapa", len(df_pontos) if df_pontos is not None else 0)
+        with col_info2:
+            st.metric("🏙️ Municípios", len(municipios_detectados))
+        with col_info3:
+            st.metric(
+                "📡 Com Coordenadas",
+                f"{len(df_pontos) if df_pontos is not None else 0} / {len(df_master)}",
             )
 
     # ============================================================
@@ -1334,7 +1746,7 @@ def main() -> None:
                     if str(x) not in {"nan", "SEM MONITOR", "NÃO MAPEADO"}
                 )
                 sel_mon = st.selectbox(
-                    "👔 Monitor",
+                    " Monitor",
                     mon_contratos,
                     key=f"filtro_mon_contratos_{reset_key}",
                 )
@@ -1369,7 +1781,7 @@ def main() -> None:
             render_dataframe_local(
                 df_cf,
                 titulo="Resumo Contratos",
-                icone="📄",
+                icone="",
                 badge=f"{len(df_cf)} contratos",
                 height="auto",
             )
@@ -1424,7 +1836,7 @@ def main() -> None:
                     st.markdown(" ")
                     st.markdown(" ")
                     st.markdown(
-                        f"📏 **Faixa aceitável:** desvio entre "
+                        f" **Faixa aceitável:** desvio entre "
                         f"**−{tolerancia}%** e **+{tolerancia}%** da carga ideal."
                     )
 
@@ -1446,10 +1858,8 @@ def main() -> None:
             total_os_g = float(df_eq_mon["OS_Atual"].sum())
             total_eq_g = int(df_eq_mon["Equipe"].sum())
 
-            # Meta de produtividade global (O.S. por técnico)
             os_por_tecnico_ideal = total_os_g / total_eq_g if total_eq_g > 0 else 0.0
 
-            # KPIs de topo
             k1, k2, k3 = st.columns(3)
             with k1:
                 render_kpi_sm(
@@ -1486,22 +1896,18 @@ def main() -> None:
             # ============================================================
             # 4. CÁLCULO DE EQUALIZAÇÃO POR O.S.
             # ============================================================
-            # OS Ideal = meta por técnico × equipe atual do monitor
             df_eq_mon["OS Ideal"] = (
                 (df_eq_mon["Equipe"] * os_por_tecnico_ideal).round(0).astype(int)
             )
 
-            # Diferença = quantas O.S. sobram (+) ou faltam (−) no monitor
             df_eq_mon["Balanço (O.S.)"] = (
                 df_eq_mon["OS_Atual"] - df_eq_mon["OS Ideal"]
             ).astype(int)
 
-            # Média atual de O.S. por técnico
             df_eq_mon["Média Atual"] = (
                 df_eq_mon["OS_Atual"] / df_eq_mon["Equipe"].replace(0, np.nan)
             ).fillna(0)
 
-            # Desvio % vs meta
             df_eq_mon["Desvio %"] = np.where(
                 os_por_tecnico_ideal > 0,
                 (
@@ -1566,7 +1972,6 @@ def main() -> None:
 
             fig = go.Figure()
 
-            # Barras: O.S. Atual
             fig.add_trace(
                 go.Bar(
                     name="O.S. Atual",
@@ -1576,9 +1981,7 @@ def main() -> None:
                         (
                             "#EF4444"
                             if d > tolerancia
-                            else "#F59E0B"
-                            if d < -tolerancia
-                            else "#10B981"
+                            else "#F59E0B" if d < -tolerancia else "#10B981"
                         )
                         for d in df_eq_mon["Desvio %"]
                     ],
@@ -1587,7 +1990,6 @@ def main() -> None:
                 )
             )
 
-            # Barras: O.S. Ideal (referência)
             fig.add_trace(
                 go.Bar(
                     name="O.S. Ideal",
@@ -1657,10 +2059,10 @@ def main() -> None:
                             excesso = int(row["Balanço (O.S.)"])
                             st.markdown(
                                 f"**{row['Monitor']}**  \n"
-                                f"📤 Redistribuir **{excesso} O.S.**  \n"
+                                f" Redistribuir **{excesso} O.S.**  \n"
                                 f"📊 Atual: `{int(row['OS_Atual'])}` "
                                 f"| Ideal: `{int(row['OS Ideal'])}`  \n"
-                                f"👥 Equipe: {int(row['Equipe'])} téc. "
+                                f" Equipe: {int(row['Equipe'])} téc. "
                                 f"({row['Média Atual']:.1f} O.S./téc.)"
                             )
                             st.divider()
@@ -1682,7 +2084,6 @@ def main() -> None:
                             )
                             st.divider()
 
-                # Saldo geral
                 total_excesso = int(com_excesso["Balanço (O.S.)"].sum())
                 total_falta = int(com_falta["Balanço (O.S.)"].abs().sum())
 
@@ -1718,7 +2119,6 @@ def main() -> None:
                         df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "OS_Atual"].iloc[0]
                     )
 
-            # Botões de controle
             col_ctrl1, col_ctrl2, _ = st.columns([1, 1, 3])
             with col_ctrl1:
                 if st.button(
@@ -1746,7 +2146,6 @@ def main() -> None:
                         )
                     st.rerun()
 
-            # Inputs de simulação — um por monitor
             cols_sim = st.columns(min(len(monitores_atuais), 4))
             for i, mon in enumerate(monitores_atuais):
                 equipe_mon = int(
@@ -1763,7 +2162,6 @@ def main() -> None:
                     )
                     st.session_state["sim_os"][mon] = int(valor_input)
 
-            # ── Recálculo com base na simulação ──
             df_sim = df_eq_mon.copy()
             df_sim["OS Simulada"] = df_sim["Monitor"].map(st.session_state["sim_os"])
             df_sim["Média Simulada"] = (
@@ -1781,7 +2179,6 @@ def main() -> None:
             )
             df_sim["Status Sim"] = df_sim["Desvio Sim %"].apply(classificar_status)
 
-            # KPIs comparativos
             total_sim_os = int(sum(st.session_state["sim_os"].values()))
             diff_total_os = total_sim_os - int(total_os_g)
 
@@ -1815,7 +2212,6 @@ def main() -> None:
                     "verde" if variacao_max <= tolerancia else "vermelho",
                 )
 
-            # Tabela comparativa
             df_comp = df_sim[
                 [
                     "Monitor",
@@ -1858,7 +2254,6 @@ def main() -> None:
                 height="auto",
             )
 
-            # Gráfico comparativo
             fig_sim = go.Figure()
 
             fig_sim.add_trace(
@@ -1923,7 +2318,6 @@ def main() -> None:
 
             st.plotly_chart(fig_sim, use_container_width=True)
 
-            # Insight final
             if diff_total_os != 0:
                 render_insight(
                     f"⚠️ Sua simulação tem **{abs(diff_total_os)} O.S. "
