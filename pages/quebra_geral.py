@@ -2,9 +2,8 @@
 quebra.py
 =========
 Super Relatório Corporativo Unificado | Quebra Operacional TOTALE
-Versão Final: ETL Robusto + Cache Inteligente + UX Refinado + Método Projetar + Merge Inteligente Ativos + Tabela Formatada c/ Metas
 
-Version: 4.2.1
+Versão: 4.3.0 (Integração com Critérios)
 Author: TOTALE Tecnologia
 """
 
@@ -12,16 +11,17 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import os
+import importlib
 import re
 import sys
 import unicodedata
 from collections.abc import Callable
 from datetime import datetime
 from html import escape
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -29,72 +29,157 @@ import streamlit as st
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-# ── Path bootstrap ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────
+# IMPORTAÇÃO DO MÓDULO CRITÉRIOS
+# ─────────────────────────────────────────────────────────────────────
+CRITERIOS_DISPONIVEL = False
+try:
+    from components.criterios import (
+        classificar_tipo_servico as _classificar_tipo_servico_criterios,
+        detectar_col_tipo_os_1,
+        detectar_col_habilidade,
+        detectar_col_flag_gpon,
+        render_painel_criterios,
+        TERMOS_ND,
+        TERMO_MIGRACAO_OS,
+        TERMO_GPON_HABILIDADE,
+        TERMO_PME_HABILIDADE,
+        VAZIOS_GERAIS,
+    )
+    CRITERIOS_DISPONIVEL = True
+except ImportError as erro:
+    CRITERIOS_DISPONIVEL = False
+    st.warning(f"⚠️ Módulo critérios não disponível: {erro}")
+
+# ─────────────────────────────────────────────────────────────────────
+# PATH BOOTSTRAP
+# ─────────────────────────────────────────────────────────────────────
 _DIR = Path(__file__).resolve().parent
 _ROOT = _DIR.parent
-for _p in (_DIR, _ROOT):
-    if str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+
+for _path in (_DIR, _ROOT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 
-# ── Definição Global de Fontes ──────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
+# FONTES
+# ─────────────────────────────────────────────────────────────────────
 class Fontes:
-    TITULO: str = "'Manrope', sans-serif"
-    TEXTO: str = "'Inter', sans-serif"
+    TITULO: Final[str] = "'Manrope', sans-serif"
+    TEXTO: Final[str] = "'Inter', sans-serif"
 
 
-# ── Componentes visuais globais ─────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────
+# TIPAGENS
+# ─────────────────────────────────────────────────────────────────────
+TemaKPI = Literal[
+    "azul",
+    "verde",
+    "vermelho",
+    "laranja",
+    "cinza",
+    "roxo",
+    "amarelo",
+    "escuro",
+]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COMPONENTES VISUAIS OPCIONAIS
+# ─────────────────────────────────────────────────────────────────────
+_component_section_header: Callable[..., Any] | None = None
+_component_sidebar_brand: Callable[..., Any] | None = None
+_component_table_html: Callable[..., Any] | None = None
+_component_insight: Callable[..., Any] | None = None
+_component_kpi: Callable[..., Any] | None = None
+_component_kpi_sm: Callable[..., Any] | None = None
+
 try:
+    from components.componentes import render_insight as _component_insight
+    from components.componentes import render_kpi as _component_kpi
+    from components.componentes import render_kpi_sm as _component_kpi_sm
     from components.componentes import (
-        render_section_header,
-        render_sidebar_brand,
-        render_table_html,
+        render_section_header as _component_section_header,
     )
-    from components.componentes import render_insight as _render_insight_global
-    from components.componentes import render_kpi as _render_kpi_global
-    from components.componentes import render_kpi_sm as _render_kpi_sm_global
+    from components.componentes import render_sidebar_brand as _component_sidebar_brand
+    from components.componentes import render_table_html as _component_table_html
 
     COMPONENTES_DISPONIVEIS = True
+
 except ImportError:
     COMPONENTES_DISPONIVEIS = False
 
-    render_section_header = lambda i, t: st.subheader(f"{i} {t}" if i else t)
-    render_sidebar_brand = lambda **k: None
-    render_table_html = lambda df, **k: st.dataframe(df, use_container_width=True)
-    _render_insight_global = lambda t, tipo="info": (
-        st.info(t) if tipo == "info" else st.warning(t)
-    )
-    _render_kpi_global = lambda col, label, value, sub="", tema="azul": col.metric(
-        label, value, sub
-    )
-    _render_kpi_sm_global = lambda col, label, value, sub="", tema="azul": col.metric(
-        label, value, sub
+
+def render_section_header(icone: str, titulo: str) -> None:
+    if _component_section_header is not None:
+        _component_section_header(icone, titulo)
+        return
+
+    st.subheader(f"{icone} {titulo}" if icone else titulo)
+
+
+def render_sidebar_brand(**kwargs: Any) -> None:
+    if _component_sidebar_brand is not None:
+        _component_sidebar_brand(**kwargs)
+
+
+def render_table_html(df: pd.DataFrame, **kwargs: Any) -> None:
+    if _component_table_html is not None:
+        _component_table_html(df, **kwargs)
+        return
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
     )
 
 
-# ── Importação do Robô (Lazy Load) ─────────────────────────────────
+def render_insight(
+    texto: str,
+    tipo: Literal["ok", "info", "alerta", "critico", "acao"] = "info",
+) -> None:
+    if _component_insight is not None:
+        _component_insight(texto, tipo)
+        return
+
+    if tipo == "ok":
+        st.success(texto)
+    elif tipo in {"critico", "alerta"}:
+        st.warning(texto)
+    elif tipo == "acao":
+        st.error(texto)
+    else:
+        st.info(texto)
+
+
+# ────────────────────────────────────────────────────────────────────
+# ROBÔ OPCIONAL
+# ─────────────────────────────────────────────────────────────────────
+RoboCallable = Callable[..., Any]
+
 ROBO_DISPONIVEL: bool = False
-_impl_robo: Callable[..., None] | None = None
+_impl_robo: RoboCallable | None = None
 _ROBO_IMPORT_ERRO: str = ""
 
 
-def _tentar_import_robo() -> tuple[Callable[..., Any] | None, str]:
-    _here = Path(__file__).resolve().parent
-    for extra in (_here, _here.parent):
-        s = str(extra)
-        if s not in sys.path:
-            sys.path.insert(0, s)
+def _tentar_import_robo() -> tuple[RoboCallable | None, str]:
     try:
-        import robo.robo_local as mod
+        module = importlib.import_module("robo.robo_local")
 
-        fn = getattr(mod, "renderizar_robo_local", None) or getattr(
-            mod, "render_robo_local", None
-        )
-        if callable(fn):
-            return fn, f"OK ({mod.__file__})"
-        return None, "Módulo encontrado mas sem função de render"
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+        funcao = getattr(module, "renderizar_robo_local", None)
+        if not callable(funcao):
+            funcao = getattr(module, "render_robo_local", None)
+
+        if callable(funcao):
+            arquivo_modulo = getattr(module, "__file__", "módulo sem caminho")
+            return funcao, f"OK ({arquivo_modulo})"
+
+        return None, "Módulo encontrado, mas sem função de renderização compatível."
+
+    except Exception as erro:
+        return None, f"{type(erro).__name__}: {erro}"
 
 
 _impl_robo, _ROBO_IMPORT_ERRO = _tentar_import_robo()
@@ -102,32 +187,73 @@ ROBO_DISPONIVEL = _impl_robo is not None
 
 
 def renderizar_robo_local(*args: Any, **kwargs: Any) -> None:
-    if _impl_robo:
-        try:
-            _impl_robo(*args, **kwargs)
-        except Exception as e:
-            st.sidebar.error(f"Erro no Robô: {e}")
-    else:
-        st.sidebar.warning("🤖 Robô offline (Modo Manual)")
+    if _impl_robo is None:
+        st.sidebar.warning("🤖 Robô offline. Utilize upload manual.")
+        return
+
+    try:
+        _impl_robo(*args, **kwargs)
+    except Exception as erro:
+        st.sidebar.error(f"Erro no Robô: {erro}")
 
 
-# ══════════════════════════════════════════════════════════════════════
-# CONFIGURAÇÕES E CONSTANTES
-# ═══════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────
+# CONFIGURAÇÕES
+# ────────────────────────────────────────────────────────────────────
 class Config:
-    SLA_QUEBRA_MAXIMA = 0.20
-    SLA_MIGRACAO_MAXIMA = 0.25
-    URL_LISTA_ATIVOS = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-    SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-    WORKSHEET_ATIVOS = "lista_ativos"
-    STATUS_ORDEM = ["Executada", "Não Executada", "Pendente"]
-    CORES_STATUS = {
+    SLA_QUEBRA_MAXIMA: Final[float] = 0.20
+    SLA_MIGRACAO_MAXIMA: Final[float] = 0.25
+
+    URL_LISTA_ATIVOS: Final[str] = (
+        "https://docs.google.com/spreadsheets/d/"
+        "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
+    )
+
+    SHEET_ID_ATIVOS: Final[str] = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+
+    WORKSHEET_ATIVOS: Final[str] = "lista_ativos"
+
+    STATUS_ORDEM: Final[tuple[str, ...]] = (
+        "Executada",
+        "Não Executada",
+        "Pendente",
+    )
+
+    ORDEM_TIPOS: Final[tuple[str, ...]] = (
+        "Novos Domicílios",
+        "PME",
+        "Migração",
+        "Outros",
+    )
+
+    # EXPANDIDO: Mais variações de nomes de colunas
+    COLUNAS_TIPO_SERVICO: Final[tuple[str, ...]] = (
+        "TIPO_SERVICO",
+        "TIPO SERVICO",
+        "TIPO DE SERVICO",
+        "TIPO DE SERVIÇO",
+        "SERVICO",
+        "SERVIÇO",
+        "SEGMENTO",
+        "PRODUTO",
+        "TIPO DE ORDEM",
+        "TIPO_ORDEM",
+        "CATEGORIA",
+        "CLASSIFICACAO",
+        "CLASSIFICAÇÃO",
+        "NATUREZA",
+        "TIPO O.S 1",
+        "TIPO OS 1",
+        "TIPO O.S. 1",
+    )
+
+    CORES_STATUS: Final[dict[str, str]] = {
         "Executada": "#10B981",
         "Não Executada": "#EF4444",
         "Pendente": "#94A3B8",
     }
-    ORDEM_TIPOS = ["Novos Domicílios", "PME", "Migração", "Outros"]
-    CORES_TIPO = {
+
+    CORES_TIPO: Final[dict[str, str]] = {
         "Novos Domicílios": "#1E40AF",
         "PME": "#7C3AED",
         "Migração": "#0369A1",
@@ -136,10 +262,10 @@ class Config:
     }
 
 
-MAPA_CODIGO_NUMERICO = {
+MAPA_CODIGO_NUMERICO: Final[dict[int, str]] = {
     **{
-        k: "Não Executada"
-        for k in [
+        codigo: "Não Executada"
+        for codigo in [
             100,
             101,
             103,
@@ -171,8 +297,8 @@ MAPA_CODIGO_NUMERICO = {
         ]
     },
     **{
-        k: "Executada"
-        for k in [
+        codigo: "Executada"
+        for codigo in [
             128,
             328,
             408,
@@ -190,424 +316,658 @@ MAPA_CODIGO_NUMERICO = {
     },
 }
 
-CORES_REGIAO = {
-    "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
-    "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
-    "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
-    "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
+CORES_REGIAO: Final[dict[str, dict[str, str]]] = {
+    "LESTE": {
+        "bg": "#DBEAFE",
+        "text": "#1E40AF",
+        "border": "#3B82F6",
+    },
+    "GRU": {
+        "bg": "#D1FAE5",
+        "text": "#065F46",
+        "border": "#10B981",
+    },
+    "ABCDM": {
+        "bg": "#EDE9FE",
+        "text": "#5B21B6",
+        "border": "#8B5CF6",
+    },
+    "OUTRAS": {
+        "bg": "#F1F5F9",
+        "text": "#475569",
+        "border": "#94A3B8",
+    },
 }
 
-TemaKPI = Literal[
-    "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "amarelo", "escuro"
-]
-
-SLA_QUEBRA_MAXIMA = 0.20
-SLA_MIGRACAO_MAXIMA = 0.25
-
-URL_LISTA_ATIVOS = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
+CIDADES_LESTE: Final[frozenset[str]] = frozenset(
+    {
+        "SAO PAULO",
+    }
 )
 
-SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-WORKSHEET_ATIVOS = "lista_ativos"
+CIDADES_GRU: Final[frozenset[str]] = frozenset(
+    {
+        "GUARULHOS",
+        "ARUJA",
+        "MOGI DAS CRUZES",
+        "SUZANO",
+        "ITAQUAQUECETUBA",
+        "FERRAZ DE VASCONCELOS",
+        "POA",
+    }
+)
 
-STATUS_ORDEM = ["Executada", "Não Executada", "Pendente"]
+CIDADES_ABCDM: Final[frozenset[str]] = frozenset(
+    {
+        "SANTO ANDRE",
+        "SAO BERNARDO DO CAMPO",
+        "SAO CAETANO DO SUL",
+        "DIADEMA",
+        "MAUA",
+        "RIBEIRAO PIRES",
+        "RIO GRANDE DA SERRA",
+    }
+)
 
-CORES_STATUS = {
-    "Executada": "#10B981",
-    "Não Executada": "#EF4444",
-    "Pendente": "#94A3B8",
-}
+VALORES_AUSENTES: Final[frozenset[str]] = frozenset(
+    {
+        "",
+        "NAN",
+        "NONE",
+        "NULL",
+        "NAT",
+        "NA",
+        "N/A",
+        "-",
+    }
+)
 
-ORDEM_TIPOS = [
-    "Novos Domicílios",
-    "PME",
-    "Migração",
-    "Outros",
-]
+RE_ESPACOS: Final[re.Pattern[str]] = re.compile(r"\s+")
+RE_ALFANUMERICO: Final[re.Pattern[str]] = re.compile(r"[^A-Z0-9]")
+RE_NUMERO_INICIAL: Final[re.Pattern[str]] = re.compile(r"^(\d+)")
+RE_LOGIN_DECIMAL: Final[re.Pattern[str]] = re.compile(r"^(\d+)\.0+$")
 
-CORES_TIPO = {
-    "Novos Domicílios": "#1E40AF",
-    "PME": "#7C3AED",
-    "Migração": "#0369A1",
-    "Quebra Geral": "#78350F",
-    "Outros": "#64748B",
-}
+RE_MIGRACAO: Final[re.Pattern[str]] = re.compile(
+    r"\bMIGR\b"
+    r"|\bUPGRADE\b"
+    r"|\bTROCA\b"
+    r"|\bMELHORIA\b"
+    r"|\bSWAP\b",
+    re.IGNORECASE
+)
 
-SLA_QUEBRA_MAXIMA = 0.20
-SLA_MIGRACAO_MAXIMA = 0.25
-URL_LISTA_ATIVOS = "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-WORKSHEET_ATIVOS = "lista_ativos"
+RE_PME: Final[re.Pattern[str]] = re.compile(
+    r"\bPME\b"
+    r"|\bP\s*M\s*E\b"
+    r"|\bPJ\b"
+    r"|\bJURIDICO\b"
+    r"|\bJURÍDICO\b"
+    r"|\bEMPRESA\b"
+    r"|\bCORPORATIVO\b"
+    r"|\bCOMERCIAL\b",
+    re.IGNORECASE,
+)
 
-STATUS_ORDEM = ["Executada", "Não Executada", "Pendente"]
-
-CORES_STATUS = {
-    "Executada": "#10B981",
-    "Não Executada": "#EF4444",
-    "Pendente": "#94A3B8",
-}
-
-ORDEM_TIPOS = [
-    "Novos Domicílios",
-    "PME",
-    "Migração",
-    "Outros",
-]
-
-CORES_TIPO = {
-    "Novos Domicílios": "#1E40AF",
-    "PME": "#7C3AED",
-    "Migração": "#0369A1",
-    "Quebra Geral": "#78350F",
-    "Outros": "#64748B",
-}
-
-
-# Constante global — fora da classe Config
-COLUNAS_TIPO_SERVICO: list[str] = [
-    "TIPO_SERVICO",
-    "TIPO SERVICO",
-]
+RE_NOVOS_DOMICILIOS: Final[re.Pattern[str]] = re.compile(
+    r"\bND\b"
+    r"|\bINSTALACAO\b"
+    r"|\bINSTALAÇÃO\b"
+    r"|\bNOV.*DOMICIL"
+    r"|\bDOMICIL"
+    r"|\bRESIDENCIAL\b"
+    r"|\bNOV.*INSTAL"
+    r"|\bPRIMEIRA\b"
+    r"|\bFIBRA\s*NOVA\b",
+    re.IGNORECASE,
+)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# CSS GLOBAL
-# ═══════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────────────────────────────
+def _html(valor: Any) -> str:
+    return escape(str(valor), quote=True)
+
+
+def _fmt_pct_br(valor: Any) -> str:
+    try:
+        numero = float(valor)
+
+        if not np.isfinite(numero):
+            return "—"
+
+        texto = f"{numero * 100:,.2f}%"
+        return texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fmt_int_br(valor: Any) -> str:
+    try:
+        numero = float(valor)
+
+        if not np.isfinite(numero):
+            return "—"
+
+        return f"{int(round(numero)):,}".replace(",", ".")
+
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _is_missing_scalar(valor: Any) -> bool:
+    try:
+        resultado = pd.isna(valor)
+
+        if isinstance(resultado, (bool, np.bool_)):
+            return bool(resultado)
+
+        return False
+
+    except (TypeError, ValueError):
+        return False
+
+
+def _divisao_segura(
+    numerador: pd.Series,
+    denominador: pd.Series,
+    padrao: float = 0.0,
+) -> pd.Series:
+    num = pd.to_numeric(numerador, errors="coerce").fillna(0).to_numpy(dtype=float)
+    den = pd.to_numeric(denominador, errors="coerce").fillna(0).to_numpy(dtype=float)
+
+    resultado = np.full_like(num, padrao, dtype=float)
+
+    np.divide(
+        num,
+        den,
+        out=resultado,
+        where=den > 0,
+    )
+
+    return pd.Series(resultado, index=numerador.index)
+
+
+def _identificador_upload(nome: str, conteudo: bytes) -> str:
+    hash_arquivo = hashlib.sha256(conteudo).hexdigest()
+    return f"{nome}|{len(conteudo)}|{hash_arquivo}"
+
+
+def _obter_dataframe_sessao(chave: str) -> pd.DataFrame | None:
+    valor = st.session_state.get(chave)
+
+    if isinstance(valor, pd.DataFrame):
+        return valor
+
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────
+# CSS
+# ─────────────────────────────────────────────────────────────────────
 def _injetar_css_global() -> None:
     st.markdown(
         """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
-    
-    .import-header-title { font-family: 'Manrope', sans-serif; font-size: 32px; font-weight: 800; color: #1E293B; letter-spacing: -0.5px; margin: 0; display: inline-block; }
-    .import-header-badge { display: inline-flex; align-items: center; background: #EEF2FF; color: #3B82F6; border: 1.5px solid #93C5FD; font-size: 11px; font-weight: 800; padding: 3px 12px; border-radius: 9999px; letter-spacing: 0.6px; text-transform: uppercase; margin-left: 14px; vertical-align: middle; }
-    .import-header-sub { font-size: 14px; color: #64748B; margin-top: 6px; margin-bottom: 14px; font-weight: 400; font-family: 'Inter', sans-serif; }
-    .import-header-line { height: 3px; background: linear-gradient(90deg, #012869 0%, #1E40AF 30%, #F59E0B 65%, #EF4444 100%); border-radius: 2px; margin-bottom: 18px; }
-    .import-alert-green { background-color: #E8F8F0; border: 1px solid #C2F0D9; border-radius: 8px; padding: 14px 20px; color: #107C41; font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-family: 'Inter', sans-serif; }
-    
-    div[data-testid="stButton"] > button[kind="primary"] { background: #FF3838 !important; color: #FFFFFF !important; border: none !important; border-radius: 8px !important; padding: 12px 24px !important; font-size: 14.5px !important; font-weight: 700 !important; box-shadow: 0 4px 14px rgba(255, 56, 56, 0.25) !important; transition: all 0.2s ease-in-out !important; font-family: 'Manrope', sans-serif; }
-    div[data-testid="stButton"] > button[kind="primary"]:hover { background: #E02828 !important; box-shadow: 0 6px 18px rgba(224, 40, 40, 0.35) !important; transform: translateY(-1px); }
-    
-    .hero-container { background: rgba(248,250,252,0.95); padding: 0.5rem 0; border-radius: 14px; margin-bottom: 20px; }
-    .hero-card { background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%); padding: 28px 40px; border-radius: 14px; color: white; box-shadow: 0 10px 40px rgba(1,40,105,0.20); position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.10); }
-    .hero-title { margin: 0; font-size: 30px; font-weight: 800; color: white !important; letter-spacing: -0.5px; text-shadow: 0 2px 4px rgba(0,0,0,0.45); font-family: 'Manrope', sans-serif; }
-    .hero-sub { margin: 6px 0 0 0; font-size: 14px; opacity: 0.95; color: #F8FAFC; text-shadow: 0 1px 3px rgba(0,0,0,0.40); font-family: 'Inter', sans-serif; }
-    
-    .base-info { background: linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%); padding: 1rem 1.5rem; border-radius: 0.75rem; margin-bottom: 1.5rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-family: 'Inter', sans-serif; }
-    .badge-regiao { padding: 0.3rem 0.9rem; border-radius: 999px; font-size: 0.82rem; font-weight: 700; border: 2px solid; }
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;600;700;800&display=swap');
 
-    /* Estilização da Tabela Matriz Executiva */
-    .matriz-table-container {
-        width: 100%;
-        overflow-x: auto;
-        border-radius: 12px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-        border: 1px solid #E2E8F0;
-        background: #FFFFFF;
-        margin-bottom: 16px;
-        font-family: 'Inter', sans-serif;
-    }
-    .matriz-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-    .matriz-table th {
-        background: #F8FAFC;
-        color: #475569;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        padding: 14px 16px;
-        border-bottom: 2px solid #E2E8F0;
-        text-align: center;
-    }
-    .matriz-table th:first-child {
-        text-align: left;
-    }
-    .matriz-table td {
-        padding: 10px 16px;
-        border-bottom: 1px solid #F1F5F9;
-        text-align: center;
-        color: #1E293B;
-    }
-    .matriz-table td:first-child {
-        text-align: left;
-        font-weight: 600;
-    }
-    .matriz-table tr:hover {
-        background-color: #F8FAFC;
-    }
-    .matriz-table tr.total-row {
-        background-color: #F1F5F9;
-        font-weight: 800;
-        border-top: 2px solid #CBD5E1;
-    }
-    .badge-meta-ok {
-        background-color: #DCFCE7;
-        color: #15803D;
-        font-weight: 700;
-        padding: 5px 12px;
-        border-radius: 6px;
-        display: inline-block;
-        min-width: 70px;
-        border: 1px solid #86EFAC;
-    }
-    .badge-meta-nok {
-        background-color: #FEE2E2;
-        color: #B91C1C;
-        font-weight: 700;
-        padding: 5px 12px;
-        border-radius: 6px;
-        display: inline-block;
-        min-width: 70px;
-        border: 1px solid #FCA5A5;
-    }
-    </style>
-    """,
+        .import-header-title {
+            font-family: 'Manrope', sans-serif;
+            font-size: 32px;
+            font-weight: 800;
+            color: #1E293B;
+            letter-spacing: -0.5px;
+            margin: 0;
+            display: inline-block;
+        }
+
+        .import-header-badge {
+            display: inline-flex;
+            align-items: center;
+            background: #EEF2FF;
+            color: #3B82F6;
+            border: 1.5px solid #93C5FD;
+            font-size: 11px;
+            font-weight: 800;
+            padding: 3px 12px;
+            border-radius: 9999px;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-left: 14px;
+            vertical-align: middle;
+        }
+
+        .import-header-sub {
+            font-size: 14px;
+            color: #64748B;
+            margin-top: 6px;
+            margin-bottom: 14px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .import-header-line {
+            height: 3px;
+            background: linear-gradient(90deg, #012869 0%, #1E40AF 30%, #F59E0B 65%, #EF4444 100%);
+            border-radius: 2px;
+            margin-bottom: 18px;
+        }
+
+        .import-alert-green {
+            background-color: #E8F8F0;
+            border: 1px solid #C2F0D9;
+            border-radius: 8px;
+            padding: 14px 20px;
+            color: #107C41;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .hero-container {
+            background: rgba(248,250,252,0.95);
+            padding: 0.5rem 0;
+            border-radius: 14px;
+            margin-bottom: 20px;
+        }
+
+        .hero-card {
+            background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);
+            padding: 28px 40px;
+            border-radius: 14px;
+            color: white;
+            box-shadow: 0 10px 40px rgba(1,40,105,0.20);
+        }
+
+        .hero-title {
+            margin: 0;
+            font-size: 30px;
+            font-weight: 800;
+            color: white !important;
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .hero-sub {
+            margin: 6px 0 0 0;
+            font-size: 14px;
+            color: #F8FAFC;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .base-info {
+            background: linear-gradient(135deg, #0F172A 0%, #1E3A5F 100%);
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .badge-regiao {
+            padding: 0.3rem 0.9rem;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            border: 2px solid;
+        }
+
+        .matriz-table-container {
+            width: 100%;
+            overflow-x: auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            border: 1px solid #E2E8F0;
+            background: #FFFFFF;
+            margin-bottom: 16px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .matriz-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .matriz-table th {
+            background: #F8FAFC;
+            color: #475569;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 14px 16px;
+            border-bottom: 2px solid #E2E8F0;
+            text-align: center;
+        }
+
+        .matriz-table th:first-child {
+            text-align: left;
+        }
+
+        .matriz-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #F1F5F9;
+            text-align: center;
+            color: #1E293B;
+        }
+
+        .matriz-table td:first-child {
+            text-align: left;
+            font-weight: 600;
+        }
+
+        .matriz-table tr:hover {
+            background-color: #F8FAFC;
+        }
+
+        .matriz-table tr.total-row {
+            background-color: #F1F5F9;
+            font-weight: 800;
+            border-top: 2px solid #CBD5E1;
+        }
+
+        .badge-meta-ok {
+            background-color: #DCFCE7;
+            color: #15803D;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            min-width: 70px;
+            border: 1px solid #86EFAC;
+        }
+
+        .badge-meta-nok {
+            background-color: #FEE2E2;
+            color: #B91C1C;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 6px;
+            display: inline-block;
+            min-width: 70px;
+            border: 1px solid #FCA5A5;
+        }
+        </style>
+        """,
         unsafe_allow_html=True,
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# WRAPPERS DE INTERFACE (UI)
-# ═══════════════════════════════════════════════════════════════════════
-_MAPA_TEMA_GLOBAL: dict[str, str] = {
-    "azul": "azul",
-    "verde": "verde",
-    "vermelho": "vermelho",
-    "laranja": "laranja",
-    "cinza": "cinza",
-    "roxo": "roxo",
-    "amarelo": "amarelo",
-    "escuro": "escuro",
+# ─────────────────────────────────────────────────────────────────────
+# KPI
+# ─────────────────────────────────────────────────────────────────────
+TEMAS_ESPECIAIS: Final[dict[str, dict[str, str]]] = {
+    "amarelo": {
+        "fundo": "#FEF9C3",
+        "texto": "#854D0E",
+        "borda": "#EAB308",
+        "titulo": "#A16207",
+    },
+    "roxo": {
+        "fundo": "#FAF5FF",
+        "texto": "#7E22CE",
+        "borda": "#A855F7",
+        "titulo": "#6B21A8",
+    },
+    "escuro": {
+        "fundo": "#1E293B",
+        "texto": "#FFFFFF",
+        "borda": "#475569",
+        "titulo": "#E2E8F0",
+    },
 }
 
 
-def render_kpi(
-    col: Any, label: str, value: str, sub: str = "", tema: TemaKPI = "azul"
-) -> None:
-    if not COMPONENTES_DISPONIVEIS:
-        col.metric(label, value, sub)
-        return
-
-    temas_extra: dict[str, dict[str, str]] = {
-        "amarelo": {
-            "fundo": "#FEF9C3",
-            "texto": "#854D0E",
-            "borda": "#EAB308",
-            "titulo": "#A16207",
-        },
-        "roxo": {
-            "fundo": "#FAF5FF",
-            "texto": "#7E22CE",
-            "borda": "#A855F7",
-            "titulo": "#6B21A8",
-        },
-        "escuro": {
-            "fundo": "#1E293B",
-            "texto": "#FFFFFF",
-            "borda": "#475569",
-            "titulo": "#E2E8F0",
-        },
-    }
-
-    if tema in temas_extra:
-        t = temas_extra[tema]
-        col.markdown(
-            f'<div style="background:{t["fundo"]};border-left:4px solid {t["borda"]};'
-            f'border-radius:10px;padding:20px 24px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">'
-            f'<div style="font-family:{Fontes.TEXTO};font-size:11px;font-weight:700;'
-            f'color:{t["titulo"]};text-transform:uppercase;letter-spacing:1.2px;'
-            f'margin-bottom:6px;">{label}</div>'
-            f'<div style="font-family:{Fontes.TITULO};font-size:28px;font-weight:800;'
-            f'color:{t["texto"]};line-height:1;font-variant-numeric:tabular-nums;">{value}</div>'
-            f'<div style="font-family:{Fontes.TEXTO};font-size:12px;color:{t["titulo"]};'
-            f'margin-top:6px;font-weight:500;">{sub}</div></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        tema_str = _MAPA_TEMA_GLOBAL.get(str(tema), "azul")
-        _render_kpi_global(col, label, value, sub, cast(Any, tema_str))
-
-
 def render_kpi_sm(
-    col: Any, label: str, value: str, sub: str = "", tema: TemaKPI = "azul"
+    col: Any,
+    label: str,
+    value: str,
+    sub: str = "",
+    tema: TemaKPI = "azul",
 ) -> None:
-    if not COMPONENTES_DISPONIVEIS:
-        col.metric(label, value, sub)
+    if tema not in TEMAS_ESPECIAIS:
+        if _component_kpi_sm is not None:
+            _component_kpi_sm(col, label, value, sub, tema)
+        else:
+            col.metric(label, value, sub)
         return
 
-    temas_extra: dict[str, dict[str, str]] = {
-        "amarelo": {
-            "fundo": "#FEF9C3",
-            "texto": "#854D0E",
-            "borda": "#EAB308",
-            "titulo": "#A16207",
-        },
-        "roxo": {
-            "fundo": "#FAF5FF",
-            "texto": "#7E22CE",
-            "borda": "#A855F7",
-            "titulo": "#6B21A8",
-        },
-        "escuro": {
-            "fundo": "#1E293B",
-            "texto": "#FFFFFF",
-            "borda": "#475569",
-            "titulo": "#E2E8F0",
-        },
-    }
+    estilo = TEMAS_ESPECIAIS[tema]
 
-    if tema in temas_extra:
-        t = temas_extra[tema]
-        col.markdown(
-            f'<div style="background:{t["fundo"]};border-left:3px solid {t["borda"]};'
-            f"border-radius:6px;padding:12px 16px;margin-bottom:8px;"
-            f'box-shadow:0 1px 4px rgba(0,0,0,0.06);">'
-            f'<div style="font-family:{Fontes.TEXTO};font-size:10px;color:{t["titulo"]};'
-            f'text-transform:uppercase;letter-spacing:1px;font-weight:700;">{label}</div>'
-            f'<div style="font-family:{Fontes.TITULO};font-size:20px;color:{t["texto"]};'
-            f"font-weight:800;line-height:1.2;margin-top:4px;"
-            f'font-variant-numeric:tabular-nums;">{value}</div>'
-            f'<div style="font-family:{Fontes.TEXTO};font-size:11px;color:{t["titulo"]};'
-            f'margin-top:2px;">{sub}</div></div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        tema_str = _MAPA_TEMA_GLOBAL.get(str(tema), "azul")
-        _render_kpi_sm_global(col, label, value, sub, cast(Any, tema_str))
-
-
-def render_insight(
-    texto: str, tipo: Literal["ok", "info", "alerta", "critico", "acao"] = "info"
-) -> None:
-    _render_insight_global(texto, tipo)
-
-
-def _fmt_pct_br(v: Any) -> str:
-    try:
-        val = float(v) * 100
-        return f"{val:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (ValueError, TypeError):
-        return "0,00%"
+    col.markdown(
+        f"""
+        <div style="
+            background:{estilo["fundo"]};
+            border-left:3px solid {estilo["borda"]};
+            border-radius:6px;
+            padding:12px 16px;
+            margin-bottom:8px;
+            box-shadow:0 1px 4px rgba(0,0,0,0.06);
+        ">
+            <div style="
+                font-family:{Fontes.TEXTO};
+                font-size:10px;
+                color:{estilo["titulo"]};
+                text-transform:uppercase;
+                letter-spacing:1px;
+                font-weight:700;
+            ">
+                {_html(label)}
+            </div>
+            <div style="
+                font-family:{Fontes.TITULO};
+                font-size:20px;
+                color:{estilo["texto"]};
+                font-weight:800;
+                line-height:1.2;
+                margin-top:4px;
+            ">
+                {_html(value)}
+            </div>
+            <div style="
+                font-family:{Fontes.TEXTO};
+                font-size:11px;
+                color:{estilo["titulo"]};
+                margin-top:2px;
+            ">
+                {_html(sub)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-def _fmt_int_br(v: Any) -> str:
-    try:
-        return f"{int(float(v)):,}".replace(",", ".")
-    except (ValueError, TypeError):
-        return "0"
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# UTILITÁRIOS OPERACIONAIS
-# ═══════════════════════════════════════════════════════════════════════
+# ────────────────────────────────────────────────────────────────────
+# UTILITÁRIOS
+# ─────────────────────────────────────────────────────────────────────
 class Utils:
     @staticmethod
-    def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-        out = BytesIO()
-        with pd.ExcelWriter(out, engine="openpyxl") as w:
-            df.to_excel(w, index=False, sheet_name=aba[:31])
-            ws = w.sheets[aba[:31]]
-            header_fill = PatternFill("solid", fgColor="0F172A")
-            header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center")
-
-            for i, col in enumerate(df.columns, 1):
-                try:
-                    max_len = df[col].astype(str).str.len().max()
-                    ws.column_dimensions[get_column_letter(i)].width = min(
-                        max(max_len + 2, 12), 40
-                    )
-                except Exception:
-                    ws.column_dimensions[get_column_letter(i)].width = 20
-        return out.getvalue()
-    
-    @staticmethod
     def normalizar_texto(valor: Any) -> str:
-        """
-        Remove acentos, espaços duplicados e converte para maiúsculas.
-        """
         if valor is None:
             return ""
 
         try:
-            if pd.isna(valor):
+            ausente = pd.isna(valor)
+
+            if isinstance(ausente, (bool, np.bool_)) and bool(ausente):
                 return ""
+
         except (TypeError, ValueError):
             pass
 
-        texto = str(valor)
-
-        texto = unicodedata.normalize("NFKD", texto)
+        texto = unicodedata.normalize("NFKD", str(valor))
         texto = "".join(
-            caractere
-            for caractere in texto
-            if not unicodedata.combining(caractere)
+            caractere for caractere in texto if not unicodedata.combining(caractere)
         )
 
         texto = texto.upper().strip()
-        texto = re.sub(r"\s+", " ", texto)
+        return RE_ESPACOS.sub(" ", texto)
+
+    @staticmethod
+    def normalizar_coluna(valor: Any) -> str:
+        return RE_ALFANUMERICO.sub("", Utils.normalizar_texto(valor))
+
+    @staticmethod
+    def normalizar_login(valor: Any) -> str:
+        texto = Utils.normalizar_texto(valor).replace(" ", "")
+
+        match = RE_LOGIN_DECIMAL.match(texto)
+        if match:
+            return match.group(1)
 
         return texto
 
     @staticmethod
-    def normalizar_coluna(valor: Any) -> str:
+    def obter_serie(
+        df: pd.DataFrame | None,
+        coluna: str | None,
+        padrao: Any = "",
+        *,
+        copiar: bool = False,
+        consolidar_duplicadas: bool = True,
+    ) -> pd.Series:
         """
-        Normaliza nomes de colunas para comparação.
+        Retorna sempre uma ``pd.Series`` alinhada ao índice do DataFrame.
         """
-        texto = Utils.normalizar_texto(valor)
-        return re.sub(r"[^A-Z0-9]", "", texto)
+        if df is None:
+            return pd.Series(dtype="object", name=coluna)
+
+        if coluna is None or coluna not in df.columns:
+            return pd.Series(
+                padrao,
+                index=df.index,
+                dtype="object",
+                name=coluna,
+            )
+
+        obtido: Any = df[coluna]
+
+        if isinstance(obtido, pd.DataFrame):
+            if consolidar_duplicadas and obtido.shape[1] > 1:
+                obtido = obtido.bfill(axis=1).iloc[:, 0]
+            else:
+                obtido = obtido.iloc[:, 0]
+
+        serie = cast(pd.Series, obtido)
+
+        if not serie.index.equals(df.index):
+            serie = serie.reindex(df.index)
+
+        serie.name = coluna
+
+        return serie.copy() if copiar else serie
+
+    @staticmethod
+    def padronizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
+        resultado = df.copy()
+
+        nomes: list[str] = []
+        usados: dict[str, int] = {}
+
+        for coluna in resultado.columns:
+            base = Utils.normalizar_texto(coluna) or "COLUNA"
+
+            if base not in usados:
+                usados[base] = 1
+                nomes.append(base)
+                continue
+
+            usados[base] += 1
+            nomes.append(f"{base}__{usados[base]}")
+
+        resultado.columns = nomes
+        return resultado
 
     @staticmethod
     def buscar_coluna(
-        df: pd.DataFrame,
-        palavras: list[str],
+        df: pd.DataFrame | None,
+        palavras: tuple[str, ...] | list[str],
     ) -> str | None:
-        """
-        Procura uma coluna por nome exato ou parcial,
-        ignorando acentos, espaços e pontuação.
-        """
-        if df is None or df.empty:
+        if df is None:
             return None
 
-        colunas_normalizadas = {
-            Utils.normalizar_coluna(coluna): coluna
-            for coluna in df.columns
+        mapa_colunas = {
+            Utils.normalizar_coluna(coluna): str(coluna) for coluna in df.columns
         }
 
         for palavra in palavras:
-            palavra_normalizada = Utils.normalizar_coluna(palavra)
+            alvo = Utils.normalizar_coluna(palavra)
 
-            if not palavra_normalizada:
+            if alvo and alvo in mapa_colunas:
+                return mapa_colunas[alvo]
+
+        for palavra in palavras:
+            alvo = Utils.normalizar_coluna(palavra)
+
+            if len(alvo) < 4:
                 continue
 
-            # Primeiro tenta correspondência exata
-            if palavra_normalizada in colunas_normalizadas:
-                return colunas_normalizadas[palavra_normalizada]
+            for coluna_normalizada, coluna_original in mapa_colunas.items():
+                if alvo == "CONTRATO" and "STATUS" in coluna_normalizada:
+                    continue
 
-            # Depois tenta correspondência parcial
-            for coluna_normalizada, coluna_original in (
-                colunas_normalizadas.items()
-            ):
-                if (
-                    palavra_normalizada in coluna_normalizada
-                    or coluna_normalizada in palavra_normalizada
-                ):
+                if alvo in coluna_normalizada or coluna_normalizada in alvo:
                     return coluna_original
 
         return None
 
     @staticmethod
+    def converter_numero(valor: Any) -> float:
+        if valor is None:
+            return np.nan
+
+        try:
+            if isinstance(valor, (int, float, np.number)):
+                numero = float(valor)
+                return numero if np.isfinite(numero) else np.nan
+        except (TypeError, ValueError):
+            pass
+
+        texto = str(valor).strip()
+
+        if not texto:
+            return np.nan
+
+        texto = re.sub(r"[^\d,.\-]", "", texto)
+
+        if not texto or texto in {"-", ".", ","}:
+            return np.nan
+
+        try:
+            if "," in texto and "." in texto:
+                if texto.rfind(",") > texto.rfind("."):
+                    texto = texto.replace(".", "").replace(",", ".")
+                else:
+                    texto = texto.replace(",", "")
+
+            elif "," in texto:
+                if re.fullmatch(r"-?\d{1,3}(?:,\d{3})+", texto):
+                    texto = texto.replace(",", "")
+                else:
+                    texto = texto.replace(",", ".")
+
+            elif "." in texto:
+                if re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", texto):
+                    texto = texto.replace(".", "")
+
+            numero = float(texto)
+            return numero if np.isfinite(numero) else np.nan
+
+        except (TypeError, ValueError):
+            return np.nan
+
+    @staticmethod
     def classificar_tipo_servico(valor: Any) -> str:
         """
-        Converte o texto original do serviço para uma das categorias oficiais.
+        Fallback: Converte o texto original do serviço para uma das categorias oficiais.
+        Usado apenas quando o módulo criterios.py não está disponível.
         """
         texto = Utils.normalizar_texto(valor)
 
@@ -615,520 +975,621 @@ class Utils:
             return "Outros"
 
         # Migração deve ser avaliada antes das demais categorias
-        if re.search(r"\bMIGR", texto):
+        if RE_MIGRACAO.search(texto):
             return "Migração"
 
-        # PME / empresarial
-        if re.search(
-            r"\bPME\b"
-            r"|\bP\s*M\s*E\b"
-            r"|\bPJ\b"
-            r"|PEQUENA\s+EMPRESA"
-            r"|MEDIA\s+EMPRESA"
-            r"|EMPRESAR"
-            r"|CORPORAT",
-            texto,
-        ):
-            return "PME"
-
         # Novos domicílios / residencial / nova instalação
-        if re.search(
-            r"\bND\b"
-            r"|NOV.*DOMICIL"
-            r"|DOMICIL"
-            r"|RESIDENCIAL"
-            r"|NOV.*INSTAL",
-            texto,
-        ):
+        if RE_NOVOS_DOMICILIOS.search(texto):
             return "Novos Domicílios"
 
-        if texto in {
-            "OUTRO",
-            "OUTROS",
-            "OUTRA",
-            "OUTRAS",
-        }:
+        # PME / empresarial
+        if RE_PME.search(texto):
+            return "PME"
+
+        if texto in {"OUTRO", "OUTROS", "OUTRA", "OUTRAS"}:
             return "Outros"
 
         return "Outros"
 
     @staticmethod
-    def gerar_tipo_servico(
+    def gerar_tipo_servico_com_criterios(
         df: pd.DataFrame,
-        coluna_origem: str | None = None,
+        usar_criterios: bool = True,
     ) -> pd.Series:
         """
-        Cria a coluna padronizada TIPO_SERVICO.
+        Gera TIPO_SERVICO usando o módulo criterios.py se disponível.
+        Fallback para classificação por regex tradicional.
         """
-        if df is None or df.empty:
+        if df.empty:
             return pd.Series(dtype="object")
 
+        if usar_criterios and CRITERIOS_DISPONIVEL:
+            try:
+                df_copy = df.copy()
+                _, serie_tipo = _classificar_tipo_servico_criterios(df_copy)
+                return serie_tipo
+            except Exception as erro:
+                st.warning(f"️ Erro ao usar critérios: {erro}. Usando fallback.")
+
+        # Fallback: usa a classificação por regex tradicional
+        coluna_origem = Utils.buscar_coluna(
+            df,
+            Config.COLUNAS_TIPO_SERVICO,
+        )
+
         if coluna_origem is None:
-            coluna_origem = Utils.buscar_coluna(
-                df,
-                COLUNAS_TIPO_SERVICO,
-            )
+            return pd.Series("Outros", index=df.index, dtype="object")
 
-        if not coluna_origem or coluna_origem not in df.columns:
-            return pd.Series(
-                "Outros",
-                index=df.index,
-                dtype="object",
-            )
+        return Utils.obter_serie(df, coluna_origem).map(Utils.classificar_tipo_servico)
 
-        return df[coluna_origem].map(
-            Utils.classificar_tipo_servico
-        ).astype("object")
+    @staticmethod
+    def traduzir_status_texto(valor: Any) -> str | None:
+        texto = Utils.normalizar_texto(valor)
+
+        if texto in VALORES_AUSENTES:
+            return None
+
+        if "SUSPENS" in texto:
+            return "Suspenso"
+
+        if "CANCEL" in texto:
+            return "Cancelado"
+
+        if "NAO EXECUT" in texto or "NAO CONCLU" in texto:
+            return "Não Executada"
+
+        if "EXECUT" in texto or "CONCLUID" in texto:
+            return "Executada"
+
+        if any(
+            termo in texto
+            for termo in (
+                "PEND",
+                "EM ROTA",
+                "INICIADO",
+                "AGENDADO",
+                "ABERTO",
+            )
+        ):
+            return "Pendente"
+
+        return None
+
+    @staticmethod
+    def traduzir_codigo_baixa(valor: Any) -> str | None:
+        texto = Utils.normalizar_texto(valor)
+
+        if texto in VALORES_AUSENTES:
+            return None
+
+        if texto in {"EM ROTA", "INICIADO", "PENDENTE"}:
+            return "Pendente"
+
+        match = RE_NUMERO_INICIAL.match(texto)
+
+        if match is None:
+            return None
+
+        codigo = int(match.group(1))
+        return MAPA_CODIGO_NUMERICO.get(codigo)
 
     @staticmethod
     def classificar_status_excel(df: pd.DataFrame) -> pd.Series:
         col_inicio = Utils.buscar_coluna(
             df,
-            [
+            (
                 "INÍCIO",
                 "INICIO",
                 "DATA INÍCIO",
                 "DT INICIO",
                 "HORA INICIO",
-            ],
+            ),
         )
 
         col_fechamento = Utils.buscar_coluna(
             df,
-            [
+            (
                 "MOTIVO DE FECHAMENTO EXTERNO",
                 "FECHAMENTO EXTERNO",
                 "MOTIVO DE FECHAMENTO",
-            ],
+            ),
         )
 
-        col_status_atv = Utils.buscar_coluna(
+        col_status_atividade = Utils.buscar_coluna(
             df,
-            [
+            (
                 "STATUS DA ATIVIDADE",
                 "STATUS ATIVIDADE",
                 "STATUS_ATIVIDADE",
-            ],
+            ),
         )
 
-        col_cod_baixa = Utils.buscar_coluna(
+        col_codigo_baixa = Utils.buscar_coluna(
             df,
-            [
+            (
                 "CÓD DE BAIXA 1",
                 "COD DE BAIXA 1",
                 "MOTIVO DE BAIXA",
                 "COD_BAIXA",
-            ],
+            ),
         )
 
         col_status_os = Utils.buscar_coluna(
             df,
-            [
+            (
                 "STATUS DA O.S 1",
                 "STATUS OS 1",
                 "STATUS CONTRATO",
-            ],
+                "STATUS O.S.",
+                "STATUS OS",
+            ),
         )
 
-        s_inicio = (
-            df[col_inicio]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            if col_inicio
-            else pd.Series("", index=df.index)
+        inicio = Utils.obter_serie(df, col_inicio).map(Utils.normalizar_texto)
+        fechamento = Utils.obter_serie(df, col_fechamento).map(Utils.normalizar_texto)
+        atividade = Utils.obter_serie(df, col_status_atividade).map(
+            Utils.normalizar_texto
+        )
+        codigo_baixa = Utils.obter_serie(df, col_codigo_baixa)
+        status_os = Utils.obter_serie(df, col_status_os).map(
+            Utils.traduzir_status_texto
         )
 
-        s_fechamento = (
-            df[col_fechamento]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            if col_fechamento
-            else pd.Series("", index=df.index)
+        status_atividade = atividade.map(Utils.traduzir_status_texto)
+        status_codigo = codigo_baixa.map(Utils.traduzir_codigo_baixa)
+
+        resultado = status_codigo.where(
+            status_codigo.notna(),
+            status_os,
         )
 
-        s_status_atv = (
-            df[col_status_atv]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            if col_status_atv
-            else pd.Series("", index=df.index)
+        resultado = resultado.where(
+            resultado.notna(),
+            status_atividade,
         )
 
-        s_cod_baixa = (
-            df[col_cod_baixa]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            if col_cod_baixa
-            else pd.Series("", index=df.index)
-        )
+        resultado = resultado.fillna("Pendente")
 
         fechamento_alvo = {
             "LIBERADO NO SISTEMA NETSMS",
             "CANCELADO NO SISTEMA NETSMS",
         }
 
-        cond_fechamento = s_fechamento.isin(fechamento_alvo)
+        inicio_vazio = inicio.isin(VALORES_AUSENTES)
+        cond_fechamento = fechamento.isin(fechamento_alvo)
 
-        inicio_vazio = s_inicio.isin(
-            {
-                "",
-                "NAN",
-                "NONE",
-                "NULL",
-                "NAT",
-                "NA",
-            }
+        cond_cancelado = atividade.str.contains(
+            "CANCEL",
+            regex=False,
+            na=False,
         )
 
-        condicoes = [
-            inicio_vazio & cond_fechamento,
-            (~inicio_vazio) & cond_fechamento,
-            s_status_atv.eq("cancelado"),
-            s_status_atv.isin(["suspenso", "suspensa"]),
-            s_status_atv.isin(
-                [
-                    "não concluído",
-                    "nao concluido",
-                    "não concluida",
-                    "nao concluida",
-                ]
-            ),
-        ]
+        cond_suspenso = atividade.str.contains(
+            "SUSPENS",
+            regex=False,
+            na=False,
+        )
 
-        resultados = [
-            "Cancelado",
-            "Não Executada",
-            "Cancelado",
-            "Suspenso",
-            "Não Executada",
-        ]
+        cond_nao_concluido = atividade.str.contains(
+            "NAO CONCLU",
+            regex=False,
+            na=False,
+        )
 
-        def traduzir_codigo(valor: str) -> str:
-            if not valor:
-                return "Pendente"
+        resultado = resultado.mask(cond_nao_concluido, "Não Executada")
+        resultado = resultado.mask(cond_suspenso, "Suspenso")
+        resultado = resultado.mask(cond_cancelado, "Cancelado")
+        resultado = resultado.mask((~inicio_vazio) & cond_fechamento, "Não Executada")
+        resultado = resultado.mask(inicio_vazio & cond_fechamento, "Cancelado")
 
-            valor_upper = str(valor).strip().upper()
+        return resultado.astype("object")
 
-            if valor_upper in {
-                "NAN",
-                "NONE",
-                "NULL",
-                "",
-                "EM ROTA",
-                "INICIADO",
-                "PENDENTE",
-            }:
-                return "Pendente"
+    @staticmethod
+    def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
+        nome_aba = re.sub(r"[\[\]:*?/\\]", "_", aba).strip()[:31] or "Dados"
 
-            match = re.match(r"^(\d+)", valor_upper)
+        output = BytesIO()
 
-            if match:
-                codigo = int(match.group(1))
-                return MAPA_CODIGO_NUMERICO.get(
-                    codigo,
-                    "Pendente",
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name=nome_aba)
+
+            ws = writer.sheets[nome_aba]
+
+            header_fill = PatternFill("solid", fgColor="0F172A")
+            header_font = Font(
+                name="Calibri",
+                size=11,
+                bold=True,
+                color="FFFFFF",
+            )
+
+            borda_header = Border(
+                bottom=Side(style="thin", color="CBD5E1"),
+            )
+
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(
+                    horizontal="center",
+                    vertical="center",
                 )
+                cell.border = borda_header
 
-            return "Pendente"
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
 
-        status_processado = s_cod_baixa.map(traduzir_codigo)
+            for indice, coluna in enumerate(df.columns, start=1):
+                nome_coluna = str(coluna).upper()
 
-        # Fallback para bases que possuem somente STATUS DA O.S.
-        if (
-            not any(
-                [
-                    col_inicio,
-                    col_fechamento,
-                    col_status_atv,
-                    col_cod_baixa,
+                valores = [
+                    len(str(coluna)),
+                    *[
+                        len(str(valor))
+                        for valor in df[coluna]
+                        .head(2000)
+                        .fillna("")
+                        .astype(str)
+                        .tolist()
+                    ],
                 ]
-            )
-            and col_status_os
-        ):
-            status_os = (
-                df[col_status_os]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
 
-            return pd.Series(
-                np.select(
-                    [
-                        status_os.eq("EXECUTADA"),
-                        status_os.isin(
-                            [
-                                "NÃO EXECUTADA",
-                                "NAO EXECUTADA",
-                            ]
-                        ),
-                    ],
-                    [
-                        "Executada",
-                        "Não Executada",
-                    ],
-                    default="Pendente",
-                ),
-                index=df.index,
-            )
+                largura = min(max(max(valores, default=12) + 2, 12), 40)
+                ws.column_dimensions[get_column_letter(indice)].width = largura
 
-        return pd.Series(
-            np.select(
-                condicoes,
-                resultados,
-                default=status_processado,
-            ),
-            index=df.index,
-        )
+                if any(
+                    token in nome_coluna
+                    for token in (
+                        "QUEBRA",
+                        "FECHAMENTO",
+                        "CONVERSÃO",
+                        "CONVERSAO",
+                        "PROJEÇÃO",
+                        "PROJECAO",
+                        "%",
+                        "PME",
+                        "MIGRAÇÃO",
+                        "MIGRACAO",
+                        "DOMICÍLIOS",
+                        "DOMICILIOS",
+                    )
+                ):
+                    for linha in range(2, ws.max_row + 1):
+                        ws.cell(linha, indice).number_format = "0.00%"
+
+        return output.getvalue()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# CARREGAMENTO E SANEAMENTO DE DADOS (ETL ENGINE)
-# ══════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────
+# LOADER / ETL
+# ─────────────────────────────────────────────────────────────────────
 class DataLoader:
     @staticmethod
     @st.cache_data(show_spinner=False)
     def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-        bio = BytesIO(file_bytes)
-        try:
-            if filename.lower().endswith(".csv"):
-                bio.seek(0)
-                amostra = bio.read(5000).decode("utf-8", errors="ignore")
-                bio.seek(0)
-                sep = csv.Sniffer().sniff(amostra).delimiter if amostra else ";"
-                return pd.read_csv(
-                    bio,
-                    sep=sep,
-                    encoding="utf-8",
-                    dtype=str,
-                    engine="python",
-                    on_bad_lines="skip",
-                )
-            return pd.read_excel(bio, engine="openpyxl", dtype=str)
-        except Exception as e:
-            st.error(f"Erro ao ler arquivo: {e}")
-            return pd.DataFrame()
+        if not file_bytes:
+            raise ValueError("O arquivo está vazio.")
+
+        extensao = Path(filename).suffix.lower()
+
+        if extensao == ".csv":
+            return DataLoader._ler_csv(file_bytes)
+
+        if extensao in {".xlsx", ".xlsm"}:
+            return pd.read_excel(
+                BytesIO(file_bytes),
+                engine="openpyxl",
+                dtype=str,
+            )
+
+        raise ValueError("Formato inválido. Utilize arquivos CSV, XLSX ou XLSM.")
 
     @staticmethod
-    @st.cache_data(ttl=600, show_spinner="Sincronizando com Google Sheets...")
+    def _ler_csv(file_bytes: bytes) -> pd.DataFrame:
+        encodings = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
+
+        texto_csv: str | None = None
+
+        for encoding in encodings:
+            try:
+                texto_csv = file_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if texto_csv is None:
+            raise ValueError("Não foi possível identificar o encoding do arquivo CSV.")
+
+        amostra = texto_csv[:10000]
+
+        try:
+            delimitador = (
+                csv.Sniffer()
+                .sniff(
+                    amostra,
+                    delimiters=";,\t|",
+                )
+                .delimiter
+            )
+        except csv.Error:
+            candidatos = (";", ",", "\t", "|")
+            delimitador = max(
+                candidatos,
+                key=lambda item: amostra.count(item),
+            )
+
+        return pd.read_csv(
+            StringIO(texto_csv),
+            sep=delimitador,
+            dtype=str,
+            engine="python",
+            on_bad_lines="skip",
+            keep_default_na=False,
+        )
+
+    @staticmethod
+    @st.cache_data(
+        ttl=600,
+        show_spinner="Sincronizando Lista de Ativos...",
+    )
     def buscar_gsheets() -> pd.DataFrame:
         try:
-            from streamlit_gsheets import GSheetsConnection
+            modulo = importlib.import_module("streamlit_gsheets")
+            connection_type = getattr(modulo, "GSheetsConnection")
 
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            raw = conn.read(
-                spreadsheet=Config.URL_LISTA_ATIVOS, worksheet=Config.WORKSHEET_ATIVOS
+            conn = st.connection(
+                "gsheets",
+                type=connection_type,
             )
-            if raw is not None and not raw.empty:
+
+            raw = getattr(conn, "read")(
+                spreadsheet=Config.URL_LISTA_ATIVOS,
+                worksheet=Config.WORKSHEET_ATIVOS,
+            )
+
+            if isinstance(raw, pd.DataFrame) and not raw.empty:
                 return DataLoader._processar_lista_ativos(raw)
+
         except Exception:
             pass
+
         try:
-            url = f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}/gviz/tq?tqx=out:csv&sheet={Config.WORKSHEET_ATIVOS}"
-            raw = pd.read_csv(url)
-            if raw is not None and not raw.empty:
-                return DataLoader._processar_lista_ativos(raw)
+            aba = quote(Config.WORKSHEET_ATIVOS)
+
+            url = (
+                f"https://docs.google.com/spreadsheets/d/"
+                f"{Config.SHEET_ID_ATIVOS}/gviz/tq"
+                f"?tqx=out:csv&sheet={aba}"
+            )
+
+            raw_csv = pd.read_csv(
+                url,
+                dtype=str,
+            )
+
+            if not raw_csv.empty:
+                return DataLoader._processar_lista_ativos(raw_csv)
+
         except Exception:
             pass
+
         return pd.DataFrame()
 
     @staticmethod
     def _processar_lista_ativos(raw: pd.DataFrame) -> pd.DataFrame:
         if raw is None or raw.empty:
             return pd.DataFrame()
-        raw.columns = raw.columns.astype(str).str.strip()
-        rename_map = {}
-        for col in raw.columns:
-            cu = col.upper().strip()
-            if cu in ("LOGIN", "MATRÍCULA", "MATRICULA", "ID"):
-                rename_map[col] = "LOGIN"
-            elif cu in ("TÉCNICO", "TECNICO", "NOME"):
-                rename_map[col] = "TÉCNICO"
-            elif cu in ("MONITOR", "GESTOR"):
-                rename_map[col] = "MONITOR"
-            elif cu in ("BASE", "REGIÃO", "REGIAO"):
-                rename_map[col] = "BASE"
 
-        raw = raw.rename(columns=rename_map)
-        cols_uteis = [
-            c for c in ["LOGIN", "TÉCNICO", "MONITOR", "BASE"] if c in raw.columns
-        ]
-        if "LOGIN" not in cols_uteis:
+        base = raw.copy()
+        base.columns = base.columns.astype(str).str.strip()
+
+        aliases: Final[dict[str, tuple[str, ...]]] = {
+            "LOGIN": (
+                "LOGIN",
+                "MATRÍCULA",
+                "MATRICULA",
+                "ID",
+                "USUARIO",
+                "USUÁRIO",
+            ),
+            "TÉCNICO": (
+                "TÉCNICO",
+                "TECNICO",
+                "NOME",
+                "COLABORADOR",
+            ),
+            "MONITOR": (
+                "MONITOR",
+                "GESTOR",
+                "SUPERVISOR",
+            ),
+            "BASE": (
+                "BASE",
+                "REGIÃO",
+                "REGIAO",
+            ),
+        }
+
+        resultado = pd.DataFrame(index=base.index)
+
+        for destino, nomes in aliases.items():
+            coluna = Utils.buscar_coluna(base, nomes)
+
+            if coluna is not None:
+                resultado[destino] = Utils.obter_serie(base, coluna)
+
+        if "LOGIN" not in resultado.columns:
             return pd.DataFrame()
 
-        raw = raw[cols_uteis].copy()
-        raw["LOGIN"] = (
-            raw["LOGIN"]
-            .astype(str)
-            .str.replace(r"\.0$", "", regex=True)
-            .str.strip()
-            .str.upper()
+        resultado["LOGIN"] = resultado["LOGIN"].map(Utils.normalizar_login)
+
+        resultado = resultado.loc[~resultado["LOGIN"].isin(VALORES_AUSENTES)].copy()
+
+        resultado = resultado.drop_duplicates(
+            subset=["LOGIN"],
+            keep="last",
         )
-        raw = raw[raw["LOGIN"].str.strip() != ""].drop_duplicates(
-            subset=["LOGIN"], keep="last"
+
+        return resultado.reset_index(drop=True)
+
+    @staticmethod
+    def _limpar_serie_texto(
+        serie: pd.Series,
+        padrao: str,
+    ) -> pd.Series:
+        resultado = serie.fillna("").astype(str).str.strip().str.upper()
+
+        return resultado.mask(
+            resultado.isin(VALORES_AUSENTES),
+            padrao,
         )
-        return raw.reset_index(drop=True)
+
+    @staticmethod
+    def _classificar_regiao(valor: Any) -> str:
+        cidade = Utils.normalizar_texto(valor)
+
+        if cidade in CIDADES_LESTE:
+            return "LESTE"
+
+        if cidade in CIDADES_GRU:
+            return "GRU"
+
+        if cidade in CIDADES_ABCDM:
+            return "ABCDM"
+
+        if cidade in CORES_REGIAO:
+            return cidade
+
+        return "OUTRAS"
 
     @staticmethod
     def preparar_base(
         df: pd.DataFrame,
-        df_gs: pd.DataFrame,
+        df_gs: pd.DataFrame | None,
         filename: str = "",
     ) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
 
-        df = df.copy()
+        base = Utils.padronizar_colunas(df)
+        total_importado = len(base)
 
-        # Padroniza nomes das colunas
-        df.columns = (
-            df.columns
-            .astype(str)
-            .str.strip()
-            .str.upper()
-        )
-
-        total_importado = len(df)
-
-        # Identifica a coluna de serviço antes de criar TIPO_SERVICO
         coluna_tipo_origem = Utils.buscar_coluna(
-            df,
-            COLUNAS_TIPO_SERVICO,
+            base,
+            Config.COLUNAS_TIPO_SERVICO,
         )
 
         valores_tipo_origem: dict[str, int] = {}
 
-        if coluna_tipo_origem and coluna_tipo_origem in df.columns:
-            valores_tipo = (
-                df[coluna_tipo_origem]
-                .fillna("")
-                .astype(str)
-                .str.strip()
+        if coluna_tipo_origem is not None:
+            valores_tipo = Utils.obter_serie(
+                base,
+                coluna_tipo_origem,
             )
 
             valores_tipo_origem = {
                 str(chave): int(valor)
-                for chave, valor in valores_tipo
-                .value_counts()
-                .head(20)
-                .items()
+                for chave, valor in (
+                    valores_tipo.fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .value_counts()
+                    .head(20)
+                    .items()
+                )
             }
 
-        df.attrs["total_importado"] = total_importado
+        base["STATUS CONTRATO"] = Utils.classificar_status_excel(base)
 
-        # Classifica status operacional
-        df["STATUS CONTRATO"] = Utils.classificar_status_excel(df)
-
-        # Corrige o problema de maiúsculas/minúsculas
         status_upper = (
-            df["STATUS CONTRATO"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.upper()
+            base["STATUS CONTRATO"].fillna("").astype(str).str.upper().str.strip()
         )
 
-        mask_remover = status_upper.isin(
+        mask_remover_status = status_upper.isin(
             {
-                "SUSPENSO",
-                "SUSPENSA",
                 "CANCELADO",
-                "CANCELADA",
+                "SUSPENSO",
             }
         )
 
-        removidos_status = int(mask_remover.sum())
+        removidos_status = int(mask_remover_status.sum())
 
-        df = df.loc[~mask_remover].reset_index(drop=True)
+        base = base.loc[~mask_remover_status].copy()
 
-        df.attrs["removidos_suspensos"] = removidos_status
-
-        if df.empty:
+        if base.empty:
             return pd.DataFrame()
 
-        # Remove contratos inválidos
-        col_contrato = Utils.buscar_coluna(
-            df,
-            [
+        coluna_contrato = Utils.buscar_coluna(
+            base,
+            (
                 "CONTRATO",
                 "NR CONTRATO",
+                "NÚMERO CONTRATO",
+                "NUMERO CONTRATO",
                 "CONTRATO_ID",
-            ],
+            ),
         )
 
         removidos_contrato = 0
 
-        if col_contrato:
-            serie_contrato = (
-                df[col_contrato]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
+        if coluna_contrato is not None:
+            contratos = Utils.obter_serie(
+                base,
+                coluna_contrato,
+            ).map(Utils.normalizar_texto)
 
-            mask_contrato_invalido = serie_contrato.isin(
+            mask_contrato_invalido = contratos.isin(
                 {
                     "",
                     "NAN",
                     "NONE",
+                    "NULL",
                     "N/A",
                     "NA",
                     "-",
                     "0",
-                    "NULL",
                 }
             )
 
             removidos_contrato = int(mask_contrato_invalido.sum())
 
-            df = df.loc[~mask_contrato_invalido].copy()
+            base = base.loc[~mask_contrato_invalido].copy()
 
-        df.attrs["removidos_contrato"] = removidos_contrato
-
-        if df.empty:
+        if base.empty:
             return pd.DataFrame()
 
-        # Total de tarefas
-        col_total = Utils.buscar_coluna(
-            df,
-            [
+        coluna_total = Utils.buscar_coluna(
+            base,
+            (
                 "TOTAL DE TAREFAS",
                 "QTD TAREFAS",
                 "QUANTIDADE",
                 "VOLUME",
-            ],
+            ),
         )
 
-        if col_total:
-            total_tarefas = pd.to_numeric(
-                df[col_total]
-                .astype(str)
-                .str.replace(",", ".", regex=False),
-                errors="coerce",
-            )
+        if coluna_total is not None:
+            tarefas = Utils.obter_serie(
+                base,
+                coluna_total,
+            ).map(Utils.converter_numero)
 
-            df["TOTAL DE TAREFAS"] = (
-                total_tarefas
+            base["TOTAL DE TAREFAS"] = (
+                pd.to_numeric(
+                    tarefas,
+                    errors="coerce",
+                )
                 .fillna(1)
                 .clip(lower=0)
+                .round()
                 .astype(int)
             )
         else:
-            df["TOTAL DE TAREFAS"] = 1
+            base["TOTAL DE TAREFAS"] = 1
 
-        # Localiza login do técnico
-        col_login = Utils.buscar_coluna(
-            df,
-            [
+        coluna_login = Utils.buscar_coluna(
+            base,
+            (
                 "LOGIN DO TÉCNICO",
                 "LOGIN DO TECNICO",
                 "LOGIN",
@@ -1136,262 +1597,194 @@ class DataLoader:
                 "USUARIO",
                 "MATRÍCULA",
                 "MATRICULA",
-            ],
+            ),
         )
 
-        # Merge com lista de ativos
-        if (
-            col_login
-            and isinstance(df_gs, pd.DataFrame)
-            and not df_gs.empty
-            and "LOGIN" in df_gs.columns
-        ):
-            df[col_login] = (
-                df[col_login]
-                .fillna("")
-                .astype(str)
-                .str.replace(r"\.0$", "", regex=True)
-                .str.strip()
-                .str.upper()
+        ativos = (
+            DataLoader._processar_lista_ativos(df_gs)
+            if isinstance(df_gs, pd.DataFrame)
+            else pd.DataFrame()
+        )
+
+        if coluna_login is not None and not ativos.empty:
+            base["_LOGIN_CHAVE"] = Utils.obter_serie(
+                base,
+                coluna_login,
+            ).map(Utils.normalizar_login)
+
+            merge_ativos = pd.DataFrame(
+                {
+                    "_LOGIN_CHAVE": ativos["LOGIN"],
+                    "_ATIVO_ENCONTRADO": True,
+                }
             )
 
-            ativos = df_gs.copy()
+            if "TÉCNICO" in ativos.columns:
+                merge_ativos["_ATIVO_TECNICO"] = ativos["TÉCNICO"]
 
-            ativos["LOGIN"] = (
-                ativos["LOGIN"]
-                .fillna("")
-                .astype(str)
-                .str.replace(r"\.0$", "", regex=True)
-                .str.strip()
-                .str.upper()
-            )
+            if "MONITOR" in ativos.columns:
+                merge_ativos["_ATIVO_MONITOR"] = ativos["MONITOR"]
 
-            ativos = ativos.drop_duplicates(
-                subset=["LOGIN"],
+            if "BASE" in ativos.columns:
+                merge_ativos["_ATIVO_BASE"] = ativos["BASE"]
+
+            merge_ativos = merge_ativos.drop_duplicates(
+                subset=["_LOGIN_CHAVE"],
                 keep="last",
             )
 
-            df = df.merge(
-                ativos,
-                left_on=col_login,
-                right_on="LOGIN",
+            base = base.merge(
+                merge_ativos,
+                on="_LOGIN_CHAVE",
                 how="left",
-                suffixes=("", "_gs"),
+                validate="m:1",
             )
 
-            if "TÉCNICO_gs" in df.columns:
-                tecnico_gs = (
-                    df["TÉCNICO_gs"]
-                    .fillna("")
-                    .astype(str)
-                    .str.strip()
-                    .str.upper()
-                )
+            encontrado = base["_ATIVO_ENCONTRADO"].fillna(False).astype(bool)
 
-                df["TÉCNICO"] = tecnico_gs.mask(
-                    tecnico_gs.isin(
-                        {
-                            "",
-                            "NAN",
-                            "NONE",
-                            "NULL",
-                        }
-                    ),
+            if "_ATIVO_TECNICO" in base.columns:
+                tecnico_ativo = DataLoader._limpar_serie_texto(
+                    base["_ATIVO_TECNICO"],
                     "NÃO MAPEADO",
                 )
 
-            if "MONITOR_gs" in df.columns:
-                monitor_gs = (
-                    df["MONITOR_gs"]
-                    .fillna("")
-                    .astype(str)
-                    .str.strip()
-                    .str.upper()
+                base["TÉCNICO"] = tecnico_ativo.where(
+                    encontrado,
+                    "NÃO MAPEADO",
                 )
+            else:
+                base["TÉCNICO"] = "NÃO MAPEADO"
 
-                df["MONITOR"] = monitor_gs.mask(
-                    monitor_gs.isin(
-                        {
-                            "",
-                            "NAN",
-                            "NONE",
-                            "NULL",
-                        }
-                    ),
+            if "_ATIVO_MONITOR" in base.columns:
+                monitor_ativo = DataLoader._limpar_serie_texto(
+                    base["_ATIVO_MONITOR"],
                     "SEM MONITOR",
                 )
 
-            df = df.loc[
-                :,
-                ~df.columns.duplicated(),
-            ]
-
-        def limpar_texto_coluna(
-            nome_coluna: str,
-            valor_padrao: str,
-        ) -> pd.Series:
-            if nome_coluna not in df.columns:
-                return pd.Series(
-                    valor_padrao,
-                    index=df.index,
-                    dtype="string",
+                base["MONITOR"] = monitor_ativo.where(
+                    encontrado,
+                    "SEM MONITOR",
                 )
+            else:
+                base["MONITOR"] = "SEM MONITOR"
 
-            serie = (
-                df[nome_coluna]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .str.upper()
-            )
+        else:
+            if "TÉCNICO" not in base.columns:
+                base["TÉCNICO"] = "NÃO MAPEADO"
 
-            return serie.mask(
-                serie.isin(
-                    {
-                        "",
-                        "NAN",
-                        "NONE",
-                        "NULL",
-                        "NAT",
-                    }
-                ),
-                valor_padrao,
-            )
+            if "MONITOR" not in base.columns:
+                base["MONITOR"] = "SEM MONITOR"
 
-        df["TÉCNICO"] = limpar_texto_coluna(
-            "TÉCNICO",
+        base["TÉCNICO"] = DataLoader._limpar_serie_texto(
+            base["TÉCNICO"],
             "NÃO MAPEADO",
         )
 
-        df["MONITOR"] = limpar_texto_coluna(
-            "MONITOR",
+        base["MONITOR"] = DataLoader._limpar_serie_texto(
+            base["MONITOR"],
             "SEM MONITOR",
         )
 
-        # Classificação da região
-        col_cidade = Utils.buscar_coluna(
-            df,
-            [
+        coluna_cidade = Utils.buscar_coluna(
+            base,
+            (
                 "CIDADE",
                 "LOCALIDADE",
                 "MUNICÍPIO",
                 "MUNICIPIO",
-            ],
+            ),
         )
 
-        if col_cidade:
-            cidade = (
-                df[col_cidade]
-                .fillna("")
-                .map(Utils.normalizar_texto)
-            )
+        if coluna_cidade is not None:
+            base["REGIÃO"] = Utils.obter_serie(
+                base,
+                coluna_cidade,
+            ).map(DataLoader._classificar_regiao)
 
-            df["REGIÃO"] = np.select(
-                [
-                    cidade.isin(
-                        {
-                            "SAO PAULO",
-                        }
-                    ),
-                    cidade.isin(
-                        {
-                            "GUARULHOS",
-                            "ARUJA",
-                            "MOGI DAS CRUZES",
-                            "SUZANO",
-                            "ITAQUAQUECETUBA",
-                            "FERRAZ DE VASCONCELOS",
-                            "POA",
-                        }
-                    ),
-                    cidade.isin(
-                        {
-                            "SANTO ANDRE",
-                            "SAO BERNARDO DO CAMPO",
-                            "SAO CAETANO DO SUL",
-                            "DIADEMA",
-                            "MAUA",
-                            "RIBEIRAO PIRES",
-                            "RIO GRANDE DA SERRA",
-                        }
-                    ),
-                ],
-                [
-                    "LESTE",
-                    "GRU",
-                    "ABCDM",
-                ],
-                default="OUTRAS",
-            )
+        elif "_ATIVO_BASE" in base.columns:
+            base["REGIÃO"] = base["_ATIVO_BASE"].map(DataLoader._classificar_regiao)
+
+        elif "BASE" in base.columns:
+            base["REGIÃO"] = base["BASE"].map(DataLoader._classificar_regiao)
+
         else:
-            df["REGIÃO"] = "OUTRAS"
+            base["REGIÃO"] = "OUTRAS"
 
-        # ==============================================================
-        # CORREÇÃO PRINCIPAL:
-        # Cria efetivamente a coluna usada pelo motor analítico
-        # ==============================================================
-        df["TIPO_SERVICO"] = Utils.gerar_tipo_servico(
-            df,
-            coluna_origem=coluna_tipo_origem,
+        # INTEGRAÇÃO COM CRITÉRIOS: Gera TIPO_SERVICO usando módulo criterios.py
+        base["TIPO_SERVICO"] = Utils.gerar_tipo_servico_com_criterios(
+            base,
+            usar_criterios=True,
         )
 
-        df["Status Contrato"] = df["STATUS CONTRATO"]
+        base["Status Contrato"] = base["STATUS CONTRATO"]
 
-        # Metadados para auditoria
-        df.attrs["tipo_servico_coluna"] = coluna_tipo_origem or ""
-        df.attrs["valores_tipo_servico_originais"] = valores_tipo_origem
+        colunas_auxiliares = [
+            coluna
+            for coluna in base.columns
+            if coluna.startswith("_LOGIN_") or coluna.startswith("_ATIVO_")
+        ]
 
-        return df.reset_index(drop=True)
+        base = base.drop(
+            columns=colunas_auxiliares,
+            errors="ignore",
+        )
+
+        base = base.reset_index(drop=True)
+
+        base.attrs["arquivo_origem"] = filename
+        base.attrs["total_importado"] = total_importado
+        base.attrs["removidos_suspensos_cancelados"] = removidos_status
+        base.attrs["removidos_contrato"] = removidos_contrato
+        base.attrs["tipo_servico_coluna"] = coluna_tipo_origem or ""
+        base.attrs["valores_tipo_servico_originais"] = valores_tipo_origem
+        base.attrs["total_processado"] = len(base)
+
+        return base
 
     @staticmethod
-    def callback_robo_etl(df_raw: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
-        caminho = st.session_state.get("robo_candidato_path", "")
-        nome = Path(caminho).name if caminho else "Arquivo_Robo"
-        df_proc = DataLoader.preparar_base(df_raw, df_gs, filename=nome)
+    def callback_robo_etl(
+        df_raw: pd.DataFrame,
+        df_gs: pd.DataFrame,
+    ) -> pd.DataFrame:
+        caminho = st.session_state.get(
+            "robo_candidato_path",
+            "",
+        )
 
-        st.session_state["_robo_df_pronto"] = df_proc
+        nome = Path(str(caminho)).name if caminho else "Arquivo_Robo"
+
+        df_processado = DataLoader.preparar_base(
+            df_raw,
+            df_gs,
+            filename=nome,
+        )
+
+        st.session_state["_robo_df_pronto"] = df_processado
         st.session_state["_robo_nome_arquivo"] = nome
-        st.session_state["_robo_dados_disponiveis"] = True
+        st.session_state["_robo_dados_disponiveis"] = not df_processado.empty
         st.session_state["df_memoria_raw"] = df_raw
-        st.session_state["df_memoria"] = df_proc
+        st.session_state["df_memoria"] = df_processado
         st.session_state["origem_dados"] = f"Robô ({nome})"
         st.session_state["robo_hora_sucesso"] = datetime.now()
-        return df_proc
+
+        return df_processado
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# MOTOR ANALÍTICO (COMPUTATIONAL ENGINE)
-# ═══════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────
+# MOTOR ANALÍTICO
+# ─────────────────────────────────────────────────────────────────────
 class Motor:
     @staticmethod
-    def _get_df_hash(df: pd.DataFrame) -> str:
-        return hashlib.md5(
-            f"{df.shape}{df.select_dtypes(include=np.number).sum().sum()}".encode()
-        ).hexdigest()
-
-    @staticmethod
-    @st.cache_data(
-        ttl=3600,
-        show_spinner=False,
-    )
-    def _cache_wrapper_matriz(
-        df: pd.DataFrame,
-    ) -> pd.DataFrame:
-        return Motor.matriz_resumo_logic(df)
-
-    @staticmethod
-    def matriz_resumo_logic(
-        df: pd.DataFrame,
-    ) -> pd.DataFrame:
-        if df is None or df.empty:
-            return pd.DataFrame()
-
+    def matriz_resumo_logic(df: pd.DataFrame) -> pd.DataFrame:
         colunas_obrigatorias = {
             "MONITOR",
             "TIPO_SERVICO",
             "Status Contrato",
             "TOTAL DE TAREFAS",
         }
+
+        if df is None or df.empty:
+            return pd.DataFrame()
 
         if not colunas_obrigatorias.issubset(df.columns):
             return pd.DataFrame()
@@ -1406,203 +1799,134 @@ class Motor:
             .str.upper()
         )
 
-        trabalho["TIPO_SERVICO"] = trabalho[
-            "TIPO_SERVICO"
-        ].map(
-            Utils.classificar_tipo_servico
+        # GARANTIA DE INTEGRIDADE: Normaliza TIPO_SERVICO para valores válidos
+        tipos_validos = set(Config.ORDEM_TIPOS)
+        trabalho["TIPO_SERVICO"] = trabalho["TIPO_SERVICO"].apply(
+            lambda x: x if x in tipos_validos else "Outros"
         )
 
         trabalho["Status Contrato"] = (
-            trabalho["Status Contrato"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
+            trabalho["Status Contrato"].fillna("").astype(str).str.strip()
         )
 
-        trabalho["TOTAL DE TAREFAS"] = pd.to_numeric(
-            trabalho["TOTAL DE TAREFAS"],
-            errors="coerce",
-        ).fillna(0)
-
-        # Considera somente os status válidos do fluxo operacional
-        df_valid = trabalho[
-            trabalho["Status Contrato"].isin(
-                Config.STATUS_ORDEM
+        trabalho["TOTAL DE TAREFAS"] = (
+            pd.to_numeric(
+                trabalho["TOTAL DE TAREFAS"],
+                errors="coerce",
             )
+            .fillna(0)
+            .clip(lower=0)
+        )
+
+        validos = trabalho.loc[
+            trabalho["Status Contrato"].isin(Config.STATUS_ORDEM)
         ].copy()
 
-        if df_valid.empty:
+        if validos.empty:
             return pd.DataFrame()
 
-        df_valid["_exec"] = np.where(
-            df_valid["Status Contrato"].eq("Executada"),
-            df_valid["TOTAL DE TAREFAS"],
+        validos["_EXEC"] = np.where(
+            validos["Status Contrato"].eq("Executada"),
+            validos["TOTAL DE TAREFAS"],
             0,
         )
 
-        df_valid["_nex"] = np.where(
-            df_valid["Status Contrato"].eq("Não Executada"),
-            df_valid["TOTAL DE TAREFAS"],
+        validos["_NEX"] = np.where(
+            validos["Status Contrato"].eq("Não Executada"),
+            validos["TOTAL DE TAREFAS"],
             0,
         )
 
         agrupado = (
-            df_valid
-            .groupby(
-                [
-                    "MONITOR",
-                    "TIPO_SERVICO",
-                ],
+            validos.groupby(
+                ["MONITOR", "TIPO_SERVICO"],
                 dropna=False,
             )
             .agg(
-                executados=("_exec", "sum"),
-                nao_executados=("_nex", "sum"),
-                total=("TOTAL DE TAREFAS", "sum"),
+                executados=("_EXEC", "sum"),
+                nao_executados=("_NEX", "sum"),
             )
             .reset_index()
         )
 
-        agrupado["denominador"] = (
-            agrupado["executados"]
-            + agrupado["nao_executados"]
-        )
+        agrupado["DENOMINADOR"] = agrupado["executados"] + agrupado["nao_executados"]
 
-        # Sem volume executado ou não executado = sem percentual
-        # Não deve aparecer como 0,00% verde
-        agrupado["pct"] = np.where(
-            agrupado["denominador"] > 0,
-            agrupado["nao_executados"]
-            / agrupado["denominador"],
-            np.nan,
+        agrupado["PERCENTUAL"] = _divisao_segura(
+            agrupado["nao_executados"],
+            agrupado["DENOMINADOR"],
+            padrao=np.nan,
         )
 
         monitores = pd.Index(
-            sorted(
-                df_valid["MONITOR"]
-                .dropna()
-                .astype(str)
-                .unique()
-            ),
+            sorted(validos["MONITOR"].dropna().unique()),
             name="MONITOR",
         )
 
-        pivot = (
-            agrupado
-            .pivot(
-                index="MONITOR",
-                columns="TIPO_SERVICO",
-                values="pct",
-            )
-            .reindex(monitores)
-        )
+        pivot = agrupado.pivot(
+            index="MONITOR",
+            columns="TIPO_SERVICO",
+            values="PERCENTUAL",
+        ).reindex(monitores)
 
-        # Garante todas as colunas oficiais
         for tipo in Config.ORDEM_TIPOS:
             if tipo not in pivot.columns:
                 pivot[tipo] = np.nan
 
-        pivot = pivot[
-            Config.ORDEM_TIPOS
-        ]
+        pivot = pivot.loc[:, list(Config.ORDEM_TIPOS)]
 
         totais_monitor = (
-            df_valid
-            .groupby("MONITOR")[
-                [
-                    "_exec",
-                    "_nex",
-                ]
-            ]
+            validos.groupby("MONITOR")[["_EXEC", "_NEX"]]
             .sum()
             .reindex(monitores)
             .fillna(0)
         )
 
-        denominador_geral = (
-            totais_monitor["_exec"]
-            + totais_monitor["_nex"]
-        )
+        denominador_geral = totais_monitor["_EXEC"] + totais_monitor["_NEX"]
 
-        pivot["Quebra Geral"] = (
-            totais_monitor["_nex"]
-            / denominador_geral
-        ).where(
-            denominador_geral > 0,
-            np.nan,
+        pivot["Quebra Geral"] = _divisao_segura(
+            totais_monitor["_NEX"],
+            denominador_geral,
+            padrao=np.nan,
         )
 
         pivot["Total Tasks"] = (
-            df_valid
-            .groupby("MONITOR")[
-                "TOTAL DE TAREFAS"
-            ]
+            validos.groupby("MONITOR")["TOTAL DE TAREFAS"]
             .sum()
             .reindex(monitores)
             .fillna(0)
+            .round()
             .astype(int)
         )
 
-        pivot = (
-            pivot
-            .reset_index()
-            .rename(
-                columns={
-                    "MONITOR": "Monitor",
-                }
-            )
-        )
+        pivot = pivot.reset_index().rename(columns={"MONITOR": "Monitor"})
 
-        # Total geral
         total_row: dict[str, Any] = {
             "Monitor": "TOTAL GERAL",
         }
 
-        executados_geral = float(
-            df_valid["_exec"].sum()
-        )
+        executados_geral = float(validos["_EXEC"].sum())
+        nao_executados_geral = float(validos["_NEX"].sum())
 
-        nao_executados_geral = float(
-            df_valid["_nex"].sum()
-        )
-
-        denominador_geral_total = (
-            executados_geral
-            + nao_executados_geral
-        )
+        denominador_total = executados_geral + nao_executados_geral
 
         total_row["Quebra Geral"] = (
-            nao_executados_geral
-            / denominador_geral_total
-            if denominador_geral_total > 0
+            nao_executados_geral / denominador_total
+            if denominador_total > 0
             else np.nan
         )
 
-        total_row["Total Tasks"] = int(
-            df_valid["TOTAL DE TAREFAS"].sum()
-        )
+        total_row["Total Tasks"] = int(validos["TOTAL DE TAREFAS"].sum())
 
         for tipo in Config.ORDEM_TIPOS:
-            subtotal = df_valid[
-                df_valid["TIPO_SERVICO"].eq(tipo)
-            ]
+            recorte = validos.loc[validos["TIPO_SERVICO"].eq(tipo)]
 
-            executados_tipo = float(
-                subtotal["_exec"].sum()
-            )
+            executados_tipo = float(recorte["_EXEC"].sum())
+            nao_executados_tipo = float(recorte["_NEX"].sum())
 
-            nao_executados_tipo = float(
-                subtotal["_nex"].sum()
-            )
-
-            denominador_tipo = (
-                executados_tipo
-                + nao_executados_tipo
-            )
+            denominador_tipo = executados_tipo + nao_executados_tipo
 
             total_row[tipo] = (
-                nao_executados_tipo
-                / denominador_tipo
+                nao_executados_tipo / denominador_tipo
                 if denominador_tipo > 0
                 else np.nan
             )
@@ -1616,13 +1940,11 @@ class Motor:
         )
 
     @staticmethod
-    def matriz_resumo(
-        df: pd.DataFrame,
-    ) -> pd.DataFrame:
+    def matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
 
-        return Motor._cache_wrapper_matriz(df.copy())
+        return _cache_matriz_resumo(df.copy())
 
     @staticmethod
     def tabela_cenarios(
@@ -1633,34 +1955,74 @@ class Motor:
         p_pess: float,
         min_aloc: float = 5,
     ) -> pd.DataFrame:
-        if df.empty or grupo not in df.columns:
+        colunas_obrigatorias = {
+            grupo,
+            "Status Contrato",
+            "TOTAL DE TAREFAS",
+        }
+
+        if df.empty or not colunas_obrigatorias.issubset(df.columns):
             return pd.DataFrame()
-        pv = pd.pivot_table(
-            df,
+
+        p_ot = float(np.clip(p_ot, 0, 1))
+        p_base = float(np.clip(p_base, 0, 1))
+        p_pess = float(np.clip(p_pess, 0, 1))
+
+        trabalho = df.copy()
+
+        trabalho["TOTAL DE TAREFAS"] = (
+            pd.to_numeric(
+                trabalho["TOTAL DE TAREFAS"],
+                errors="coerce",
+            )
+            .fillna(0)
+            .clip(lower=0)
+        )
+
+        pivot = pd.pivot_table(
+            trabalho,
             index=grupo,
             columns="Status Contrato",
             values="TOTAL DE TAREFAS",
             aggfunc="sum",
             fill_value=0,
         )
-        for c in Config.STATUS_ORDEM:
-            if c not in pv.columns:
-                pv[c] = 0.0
-        out = pv.reset_index()
-        out["Considerado"] = out["Executada"] + out["Não Executada"]
-        out["Alocado"] = out["Considerado"] + out["Pendente"]
-        out["Quebra Atual"] = np.where(
-            out["Considerado"] > 0, out["Não Executada"] / out["Considerado"], 0
+
+        for status in Config.STATUS_ORDEM:
+            if status not in pivot.columns:
+                pivot[status] = 0.0
+
+        resultado = pivot.reset_index()
+
+        resultado["Considerado"] = resultado["Executada"] + resultado["Não Executada"]
+
+        resultado["Alocado"] = resultado["Considerado"] + resultado["Pendente"]
+
+        resultado["Quebra Atual"] = _divisao_segura(
+            resultado["Não Executada"],
+            resultado["Considerado"],
         )
 
-        for nome, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]:
-            out[f"Fechamento {nome}"] = np.where(
-                out["Alocado"] > 0,
-                (out["Não Executada"] + out["Pendente"] * p) / out["Alocado"],
-                0,
+        cenarios = (
+            ("Otimista", p_ot),
+            ("Base", p_base),
+            ("Pessimista", p_pess),
+        )
+
+        for nome, probabilidade_quebra in cenarios:
+            resultado[f"Fechamento {nome}"] = _divisao_segura(
+                resultado["Não Executada"]
+                + resultado["Pendente"] * probabilidade_quebra,
+                resultado["Alocado"],
             )
-        return out[out["Alocado"] >= min_aloc].sort_values(
-            "Fechamento Base", ascending=False
+
+        return (
+            resultado.loc[resultado["Alocado"] >= min_aloc]
+            .sort_values(
+                "Fechamento Base",
+                ascending=False,
+            )
+            .reset_index(drop=True)
         )
 
     @staticmethod
@@ -1673,103 +2035,204 @@ class Motor:
         p_ot: float = 0.15,
         p_pess: float = 0.50,
     ) -> pd.DataFrame:
-        df_seg = (
-            df[df["TIPO_SERVICO"] == segmento].copy()
-            if segmento and segmento != "TODOS" and "TIPO_SERVICO" in df.columns
-            else df.copy()
-        )
-        if df_seg.empty:
+        if segmento and segmento != "TODOS" and "TIPO_SERVICO" in df.columns:
+            recorte = df.loc[df["TIPO_SERVICO"].eq(segmento)].copy()
+        else:
+            recorte = df.copy()
+
+        if recorte.empty:
             return pd.DataFrame()
-        tab = Motor.tabela_cenarios(df_seg, "TÉCNICO", p_ot, p_base, p_pess, min_aloc)
-        return tab.head(top_n) if not tab.empty else pd.DataFrame()
+
+        resultado = Motor.tabela_cenarios(
+            recorte,
+            "TÉCNICO",
+            p_ot,
+            p_base,
+            p_pess,
+            min_aloc,
+        )
+
+        return resultado.head(top_n)
 
     @staticmethod
-    def causa_raiz(df: pd.DataFrame, col_baixa: str, top_n: int = 8) -> pd.DataFrame:
-        if "Status Contrato" not in df.columns:
-            return pd.DataFrame()
-        df_nex = df[df["Status Contrato"] == "Não Executada"].copy()
-        if df_nex.empty or col_baixa not in df_nex.columns:
+    def causa_raiz(
+        df: pd.DataFrame,
+        coluna_baixa: str,
+        top_n: int = 8,
+    ) -> pd.DataFrame:
+        colunas_obrigatorias = {
+            "Status Contrato",
+            "TOTAL DE TAREFAS",
+            coluna_baixa,
+        }
+
+        if not colunas_obrigatorias.issubset(df.columns):
             return pd.DataFrame()
 
-        df_nex["_baixa_norm"] = (
-            df_nex[col_baixa]
-            .fillna("Sem Registro")
+        recorte = df.loc[df["Status Contrato"].eq("Não Executada")].copy()
+
+        if recorte.empty:
+            return pd.DataFrame()
+
+        recorte["_BAIXA_NORM"] = (
+            recorte[coluna_baixa]
+            .fillna("SEM REGISTRO")
             .astype(str)
-            .str.strip()
-            .str.upper()
-            .replace({"NAN": "Sem Registro", "": "Sem Registro"})
+            .map(Utils.normalizar_texto)
+            .replace("", "SEM REGISTRO")
         )
-        
-        # Agrupamento limpo: Series.groupby().sum().nlargest()
-        s_top = df_nex.groupby("_baixa_norm")["TOTAL DE TAREFAS"].sum().nlargest(top_n)
-        
-        res_top = s_top.reset_index()
-        res_top.columns = ["Motivo de Baixa", "Volume"]
-        
-        total = float(res_top["Volume"].sum())
-        res_top["% do Total"] = res_top["Volume"] / total if total > 0 else 0.0
-        res_top["Acumulado"] = res_top["% do Total"].cumsum()
-        return res_top
+
+        recorte["TOTAL DE TAREFAS"] = (
+            pd.to_numeric(
+                recorte["TOTAL DE TAREFAS"],
+                errors="coerce",
+            )
+            .fillna(0)
+            .clip(lower=0)
+        )
+
+        total_geral = float(recorte["TOTAL DE TAREFAS"].sum())
+
+        resultado = (
+            recorte.groupby("_BAIXA_NORM")["TOTAL DE TAREFAS"]
+            .sum()
+            .nlargest(top_n)
+            .reset_index()
+        )
+
+        resultado.columns = [
+            "Motivo de Baixa",
+            "Volume",
+        ]
+
+        resultado["% do Total"] = _divisao_segura(
+            resultado["Volume"],
+            pd.Series(
+                total_geral,
+                index=resultado.index,
+            ),
+        )
+
+        resultado["Acumulado"] = resultado["% do Total"].cumsum()
+
+        return resultado
 
     @staticmethod
     def backoffice_fila(df: pd.DataFrame) -> pd.DataFrame:
         if "Status Contrato" not in df.columns:
             return pd.DataFrame()
-        df_fila = df[df["Status Contrato"].isin(["Não Executada", "Pendente"])]
-        if df_fila.empty:
+
+        trabalho = df.copy()
+
+        if "MONITOR" not in trabalho.columns:
+            trabalho["MONITOR"] = "SEM MONITOR"
+
+        if "TÉCNICO" not in trabalho.columns:
+            trabalho["TÉCNICO"] = "NÃO MAPEADO"
+
+        if "TIPO_SERVICO" not in trabalho.columns:
+            trabalho["TIPO_SERVICO"] = "Outros"
+
+        if "TOTAL DE TAREFAS" not in trabalho.columns:
+            trabalho["TOTAL DE TAREFAS"] = 1
+
+        trabalho["TOTAL DE TAREFAS"] = (
+            pd.to_numeric(
+                trabalho["TOTAL DE TAREFAS"],
+                errors="coerce",
+            )
+            .fillna(0)
+            .clip(lower=0)
+        )
+
+        fila = trabalho.loc[
+            trabalho["Status Contrato"].isin(
+                [
+                    "Não Executada",
+                    "Pendente",
+                ]
+            )
+        ].copy()
+
+        if fila.empty:
             return pd.DataFrame()
 
-        cols_group = ["MONITOR", "TÉCNICO", "Status Contrato"]
-        if "TIPO_SERVICO" in df_fila.columns:
-            cols_group.insert(2, "TIPO_SERVICO")
-
-        agg = df_fila.groupby(cols_group)["TOTAL DE TAREFAS"].sum().reset_index()
-        pivot_cols = ["MONITOR", "TÉCNICO"]
-        if "TIPO_SERVICO" in agg.columns:
-            pivot_cols.append("TIPO_SERVICO")
+        agrupamento = (
+            fila.groupby(
+                [
+                    "MONITOR",
+                    "TÉCNICO",
+                    "TIPO_SERVICO",
+                    "Status Contrato",
+                ],
+                dropna=False,
+            )["TOTAL DE TAREFAS"]
+            .sum()
+            .reset_index()
+        )
 
         pivot = pd.pivot_table(
-            agg,
-            index=pivot_cols,
+            agrupamento,
+            index=[
+                "MONITOR",
+                "TÉCNICO",
+                "TIPO_SERVICO",
+            ],
             columns="Status Contrato",
             values="TOTAL DE TAREFAS",
             aggfunc="sum",
             fill_value=0,
         ).reset_index()
-        for col in ["Não Executada", "Pendente"]:
-            if col not in pivot.columns:
-                pivot[col] = 0
+
+        for coluna in ("Não Executada", "Pendente"):
+            if coluna not in pivot.columns:
+                pivot[coluna] = 0
+
         pivot["Total Fila"] = pivot["Não Executada"] + pivot["Pendente"]
+
         pivot["Prioridade"] = pivot["Não Executada"] * 2 + pivot["Pendente"]
+
         pivot["Classificação"] = np.select(
             [
-                pivot["Prioridade"] >= 20,
-                pivot["Prioridade"] >= 10,
-                pivot["Prioridade"] >= 5,
+                pivot["Prioridade"].ge(20).to_numpy(dtype=bool),
+                pivot["Prioridade"].ge(10).to_numpy(dtype=bool),
+                pivot["Prioridade"].ge(5).to_numpy(dtype=bool),
             ],
-            ["🔴 CRÍTICO", "🟠 ALTA", "🟡 MÉDIA"],
+            [
+                "🔴 CRÍTICO",
+                "🟠 ALTA",
+                "🟡 MÉDIA",
+            ],
             default="⚪ BAIXA",
         )
 
-        rename_map = {"MONITOR": "Monitor", "TÉCNICO": "Técnico"}
-        if "TIPO_SERVICO" in pivot.columns:
-            rename_map["TIPO_SERVICO"] = "Segmento"
-        pivot = pivot.rename(columns=rename_map)
+        pivot = pivot.rename(
+            columns={
+                "MONITOR": "Monitor",
+                "TÉCNICO": "Técnico",
+                "TIPO_SERVICO": "Segmento",
+            }
+        )
 
-        cols_final = [
+        colunas_finais = [
             "Classificação",
             "Monitor",
             "Técnico",
+            "Segmento",
             "Não Executada",
             "Pendente",
             "Total Fila",
             "Prioridade",
         ]
-        if "Segmento" in pivot.columns:
-            cols_final.insert(3, "Segmento")
-        return pivot.sort_values("Prioridade", ascending=False).reset_index(drop=True)[
-            cols_final
-        ]
+
+        return (
+            pivot.sort_values(
+                "Prioridade",
+                ascending=False,
+            )
+            .reset_index(drop=True)
+            .loc[:, colunas_finais]
+        )
 
     @staticmethod
     def projetar(
@@ -1779,16 +2242,32 @@ class Motor:
         incluir_meta: bool = True,
         meta_sla: float = 0.20,
     ) -> pd.DataFrame:
-        if (
-            df is None
-            or df.empty
-            or grupo not in df.columns
-            or "Status Contrato" not in df.columns
-        ):
+        colunas_obrigatorias = {
+            grupo,
+            "Status Contrato",
+            "TOTAL DE TAREFAS",
+        }
+
+        if df.empty or not colunas_obrigatorias.issubset(df.columns):
             return pd.DataFrame()
 
-        pv = pd.pivot_table(
-            df,
+        probabilidade = float(np.clip(probabilidade, 0, 1))
+
+        meta_sla = float(np.clip(meta_sla, 0, 1))
+
+        trabalho = df.copy()
+
+        trabalho["TOTAL DE TAREFAS"] = (
+            pd.to_numeric(
+                trabalho["TOTAL DE TAREFAS"],
+                errors="coerce",
+            )
+            .fillna(0)
+            .clip(lower=0)
+        )
+
+        pivot = pd.pivot_table(
+            trabalho,
             index=grupo,
             columns="Status Contrato",
             values="TOTAL DE TAREFAS",
@@ -1796,261 +2275,173 @@ class Motor:
             fill_value=0,
         )
 
-        for coluna in Config.STATUS_ORDEM:
-            if coluna not in pv.columns:
-                pv[coluna] = 0.0
+        for status in Config.STATUS_ORDEM:
+            if status not in pivot.columns:
+                pivot[status] = 0.0
 
-        out = pv.reset_index()
+        resultado = pivot.reset_index()
 
-        out["Considerado"] = (
-            out["Executada"]
-            + out["Não Executada"]
+        resultado["Considerado"] = resultado["Executada"] + resultado["Não Executada"]
+
+        resultado["Alocado"] = resultado["Considerado"] + resultado["Pendente"]
+
+        resultado["Quebra Atual"] = _divisao_segura(
+            resultado["Não Executada"],
+            resultado["Considerado"],
         )
 
-        out["Alocado"] = (
-            out["Considerado"]
-            + out["Pendente"]
+        resultado["Projeção Fechamento"] = _divisao_segura(
+            resultado["Não Executada"] + resultado["Pendente"] * (1 - probabilidade),
+            resultado["Alocado"],
         )
 
-        out["Quebra Atual"] = np.where(
-            out["Considerado"] > 0,
-            out["Não Executada"]
-            / out["Considerado"],
-            0.0,
+        resultado["Executadas Projetadas"] = (
+            resultado["Executada"] + resultado["Pendente"] * probabilidade
         )
 
-        out["Projeção Fechamento"] = np.where(
-            out["Alocado"] > 0,
-            (
-                out["Não Executada"]
-                + out["Pendente"]
-                * (1 - probabilidade)
-            )
-            / out["Alocado"],
-            0.0,
-        )
+        numerador = resultado["Alocado"] * (1 - meta_sla) - resultado["Executada"]
 
-        out["Executadas Projetadas"] = (
-            out["Executada"]
-            + out["Pendente"] * probabilidade
-        )
+        conversao = _divisao_segura(
+            numerador,
+            resultado["Pendente"],
+        ).clip(0, 1)
 
-        pendentes = out["Pendente"]
-
-        conversao_segura = np.where(
-            pendentes > 0,
-            np.clip(
-                (
-                    out["Alocado"] * (1 - meta_sla)
-                    - out["Executada"]
-                )
-                / pendentes,
-                0.0,
-                1.0,
-            ),
-            0.0,
-        )
-
-        # Corrigido: mesmo sem Não Executada atual,
-        # pode haver conversão necessária para tratar os pendentes
-        out["Conversão Necessária"] = np.where(
-            (out["Alocado"] > 0)
-            & (out["Pendente"] > 0),
-            conversao_segura,
+        resultado["Conversão Necessária"] = np.where(
+            resultado["Pendente"].gt(0),
+            conversao,
             0.0,
         )
 
         if incluir_meta:
-            out["Status Meta"] = np.select(
+            projecao = resultado["Projeção Fechamento"]
+
+            resultado["Status Meta"] = np.select(
                 [
-                    out["Projeção Fechamento"] <= meta_sla,
-                    out["Projeção Fechamento"]
-                    <= meta_sla * 1.25,
-                    out["Projeção Fechamento"]
-                    <= meta_sla * 1.50,
+                    projecao.le(meta_sla).to_numpy(dtype=bool),
+                    projecao.le(meta_sla * 1.25).to_numpy(dtype=bool),
+                    projecao.le(meta_sla * 1.50).to_numpy(dtype=bool),
                 ],
                 [
                     "✅ Dentro da Meta",
-                    "⚠️ Atenção",
+                    "️ Atenção",
                     "🔴 Crítico",
                 ],
                 default="🚨 Muito Crítico",
             )
 
-        out = out.sort_values(
-            "Projeção Fechamento",
-            ascending=False,
-        )
-
-        colunas_inteiras = [
+        colunas_inteiras = (
             "Executada",
             "Não Executada",
             "Pendente",
             "Considerado",
             "Alocado",
-            "Executadas Projetadas",
-        ]
+        )
 
         for coluna in colunas_inteiras:
-            if coluna in out.columns:
-                out[coluna] = (
-                    out[coluna]
-                    .fillna(0)
-                    .astype(int)
-                )
+            resultado[coluna] = resultado[coluna].fillna(0).round().astype(int)
 
-        return out
+        return resultado.sort_values(
+            "Projeção Fechamento",
+            ascending=False,
+        ).reset_index(drop=True)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# GERADOR DE TABELA MATRIZ EXECUTIVA HTML COM METAS E FORMATACÃO
-# ═══════════════════════════════════════════════════════════════════════
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False,
+)
+def _cache_matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
+    return Motor.matriz_resumo_logic(df)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# HTML MATRIZ EXECUTIVA
+# ─────────────────────────────────────────────────────────────────────
 def render_matriz_executiva_html(
     df: pd.DataFrame,
+    meta_geral: float = Config.SLA_QUEBRA_MAXIMA,
 ) -> None:
-    if df is None or df.empty:
+    if df.empty:
         st.info("Sem dados na Matriz Executiva.")
         return
 
-    metas_coluna = {
-        "NOVOS DOMICÍLIOS": Config.SLA_QUEBRA_MAXIMA,
-        "NOVOS DOMICILIOS": Config.SLA_QUEBRA_MAXIMA,
-        "PME": Config.SLA_QUEBRA_MAXIMA,
+    metas_coluna: dict[str, float] = {
+        "NOVOS DOMICÍLIOS": meta_geral,
+        "NOVOS DOMICILIOS": meta_geral,
+        "PME": meta_geral,
         "MIGRAÇÃO": Config.SLA_MIGRACAO_MAXIMA,
         "MIGRACAO": Config.SLA_MIGRACAO_MAXIMA,
-        "OUTROS": Config.SLA_QUEBRA_MAXIMA,
-        "QUEBRA GERAL": Config.SLA_QUEBRA_MAXIMA,
+        "OUTROS": meta_geral,
+        "QUEBRA GERAL": meta_geral,
     }
 
     html = """
     <div class="matriz-table-container">
-    <table class="matriz-table">
-    <thead>
-        <tr>
+        <table class="matriz-table">
+            <thead>
+                <tr>
     """
 
     for coluna in df.columns:
-        html += (
-            f"<th>{escape(str(coluna))}</th>"
-        )
+        html += f"<th>{_html(coluna)}</th>"
 
     html += """
-        </tr>
-    </thead>
-    <tbody>
+                </tr>
+            </thead>
+            <tbody>
     """
 
-    for _, row in df.iterrows():
-        is_total = (
-            str(row.iloc[0])
-            .strip()
-            .upper()
-            == "TOTAL GERAL"
-        )
+    for _, linha in df.iterrows():
+        primeiro_valor = linha.iloc[0]
+        is_total = str(primeiro_valor).strip().upper() == "TOTAL GERAL"
 
-        classe_linha = (
-            "class='total-row'"
-            if is_total
-            else ""
-        )
-
+        classe_linha = "class='total-row'" if is_total else ""
         html += f"<tr {classe_linha}>"
 
-        for coluna in df.columns:
-            valor = row[coluna]
-            coluna_upper = (
-                str(coluna)
-                .strip()
-                .upper()
-            )
+        for posicao, coluna in enumerate(df.columns):
+            valor = linha.iloc[posicao]
+            coluna_upper = str(coluna).strip().upper()
 
             if coluna_upper in metas_coluna:
-                limite_meta = metas_coluna[coluna_upper]
-
                 try:
-                    valor_numerico = float(valor)
+                    numero = float(valor)
 
-                    if not np.isfinite(valor_numerico):
+                    if not np.isfinite(numero):
                         html += (
-                            "<td>"
-                            "<span style='color:#94A3B8;"
-                            "font-weight:700;'>—</span>"
-                            "</td>"
+                            "<td><span style='color:#94A3B8;"
+                            "font-weight:700;'>—</span></td>"
                         )
                         continue
 
                     classe_badge = (
                         "badge-meta-ok"
-                        if valor_numerico <= limite_meta
+                        if numero <= metas_coluna[coluna_upper]
                         else "badge-meta-nok"
                     )
 
                     html += (
-                        "<td>"
-                        f"<span class='{classe_badge}'>"
-                        f"{valor_numerico:.2%}"
-                        "</span>"
-                        "</td>"
+                        f"<td><span class='{classe_badge}'>"
+                        f"{_fmt_pct_br(numero)}"
+                        f"</span></td>"
                     )
 
-                except (
-                    ValueError,
-                    TypeError,
-                ):
-                    html += (
-                        f"<td>{escape(str(valor))}</td>"
-                    )
+                except (TypeError, ValueError):
+                    html += f"<td>{_html(valor)}</td>"
 
-            elif coluna_upper in {
-                "TOTAL TASKS",
-                "TOTAL_TASKS",
-            }:
-                try:
-                    valor_inteiro = int(
-                        float(valor)
-                    )
-
-                    valor_formatado = (
-                        f"{valor_inteiro:,}"
-                        .replace(",", ".")
-                    )
-
-                    html += (
-                        "<td>"
-                        f"<strong>{valor_formatado}</strong>"
-                        "</td>"
-                    )
-
-                except (
-                    ValueError,
-                    TypeError,
-                ):
-                    html += (
-                        f"<td>{escape(str(valor))}</td>"
-                    )
+            elif coluna_upper in {"TOTAL TASKS", "TOTAL_TASKS"}:
+                html += f"<td><strong>{_fmt_int_br(valor)}</strong></td>"
 
             else:
-                try:
-                    if pd.isna(valor):
-                        html += (
-                            "<td>"
-                            "<span style='color:#94A3B8;'>—</span>"
-                            "</td>"
-                        )
-                    else:
-                        html += (
-                            f"<td>{escape(str(valor))}</td>"
-                        )
-                except (TypeError, ValueError):
-                    html += (
-                        f"<td>{escape(str(valor))}</td>"
-                    )
+                if _is_missing_scalar(valor):
+                    html += "<td><span style='color:#94A3B8;'>—</span></td>"
+                else:
+                    html += f"<td>{_html(valor)}</td>"
 
         html += "</tr>"
 
     html += """
-    </tbody>
-    </table>
+            </tbody>
+        </table>
     </div>
     """
 
@@ -2059,48 +2450,118 @@ def render_matriz_executiva_html(
         unsafe_allow_html=True,
     )
 
-def render_bloco_importacao_robo(dados_prontos: bool = False) -> bool:
+
+# ─────────────────────────────────────────────────────────────────────
+# COMPONENTES DE TELA
+# ─────────────────────────────────────────────────────────────────────
+def render_bloco_importacao_robo(
+    dados_prontos: bool = False,
+) -> bool:
     st.markdown(
         """
-        <div style="margin-top: 6px; margin-bottom: 4px;">
+        <div style="margin-top:6px;margin-bottom:4px;">
             <span class="import-header-title">Importação de Dados</span>
             <span class="import-header-badge">EXCEL, CSV OU AUTO</span>
         </div>
-        <div class="import-header-sub">Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.</div>
+
+        <div class="import-header-sub">
+            Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.
+        </div>
+
         <div class="import-header-line"></div>
-    """,
+        """,
         unsafe_allow_html=True,
     )
 
-    clicou_processar = False
-    if dados_prontos:
-        st.markdown(
-            '<div class="import-alert-green"><span style="font-size: 16px;">✅</span><span>Dados carregados automaticamente! Pronto para processamento.</span></div>',
-            unsafe_allow_html=True,
-        )
-        clicou_processar = st.button(
-            "🚀 Processar Dados Carregados",
-            type="primary",
-            use_container_width=True,
-            key="btn_processar_robo_central",
-        )
-    return clicou_processar
+    if not dados_prontos:
+        return False
 
-
-def html_resultado_base(regioes: list[str], total: int, origem: str = "") -> str:
-    badges = "".join(
-        [
-            f'<span class="badge-regiao" style="background:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["bg"]};color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["text"]};border-color:{CORES_REGIAO.get(r, CORES_REGIAO["OUTRAS"])["border"]};">{r}</span>'
-            for r in sorted(regioes)
-        ]
+    st.markdown(
+        """
+        <div class="import-alert-green">
+            <span style="font-size:16px;">✅</span>
+            <span>Dados carregados e processados. O relatório está pronto.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    total_fmt = f"{total:,}".replace(",", ".")
+
+    return st.button(
+        "🔄 Atualizar Relatório",
+        type="primary",
+        use_container_width=True,
+        key="btn_atualizar_relatorio",
+    )
+
+
+def html_resultado_base(
+    regioes: list[str],
+    total: int,
+    origem: str = "",
+) -> str:
+    badges: list[str] = []
+
+    for regiao in sorted(set(regioes)):
+        regiao_norm = str(regiao).upper().strip()
+        cores = CORES_REGIAO.get(
+            regiao_norm,
+            CORES_REGIAO["OUTRAS"],
+        )
+
+        badges.append(f"""
+            <span class="badge-regiao"
+                style="
+                    background:{cores["bg"]};
+                    color:{cores["text"]};
+                    border-color:{cores["border"]};
+                ">
+                {_html(regiao_norm)}
+            </span>
+            """)
+
+    total_fmt = _fmt_int_br(total)
+
     tag_origem = (
-        f'<span style="color:#6EE7B7;font-size:0.78rem;font-weight:600;margin-left:8px;">• {escape(origem)}</span>'
+        f"""
+        <span style="
+            color:#6EE7B7;
+            font-size:0.78rem;
+            font-weight:600;
+            margin-left:8px;
+        ">
+            • {_html(origem)}
+        </span>
+        """
         if origem
         else ""
     )
-    return f'<div class="base-info"><span style="color:#94A3B8;font-size:0.8rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">📋 Base Ativa:</span>{badges}{tag_origem}<span style="color:#FFFFFF;font-size:0.78rem;margin-left:auto;font-weight:700;">{total_fmt} registros</span></div>'
+
+    return f"""
+    <div class="base-info">
+        <span style="
+            color:#94A3B8;
+            font-size:0.8rem;
+            font-weight:700;
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+        ">
+            📋 Base Ativa:
+        </span>
+
+        {''.join(badges)}
+
+        {tag_origem}
+
+        <span style="
+            color:#FFFFFF;
+            font-size:0.78rem;
+            margin-left:auto;
+            font-weight:700;
+        ">
+            {total_fmt} registros
+        </span>
+    </div>
+    """
 
 
 def render_hero_topo_fixo(
@@ -2111,14 +2572,40 @@ def render_hero_topo_fixo(
     badge: str = "",
     origem: str = "",
 ) -> None:
-    badge_html = (
-        f'<span style="display:inline-block;background:rgba(255,255,255,0.20);padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;margin-top:10px;letter-spacing:0.6px;text-transform:uppercase;color:white;border:1px solid rgba(255,255,255,0.30);">{badge}</span>'
-        if badge
-        else ""
-    )
-    resultado_html = html_resultado_base(regioes, total, origem) if total > 0 else ""
+    badge_html = ""
+
+    if badge:
+        badge_html = f"""
+        <span style="
+            display:inline-block;
+            background:rgba(255,255,255,0.20);
+            padding:5px 16px;
+            border-radius:20px;
+            font-size:12px;
+            font-weight:700;
+            margin-top:10px;
+            letter-spacing:0.6px;
+            text-transform:uppercase;
+            color:white;
+            border:1px solid rgba(255,255,255,0.30);
+        ">
+            {_html(badge)}
+        </span>
+        """
+
+    info_base = html_resultado_base(regioes, total, origem) if total > 0 else ""
+
     st.markdown(
-        f'<div class="hero-container"><div class="hero-card"><div style="position:relative;z-index:2;"><h1 class="hero-title">{titulo}</h1><p class="hero-sub">{subtitulo}</p>{badge_html}</div></div>{resultado_html}</div>',
+        f"""
+        <div class="hero-container">
+            <div class="hero-card">
+                <h1 class="hero-title">{_html(titulo)}</h1>
+                <p class="hero-sub">{_html(subtitulo)}</p>
+                {badge_html}
+            </div>
+            {info_base}
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -2132,12 +2619,36 @@ def render_dataframe_profundo(
     height: int = 400,
 ) -> None:
     st.markdown(
-        f'<div style="background:#FFFFFF;border-radius:0.75rem;padding:1rem 1.2rem;'
-        f'box-shadow:0 2px 8px rgba(0,0,0,0.05);margin-bottom:0.5rem;">'
-        f'<div style="font-size:1rem;font-weight:700;color:#0F172A;display:flex;'
-        f'align-items:center;gap:0.5rem;"><span>{icone}</span><span>{titulo}</span>'
-        f'<span style="font-size:0.68rem;background:#E0F2FE;color:#0369A1;'
-        f'padding:0.15rem 0.5rem;border-radius:999px;">{len(df)} registros</span></div></div>',
+        f"""
+        <div style="
+            background:#FFFFFF;
+            border-radius:0.75rem;
+            padding:1rem 1.2rem;
+            box-shadow:0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom:0.5rem;
+        ">
+            <div style="
+                font-size:1rem;
+                font-weight:700;
+                color:#0F172A;
+                display:flex;
+                align-items:center;
+                gap:0.5rem;
+            ">
+                <span>{_html(icone)}</span>
+                <span>{_html(titulo)}</span>
+                <span style="
+                    font-size:0.68rem;
+                    background:#E0F2FE;
+                    color:#0369A1;
+                    padding:0.15rem 0.5rem;
+                    border-radius:999px;
+                ">
+                    {len(df)} registros
+                </span>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -2145,81 +2656,95 @@ def render_dataframe_profundo(
         st.info("Sem dados para exibir.")
         return
 
-    fmt_dict: dict[str, Any] = {}
+    formatos: dict[str, str] = {}
 
-    for col in df.columns:
-        col_u = str(col).upper()
+    for coluna in df.columns:
+        coluna_upper = str(coluna).upper()
+
         if any(
-            x in col_u
-            for x in [
+            item in coluna_upper
+            for item in (
                 "QUEBRA",
                 "FECHAMENTO",
                 "%",
                 "PROJEÇÃO",
+                "PROJECAO",
                 "CONVERSÃO",
-                "DOMICÍLIOS",
-                "DOMICILIOS",
-                "PME",
-                "MIGRAÇÃO",
-                "MIGRACAO",
-                "OUTROS",
-            ]
+                "CONVERSAO",
+                "ACUMULADO",
+            )
         ):
-            fmt_dict[col] = "{:.2%}"
-        elif any(
-            x in col_u
-            for x in ["TOTAL", "VOLUME", "TAREFAS", "PRIORIDADE", "EXECUTADAS", "TASKS"]
-        ):
-            fmt_dict[col] = "{:,.0f}"
+            formatos[str(coluna)] = "{:.2%}"
 
-    condicao_cores: dict[str, Any] | None = None
-    if color_col and color_col in df.columns:
-        condicao_cores = {
+        elif any(
+            item in coluna_upper
+            for item in (
+                "TOTAL",
+                "VOLUME",
+                "TAREFAS",
+                "PRIORIDADE",
+                "EXECUTADA",
+                "TASKS",
+                "ALOCADO",
+                "CONSIDERADO",
+            )
+        ):
+            formatos[str(coluna)] = "{:,.0f}"
+
+    regras_cor: dict[str, Any] | None = None
+
+    if color_col is not None and color_col in df.columns:
+        regras_cor = {
             "coluna": color_col,
             "meta": meta,
-            "acima_meta": {"bg": "#FEE2E2", "text": "#991B1B", "bold": True},
-            "abaixo_meta": {"bg": "#DCFCE7", "text": "#166534", "bold": True},
+            "acima_meta": {
+                "bg": "#FEE2E2",
+                "text": "#991B1B",
+                "bold": True,
+            },
+            "abaixo_meta": {
+                "bg": "#DCFCE7",
+                "text": "#166534",
+                "bold": True,
+            },
         }
+
+    colunas_numericas = df.select_dtypes(include=np.number).columns.astype(str).tolist()
 
     render_table_html(
         df,
-        fmt=fmt_dict,
-        color_rules=condicao_cores,
-        colunas_num=list(df.columns),
+        fmt=formatos,
+        color_rules=regras_cor,
+        colunas_num=colunas_numericas,
         height=height,
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# DASHBOARD VIEWS AND LAYOUTS
-# ═══════════════════════════════════════════════════════════════════════
+# ─────────────────────────────────────────────────────────────────────
+# VIEWS
+# ────────────────────────────────────────────────────────────────────
 def view_resumo_executivo(
     df: pd.DataFrame,
     meta_sla: float,
 ) -> None:
-    coluna_tipo = df.attrs.get(
-        "tipo_servico_coluna",
-        "",
+    coluna_tipo = str(
+        df.attrs.get(
+            "tipo_servico_coluna",
+            "",
+        )
     )
-    
-    # st.dataframe(df, use_container_width=True, hide_index=False)
 
-    tipos_processados = set()
+    tipos_processados: set[str] = set()
 
     if "TIPO_SERVICO" in df.columns:
         tipos_processados = set(
-            df["TIPO_SERVICO"]
-            .dropna()
-            .astype(str)
-            .unique()
+            df["TIPO_SERVICO"].dropna().astype(str).unique().tolist()
         )
 
     if not coluna_tipo:
         st.warning(
-            "⚠️ A base não possui uma coluna identificável "
-            "de tipo de serviço. Os registros foram classificados "
-            "como 'Outros'. Inclua o nome da coluna em "
-            "Config.COLUNAS_TIPO_SERVICO."
+            "️ A base não possui uma coluna identificável de tipo de serviço. "
+            "Todos os registros foram classificados como 'Outros'."
         )
 
     elif tipos_processados == {"Outros"}:
@@ -2229,18 +2754,14 @@ def view_resumo_executivo(
         )
 
         st.warning(
-            "⚠️ A coluna de segmento foi encontrada, "
-            f"mas nenhum valor foi reconhecido para "
-            "Novos Domicílios, PME ou Migração. "
-            "Todos os registros ficaram em 'Outros'."
+            "⚠️ A coluna de segmento foi encontrada, mas nenhum valor foi "
+            "reconhecido como Novos Domicílios, PME ou Migração."
         )
 
-        if valores_originais:
+        if isinstance(valores_originais, dict) and valores_originais:
             st.caption(
                 "Valores originais encontrados: "
-                + ", ".join(
-                    list(valores_originais.keys())[:10]
-                )
+                + ", ".join(list(valores_originais.keys())[:10])
             )
 
     render_section_header(
@@ -2248,56 +2769,41 @@ def view_resumo_executivo(
         "Matriz de Quebra por Monitor e Segmento",
     )
 
-    df_matriz = Motor.matriz_resumo(df)
+    matriz = Motor.matriz_resumo(df)
 
-    if df_matriz.empty:
-        st.warning(
-            "⚠️ Dados insuficientes para montar "
-            "a Matriz Executiva."
-        )
+    if matriz.empty:
+        st.warning("⚠️ Dados insuficientes para montar a Matriz Executiva.")
         return
 
-    if "Monitor" in df_matriz.columns:
+    if "Monitor" in matriz.columns:
         mask_total = (
-            df_matriz["Monitor"]
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            .eq("TOTAL GERAL")
+            matriz["Monitor"].astype(str).str.strip().str.upper().eq("TOTAL GERAL")
         )
 
-        if mask_total.any():
-            df_total = df_matriz.loc[
-                mask_total
-            ].copy()
+        matriz = pd.concat(
+            [
+                matriz.loc[~mask_total],
+                matriz.loc[mask_total],
+            ],
+            ignore_index=True,
+        )
 
-            df_resto = df_matriz.loc[
-                ~mask_total
-            ].copy()
-
-            df_matriz = pd.concat(
-                [
-                    df_resto,
-                    df_total,
-                ],
-                ignore_index=True,
-            )
-
-    render_matriz_executiva_html(df_matriz)
+    render_matriz_executiva_html(
+        matriz,
+        meta_geral=meta_sla,
+    )
 
     st.download_button(
         "📥 Baixar Matriz (Excel)",
         data=Utils.gerar_excel(
-            df_matriz,
+            matriz,
             "Matriz_Resumo",
         ),
         file_name="Matriz_Resumo_Quebra.xlsx",
-        mime=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
+        mime=("application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"),
         use_container_width=True,
     )
+
 
 def view_analise_detalhada(
     df: pd.DataFrame,
@@ -2307,6 +2813,11 @@ def view_analise_detalhada(
     min_aloc: float,
     meta_sla: float,
 ) -> None:
+    # PAINEL DE CRITÉRIOS (NOVO)
+    if CRITERIOS_DISPONIVEL:
+        with st.expander("📊 Painel de Critérios de Classificação", expanded=False):
+            render_painel_criterios(df)
+
     tab1, tab2, tab3, tab4, tab5 = st.tabs(
         [
             "📉 Projeções",
@@ -2318,12 +2829,22 @@ def view_analise_detalhada(
     )
 
     with tab1:
-        render_section_header("📈", "Cenários de Projeção de Fechamento")
-        tab_monitores = Motor.tabela_cenarios(
-            df, "MONITOR", p_ot, p_base, p_pess, min_aloc
+        render_section_header(
+            "📈",
+            "Cenários de Projeção de Fechamento",
         )
+
+        monitores = Motor.tabela_cenarios(
+            df,
+            "MONITOR",
+            p_ot,
+            p_base,
+            p_pess,
+            min_aloc,
+        )
+
         render_dataframe_profundo(
-            tab_monitores,
+            monitores,
             "Projeção por Monitor",
             "👨‍💼",
             color_col="Fechamento Base",
@@ -2331,59 +2852,90 @@ def view_analise_detalhada(
         )
 
     with tab2:
-        render_section_header("🎯", "Projeção Customizada")
+        render_section_header(
+            "",
+            "Projeção Customizada",
+        )
+
         col1, col2 = st.columns(2)
+
         with col1:
             prob_custom = (
-                st.slider("Probabilidade de Conversão (%)", 0, 100, 30, step=5) / 100.0
+                st.slider(
+                    "Probabilidade de Conversão (%)",
+                    0,
+                    100,
+                    30,
+                    step=5,
+                )
+                / 100
             )
-        with col2:
-            grupo_proj = st.selectbox("Agrupar por", ["MONITOR", "TÉCNICO", "REGIÃO"])
 
-        df_proj = Motor.projetar(
-            df, probabilidade=prob_custom, grupo=grupo_proj, meta_sla=meta_sla
+        with col2:
+            grupo_proj = st.selectbox(
+                "Agrupar por",
+                [
+                    "MONITOR",
+                    "TÉCNICO",
+                    "REGIÃO",
+                ],
+            )
+
+        projecao = Motor.projetar(
+            df,
+            probabilidade=prob_custom,
+            grupo=grupo_proj,
+            meta_sla=meta_sla,
         )
+
         render_dataframe_profundo(
-            df_proj,
+            projecao,
             f"Projeção por {grupo_proj}",
-            "🎯",
+            "",
             color_col="Projeção Fechamento",
             meta=meta_sla,
         )
 
-        if not df_proj.empty:
+        if not projecao.empty:
             k1, k2, k3, k4 = st.columns(4)
-            dentro_meta = int((df_proj["Projeção Fechamento"] <= meta_sla).sum())
+
+            dentro_meta = int(projecao["Projeção Fechamento"].le(meta_sla).sum())
+
             atencao = int(
                 (
-                    (df_proj["Projeção Fechamento"] > meta_sla)
-                    & (df_proj["Projeção Fechamento"] <= meta_sla * 1.25)
+                    projecao["Projeção Fechamento"].gt(meta_sla)
+                    & projecao["Projeção Fechamento"].le(meta_sla * 1.25)
                 ).sum()
             )
-            critico = int((df_proj["Projeção Fechamento"] > meta_sla * 1.25).sum())
-            conversao_media = df_proj["Conversão Necessária"].mean()
+
+            critico = int(projecao["Projeção Fechamento"].gt(meta_sla * 1.25).sum())
+
+            conversao_media = float(projecao["Conversão Necessária"].mean())
 
             render_kpi_sm(
                 k1,
                 "Dentro da Meta",
-                f"{dentro_meta}",
-                f"{dentro_meta/len(df_proj)*100:.0f}%",
+                str(dentro_meta),
+                f"{dentro_meta / len(projecao):.0%}",
                 "verde",
             )
+
             render_kpi_sm(
                 k2,
                 "Atenção",
-                f"{atencao}",
-                f"{atencao/len(df_proj)*100:.0f}%",
+                str(atencao),
+                f"{atencao / len(projecao):.0%}",
                 "amarelo",
             )
+
             render_kpi_sm(
                 k3,
                 "Crítico",
-                f"{critico}",
-                f"{critico/len(df_proj)*100:.0f}%",
+                str(critico),
+                f"{critico / len(projecao):.0%}",
                 "vermelho",
             )
+
             render_kpi_sm(
                 k4,
                 "Conversão Média",
@@ -2393,12 +2945,23 @@ def view_analise_detalhada(
             )
 
     with tab3:
-        render_section_header("🏆", "Técnicos Mais Críticos")
-        df_tec = Motor.tecnicos_criticos(
-            df, "TODOS", p_base, min_aloc, top_n=20, p_ot=p_ot, p_pess=p_pess
+        render_section_header(
+            "",
+            "Técnicos Mais Críticos",
         )
+
+        tecnicos = Motor.tecnicos_criticos(
+            df,
+            "TODOS",
+            p_base,
+            min_aloc,
+            top_n=20,
+            p_ot=p_ot,
+            p_pess=p_pess,
+        )
+
         render_dataframe_profundo(
-            df_tec,
+            tecnicos,
             "Top 20 Técnicos com Maior Risco",
             "👤",
             color_col="Fechamento Base",
@@ -2406,244 +2969,585 @@ def view_analise_detalhada(
         )
 
     with tab4:
-        render_section_header("🔍", "Análise de Causa Raiz")
-        col_baixa = Utils.buscar_coluna(
-            df, ["CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA"]
+        render_section_header(
+            "🔍",
+            "Análise de Causa Raiz",
         )
-        if col_baixa:
-            df_causa = Motor.causa_raiz(df, col_baixa, top_n=10)
-            render_dataframe_profundo(df_causa, "Pareto de Motivos", "🎯")
+
+        coluna_baixa = Utils.buscar_coluna(
+            df,
+            (
+                "CÓD DE BAIXA 1",
+                "COD DE BAIXA 1",
+                "MOTIVO DE BAIXA",
+                "COD_BAIXA",
+            ),
+        )
+
+        if coluna_baixa is None:
+            st.warning("⚠️ Coluna de Código/Motivo de Baixa não encontrada.")
         else:
-            st.warning(
-                "⚠️ Coluna de 'Código de Baixa' não encontrada para mapear Pareto."
+            causas = Motor.causa_raiz(
+                df,
+                coluna_baixa,
+                top_n=10,
+            )
+
+            render_dataframe_profundo(
+                causas,
+                "Pareto de Motivos",
+                "",
             )
 
     with tab5:
-        render_section_header("🛠️", "Gestão de Fila (Backoffice)")
-        df_fila = Motor.backoffice_fila(df)
-        render_dataframe_profundo(df_fila, "Fila Priorizada", "📋")
+        render_section_header(
+            "🛠️",
+            "Gestão de Fila (Backoffice)",
+        )
+
+        fila = Motor.backoffice_fila(df)
+
+        render_dataframe_profundo(
+            fila,
+            "Fila Priorizada",
+            "📋",
+        )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# FLUXO PRINCIPAL DE INICIALIZAÇÃO E EVENTOS
-# ═══════════════════════════════════════════════════════════════════════
+def view_auditoria(df: pd.DataFrame) -> None:
+    render_section_header(
+        "🔎",
+        "Auditoria de Processamento",
+    )
+
+    total_importado = int(
+        df.attrs.get(
+            "total_importado",
+            len(df),
+        )
+    )
+
+    removidos_status = int(
+        df.attrs.get(
+            "removidos_suspensos_cancelados",
+            0,
+        )
+    )
+
+    removidos_contrato = int(
+        df.attrs.get(
+            "removidos_contrato",
+            0,
+        )
+    )
+
+    k1, k2, k3, k4 = st.columns(4)
+
+    k1.metric("Importados", _fmt_int_br(total_importado))
+    k2.metric("Processados", _fmt_int_br(len(df)))
+    k3.metric("Removidos por Status", _fmt_int_br(removidos_status))
+    k4.metric("Contratos Inválidos", _fmt_int_br(removidos_contrato))
+
+    arquivo_origem = str(
+        df.attrs.get(
+            "arquivo_origem",
+            "Não identificado",
+        )
+    )
+
+    coluna_tipo = str(
+        df.attrs.get(
+            "tipo_servico_coluna",
+            "Não identificada",
+        )
+    )
+
+    st.caption(f"Arquivo de origem: {arquivo_origem}")
+    st.caption(f"Coluna de tipo de serviço: {coluna_tipo}")
+
+    # DIAGNÓSTICO DE CRITÉRIOS (NOVO)
+    if CRITERIOS_DISPONIVEL:
+        with st.expander("🔍 Diagnóstico de Critérios", expanded=False):
+            col_tipo = detectar_col_tipo_os_1(df)
+            col_hab = detectar_col_habilidade(df)
+            col_gpon = detectar_col_flag_gpon(df)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric(
+                "TIPO O.S 1",
+                "✅ Encontrada" if col_tipo else "❌ Não encontrada",
+                col_tipo or "—",
+            )
+            c2.metric(
+                "HABILIDADE",
+                "✅ Encontrada" if col_hab else "❌ Não encontrada",
+                col_hab or "—",
+            )
+            c3.metric(
+                "FLAG_GPON",
+                "✅ Encontrada" if col_gpon else "❌ Não encontrada",
+                col_gpon or "—",
+            )
+
+            if "TIPO_SERVICO" in df.columns:
+                st.markdown("#### Distribuição por Segmento")
+                dist = df["TIPO_SERVICO"].value_counts().reset_index()
+                dist.columns = ["Segmento", "Registros"]
+                st.dataframe(dist, hide_index=True, use_container_width=True)
+
+    with st.expander(
+        "Visualizar amostra da base processada",
+        expanded=False,
+    ):
+        st.dataframe(
+            df.head(200),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SESSÃO
+# ─────────────────────────────────────────────────────────────────────
+def _limpar_estado_aplicacao(
+    limpar_ativos: bool = True,
+) -> None:
+    chaves = [
+        "df_memoria",
+        "df_memoria_raw",
+        "arquivo_processado",
+        "origem_dados",
+        "_robo_df_pronto",
+        "_robo_nome_arquivo",
+        "_robo_dados_disponiveis",
+        "robo_hora_sucesso",
+    ]
+
+    if limpar_ativos:
+        chaves.extend(
+            [
+                "df_gs_manual",
+                "arquivo_ativos_processado",
+            ]
+        )
+
+    for chave in chaves:
+        st.session_state.pop(chave, None)
+
+    nonce_atual = int(
+        st.session_state.get(
+            "upload_nonce",
+            0,
+        )
+    )
+
+    st.session_state["upload_nonce"] = nonce_atual + 1
+
+
+# ─────────────────────────────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────────────────────────────
 def main() -> None:
     _injetar_css_global()
+
+    mensagem_flash = st.session_state.pop(
+        "mensagem_flash",
+        "",
+    )
+
+    if mensagem_flash:
+        st.success(str(mensagem_flash))
 
     render_sidebar_brand(
         titulo="TOTALE",
         subtitulo="Quebra Operacional",
         logo="monitoring",
         ambiente="produção",
-        versao="v4.2.1",
+        versao="v4.3.0",
         mostrar_data=True,
     )
 
-    df_ativos_atv = pd.DataFrame()
+    if "upload_nonce" not in st.session_state:
+        st.session_state["upload_nonce"] = 0
 
-    with st.sidebar.expander("⚙️ Configurações & Lista de Ativos", expanded=False):
+    nonce = int(st.session_state["upload_nonce"])
+
+    with st.sidebar.expander(
+        "⚙️ Configurações & Lista de Ativos",
+        expanded=False,
+    ):
         st.markdown("### Lista de Ativos (Merge)")
 
-        uploaded_ativos = st.file_uploader(
-            "Upload Contingência de Ativos",
-            type=["csv", "xlsx"],
-            key="uploaded_ativos_manual",
-            help="Substitua ou adicione técnicos se o Sheets estiver indisponível.",
+        upload_ativos = st.file_uploader(
+            "Upload de Contingência de Ativos",
+            type=["csv", "xlsx", "xlsm"],
+            key=f"uploaded_ativos_manual_{nonce}",
+            help=(
+                "Utilize esta opção caso o Google Sheets esteja "
+                "indisponível ou para atualizar a lista de ativos."
+            ),
         )
 
-        if uploaded_ativos is not None:
+        if upload_ativos is not None:
             try:
-                raw_ativos_manual = DataLoader.ler_arquivo(
-                    uploaded_ativos.getvalue(), uploaded_ativos.name
+                bytes_ativos = upload_ativos.getvalue()
+
+                id_ativos = _identificador_upload(
+                    upload_ativos.name,
+                    bytes_ativos,
                 )
-                df_ativos_proc = DataLoader._processar_lista_ativos(raw_ativos_manual)
-                if not df_ativos_proc.empty:
-                    st.session_state["df_gs_manual"] = df_ativos_proc
-                    st.toast(
-                        f"✅ {len(df_ativos_proc)} ativos carregados manualmente!",
-                        icon="👥",
+
+                if st.session_state.get("arquivo_ativos_processado") != id_ativos:
+                    raw_ativos = DataLoader.ler_arquivo(
+                        bytes_ativos,
+                        upload_ativos.name,
                     )
-                    if "df_memoria_raw" in st.session_state:
-                        st.session_state["df_memoria"] = DataLoader.preparar_base(
-                            st.session_state["df_memoria_raw"], df_ativos_proc
+
+                    ativos_processados = DataLoader._processar_lista_ativos(raw_ativos)
+
+                    if ativos_processados.empty:
+                        raise ValueError(
+                            "A base de ativos não possui uma coluna LOGIN válida."
                         )
-                else:
-                    st.error("Arquivo de ativos inválido ou vazio.")
-            except Exception as e:
-                st.error(f"Erro no processamento manual: {e}")
+
+                    st.session_state["df_gs_manual"] = ativos_processados
+
+                    st.session_state["arquivo_ativos_processado"] = id_ativos
+
+                    raw_memoria = _obter_dataframe_sessao("df_memoria_raw")
+
+                    if raw_memoria is not None:
+                        st.session_state["df_memoria"] = DataLoader.preparar_base(
+                            raw_memoria,
+                            ativos_processados,
+                        )
+
+                    st.toast(
+                        f"✅ {len(ativos_processados)} ativos carregados.",
+                        icon="",
+                    )
+
+            except Exception as erro:
+                st.error(f"Erro ao processar base de ativos: {erro}")
 
         if st.button(
-            "🔄 Reiniciar Aplicação", use_container_width=True, type="secondary"
+            "🔄 Reiniciar Aplicação",
+            use_container_width=True,
+            type="secondary",
         ):
-            st.rerun()
-        if st.button("🗑️ Limpar Cache", use_container_width=True, type="secondary"):
+            _limpar_estado_aplicacao(
+                limpar_ativos=True,
+            )
             st.cache_data.clear()
-            if "df_gs_manual" in st.session_state:
-                del st.session_state["df_gs_manual"]
-            st.success("Cache limpo com sucesso!")
+            st.rerun()
+
+        if st.button(
+            "️ Limpar Cache",
+            use_container_width=True,
+            type="secondary",
+        ):
+            _limpar_estado_aplicacao(
+                limpar_ativos=True,
+            )
+            st.cache_data.clear()
             st.rerun()
 
     if "df_gs_manual" in st.session_state:
-        df_ativos_atv = st.session_state["df_gs_manual"]
-        origem_ativos = "Carregado Manualmente (Backup)"
-    else:
-        df_ativos_atv = DataLoader.buscar_gsheets()
-        origem_ativos = "Google Sheets (Sincronizado)"
+        df_ativos_atual = _obter_dataframe_sessao("df_gs_manual") or pd.DataFrame()
 
-    if not df_ativos_atv.empty:
-        st.sidebar.caption(
-            f"👥 **Base de Ativos Ativa:** {len(df_ativos_atv)} registros"
-        )
-        st.sidebar.caption(f"📍 *Origem: {origem_ativos}*")
+        origem_ativos = "Upload Manual"
+
     else:
-        st.sidebar.error("🚨 Nenhuma base de ativos de técnicos conectada!")
+        df_ativos_atual = DataLoader.buscar_gsheets()
+        origem_ativos = "Google Sheets"
+
+    if not df_ativos_atual.empty:
+        st.sidebar.caption(f"👥 Base de Ativos: {len(df_ativos_atual)} registros")
+        st.sidebar.caption(f"📍 Origem: {origem_ativos}")
+    else:
+        st.sidebar.warning("⚠️ Nenhuma base de ativos conectada.")
 
     if "robo_pasta_alvo" not in st.session_state:
         st.session_state["robo_pasta_alvo"] = str(Path.home() / "Downloads")
 
+    pasta_robo = st.session_state.get(
+        "robo_pasta_alvo",
+        str(Path.home() / "Downloads"),
+    )
+
+    if not isinstance(pasta_robo, str):
+        pasta_robo = str(Path.home() / "Downloads")
+
     st.sidebar.markdown("---")
+
     if ROBO_DISPONIVEL and _impl_robo is not None:
         try:
 
             def callback_robo_com_ativos(
                 df_raw: pd.DataFrame,
                 df_gs_arg: pd.DataFrame | None = None,
-                *args: Any,
-                **kwargs: Any,
+                *_args: Any,
+                **_kwargs: Any,
             ) -> pd.DataFrame:
-                df_gs_final = (
+                ativos_finais = (
                     df_gs_arg
                     if isinstance(df_gs_arg, pd.DataFrame) and not df_gs_arg.empty
-                    else df_ativos_atv
+                    else df_ativos_atual
                 )
-                return DataLoader.callback_robo_etl(df_raw, df_gs_final)
+
+                return DataLoader.callback_robo_etl(
+                    df_raw,
+                    ativos_finais,
+                )
 
             _impl_robo(
                 etl_fn=callback_robo_com_ativos,
-                gsheets_fn=lambda: df_ativos_atv,
-                pasta_padrao=st.session_state["robo_pasta_alvo"],
+                gsheets_fn=lambda: df_ativos_atual,
+                pasta_padrao=pasta_robo,
                 ciclos_estabilidade=1,
                 mostrar_toggle=True,
                 mostrar_config=True,
             )
-        except Exception as e:
-            st.sidebar.error(f"Erro Robô: {e}")
+
+        except Exception as erro:
+            st.sidebar.error(f"Erro ao inicializar Robô: {erro}")
+
     else:
-        st.sidebar.info("🤖 Robô offline. Use upload manual.")
-        pasta_fb = st.sidebar.text_input(
+        st.sidebar.info("🤖 Robô offline. Utilize upload manual.")
+
+        pasta_manual = st.sidebar.text_input(
             "Pasta monitorada",
-            value=st.session_state["robo_pasta_alvo"],
+            value=pasta_robo,
             key="robo_pasta_fallback",
         )
-        st.session_state["robo_pasta_alvo"] = pasta_fb
 
-    df_atual: pd.DataFrame | None = st.session_state.get("df_memoria")
-    robo_tem_dados = bool(
-        st.session_state.get("_robo_dados_disponiveis", False)
-        or (df_atual is not None and not df_atual.empty)
+        st.session_state["robo_pasta_alvo"] = pasta_manual
+
+    df_atual = _obter_dataframe_sessao("df_memoria")
+
+    dados_prontos = df_atual is not None and not df_atual.empty
+
+    clicou_atualizar = render_bloco_importacao_robo(
+        dados_prontos=dados_prontos,
     )
 
-    clicou_processar = render_bloco_importacao_robo(dados_prontos=robo_tem_dados)
+    if clicou_atualizar:
+        st.session_state["mensagem_flash"] = "✅ Relatório atualizado com sucesso."
+        st.rerun()
 
-    if clicou_processar:
-        with st.spinner("Processando base detectada..."):
-            st.success("✅ Base processada com sucesso!", icon="🚀")
-            st.rerun()
-
-    uploaded_file = None
-    if not robo_tem_dados:
-        uploaded_file = st.file_uploader(
-            "⬇️ Carregar base de O.S. manualmente (CSV/XLSX)",
-            type=["csv", "xlsx"],
-            help="O Robô monitora a pasta local. Use aqui se estiver offline.",
+    if not dados_prontos:
+        upload_os = st.file_uploader(
+            "⬇️ Carregar base de O.S. manualmente",
+            type=["csv", "xlsx", "xlsm"],
+            key=f"upload_os_principal_{nonce}",
         )
     else:
-        with st.expander("📂 Substituir base de O.S. manualmente", expanded=False):
-            uploaded_file = st.file_uploader(
+        with st.expander(
+            " Substituir base de O.S. manualmente",
+            expanded=False,
+        ):
+            upload_os = st.file_uploader(
                 "Upload Manual O.S.",
-                type=["csv", "xlsx"],
-                key="upload_contingencia_manual",
+                type=["csv", "xlsx", "xlsm"],
+                key=f"upload_os_substituir_{nonce}",
             )
 
-    if uploaded_file is not None:
-        file_id = (uploaded_file.name, uploaded_file.size)
-        if st.session_state.get("arquivo_processado") != file_id:
-            with st.spinner(f"Processando {uploaded_file.name}..."):
-                try:
-                    raw_df = DataLoader.ler_arquivo(
-                        uploaded_file.getvalue(), uploaded_file.name
-                    )
-                    st.session_state["df_memoria_raw"] = raw_df
-                    st.session_state["df_memoria"] = DataLoader.preparar_base(
-                        raw_df, df_ativos_atv, filename=uploaded_file.name
-                    )
-                    st.session_state["arquivo_processado"] = file_id
-                    st.session_state["origem_dados"] = f"Upload ({uploaded_file.name})"
-                    st.session_state["_robo_dados_disponiveis"] = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Erro: {e}")
-                    return
+    if upload_os is not None:
+        try:
+            bytes_os = upload_os.getvalue()
 
-    df: pd.DataFrame | None = st.session_state.get("df_memoria")
+            id_arquivo = _identificador_upload(
+                upload_os.name,
+                bytes_os,
+            )
+
+            if st.session_state.get("arquivo_processado") != id_arquivo:
+                with st.spinner(f"Processando {upload_os.name}..."):
+                    raw_os = DataLoader.ler_arquivo(
+                        bytes_os,
+                        upload_os.name,
+                    )
+
+                    if raw_os.empty:
+                        raise ValueError("A base de O.S. não possui registros.")
+
+                    base_processada = DataLoader.preparar_base(
+                        raw_os,
+                        df_ativos_atual,
+                        filename=upload_os.name,
+                    )
+
+                    if base_processada.empty:
+                        raise ValueError(
+                            "Nenhuma O.S. válida permaneceu após o tratamento."
+                        )
+
+                    st.session_state["df_memoria_raw"] = raw_os
+                    st.session_state["df_memoria"] = base_processada
+                    st.session_state["arquivo_processado"] = id_arquivo
+                    st.session_state["origem_dados"] = f"Upload ({upload_os.name})"
+
+                    st.session_state["_robo_dados_disponiveis"] = True
+
+                    st.session_state["mensagem_flash"] = (
+                        "✅ Base processada com sucesso."
+                    )
+
+                    st.rerun()
+
+        except Exception as erro:
+            st.error(f"❌ Erro no processamento do arquivo: {erro}")
+
+    df = _obter_dataframe_sessao("df_memoria")
+
     if df is None or df.empty:
         return
 
+    # DEBUG DE COLUNAS (OPCIONAL - REMOVER EM PRODUÇÃO)
+    # with st.sidebar.expander(" Debug Colunas"):
+    #     st.write("**Colunas disponíveis:**")
+    #     st.write(list(df.columns))
+    #     if CRITERIOS_DISPONIVEL:
+    #         col_tipo = detectar_col_tipo_os_1(df)
+    #         col_hab = detectar_col_habilidade(df)
+    #         if col_tipo:
+    #             st.write(f"**{col_tipo}** (amostra):")
+    #             st.write(df[col_tipo].dropna().head(20).unique().tolist()[:10])
+    #         if col_hab:
+    #             st.write(f"**{col_hab}** (amostra):")
+    #             st.write(df[col_hab].dropna().head(20).unique().tolist()[:10])
+
     st.sidebar.markdown("---")
     st.sidebar.markdown(
-        "<div style='font-size:12px; font-weight:700; color:#64748B; text-transform:uppercase;'>🎯 Filtros de Projeção</div>",
+        """
+        <div style="
+            font-size:12px;
+            font-weight:700;
+            color:#64748B;
+            text-transform:uppercase;
+        ">
+            🎯 Filtros de Projeção
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    p_ot = st.sidebar.slider("Prob. Otimista (%)", 0, 100, 15, step=5) / 100.0
-    p_base = st.sidebar.slider("Prob. Base (%)", 0, 100, 30, step=5) / 100.0
-    p_pess = st.sidebar.slider("Prob. Pessimista (%)", 0, 100, 50, step=5) / 100.0
-    min_aloc = float(st.sidebar.number_input("Mínimo Alocações", value=5, min_value=1))
 
-    regioes_sel = (
-        sorted(df["REGIÃO"].dropna().unique().tolist())
-        if "REGIÃO" in df.columns
-        else []
+    p_ot = (
+        st.sidebar.slider(
+            "Prob. Otimista de Quebra (%)",
+            0,
+            100,
+            15,
+            step=5,
+        )
+        / 100
     )
-    origem_base = st.session_state.get("origem_dados", "Base Carregada")
+
+    p_base = (
+        st.sidebar.slider(
+            "Prob. Base de Quebra (%)",
+            0,
+            100,
+            30,
+            step=5,
+        )
+        / 100
+    )
+
+    p_pess = (
+        st.sidebar.slider(
+            "Prob. Pessimista de Quebra (%)",
+            0,
+            100,
+            50,
+            step=5,
+        )
+        / 100
+    )
+
+    min_aloc = float(
+        st.sidebar.number_input(
+            "Mínimo de Alocações",
+            min_value=1,
+            value=5,
+        )
+    )
+
+    if not (p_ot <= p_base <= p_pess):
+        st.sidebar.warning(
+            "Atenção: o cenário Otimista deveria ser menor ou igual "
+            "ao Base, que deveria ser menor ou igual ao Pessimista."
+        )
+
+    regioes = (
+        sorted(df["REGIÃO"].dropna().astype(str).unique().tolist())
+        if "REGIÃO" in df.columns
+        else ["TODAS"]
+    )
+
+    origem_base = str(
+        st.session_state.get(
+            "origem_dados",
+            "Base Carregada",
+        )
+    )
 
     render_hero_topo_fixo(
         "Super Relatório Corporativo",
         "Análise unificada de desempenho operacional",
-        regioes_sel if regioes_sel else ["TODAS"],
+        regioes if regioes else ["TODAS"],
         len(df),
         badge="TOTALE OPERACIONAL",
         origem=origem_base,
     )
 
+    if "TÉCNICO" in df.columns:
+        nao_mapeados = int(df["TÉCNICO"].eq("NÃO MAPEADO").sum())
+    else:
+        nao_mapeados = len(df)
+
     total_os = len(df)
-    nao_mapeados = int((df["TÉCNICO"] == "NÃO MAPEADO").sum())
-    pct_mapeado = ((total_os - nao_mapeados) / total_os) if total_os > 0 else 0.0
+    pct_nao_mapeado = nao_mapeados / total_os if total_os > 0 else 0.0
 
     if nao_mapeados > 0:
         st.warning(
-            f"⚠️ **Aviso de Integração:** {nao_mapeados} O.S. ({1 - pct_mapeado:.1%} do volume ativo) não encontraram correspondência "
-            "na Lista de Ativos instalada e estão listados como 'NÃO MAPEADO'."
+            f"⚠️ **Aviso de Integração:** {nao_mapeados} O.S. "
+            f"({pct_nao_mapeado:.1%} do volume ativo) não possuem "
+            "correspondência válida na Lista de Ativos."
         )
     else:
-        st.success(
-            "🎉 **Perfeito!** Todos os logins estão mapeados na Lista de Ativos com sucesso."
-        )
+        st.success("🎉 Todos os logins estão mapeados na Lista de Ativos.")
 
     aba = st.radio(
         "Navegação Principal",
-        ["Resumo Executivo", "Análise Detalhada", "Auditoria"],
+        [
+            "Resumo Executivo",
+            "Análise Detalhada",
+            "Auditoria",
+        ],
         horizontal=True,
     )
+
     if aba == "Resumo Executivo":
-        view_resumo_executivo(df, Config.SLA_QUEBRA_MAXIMA)
+        view_resumo_executivo(
+            df,
+            Config.SLA_QUEBRA_MAXIMA,
+        )
+
     elif aba == "Análise Detalhada":
         view_analise_detalhada(
-            df, p_ot, p_base, p_pess, min_aloc, Config.SLA_QUEBRA_MAXIMA
+            df,
+            p_ot,
+            p_base,
+            p_pess,
+            min_aloc,
+            Config.SLA_QUEBRA_MAXIMA,
         )
-    elif aba == "Auditoria":
-        st.info("Painel de auditoria e logs disponível em módulos avançados.")
-        
-st.divider()
+
+    else:
+        view_auditoria(df)
+
+    st.divider()
 
 
 if __name__ == "__main__":
