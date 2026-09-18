@@ -15,8 +15,9 @@ import importlib
 import re
 import sys
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
+from functools import lru_cache
 from html import escape
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -26,7 +27,7 @@ from urllib.parse import quote
 import numpy as np
 import pandas as pd
 import streamlit as st
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 # ─────────────────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ def _tentar_import_robo() -> tuple[RoboCallable | None, str]:
 
 
 _impl_robo, _ROBO_IMPORT_ERRO = _tentar_import_robo()
-ROBO_DISPONIVEL = _impl_robo is not None
+ROBO_DISPONIVEL: bool = _impl_robo is not None
 
 
 def renderizar_robo_local(*args: Any, **kwargs: Any) -> None:
@@ -294,7 +295,7 @@ MAPA_CODIGO_NUMERICO: Final[dict[int, str]] = {
             316,
             400,
             402,
-        ]
+        )
     },
     **{
         codigo: "Executada"
@@ -312,7 +313,7 @@ MAPA_CODIGO_NUMERICO: Final[dict[int, str]] = {
             475,
             477,
             *range(500, 591),
-        ]
+        )
     },
 }
 
@@ -792,7 +793,6 @@ class Utils:
     def normalizar_texto(valor: Any) -> str:
         if valor is None:
             return ""
-
         try:
             ausente = pd.isna(valor)
 
@@ -1085,7 +1085,6 @@ class Utils:
                 "HORA INICIO",
             ),
         )
-
         col_fechamento = Utils.buscar_coluna(
             df,
             (
@@ -1333,6 +1332,7 @@ class DataLoader:
         show_spinner="Sincronizando Lista de Ativos...",
     )
     def buscar_gsheets() -> pd.DataFrame:
+        erros: list[str] = []
         try:
             modulo = importlib.import_module("streamlit_gsheets")
             connection_type = getattr(modulo, "GSheetsConnection")
@@ -1932,14 +1932,12 @@ class Motor:
             )
 
         return pd.concat(
-            [
-                pivot,
-                pd.DataFrame([total_row]),
-            ],
+            [pivot, pd.DataFrame([total_row], columns=pivot.columns)],
             ignore_index=True,
         )
 
     @staticmethod
+    def matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
     def matriz_resumo(df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty:
             return pd.DataFrame()
@@ -1982,8 +1980,8 @@ class Motor:
         pivot = pd.pivot_table(
             trabalho,
             index=grupo,
-            columns="Status Contrato",
-            values="TOTAL DE TAREFAS",
+            columns=COL_STATUS,
+            values=COL_TOTAL,
             aggfunc="sum",
             fill_value=0,
         )
@@ -2119,7 +2117,7 @@ class Motor:
 
     @staticmethod
     def backoffice_fila(df: pd.DataFrame) -> pd.DataFrame:
-        if "Status Contrato" not in df.columns:
+        if df is None or df.empty or COL_STATUS not in df.columns:
             return pd.DataFrame()
 
         trabalho = df.copy()
@@ -2240,7 +2238,7 @@ class Motor:
         probabilidade: float = 0.30,
         grupo: str = "MONITOR",
         incluir_meta: bool = True,
-        meta_sla: float = 0.20,
+        meta_sla: float = Config.SLA_QUEBRA_MAXIMA,
     ) -> pd.DataFrame:
         colunas_obrigatorias = {
             grupo,
@@ -2470,6 +2468,7 @@ def render_bloco_importacao_robo(
 
         <div class="import-header-line"></div>
         """,
+        """,
         unsafe_allow_html=True,
     )
 
@@ -2610,14 +2609,38 @@ def render_hero_topo_fixo(
     )
 
 
+_COLUNAS_PERCENTUAIS = (
+    "QUEBRA",
+    "FECHAMENTO",
+    "%",
+    "PROJEÇÃO",
+    "CONVERSÃO",
+    "DOMICÍLIOS",
+    "DOMICILIOS",
+    "PME",
+    "MIGRAÇÃO",
+    "MIGRACAO",
+    "OUTROS",
+)
+_COLUNAS_INTEIRAS = (
+    "TOTAL",
+    "VOLUME",
+    "TAREFAS",
+    "PRIORIDADE",
+    "EXECUTADAS",
+    "TASKS",
+)
+
+
 def render_dataframe_profundo(
     df: pd.DataFrame,
     titulo: str,
     icone: str,
     color_col: str | None = None,
-    meta: float = 0.20,
+    meta: float = Config.SLA_QUEBRA_MAXIMA,
     height: int = 400,
 ) -> None:
+    total_registros = 0 if df is None else len(df)
     st.markdown(
         f"""
         <div style="
@@ -2652,7 +2675,7 @@ def render_dataframe_profundo(
         unsafe_allow_html=True,
     )
 
-    if df.empty:
+    if df is None or df.empty:
         st.info("Sem dados para exibir.")
         return
 
@@ -2746,13 +2769,9 @@ def view_resumo_executivo(
             "️ A base não possui uma coluna identificável de tipo de serviço. "
             "Todos os registros foram classificados como 'Outros'."
         )
+        return
 
-    elif tipos_processados == {"Outros"}:
-        valores_originais = df.attrs.get(
-            "valores_tipo_servico_originais",
-            {},
-        )
-
+    if tipos_processados and tipos_processados <= {"Outros"}:
         st.warning(
             "⚠️ A coluna de segmento foi encontrada, mas nenhum valor foi "
             "reconhecido como Novos Domicílios, PME ou Migração."
@@ -2764,10 +2783,6 @@ def view_resumo_executivo(
                 + ", ".join(list(valores_originais.keys())[:10])
             )
 
-    render_section_header(
-        "📊",
-        "Matriz de Quebra por Monitor e Segmento",
-    )
 
     matriz = Motor.matriz_resumo(df)
 
@@ -2803,6 +2818,7 @@ def view_resumo_executivo(
         mime=("application/vnd.openxmlformats-officedocument." "spreadsheetml.sheet"),
         use_container_width=True,
     )
+
 
 
 def view_analise_detalhada(
@@ -3401,6 +3417,7 @@ def main() -> None:
     df = _obter_dataframe_sessao("df_memoria")
 
     if df is None or df.empty:
+        st.info("Carregue uma base de O.S. para iniciar a análise.")
         return
 
     # DEBUG DE COLUNAS (OPCIONAL - REMOVER EM PRODUÇÃO)
@@ -3498,7 +3515,7 @@ def main() -> None:
         regioes if regioes else ["TODAS"],
         len(df),
         badge="TOTALE OPERACIONAL",
-        origem=origem_base,
+        origem=st.session_state.get("origem_dados", "Base Carregada"),
     )
 
     if "TÉCNICO" in df.columns:
@@ -3527,6 +3544,7 @@ def main() -> None:
         ],
         horizontal=True,
     )
+
 
     if aba == "Resumo Executivo":
         view_resumo_executivo(
