@@ -1751,20 +1751,29 @@ def render_bloco_importacao_robo(dados_prontos: bool = False) -> bool:
     )
 
 
+# ─────────────────────────────────────────────────────────────────────
+# CORREÇÃO DA RENDERIZAÇÃO DO HERO E BASE ATIVA (SEM VAZAMENTO DE DIV)
+# ─────────────────────────────────────────────────────────────────────
 def html_resultado_base(regioes: list[str], total: int, origem: str = "") -> str:
     badges = [
-        f"""<span class="badge-regiao" style="background:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO['OUTRAS'])['bg']}; color:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO['OUTRAS'])['text']}; border-color:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO['OUTRAS'])['border']};">{_html(regiao_norm)}</span>"""
+        f'<span class="badge-regiao" style="background:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO["OUTRAS"])["bg"]}; color:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO["OUTRAS"])["text"]}; border-color:{CORES_REGIAO.get(regiao_norm, CORES_REGIAO["OUTRAS"])["border"]};">{_html(regiao_norm)}</span>'
         for regiao in sorted(set(regioes))
         for regiao_norm in [str(regiao).upper().strip()]
     ]
-    return f"""
-    <div class="base-info">
-        <span style="color:#94A3B8; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;">📋 Base Ativa:</span>
-        {''.join(badges)}
-        {f'<span style="color:#6EE7B7; font-size:0.78rem; font-weight:600; margin-left:8px;">• {_html(origem)}</span>' if origem else ''}
-        <span style="color:#FFFFFF; font-size:0.78rem; margin-left:auto; font-weight:700;">{_fmt_int_br(total)} registros</span>
-    </div>
-    """
+    badges_str = "".join(badges)
+    origem_str = (
+        f'<span style="color:#6EE7B7; font-size:0.78rem; font-weight:600; margin-left:8px;">• {_html(origem)}</span>'
+        if origem
+        else ""
+    )
+    return (
+        f'<div class="base-info">'
+        f'<span style="color:#94A3B8; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;">📋 Base Ativa:</span>'
+        f"{badges_str}"
+        f"{origem_str}"
+        f'<span style="color:#FFFFFF; font-size:0.78rem; margin-left:auto; font-weight:700;">{_fmt_int_br(total)} registros</span>'
+        f"</div>"
+    )
 
 
 def render_hero_topo_fixo(
@@ -1776,23 +1785,23 @@ def render_hero_topo_fixo(
     origem: str = "",
 ) -> None:
     badge_html = (
-        f"""<span style="display:inline-block; background:rgba(255,255,255,0.20); padding:5px 16px; border-radius:20px; font-size:12px; font-weight:700; margin-top:10px; letter-spacing:0.6px; text-transform:uppercase; color:white; border:1px solid rgba(255,255,255,0.30);">{_html(badge)}</span>"""
+        f'<span style="display:inline-block; background:rgba(255,255,255,0.20); padding:5px 16px; border-radius:20px; font-size:12px; font-weight:700; margin-top:10px; letter-spacing:0.6px; text-transform:uppercase; color:white; border:1px solid rgba(255,255,255,0.30);">{_html(badge)}</span>'
         if badge
         else ""
     )
-    st.markdown(
-        f"""
-        <div class="hero-container">
-            <div class="hero-card">
-                <h1 class="hero-title">{_html(titulo)}</h1>
-                <p class="hero-sub">{_html(subtitulo)}</p>
-                {badge_html}
-            </div>
-            {html_resultado_base(regioes, total, origem) if total > 0 else ''}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    base_html = html_resultado_base(regioes, total, origem) if total > 0 else ""
+
+    html = (
+        f'<div class="hero-container">'
+        f'<div class="hero-card">'
+        f'<h1 class="hero-title">{_html(titulo)}</h1>'
+        f'<p class="hero-sub">{_html(subtitulo)}</p>'
+        f"{badge_html}"
+        f"</div>"
+        f"{base_html}"
+        f"</div>"
     )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_dataframe_profundo(
