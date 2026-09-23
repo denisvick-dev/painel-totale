@@ -810,57 +810,54 @@ _CSS_EXTRAS = """
 .section-subtitle { margin: 6px 0 0; font-size: 13px; color: var(--cor-texto-3); }
 .user-info-card { background: linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 100%); border: 1px solid var(--cor-borda); border-radius: 12px; padding: 16px; margin: 12px 0; }
 
-/* ====================== ÍCONES CORPORATIVOS ====================== */
+/* ====================== ÍCONES CORPORATIVOS (SEM FUNDO) ====================== */
 .totale-icon-tile {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
     flex-shrink: 0 !important;
-    background: linear-gradient(135deg, #012869 0%, #0A48AA 52%, #F37C04 100%) !important;
-    background-clip: border-box !important;
-    -webkit-background-clip: border-box !important;
-    -webkit-text-fill-color: initial !important;
-    color: #FFFFFF !important;
-    border: 1px solid rgba(255,255,255,0.24) !important;
-    box-shadow: 0 4px 12px rgba(1,40,105,0.20) !important;
-    overflow: hidden !important;
+    background: none !important;
+    background-image: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
     line-height: 1 !important;
 }
 
 .totale-icon-tile--brand {
-    width: 36px !important;
-    height: 36px !important;
-    min-width: 36px !important;
-    border-radius: 10px !important;
+    width: auto !important;
+    height: auto !important;
+    min-width: 28px !important;
 }
 
 .totale-icon-tile--section {
-    width: 38px !important;
-    height: 38px !important;
-    min-width: 38px !important;
-    border-radius: 10px !important;
+    width: auto !important;
+    height: auto !important;
+    min-width: 30px !important;
 }
 
 .totale-icon-glyph {
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    background: transparent !important;
+    background: none !important;
     background-image: none !important;
     background-clip: border-box !important;
     -webkit-background-clip: border-box !important;
     color: initial !important;
     -webkit-text-fill-color: initial !important;
-    /* Suporte ampliado para Emojis E Material Symbols */
-    font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+                 "Material Symbols Rounded", "Material Symbols Outlined",
+                 "Material Icons", sans-serif !important;
     font-style: normal !important;
     font-weight: 400 !important;
-    font-size: 20px !important;
     line-height: 1 !important;
 }
 
-.totale-icon-tile--brand .totale-icon-glyph { font-size: 19px !important; }
-.totale-icon-tile--section .totale-icon-glyph { font-size: 20px !important; }
+.totale-icon-tile--brand .totale-icon-glyph { font-size: 24px !important; }
+.totale-icon-tile--section .totale-icon-glyph { font-size: 26px !important; }
 
 .section-header-copy {
     flex: 1 !important;
