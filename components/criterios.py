@@ -33,7 +33,7 @@ VAZIOS_CONTRATO: set[str] = {"", "NULL", "NAN", "NONE"}
 # ═══════════════════════════════════════════════════════════════════════
 # CRITÉRIOS DE CLASSIFICAÇÃO
 # ═══════════════════════════════════════════════════════════════════════
-#  Novos Domicílios: TIPO O.S 1 contém "ADESAO", "ADESÃO", "INSTALACAO", etc.
+# 🏠 Novos Domicílios: TIPO O.S 1 contém "ADESAO", "INSTALACAO", etc.
 # 🔄 Migração: TIPO O.S 1 contém "MUDANCA DE PACOTE" + Habilidade contém "PON"
 # 🏢 PME: Novos Domicílios + Habilidade contém "PME"
 # ═══════════════════════════════════════════════════════════════════════
@@ -92,7 +92,7 @@ CANDS_HABILIDADE: list[str] = [
 
 def _norm_str(texto: str) -> str:
     return (
-        unicodedata.normalize("NFKD", texto)
+        unicodedata.normalize("NFKD", str(texto))
         .encode("ascii", errors="ignore")
         .decode("ascii")
         .upper()
@@ -106,7 +106,7 @@ def normalizar_str(texto: str) -> str:
 
 def norm_col_nome(nome: str) -> str:
     return (
-        unicodedata.normalize("NFKD", nome)
+        unicodedata.normalize("NFKD", str(nome))
         .encode("ascii", errors="ignore")
         .decode("ascii")
         .upper()
@@ -117,37 +117,36 @@ def norm_col_nome(nome: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# DETECÇÃO DE COLUNAS (MELHORADA)
+# DETECÇÃO DE COLUNAS
 # ═══════════════════════════════════════════════════════════════════════
 def detectar_col_tipo_os_1(df: pd.DataFrame) -> str | None:
-    """Detecta coluna de TIPO O.S 1 com busca mais flexível."""
     if df.empty:
         return None
-    
+
     cols_norm = {norm_col_nome(str(c)): str(c) for c in df.columns}
-    
+
     # 1. Busca exata
     for cand in CANDS_TIPO_OS_1:
         cn = norm_col_nome(cand)
         if cn in cols_norm:
             return cols_norm[cn]
-    
+
     # 2. Busca parcial (TIPO + OS + 1)
     for col_norm, col_real in cols_norm.items():
         if "TIPO" in col_norm and ("OS" in col_norm or "O S" in col_norm):
             if col_norm.endswith("1") or col_norm.endswith(" 1") or " 1 " in col_norm:
                 return col_real
-    
+
     # 3. Busca alternativa (qualquer coluna com TIPO e OS)
     for col_norm, col_real in cols_norm.items():
         if "TIPO" in col_norm and "OS" in col_norm:
             return col_real
-    
+
     # 4. Busca por colunas de "TIPO" genéricas
     for col_norm, col_real in cols_norm.items():
         if "TIPO" in col_norm and "SERVICO" not in col_norm:
             return col_real
-    
+
     return None
 
 
@@ -168,22 +167,14 @@ def detectar_col_flag_gpon(df: pd.DataFrame) -> str | None:
 def detectar_col_habilidade(df: pd.DataFrame) -> str | None:
     if df.empty:
         return None
-    nomes = [
-        "HABILIDADE DE TRABALHO",
-        "Habilidade de Trabalho",
-        "habilidade de trabalho",
-        "HABILIDADES DE TRABALHO",
-        "HABILIDADE_DE_TRABALHO",
-        "HABILIDADE",
-    ]
-    for nome in nomes:
-        if nome in df.columns:
-            return str(nome)
     cols_norm = {norm_col_nome(str(c)): str(c) for c in df.columns}
     for cand in CANDS_HABILIDADE:
         cn = norm_col_nome(cand)
         if cn in cols_norm:
             return cols_norm[cn]
+    for col_norm, col_real in cols_norm.items():
+        if "HABILIDAD" in col_norm or "SKILL" in col_norm:
+            return col_real
     return None
 
 
@@ -202,7 +193,6 @@ def criar_coluna_tipos_agrupados(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def criar_flag_gpon(df: pd.DataFrame) -> tuple[pd.DataFrame, str | None, int]:
-    """Cria a coluna FLAG_GPON baseada na coluna HABILIDADE."""
     df = df.copy()
     col_ex = detectar_col_flag_gpon(df)
     if col_ex and col_ex != "FLAG_GPON":
@@ -232,7 +222,7 @@ def criar_flag_gpon(df: pd.DataFrame) -> tuple[pd.DataFrame, str | None, int]:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# CLASSIFICAÇÃO PRINCIPAL (COM DEBUG COMPLETO)
+# CLASSIFICAÇÃO PRINCIPAL
 # ═══════════════════════════════════════════════════════════════════════
 def classificar_tipo_servico(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     df = df.copy()
@@ -242,88 +232,53 @@ def classificar_tipo_servico(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]
     col_tipo_os_1 = detectar_col_tipo_os_1(df)
     col_hab = detectar_col_habilidade(df)
 
-    # ══════════════════════════════════════════════════════════════════
-    # DEBUG: Mostrar informações de detecção
-    # ═══════════════════════════════════════════════════════════════════
-    st.markdown("### 🔍 Debug de Detecção de Colunas")
-
-    if col_tipo_os_1:
-        st.success(f"✅ **TIPO O.S 1 detectado:** `{col_tipo_os_1}`")
-        valores_unicos = df[col_tipo_os_1].dropna().astype(str).unique()[:20]
-        st.caption(f"**Amostras de valores:** {valores_unicos.tolist()}")
-
-        # Verificar se há termos de Novos Domicílios
-        serie_tipo = df[col_tipo_os_1].fillna("").astype(str).str.upper()
-        for termo in TERMOS_ND:
-            count = serie_tipo.str.contains(termo, na=False, regex=False).sum()
-            if count > 0:
-                st.info(f"📍 Termo '{termo}' encontrado em **{count}** registros")
-            else:
-                st.warning(f"⚠️ Termo '{termo}' **NÃO** encontrado")
-    else:
-        st.error("❌ **TIPO O.S 1 NÃO detectado!**")
-        st.caption(f"**Colunas disponíveis:** {df.columns.tolist()[:20]}")
-
-        # Tentar encontrar colunas similares
-        st.markdown("**Colunas que podem ser TIPO O.S:**")
-        for col in df.columns:
-            if "TIPO" in col.upper() or "OS" in col.upper():
-                st.caption(f"• `{col}`")
-
-    if col_hab:
-        st.success(f"✅ **Habilidade detectada:** `{col_hab}`")
-    else:
-        st.warning("️ **Habilidade NÃO detectada**")
-
-    st.divider()
-    # ═══════════════════════════════════════════════════════════════════
-
-    # Normalização das séries
+    # Normalização das séries para ASCII sem acentos
     serie_tipo_os_1 = (
-        df[col_tipo_os_1].fillna("").astype(str).map(normalizar_str)
+        df[col_tipo_os_1].fillna("").astype(str).map(_norm_str)
         if col_tipo_os_1
         else pd.Series("", index=df.index, dtype=object)
     )
     serie_habilidade = (
-        df[col_hab].fillna("").astype(str).map(normalizar_str)
+        df[col_hab].fillna("").astype(str).map(_norm_str)
         if col_hab
         else pd.Series("", index=df.index, dtype=object)
     )
 
     # ─────────────────────────────────────────────────────────────────
-    # CRITÉRIO 1: NOVOS DOMICÍLIOS
+    # CRITÉRIO 1: NOVOS DOMICÍLIOS (Iterativo com regex=False para segurança)
     # ─────────────────────────────────────────────────────────────────
-    flag_nd = serie_tipo_os_1.str.contains("|".join(TERMOS_ND), na=False, regex=False)
-    st.caption(f" Novos Domicílios detectados: **{flag_nd.sum()}** registros")
+    flag_nd = pd.Series(False, index=df.index)
+    for termo in TERMOS_ND:
+        termo_norm = _norm_str(termo)
+        if termo_norm:
+            flag_nd |= serie_tipo_os_1.str.contains(termo_norm, na=False, regex=False)
 
-    # ────────────────────────────────────────────────────────────────
-    # CRITÉRIO 2: MIGRAÇÃO
     # ─────────────────────────────────────────────────────────────────
+    # CRITÉRIO 2: MIGRAÇÃO (TIPO O.S 1 = MUDANCA DE PACOTE + Habilidade = PON)
+    # ─────────────────────────────────────────────────────────────────
+    termo_mig_norm = _norm_str(TERMO_MIGRACAO_OS)
+    termo_pon_norm = _norm_str(TERMO_GPON_HABILIDADE)
+
     flag_migracao_tipo = serie_tipo_os_1.str.contains(
-        TERMO_MIGRACAO_OS, na=False, regex=False
+        termo_mig_norm, na=False, regex=False
     )
-    flag_hab_pon = serie_habilidade.str.contains(
-        TERMO_GPON_HABILIDADE, na=False, regex=False
-    )
+    flag_hab_pon = serie_habilidade.str.contains(termo_pon_norm, na=False, regex=False)
     flag_migracao = flag_migracao_tipo & flag_hab_pon
-    st.caption(f" Migração detectada: **{flag_migracao.sum()}** registros")
 
-    # ────────────────────────────────────────────────────────────────
-    # CRITÉRIO 3: PME
-    # ────────────────────────────────────────────────────────────────
-    flag_hab_pme = serie_habilidade.str.contains(
-        TERMO_PME_HABILIDADE, na=False, regex=False
-    )
+    # ─────────────────────────────────────────────────────────────────
+    # CRITÉRIO 3: PME (Novos Domicílios + Habilidade = PME)
+    # ─────────────────────────────────────────────────────────────────
+    termo_pme_norm = _norm_str(TERMO_PME_HABILIDADE)
+    flag_hab_pme = serie_habilidade.str.contains(termo_pme_norm, na=False, regex=False)
     flag_pme = flag_nd & flag_hab_pme
-    st.caption(f"🏢 PME detectado: **{flag_pme.sum()}** registros")
 
     # ─────────────────────────────────────────────────────────────────
     # APLICAÇÃO DA LÓGICA DE PRIORIDADE
     # ─────────────────────────────────────────────────────────────────
     tipo = pd.Series("Outros", index=df.index, dtype=object)
     tipo[flag_nd] = "Novos Domicílios"
-    tipo[flag_pme] = "PME"
     tipo[flag_migracao] = "Migração"
+    tipo[flag_pme] = "PME"  # PME sobrepõe ND se houver habilidade PME
 
     df["TIPO_SERVICO"] = tipo
     return df, tipo
@@ -354,25 +309,31 @@ def extrair_metricas_criterios(df: pd.DataFrame) -> dict[str, int]:
     col_hab = detectar_col_habilidade(df)
 
     serie_tipo_os_1 = (
-        df[col_tipo_os_1].fillna("").astype(str).map(normalizar_str)
+        df[col_tipo_os_1].fillna("").astype(str).map(_norm_str)
         if col_tipo_os_1
         else pd.Series("", index=df.index)
     )
     serie_habilidade = (
-        df[col_hab].fillna("").astype(str).map(normalizar_str)
+        df[col_hab].fillna("").astype(str).map(_norm_str)
         if col_hab
         else pd.Series("", index=df.index)
     )
 
-    flag_nd = serie_tipo_os_1.str.contains("|".join(TERMOS_ND), na=False, regex=False)
+    # Flag ND Corrigida
+    flag_nd = pd.Series(False, index=df.index)
+    for termo in TERMOS_ND:
+        termo_norm = _norm_str(termo)
+        if termo_norm:
+            flag_nd |= serie_tipo_os_1.str.contains(termo_norm, na=False, regex=False)
+
     flag_migracao_tipo = serie_tipo_os_1.str.contains(
-        TERMO_MIGRACAO_OS, na=False, regex=False
+        _norm_str(TERMO_MIGRACAO_OS), na=False, regex=False
     )
     flag_hab_pon = serie_habilidade.str.contains(
-        TERMO_GPON_HABILIDADE, na=False, regex=False
+        _norm_str(TERMO_GPON_HABILIDADE), na=False, regex=False
     )
     flag_hab_pme = serie_habilidade.str.contains(
-        TERMO_PME_HABILIDADE, na=False, regex=False
+        _norm_str(TERMO_PME_HABILIDADE), na=False, regex=False
     )
 
     flag_migracao = flag_migracao_tipo & flag_hab_pon
@@ -397,7 +358,7 @@ def extrair_metricas_criterios(df: pd.DataFrame) -> dict[str, int]:
     }
 
 
-# ══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
 # PAINEL INTERNO
 # ═══════════════════════════════════════════════════════════════════════
 def render_painel_criterios(df: pd.DataFrame) -> None:
@@ -430,14 +391,12 @@ def render_painel_criterios(df: pd.DataFrame) -> None:
         unsafe_allow_html=True,
     )
 
-    st.caption("Os segmentos abaixo representam a classificação final da base.")
-
     st.markdown("#### 📦 Distribuição Final por Segmento")
     c1, c2, c3, c4 = st.columns(4)
     for col, emoji, titulo, val, fundo, borda, texto, num in [
         (
             c1,
-            "",
+            "🔄",
             "Migração",
             metricas["migracao"],
             "#EFF6FF",
@@ -480,135 +439,14 @@ def render_painel_criterios(df: pd.DataFrame) -> None:
             unsafe_allow_html=True,
         )
 
-    st.markdown("---")
-    st.markdown("#### 🔍 Diagnóstico dos Critérios")
-
-    # Verificar se há dados zerados
-    if metricas["novos_domicilios"] == 0 and metricas["pme"] == 0:
-        st.warning(
-            "⚠️ **Atenção:** Novos Domicílios e PME estão zerados. "
-            "Isso pode indicar que a coluna TIPO O.S 1 não está sendo detectada corretamente "
-            "ou os termos de busca não correspondem aos dados."
-        )
-
-        col_tipo = detectar_col_tipo_os_1(df)
-        if col_tipo:
-            st.info(f"✅ Coluna detectada: `{col_tipo}`")
-            st.caption(
-                f"Amostras: {df[col_tipo].dropna().astype(str).unique()[:5].tolist()}"
-            )
-        else:
-            st.error("❌ Coluna TIPO O.S 1 não detectada!")
-            st.caption(f"Colunas disponíveis: {df.columns.tolist()[:15]}")
-
-    st.markdown("####  Critérios Individuais — Migração")
-    m1, m2, m3 = st.columns(3)
-    for col, emoji, titulo, val, fundo, borda, texto, num in [
-        (
-            m1,
-            "1️⃣",
-            "Mudança de Pacote",
-            metricas["criterio_mudanca_pacote"],
-            "#FEF3C7",
-            "#F59E0B",
-            "#92400E",
-            "#78350F",
-        ),
-        (
-            m2,
-            "2️",
-            "Habilidade contém PON",
-            metricas["criterio_habilidade_pon"],
-            "#E0F2FE",
-            "#0284C7",
-            "#0369A1",
-            "#0C4A6E",
-        ),
-        (
-            m3,
-            "✅",
-            "AND — Migração",
-            metricas["criterio_and_migracao"],
-            "#DBEAFE",
-            "#1D4ED8",
-            "#1E40AF",
-            "#1E3A8A",
-        ),
-    ]:
-        col.markdown(
-            f'<div style="background:{fundo};border-left:3px solid {borda};'
-            f'border-radius:8px;padding:13px 14px;min-height:87px;">'
-            f'<div style="font-size:10px;font-weight:700;color:{texto};'
-            f'text-transform:uppercase;letter-spacing:0.25px;">'
-            f"{emoji} {titulo}</div>"
-            f'<div style="font-size:22px;font-weight:800;color:{num};'
-            f'line-height:1.15;margin-top:6px;">{fmt(val)}</div>'
-            f'<div style="font-size:10px;color:#64748B;margin-top:2px;">'
-            f"{pct(val)} das tarefas</div></div>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("#### 🏠🏢 Critérios Individuais — Novos Domicílios e PME")
-    p1, p2, p3 = st.columns(3)
-    for col, emoji, titulo, val, fundo, borda, texto, num in [
-        (
-            p1,
-            "",
-            "ADESAO em TIPO O.S",
-            metricas["criterio_adesao"],
-            "#F0FDF4",
-            "#16A34A",
-            "#15803D",
-            "#14532D",
-        ),
-        (
-            p2,
-            "🏢",
-            "Habilidade contém PME",
-            metricas["criterio_habilidade_pme"],
-            "#FAF5FF",
-            "#7C3AED",
-            "#6D28D9",
-            "#4C1D95",
-        ),
-        (
-            p3,
-            "✅",
-            "AND — PME",
-            metricas["criterio_and_pme"],
-            "#EDE9FE",
-            "#8B5CF6",
-            "#5B21B6",
-            "#4C1D95",
-        ),
-    ]:
-        col.markdown(
-            f'<div style="background:{fundo};border-left:3px solid {borda};'
-            f'border-radius:8px;padding:13px 14px;min-height:87px;">'
-            f'<div style="font-size:10px;font-weight:700;color:{texto};'
-            f'text-transform:uppercase;letter-spacing:0.25px;">'
-            f"{emoji} {titulo}</div>"
-            f'<div style="font-size:22px;font-weight:800;color:{num};'
-            f'line-height:1.15;margin-top:6px;">{fmt(val)}</div>'
-            f'<div style="font-size:10px;color:#64748B;margin-top:2px;">'
-            f"{pct(val)} das tarefas</div></div>",
-            unsafe_allow_html=True,
-        )
-
-    st.info(
-        f"🔦 HABILIDADE contendo `PON`: **{fmt(metricas['criterio_habilidade_pon'])} tarefas**."
-    )
-
 
 def render_debug_criterios(df_full: pd.DataFrame, expanded: bool = True) -> None:
-    """Debug expandido por padrão para facilitar diagnóstico."""
     with st.expander("🔎 Diagnóstico Técnico de Critérios", expanded=expanded):
         col_tipo = detectar_col_tipo_os_1(df_full)
         col_hab = detectar_col_habilidade(df_full)
         col_gpon = detectar_col_flag_gpon(df_full)
 
-        st.markdown("** Colunas detectadas:**")
+        st.markdown("**Colunas detectadas:**")
         cc1, cc2 = st.columns(2)
         cc1.markdown(
             "**TIPO O.S 1:** "
@@ -617,29 +455,6 @@ def render_debug_criterios(df_full: pd.DataFrame, expanded: bool = True) -> None
             + (f"✅ `{col_gpon}`" if col_gpon else "❌")
         )
         cc2.markdown("**HABILIDADE:** " + (f"✅ `{col_hab}`" if col_hab else "❌"))
-
-        # Mostrar amostras dos valores
-        if col_tipo:
-            st.markdown("**📋 Amostras de TIPO O.S 1:**")
-            st.code(df_full[col_tipo].dropna().astype(str).unique()[:10].tolist())
-
-        if col_hab:
-            st.markdown("**📋 Amostras de HABILIDADE:**")
-            st.code(df_full[col_hab].dropna().astype(str).unique()[:10].tolist())
-
-        if "TIPO_SERVICO" in df_full.columns:
-            st.markdown("---")
-            st.markdown("**📊 Distribuição:**")
-            dist = df_full["TIPO_SERVICO"].value_counts().reset_index()
-            dist.columns = ["Segmento", "Registros"]
-            st.dataframe(dist, hide_index=True, use_container_width=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# RESTANTE DAS FUNÇÕES (manter igual)
-# ═══════════════════════════════════════════════════════════════════════
-# [Manter render_card_destaque_migracao, render_lista_colunas, etc.]
-# ═══════════════════════════════════════════════════════════════════════
 
 
 def render_card_destaque_migracao() -> None:
@@ -678,13 +493,7 @@ def render_lista_colunas(df: pd.DataFrame, expanded: bool = False) -> None:
                 "Tipo": [str(df[c].dtype) for c in df.columns],
             }
         )
-        st.dataframe(
-            df_cols,
-            hide_index=True,
-            use_container_width=True,
-            height=min(600, 40 + len(df_cols) * 35),
-        )
-        st.caption(f"Total: **{len(df.columns)} colunas** · **{len(df):,} registros**")
+        st.dataframe(df_cols, hide_index=True, use_container_width=True)
 
 
 def detectar_col_capacidade(df: pd.DataFrame) -> str | None:

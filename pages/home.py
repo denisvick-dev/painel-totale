@@ -1,108 +1,99 @@
 # =====================================
 # 📄 ARQUIVO: pages/home.py
 # 📌 PÁGINA: Home - Portal TOTALE
+# 🔖 Versão: 3.2.0
 # =====================================
 
-import time
+from __future__ import annotations
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import streamlit as st
+
+from components.componentes import (
+    render_hero_totale_1,
+    render_insight,
+    render_section_header,
+    render_spacer,
+)
 
 # =====================================
 # 🔧 BLOCO 1: CONFIGURAÇÕES LOCAIS
 # =====================================
 
 FUSO_HORARIO = ZoneInfo("America/Sao_Paulo")
-INTERVALO_REFRESH = 60  # segundos
+VERSAO_PADRAO = "3.2.0"
+AMBIENTE_PADRAO = "Produção"
 
 
 # =====================================
-# 🎨 BLOCO 2: CSS
+# 🎨 BLOCO 2: CSS (complementar, sem conflito)
 # =====================================
 
 
-def injetar_css():
-    """Injeta CSS específico da Home."""
+def injetar_css() -> None:
+    """CSS específico da Home — classes com prefixo home- para evitar colisão."""
     st.markdown(
         """
         <style>
-            .hero-corp {
-                background: linear-gradient(135deg, #012869 0%, #1E40AF 50%, #F37C04 100%);
-                padding: 32px 40px;
-                border-radius: 16px;
-                color: white;
-                box-shadow: 0 10px 40px rgba(1, 40, 105, 0.25);
-                margin-bottom: 24px;
-                position: relative;
-                overflow: hidden;
-            }
-            .hero-corp::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                right: -10%;
-                width: 400px;
-                height: 400px;
-                background: rgba(255,255,255,0.05);
-                border-radius: 50%;
-            }
-            .hero-title {
-                font-size: 34px;
-                font-weight: 800;
-                margin: 0;
-                letter-spacing: -0.5px;
-                font-family: 'Segoe UI', -apple-system, sans-serif;
-                color: white !important;
-            }
-            .hero-subtitle {
-                font-size: 15px;
-                opacity: 0.92;
-                margin: 6px 0 0 0;
-                font-weight: 400;
-                color: white !important;
-            }
+        .home-card {
+            background: #FFFFFF;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 4px 12px rgba(1, 40, 105, 0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            height: 100%;
+            box-sizing: border-box;
+        }
+        .home-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(1, 40, 105, 0.10);
+        }
+        .home-card h4 {
+            margin: 0 0 8px 0;
+            color: #012869;
+            font-size: 16px;
+            font-weight: 800;
+        }
+        .home-card p {
+            margin: 0;
+            color: #64748B;
+            font-size: 13px;
+            line-height: 1.55;
+        }
 
-            .block-container { padding-top: 1.5rem; padding-bottom: 4.5rem; }
+        .home-status-ok {
+            background: #F0FDF4 !important;
+            border-left: 5px solid #059669 !important;
+        }
+        .home-status-warn {
+            background: #FFF7ED !important;
+            border-left: 5px solid #F37C04 !important;
+        }
 
-            .card {
-                background-color: white;
-                padding: 25px;
-                border-radius: 10px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-                border: 1px solid #E2E8F0;
-                transition: transform 0.2s ease-in-out;
-                height: 100%;
-            }
-            .card:hover {
-                transform: translateY(-2px);
-            }
+        .home-footer {
+            margin-top: 36px;
+            padding: 14px 20px;
+            background: #012869;
+            color: #FFFFFF;
+            font-size: 13px;
+            font-weight: 500;
+            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 4px 14px rgba(1, 40, 105, 0.18);
+        }
+        .home-footer b { color: #FFFFFF; }
+        .home-footer .sep {
+            margin: 0 8px;
+            opacity: 0.55;
+        }
 
-            .status-ok {
-                background-color: #E6F4EA;
-                border-left: 6px solid #2E7D32;
-            }
-
-            .status-warning {
-                background-color: #FFF4E5;
-                border-left: 6px solid #F37C04;
-            }
-
-            .footer {
-                position: fixed;
-                left: 0;
-                bottom: 0;
-                width: 100%;
-                background-color: #012869;
-                color: white;
-                padding: 12px 20px;
-                font-size: 14px;
-                text-align: center;
-                z-index: 999;
-                box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
-                font-weight: 500;
-            }
-            .footer span { margin: 0 8px; }
+        /* Garante espaço inferior sem footer fixed */
+        .main .block-container {
+            padding-bottom: 2.5rem !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -110,85 +101,123 @@ def injetar_css():
 
 
 # =====================================
-# 🧩 BLOCO 3: COMPONENTES
+# 🔧 BLOCO 3: HELPERS
 # =====================================
 
 
-def render_header():
+def _agora() -> datetime:
+    return datetime.now(FUSO_HORARIO)
+
+
+def _formatar_ultima_atualizacao(valor: object) -> str:
+    """Aceita datetime, str ou None sem quebrar a página."""
+    if valor is None:
+        return "Não disponível"
+    if isinstance(valor, datetime):
+        dt = valor
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=FUSO_HORARIO)
+        return dt.strftime("%d/%m/%Y às %H:%M:%S")
+    # string ou outro tipo serializado no session_state
+    texto = str(valor).strip()
+    return texto if texto and texto.lower() != "none" else "Não disponível"
+
+
+def _dados_carregados() -> bool:
+    return st.session_state.get("dados_prod") is not None
+
+
+# =====================================
+# 🧩 BLOCO 4: COMPONENTES
+# =====================================
+
+
+def render_header() -> None:
+    render_hero_totale_1(
+        titulo="Portal TOTALE",
+        subtitulo="Painéis de Produção, Indicadores e Gestão Estratégica",
+        badge="HOME",
+        icone="📊",
+    )
+
+
+def render_intro() -> None:
     st.markdown(
         """
-        <div class="hero-corp">
-            <div style="position:relative;z-index:2;">
-                <h1 class="hero-title">📊 Portal TOTALE</h1>
-                <p class="hero-subtitle">
-                    Painéis de Produção, Indicadores e Gestão Estratégica
-                </p>
-            </div>
+        <div class="home-card">
+            <p style="color:#334155;font-size:14px;line-height:1.65;margin:0;">
+                <b style="color:#012869;">Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br><br>
+                Este portal fornece uma visão clara e estratégica dos processos produtivos e
+                indicadores de performance, apoiando decisões com base em dados confiáveis.
+            </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    render_spacer(14)
 
 
-def render_intro():
-    st.markdown(
-        """
-        <div class="card">
-            <b>Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br><br>
-            Este portal fornece uma visão clara e estratégica dos processos produtivos e
-            indicadores de performance, apoiando decisões com base em dados confiáveis.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.write("")
-
-
-def render_status_sistema():
-    dados_carregados = (
-        "dados_prod" in st.session_state and st.session_state["dados_prod"] is not None
-    )
-
-    if not dados_carregados:
+def render_status_sistema() -> None:
+    if not _dados_carregados():
         st.markdown(
             """
-            <div class="card status-warning">
-                <b>⚠️ Sistema aguardando atualização de dados</b><br><br>
-                1️⃣ Acesse <b>🔁 Atualização de Dados</b> no menu lateral<br>
-                2️⃣ Clique em <b>Atualizar Agora</b><br>
-                3️⃣ Aguarde a conclusão da sincronização
+            <div class="home-card home-status-warn">
+                <b style="color:#C2410C;">⚠️ Sistema aguardando atualização de dados</b>
+                <p style="margin:10px 0 0 0;color:#9A3412;font-size:13px;line-height:1.7;">
+                    1️⃣ Acesse <b>🔁 Atualização de Dados</b> no menu lateral<br>
+                    2️⃣ Clique em <b>Sincronizar Agora</b> / <b>Atualizar Agora</b><br>
+                    3️⃣ Aguarde a conclusão da sincronização
+                </p>
             </div>
             """,
             unsafe_allow_html=True,
+        )
+        render_insight(
+            msg="Sem dados em memória. Os painéis operacionais ficam limitados até a sincronização.",
+            tipo="alerta",
+            titulo="Ação necessária",
         )
     else:
-        ultima = st.session_state.get("ultima_atualizacao")
-        if ultima:
-            hora_str = ultima.strftime("%d/%m/%Y às %H:%M:%S")
-        else:
-            hora_str = "Recente"
-
+        hora_str = _formatar_ultima_atualizacao(
+            st.session_state.get("ultima_atualizacao")
+        )
         st.markdown(
             f"""
-            <div class="card status-ok">
-                ✅ <b>Sistema atualizado e pronto para uso</b><br>
-                Última sincronização: {hora_str}
+            <div class="home-card home-status-ok">
+                <b style="color:#15803D;">✅ Sistema atualizado e pronto para uso</b>
+                <p style="margin:8px 0 0 0;color:#166534;font-size:13px;">
+                    Última sincronização: <b>{hora_str}</b>
+                </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    st.write("")
+        render_insight(
+            msg="Bases operacionais carregadas na sessão. Navegue pelos módulos no menu lateral.",
+            tipo="ok",
+            titulo="Ambiente operacional",
+        )
+    render_spacer(8)
 
 
-def render_cards_navegacao():
+def render_cards_navegacao() -> None:
+    render_section_header(
+        titulo="Módulos em destaque",
+        icone="🧭",
+        subtitulo="Atalhos conceituais para a jornada operacional",
+    )
+
     col1, col2 = st.columns(2, gap="large")
 
     with col1:
         st.markdown(
             """
-            <div class="card">
-                <h4 style="margin-top:0;">⚙️ Produção</h4>
-                Monitore eficiência operacional, volume produzido e desempenho por setor.
+            <div class="home-card">
+                <h4>⚙️ Produção Operacional</h4>
+                <p>
+                    Monitore eficiência operacional, volume produzido e desempenho
+                    por setor, equipe e técnico em tempo quase real.
+                </p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -197,35 +226,71 @@ def render_cards_navegacao():
     with col2:
         st.markdown(
             """
-            <div class="card">
-                <h4 style="margin-top:0;">📈 Indicadores Estratégicos</h4>
-                Acompanhe metas, resultados consolidados e principais KPIs do negócio.
+            <div class="home-card">
+                <h4>📈 Indicadores Estratégicos</h4>
+                <p>
+                    Acompanhe metas, resultados consolidados e os principais KPIs
+                    do negócio com visão executiva e tática.
+                </p>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    st.write("")
-    st.divider()
+    render_spacer(10)
 
 
-def render_footer():
-    versao = st.session_state.get("versao_sistema", "3.1.0")
-    ambiente = st.session_state.get("ambiente_sistema", "Produção")
+def render_atalhos_rapidos() -> None:
+    """Atalhos opcionais — só renderiza se st.page_link estiver disponível."""
+    render_section_header(
+        titulo="Acesso rápido",
+        icone="⚡",
+        badge="Navegação",
+    )
 
-    agora = datetime.now(FUSO_HORARIO)
-    data_str = agora.strftime("%d/%m/%Y")
-    hora_str = agora.strftime("%H:%M")
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        try:
+            st.page_link("pages/envio_excel.py", label="Atualizar Dados", icon="🔁")
+        except Exception:
+            st.caption("🔁 Atualização de Dados")
+
+    with c2:
+        try:
+            st.page_link("pages/pontos.py", label="Produção Mensal", icon="📈")
+        except Exception:
+            st.caption("📈 Produção Mensal")
+
+    with c3:
+        try:
+            st.page_link("pages/dashboard_meta.py", label="Metas", icon="🎯")
+        except Exception:
+            st.caption("🎯 Metas Operacionais")
+
+    with c4:
+        try:
+            st.page_link("pages/gestao_ativos.py", label="Ativos", icon="👷")
+        except Exception:
+            st.caption("👷 Gestão de Ativos")
+
+    render_spacer(8)
+
+
+def render_footer() -> None:
+    versao = st.session_state.get("versao_sistema", VERSAO_PADRAO)
+    ambiente = st.session_state.get("ambiente_sistema", AMBIENTE_PADRAO)
+    agora = _agora()
 
     st.markdown(
         f"""
-        <div class="footer">
+        <div class="home-footer">
             🏢 <b>Painel TOTALE</b>
-            <span>|</span>
+            <span class="sep">|</span>
             🌐 {ambiente}
-            <span>|</span>
-            🕒 {data_str} • {hora_str} BRT
-            <span>|</span>
+            <span class="sep">|</span>
+            🕒 {agora.strftime("%d/%m/%Y")} • {agora.strftime("%H:%M")} BRT
+            <span class="sep">|</span>
             🔖 v{versao}
         </div>
         """,
@@ -233,29 +298,21 @@ def render_footer():
     )
 
 
-def auto_refresh():
-    key = "_last_refresh_home"
-    if key not in st.session_state:
-        st.session_state[key] = time.time()
-
-    if (time.time() - st.session_state[key]) > INTERVALO_REFRESH:
-        st.session_state[key] = time.time()
-        st.rerun()
-
-
 # =====================================
-# 🚀 BLOCO 4: MAIN
+# 🚀 BLOCO 5: MAIN
 # =====================================
 
 
-def main():
+def main() -> None:
     injetar_css()
     render_header()
     render_intro()
     render_status_sistema()
     render_cards_navegacao()
+    render_atalhos_rapidos()
     render_footer()
-    auto_refresh()
+    # Auto-refresh removido de propósito:
+    # use botão manual ou st.fragment se precisar atualizar trechos.
 
 
 if __name__ == "__main__":

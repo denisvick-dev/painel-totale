@@ -1,3 +1,21 @@
+"""
+app.py
+======
+Portal TOTALE — Aplicação Principal
+
+Versão: 3.2.0 (Integração Design System v4.9.2 - Sidebar Enterprise)
+Autor: TOTALE Tecnologia
+
+Evoluções desta versão:
+• Sidebar 100% integrada ao Design System: Brand Card, Seções, Status e Footer
+  corporativos (Azul #012869 + Laranja #F37C04).
+• Remoção de CSS duplicado da sidebar (agora responsabilidade de componentes.py).
+• CSS global injetado via st.markdown (compatível com todas as versões do Streamlit).
+• Footer reformulado: sem position:fixed (não cobre mais a sidebar).
+• Menu nativo (st.navigation) com headers de seção estilizados.
+• Eliminação de injeção dupla de estilo (aplicar_sidebar_corp removido do fluxo).
+"""
+
 import logging
 import time
 from dataclasses import dataclass
@@ -9,13 +27,18 @@ import streamlit as st
 
 from components.componentes import (
     aplicar_estilo,
-    aplicar_sidebar_corp,
+    render_sidebar_brand,
+    render_sidebar_divider,
+    render_sidebar_footer_info,
+    render_sidebar_section,
+    render_sidebar_spacer,
     render_sidebar_status,
 )
 
 # Configuração de logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -28,7 +51,9 @@ class Cores:
     """Paleta de cores centralizada para todo o sistema."""
 
     PRIMARIA: str = "#012869"
+    PRIMARIA_LIGHT: str = "#0A48AA"
     SECUNDARIA: str = "#F37C04"
+    SECUNDARIA_LIGHT: str = "#FF9D45"
     SUCESSO: str = "#22C55E"
     ALERTA: str = "#F37C04"
     ERRO: str = "#DC2626"
@@ -43,7 +68,7 @@ class Cores:
 class ConfiguracoesSistema:
     """Configurações globais do sistema."""
 
-    VERSAO: str = "3.1.0"
+    VERSAO: str = "3.2.0"
     AMBIENTE: str = "Produção"
     FUSO_HORARIO: str = "America/Sao_Paulo"
     INTERVALO_REFRESH: int = 60
@@ -71,7 +96,7 @@ def handle_exceptions(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"Erro em {func.__name__}: {e!s}", exc_info=True)
+            logger.error("Erro em %s: %s", func.__name__, e, exc_info=True)
             st.error(f"Ocorreu um erro: {e!s}")
             return None
 
@@ -93,43 +118,42 @@ def format_datetime(
 
 
 # ====================================================
-# 🎨 BLOCO 3: GERENCIADOR DE ESTILOS
+# 🎨 BLOCO 3: GERENCIADOR DE ESTILOS (somente corpo da página)
 # ====================================================
 class GerenciadorEstilos:
-    """Gerencia todos os estilos CSS do sistema."""
+    """
+    Gerencia estilos do CORPO da página.
+
+    ⚠️ A sidebar é 100% estilizada por components/componentes.py (v4.9.2).
+    Não duplicar regras de [data-testid="stSidebar"] aqui.
+    """
 
     @staticmethod
     def _get_input_styles() -> str:
         return f"""
         /* INPUTS DO CORPO DA PÁGINA */
-        [data-testid="stSelectbox"] label p {{ 
-            color: {CORES.PRIMARIA} !important; 
-            font-weight: bold !important; 
+        [data-testid="stSelectbox"] label p,
+        [data-testid="stMultiSelect"] label p,
+        [data-testid="stTextInput"] label p {{
+            color: {CORES.PRIMARIA} !important;
+            font-weight: 700 !important;
+            font-size: 13px !important;
         }}
-        [data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
-            border: 2px solid {CORES.BORDA_INPUT} !important; 
-            border-radius: 8px !important; 
-            background-color: white !important;
-        }}
-        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover {{ 
-            border-color: {CORES.SECUNDARIA} !important; 
-        }}
-
-        [data-testid="stDateInput"] label p {{ 
-            color: {CORES.PRIMARIA} !important; 
-            font-weight: bold !important; 
-        }}
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
         [data-testid="stDateInput"] div[data-baseweb="input"] > div {{
-            background-color: white !important; 
-            border: 2px solid {CORES.BORDA_INPUT} !important; 
-            border-radius: 8px !important;
+            border: 2px solid {CORES.BORDA_INPUT} !important;
+            border-radius: 10px !important;
+            background-color: #FFFFFF !important;
+            transition: border-color .18s ease, box-shadow .18s ease;
         }}
-        [data-testid="stDateInput"] div[data-baseweb="input"] > div:hover {{ 
-            border-color: {CORES.SECUNDARIA} !important; 
+        [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+        [data-testid="stDateInput"] div[data-baseweb="input"] > div:hover {{
+            border-color: {CORES.SECUNDARIA} !important;
+            box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.12);
         }}
-        [data-testid="stDateInput"] svg {{ 
-            fill: {CORES.SECUNDARIA} !important; 
-            color: {CORES.SECUNDARIA} !important; 
+        [data-testid="stDateInput"] svg {{
+            fill: {CORES.SECUNDARIA} !important;
+            color: {CORES.SECUNDARIA} !important;
         }}
         """
 
@@ -138,137 +162,95 @@ class GerenciadorEstilos:
         return f"""
         /* CARDS DO CORPO DA PÁGINA */
         .card {{
-            background-color: {CORES.FUNDO_CARD}; 
-            padding: 24px; 
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-            border: 1px solid {CORES.BORDA_CARD}; 
-            transition: all 0.2s ease-in-out;
+            background-color: {CORES.FUNDO_CARD};
+            padding: 22px 24px;
+            border-radius: 14px;
+            box-shadow: 0 4px 14px rgba(1, 40, 105, 0.06);
+            border: 1px solid {CORES.BORDA_CARD};
+            border-top: 3px solid {CORES.PRIMARIA};
+            transition: transform .2s ease, box-shadow .2s ease;
         }}
-        .card:hover {{ 
-            transform: translateY(-2px); 
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); 
+        .card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 10px 24px rgba(1, 40, 105, 0.10);
         }}
-        .status-ok {{ 
-            background-color: #F0FDF4; 
-            border-left: 5px solid {CORES.SUCESSO}; 
+        .status-ok {{
+            background-color: #F0FDF4;
+            border-top: none;
+            border-left: 5px solid {CORES.SUCESSO};
         }}
-        .status-warning {{ 
-            background-color: #FFF7ED; 
-            border-left: 5px solid {CORES.ALERTA}; 
+        .status-warning {{
+            background-color: #FFF7ED;
+            border-top: none;
+            border-left: 5px solid {CORES.ALERTA};
         }}
-        """
-
-    @staticmethod
-    def _debug_sidebar_css() -> str:
-        """CSS temporário para debug - remova após testes."""
-        return """
-        [data-testid="stSidebar"] * {
-            outline: 1px solid red !important;
-        }
         """
 
     @staticmethod
     def _get_layout_styles() -> str:
         return f"""
+        /* HERO BANNER */
         .hero-banner {{
-            background: linear-gradient(135deg, {CORES.PRIMARIA} 0%, #1E40AF 60%, {CORES.SECUNDARIA} 100%);
-            padding: 32px 40px; 
-            border-radius: 16px; 
+            background:
+                radial-gradient(circle at 88% 20%, rgba(255, 157, 69, 0.35) 0, transparent 30%),
+                linear-gradient(135deg, #011E52 0%, {CORES.PRIMARIA} 45%, {CORES.PRIMARIA_LIGHT} 100%);
+            padding: 34px 40px;
+            border-radius: 18px;
             color: white;
-            box-shadow: 0 10px 25px rgba(1, 40, 105, 0.15); 
+            box-shadow: 0 14px 32px rgba(1, 40, 105, 0.24);
             margin-bottom: 24px;
+            border: 1px solid rgba(255, 157, 69, 0.30);
+            position: relative;
+            overflow: hidden;
+        }}
+        .hero-banner::before {{
+            content: "";
+            position: absolute;
+            left: 0; top: 0;
+            width: 5px; height: 100%;
+            background: linear-gradient(180deg, {CORES.SECUNDARIA_LIGHT}, {CORES.SECUNDARIA});
         }}
 
+        /* FOOTER (em fluxo, não fixo — não cobre a sidebar) */
         .footer {{
-            position: fixed; 
-            left: 0; 
-            bottom: 0; 
-            width: 100%;
-            background-color: {CORES.PRIMARIA}; 
-            color: white; 
-            padding: 12px 20px;
-            font-size: 16px; 
-            text-align: center; 
-            z-index: 999;
+            margin-top: 2.5rem;
+            background: linear-gradient(90deg, #011E52 0%, {CORES.PRIMARIA} 55%, {CORES.PRIMARIA_LIGHT} 100%);
+            color: #FFFFFF;
+            padding: 14px 24px;
+            border-radius: 14px;
+            font-size: 12.5px;
+            font-weight: 600;
+            text-align: center;
+            letter-spacing: .2px;
+            box-shadow: 0 10px 24px rgba(1, 40, 105, 0.20);
+            border-top: 3px solid {CORES.SECUNDARIA};
         }}
-        .block-container {{ 
-            padding-bottom: 5rem; 
+        .footer span.sep {{
+            color: {CORES.SECUNDARIA_LIGHT};
+            margin: 0 8px;
+            font-weight: 900;
+        }}
+        .block-container {{
+            padding-bottom: 3rem;
         }}
 
-        /* NAVIGATION SIDEBAR - ÍCONE E TEXTO COLADOS (HORIZONTAL) */
-        [data-testid="stSidebar"] {{
-            position: relative !important;
-
-            &::after {{
-                content: "";
-                position: absolute;
-                top: 0;
-                right: 0;
-                width: 4px;
-                height: 100%;
-                background: linear-gradient(180deg, {CORES.PRIMARIA} 0%, {CORES.PRIMARIA} 58%, {CORES.SECUNDARIA} 58%, {CORES.SECUNDARIA} 100%);
-                pointer-events: none;
-                z-index: 100;
-            }}
-
-            a[href] {{
-                display: flex !important;
-                flex-direction: row !important;
-                align-items: center !important;
-                justify-content: flex-start !important;
-                text-align: left !important;
-                padding: 6px 12px !important;
-                margin: 2px 8px !important;
-                border-radius: 6px !important;
-                gap: 6px !important;
-                min-height: 32px !important;
-            }}
-
-            a[href]:hover {{
-                background-color: rgba(255,255,255,0.08) !important;
-            }}
-
-            a[href] svg {{
-                width: 16px !important;
-                height: 16px !important;
-                margin: 0px !important;
-                flex-shrink: 0 !important;
-            }}
-
-            a[href] p,
-            a[href] span {{
-                color: {CORES.PRIMARIA} !important;
-                font-size: 12px !important;
-                font-weight: 600 !important;
-                text-align: left !important;
-                line-height: 1.1 !important;
-                margin: 0px !important;
-                white-space: nowrap !important;
-            }}
-
-            a[href][aria-current="page"] {{
-                background-color: #FFF7ED !important;
-                border: 1px solid {CORES.SECUNDARIA} !important;
-                border-left: 3px solid {CORES.SECUNDARIA} !important;
-            }}
-
-            a[href][aria-current="page"] p,
-            a[href][aria-current="page"] span {{
-                color: {CORES.PRIMARIA} !important;
-                font-weight: 700 !important;
-            }}
-
-            a[href][aria-current="page"] svg {{
-                fill: {CORES.SECUNDARIA} !important;
-                color: {CORES.SECUNDARIA} !important;
-            }}
+        /* HEADERS DAS SEÇÕES DO MENU NATIVO (st.navigation) */
+        [data-testid="stSidebarNav"] p {{
+            font-size: 10px !important;
+            font-weight: 900 !important;
+            letter-spacing: .9px !important;
+            color: #64748B !important;
+            text-transform: uppercase;
+            margin: 20px 0 6px 6px !important;
+        }}
+        [data-testid="stSidebarNav"] p:first-child {{
+            margin-top: 4px !important;
         }}
         """
 
     @classmethod
     def injetar_css_global(cls) -> None:
-        """Injeta todo o CSS global no Streamlit."""
+        """Injeta CSS global via markdown (garante aplicação em todo o DOM)."""
         css_completo = f"""
         <style>
         {cls._get_input_styles()}
@@ -276,7 +258,7 @@ class GerenciadorEstilos:
         {cls._get_layout_styles()}
         </style>
         """
-        st.html(css_completo)
+        st.markdown(css_completo, unsafe_allow_html=True)
 
 
 # ====================================================
@@ -290,10 +272,10 @@ class ComponentesHome:
         st.markdown(
             """
             <div class="hero-banner">
-                <h1 style="font-size:32px; font-weight:800; margin:0; color:#FFFFFF !important;">
+                <h1 style="font-size:32px; font-weight:900; margin:0; color:#FFFFFF !important; letter-spacing:.2px;">
                     📊 Portal TOTALE
                 </h1>
-                <p style="font-size:14px; opacity:0.9; margin:4px 0 0 0; color:#FFFFFF !important;">
+                <p style="font-size:14px; opacity:.92; margin:6px 0 0 0; color:#FFFFFF !important; font-weight:500;">
                     Painéis de Produção, Indicadores e Gestão Estratégica
                 </p>
             </div>
@@ -306,8 +288,8 @@ class ComponentesHome:
         st.markdown(
             f"""
             <div class="card">
-                <p style="margin:0; font-size:14px; color:{CORES.TEXTO_PRIMARIO}; line-height:1.6;">
-                    <b>Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br>
+                <p style="margin:0; font-size:14px; color:{CORES.TEXTO_PRIMARIO}; line-height:1.65;">
+                    <b style="color:{CORES.PRIMARIA};">Bem-vindo ao ambiente centralizado de dados da TOTALE.</b><br>
                     Este portal fornece uma visão clara e estratégica dos processos produtivos
                     e indicadores de performance, apoiando decisões com base em dados confiáveis.
                 </p>
@@ -325,7 +307,7 @@ class ComponentesHome:
                 """
                 <div class="card status-warning">
                     <b style="color:#C2410C;">⚠️ Sistema aguardando atualização de dados</b><br>
-                    <p style="margin:8px 0 0 0; font-size:13px; color:#7C2D12;">
+                    <p style="margin:8px 0 0 0; font-size:13px; color:#7C2D12; line-height:1.6;">
                         1️⃣ Acesse <b>🔁 Atualização de Dados</b> no menu lateral<br>
                         2️⃣ Clique em <b>Sincronizar Agora</b> para puxar as bases operacionais.
                     </p>
@@ -356,8 +338,10 @@ class ComponentesHome:
             st.markdown(
                 f"""
                 <div class="card">
-                    <h4 style="margin:0 0 8px 0; color:{CORES.PRIMARIA};">⚙️ Produção Operacional</h4>
-                    <p style="margin:0; font-size:13px; color:{CORES.TEXTO_SECUNDARIO};">
+                    <h4 style="margin:0 0 8px 0; color:{CORES.PRIMARIA}; font-weight:800;">
+                        ⚙️ Produção Operacional
+                    </h4>
+                    <p style="margin:0; font-size:13px; color:{CORES.TEXTO_SECUNDARIO}; line-height:1.55;">
                         Monitore a eficiência e o volume produzido por técnicos e equipes em tempo real.
                     </p>
                 </div>
@@ -369,8 +353,10 @@ class ComponentesHome:
             st.markdown(
                 f"""
                 <div class="card">
-                    <h4 style="margin:0 0 8px 0; color:{CORES.PRIMARIA};">📈 Indicadores de Performance</h4>
-                    <p style="margin:0; font-size:13px; color:{CORES.TEXTO_SECUNDARIO};">
+                    <h4 style="margin:0 0 8px 0; color:{CORES.PRIMARIA}; font-weight:800;">
+                        📈 Indicadores de Performance
+                    </h4>
+                    <p style="margin:0; font-size:13px; color:{CORES.TEXTO_SECUNDARIO}; line-height:1.55;">
                         Acompanhe a evolução de metas operacionais e KPIs estratégicos.
                     </p>
                 </div>
@@ -384,10 +370,10 @@ class ComponentesHome:
         st.markdown(
             f"""
             <div class="footer">
-                🏢 <b>Painel TOTALE</b> <span>|</span>
-                🌐 {CONFIG.AMBIENTE} <span>|</span>
-                🕒 {agora.strftime("%d/%m/%Y")} • {agora.strftime("%H:%M")} BRT <span>|</span>
-                🔖 v{CONFIG.VERSAO}
+                🏢 <b>Painel TOTALE</b>
+                <span class="sep">|</span> 🌐 {CONFIG.AMBIENTE}
+                <span class="sep">|</span> 🕒 {agora.strftime("%d/%m/%Y")} • {agora.strftime("%H:%M")} BRT
+                <span class="sep">|</span> 🔖 v{CONFIG.VERSAO}
             </div>
             """,
             unsafe_allow_html=True,
@@ -407,10 +393,8 @@ def pagina_home() -> None:
     st.markdown("<br>", unsafe_allow_html=True)
     ComponentesHome.render_cards_modulos()
 
-    st.divider()
     ComponentesHome.render_footer()
 
-    # Auto-refresh controlado
     _gerenciar_refresh_automatico()
 
 
@@ -437,13 +421,13 @@ class GerenciadorNavegacao:
     def _definir_paginas() -> dict[str, list]:
         """Define todas as páginas do sistema."""
         return {
-            "MENU PRINCIPAL": [
+            "Menu Principal": [
                 st.Page(pagina_home, title="Home", icon="🏠", default=True),
                 st.Page(
                     "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
                 ),
             ],
-            "CENTRAL DE PERFORMANCE": [
+            "Central de Performance": [
                 st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
                 st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡"),
                 st.Page("pages/consultivo.py", title="Consultivos", icon="📋"),
@@ -451,31 +435,61 @@ class GerenciadorNavegacao:
                     "pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"
                 ),
             ],
-            "COMPILADO": [
+            "Compilado": [
                 st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷"),
             ],
-            "DISPAROS DIÁRIOS": [
+            "Disparos Diários": [
                 st.Page("pages/rota_inicial.py", title="Rota Inicial", icon="🗺️"),
                 st.Page("pages/rota_geral.py", title="Rota Geral", icon="🗺️"),
                 st.Page("pages/volumetria.py", title="Volumetria", icon="📊"),
                 st.Page("pages/retorno.py", title="Retornos", icon="🔍"),
                 st.Page("pages/p_atendimento.py", title="1º Atendimento", icon="🚙"),
             ],
-            "QUEBRA": [
+            "Quebra": [
                 st.Page("pages/quebra_geral.py", title="Geral", icon="📉"),
                 st.Page(
                     "pages/quebra_unificada.py", title="Visão Segmentos", icon="📉"
                 ),
             ],
-            "UTILITÁRIOS": [
+            "Utilitários": [
                 st.Page("pages/assinatura.py", title="Assinatura", icon="✉️"),
             ],
         }
 
     @staticmethod
-    def renderizar_sidebar(paginas: dict[str, list]) -> None:
-        """Mantém o ponto de extensão sem duplicar a navegação nativa."""
-        return
+    def renderizar_sidebar_corporativa() -> None:
+        """
+        Renderiza o cabeçalho corporativo da sidebar (acima do menu nativo).
+        O menu de navegação em si é desenhado pelo st.navigation.
+        """
+        render_sidebar_brand(
+            nome="TOTALE",
+            subtitulo="Portal de Produção & Performance",
+            versao=f"v{CONFIG.VERSAO}",
+            icone="📊",
+        )
+
+        render_sidebar_section("Status Operacional", icone="🛰️")
+
+        dados_prod = st.session_state.get("dados_prod")
+        if dados_prod is not None:
+            render_sidebar_status(
+                label="Dados Sincronizados",
+                status="Atualizado",
+                tipo="ok",
+                icone="🗄️",
+                # Passa o objeto cru — o Design System formata sozinho
+                ultima_atualizacao=st.session_state.get("ultima_atualizacao"),
+            )
+        else:
+            render_sidebar_status(
+                label="Aguardando Sincronismo",
+                status="Pendente",
+                tipo="alerta",
+                icone="⏳",
+            )
+
+        render_sidebar_divider(estilo="gradiente")
 
 
 # ====================================================
@@ -492,33 +506,32 @@ def main() -> None:
         page_icon=CONFIG.ICON_PATH,
         layout="wide",
         initial_sidebar_state="expanded",
+        menu_items={
+            "Get Help": None,
+            "Report a bug": None,
+            "About": f"# Portal TOTALE v{CONFIG.VERSAO}\nTecnologia, Dados e Performance.",
+        },
     )
 
-    # 2. Injeção de estilos
+    # 2. Injeção de estilos (uma única vez — Design System + estilos do app)
     aplicar_estilo()
-    aplicar_sidebar_corp()
     GerenciadorEstilos.injetar_css_global()
-    st.sidebar.subheader("🔁 Status | Atualização de Dados")
 
-    # 3. Status operacional
-    dados_prod = st.session_state.get("dados_prod")
-    if dados_prod is not None:
-        render_sidebar_status(
-            label="Dados Sincronizados",
-            status="Atualizado",
-            tipo="ok",
-            ultima_atualizacao=str(st.session_state.get("ultima_atualizacao")),
-        )
-    else:
-        render_sidebar_status(
-            label="Aguardando Sincronismo", status="Aguardando", tipo="alerta"
-        )
+    # 3. Cabeçalho corporativo da sidebar (marca + status, acima do menu)
+    GerenciadorNavegacao.renderizar_sidebar_corporativa()
 
-    # 4. Navegação nativa
+    # 4. Navegação nativa (seções + páginas)
     paginas = GerenciadorNavegacao._definir_paginas()
-
     pg = st.navigation(paginas)
     pg.run()
+
+    # 5. Rodapé corporativo da sidebar (abaixo do menu)
+    render_sidebar_spacer(altura=12)
+    render_sidebar_footer_info(
+        empresa="TOTALE Tecnologia",
+        versao=f"v{CONFIG.VERSAO}",
+        ambiente=CONFIG.AMBIENTE,
+    )
 
     logger.info("Aplicação iniciada com sucesso")
 
