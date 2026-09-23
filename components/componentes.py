@@ -3,17 +3,13 @@ components/componentes.py
 =========================
 Design System Streamlit — TOTALE
 
-Versão: 4.7.0 (Enterprise Polish & Icon Safety)
+Versão: 4.7.1 (Correção de Tile Overflow & Material Icons)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
-• Sistema de ícones em tile, eliminando o quadrado de gradiente em emojis.
-• Remoção do bloco CSS duplicado de .hero-domicilios.
-• Tabela premium isolada de dark mode (color-scheme: light).
-• render_notification normalizando o parâmetro correto.
-• render_kpi_sm sem renderização duplicada.
-• Exportação Excel única em render_table_html.
-• Normalizador de acentuação para badges automáticos em tabelas.
+• Correção de layout quebrado quando textos longos eram passados no tile de ícone.
+• Lógica inteligente reforçada para inverter posições de Título e Ícone se passados na ordem errada.
+• CSS do glyph atualizado para suportar Material Symbols nativamente sem imprimir o texto.
 """
 
 from __future__ import annotations
@@ -391,15 +387,12 @@ def normalizar_tipo_insight(tipo: Any) -> TipoInsightType:
 def normalizar_texto_badge(txt: str) -> str:
     """
     Remove tags HTML, normaliza acentuação e retorna a string em caixa alta.
-
-    Exemplos:
-        "Não"        -> "NAO"
-        "Concluído"  -> "CONCLUIDO"
     """
     txt_clean = re.sub(r"<[^>]+>", "", str(txt))
     normalized = unicodedata.normalize("NFKD", txt_clean)
     without_accents = "".join(c for c in normalized if not unicodedata.combining(c))
     return without_accents.strip().upper()
+
 
 _FORMATOS_DATA_BR: tuple[str, ...] = (
     "%d/%m/%Y %H:%M:%S",
@@ -414,8 +407,9 @@ _FORMATOS_DATA_BR: tuple[str, ...] = (
 )
 
 try:
-    _PANDAS_SUPORTA_MIXED = (
-        tuple(int(p) for p in pd.__version__.split(".")[:2]) >= (2, 0)
+    _PANDAS_SUPORTA_MIXED = tuple(int(p) for p in pd.__version__.split(".")[:2]) >= (
+        2,
+        0,
     )
 except ValueError:
     _PANDAS_SUPORTA_MIXED = False
@@ -424,12 +418,6 @@ except ValueError:
 def converter_data_br(serie: pd.Series) -> pd.Series:
     """
     Converte uma coluna para datetime lendo sempre DIA/MÊS/ANO.
-
-    - datetime64: mantido;
-    - serial do Excel (ex.: 46270): convertido pela origem 1899-12-30;
-    - texto: formatos brasileiros/ISO e, por fim, parser com dayfirst=True.
-
-    "05/09/2026" vira 2026-09-05 (5 de setembro), nunca 9 de maio.
     """
     if serie is None or len(serie) == 0:
         return pd.Series(dtype="datetime64[ns]")
@@ -439,7 +427,6 @@ def converter_data_br(serie: pd.Series) -> pd.Series:
 
     resultado = pd.Series(pd.NaT, index=serie.index, dtype="datetime64[ns]")
 
-    # 1) Seriais numéricos do Excel
     try:
         numericos = pd.to_numeric(serie, errors="coerce")
     except (TypeError, ValueError):
@@ -450,7 +437,6 @@ def converter_data_br(serie: pd.Series) -> pd.Series:
             numericos[mask_serial], unit="D", origin="1899-12-30", errors="coerce"
         )
 
-    # 2) Textos nos formatos conhecidos (dia primeiro)
     textos = serie.astype(str).str.strip()
     textos = textos.mask(textos.isin(["", "nan", "None", "NaT", "NaN", "-", "NULL"]))
     pendentes = resultado.isna() & textos.notna()
@@ -465,7 +451,6 @@ def converter_data_br(serie: pd.Series) -> pd.Series:
             resultado.loc[idx] = parsed.loc[idx]
             pendentes.loc[idx] = False
 
-    # 3) Último recurso: parser flexível, ainda com dia primeiro
     if pendentes.any():
         kwargs: dict[str, Any] = {"dayfirst": True, "errors": "coerce"}
         if _PANDAS_SUPORTA_MIXED:
@@ -478,13 +463,10 @@ def converter_data_br(serie: pd.Series) -> pd.Series:
 
     return resultado
 
+
 def formatar_datetime_exibicao(valor: Any, com_segundos: bool = False) -> str:
     """
     Formata datetime/string para exibição amigável.
-
-    Exemplos:
-        2026-09-11 16:43:52.825008-03:00 -> 11/09/2026 16:43
-        2026-09-11T16:43:52-03:00       -> 11/09/2026 16:43
     """
     if valor is None:
         return ""
@@ -569,14 +551,15 @@ def _safe_render_html(html_str: str, container: Any = None) -> None:
 
 def _icone_tile(icone: str, variante: str = "section") -> str:
     """
-    Constrói um tile de ícone corporativo.
-
-    O emoji nunca recebe background-clip:text, evitando o quadrado
-    de gradiente exibido por alguns navegadores.
+    Constrói um tile de ícone corporativo com trava de segurança para textos longos.
     """
     texto = str(icone or "").strip()
     if not texto:
         return ""
+
+    # Trava de segurança: impede vazamento visual se passarem texto para o parâmetro do ícone
+    if len(texto) > 15 and " " in texto:
+        texto = texto[0]
 
     variante_norm = variante if variante in {"section", "brand"} else "section"
 
@@ -828,10 +811,6 @@ _CSS_EXTRAS = """
 .user-info-card { background: linear-gradient(135deg, #F8FAFC 0%, #FFFFFF 100%); border: 1px solid var(--cor-borda); border-radius: 12px; padding: 16px; margin: 12px 0; }
 
 /* ====================== ÍCONES CORPORATIVOS ====================== */
-/*
-Não aplicar background-clip:text diretamente em emojis.
-Alguns navegadores exibem apenas um quadrado com o gradiente.
-*/
 .totale-icon-tile {
     display: inline-flex !important;
     align-items: center !important;
@@ -872,7 +851,8 @@ Alguns navegadores exibem apenas um quadrado com o gradiente.
     -webkit-background-clip: border-box !important;
     color: initial !important;
     -webkit-text-fill-color: initial !important;
-    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+    /* Suporte ampliado para Emojis E Material Symbols */
+    font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
     font-style: normal !important;
     font-weight: 400 !important;
     font-size: 20px !important;
@@ -1241,12 +1221,6 @@ class FontInjector:
 
 
 class NavContrastFix:
-    """
-    Força texto branco no item ativo do st.navigation via estilo inline.
-    Inline com !important vence qualquer CSS legado do projeto.
-    Reage a trocas de página com MutationObserver.
-    """
-
     _COR = "#FFFFFF"
 
     _JS = """
@@ -1367,12 +1341,6 @@ def render_sidebar_brand(
     logo: str | None = None,
     **kwargs: Any,
 ) -> None:
-    """
-    Renderiza a marca no topo da sidebar.
-
-    O emoji utiliza um tile próprio, evitando a exibição de um quadrado
-    de gradiente causada por background-clip:text.
-    """
     nome_final = str(titulo or nome or "").strip()
     subtitulo_final = str(kwargs.get("segmento", subtitulo) or "").strip()
     versao_final = str(versao or "").strip()
@@ -1860,12 +1828,6 @@ def render_sidebar_status(
     container: Any = None,
     **kwargs: Any,
 ) -> None:
-    """
-    Renderiza um widget de status corporativo na sidebar.
-
-    compacto=True  -> pílula inline.
-    compacto=False -> card estruturado com indicador pulsante.
-    """
     cfg_status = {
         "ok": {
             "cor": "#059669",
@@ -1958,9 +1920,7 @@ def render_sidebar_status(
         """ for k, v in detalhes_dict.items())
 
     ultima_atualizacao_fmt = (
-    formatar_datetime_exibicao(ultima_atualizacao)
-    if ultima_atualizacao
-    else ""
+        formatar_datetime_exibicao(ultima_atualizacao) if ultima_atualizacao else ""
     )
 
     data_html = (
@@ -2298,12 +2258,6 @@ def render_hero_novos_domicilios(
     stats: Sequence[dict[str, str]] | None = None,
     meta_info: str = "",
 ) -> None:
-    """
-    Hero corporativo para análise de novos domicílios.
-
-    Gradiente: azul institucional -> azul-petróleo -> teal.
-    O badge recebe apenas texto curto; a frase longa vai no subtítulo.
-    """
     if not titulo:
         raise ValueError("render_hero_novos_domicilios: 'titulo' não pode ser vazio.")
 
@@ -2396,21 +2350,6 @@ def render_section_header(
     icone: str = "",
     badge_tipo: TipoBadgeType = "default",
 ) -> None:
-    """
-    Cabeçalho de seção.
-
-    Uso recomendado:
-        render_section_header(
-            titulo="Base de dados",
-            icone="📊",
-            badge="PRIMEIROS 50 REGISTROS",
-        )
-
-    Compatibilidade:
-        Reconhece a chamada antiga (emoji, titulo) quando
-        o primeiro argumento contém somente emoji/símbolo
-        e o segundo contém texto.
-    """
     titulo_final = str(titulo or title or "").strip()
     icone_final = str(icone or icon or "").strip()
     badge_final = str(badge or "").strip()
@@ -2418,40 +2357,52 @@ def render_section_header(
 
     # ---------------------------------------------------------
     # Compatibilidade com chamadas antigas: (icone, titulo).
-    # Não troca argumentos quando o título já contém texto.
+    # Identificação inteligente para evitar layouts quebrados.
     # ---------------------------------------------------------
-    titulo_eh_icone = (
-        bool(titulo_final)
-        and not any(caractere.isalnum() for caractere in titulo_final)
-        and any(
-            unicodedata.category(caractere).startswith("S")
-            for caractere in titulo_final
-        )
-    )
+    def _parece_icone(val: str) -> bool:
+        v = val.strip()
+        if not v:
+            return False
+        if len(v) <= 4:
+            return True
+        # Verifica se pode ser nome de um Material Icon (sem espaço, alphanum e underscore)
+        if " " not in v and all(c.isalnum() or c == "_" for c in v):
+            return True
+        return False
 
-    icone_contem_texto = any(
-        caractere.isalpha() for caractere in icone_final
-    )
+    def _parece_titulo(val: str) -> bool:
+        v = val.strip()
+        if not v:
+            return False
+        if len(v) > 10:
+            return True
+        if " " in v:
+            return True
+        if any(c.isupper() for c in v):
+            return True
+        return False
 
-    if titulo_eh_icone and icone_contem_texto:
+    # Se o argumento passado como título for claramente um ícone, e o de ícone for um título, inverta.
+    if _parece_icone(titulo_final) and _parece_titulo(icone_final):
         titulo_final, icone_final = icone_final, titulo_final
-
         logger.warning(
             "render_section_header recebeu ícone e título invertidos. "
-            "Use titulo=... e icone=... nas chamadas."
+            "Os argumentos foram corrigidos automaticamente para evitar layout quebrado."
         )
 
-    if not any(
-        (titulo_final, icone_final, badge_final, subtitulo_final)
-    ):
+    if not any((titulo_final, icone_final, badge_final, subtitulo_final)):
         return
 
     tipo_norm = normalizar_tipo_badge(badge_tipo)
     bg_badge, cor_badge, borda_badge = ConfigCores.BADGE[tipo_norm]
 
-    # Ícone: somente o ícone ocupa o tile.
     icone_html = ""
     if icone_final:
+        # Trava de segurança para impedir que textos longos explodam o box do ícone
+        # Se apesar da lógica acima ainda sobrou um texto longo, reduz a 1 letra para o tile não quebrar.
+        if len(icone_final) > 15 and " " in icone_final:
+            icone_final = icone_final[0]
+
         icone_html = f"""
         <span
             class="totale-icon-tile totale-icon-tile--section"
@@ -2463,7 +2414,6 @@ def render_section_header(
         </span>
         """
 
-    # Título: fica fora do tile, com largura disponível.
     titulo_html = ""
     if titulo_final:
         titulo_html = f"""
@@ -2537,7 +2487,7 @@ def render_section_header(
     """
 
     _safe_render_html(markup)
-    
+
 
 def _card_premium(
     container: Any,
@@ -2588,11 +2538,16 @@ def _card_premium(
 
     icone_html = ""
     if icone:
+        # Prevenção extra para textos longos explodirem o tile do wrapper
+        icone_seguro = icone.strip()
+        if len(icone_seguro) > 15 and " " in icone_seguro:
+            icone_seguro = icone_seguro[0]
+
         icone_html = (
             '<div class="kpi-icon-wrapper" '
             f'style="background:{fundo_icone};color:{cor_texto};">'
             '<span aria-hidden="true" style="font-size:20px;line-height:1;">'
-            f"{Validadores.html_escape(icone)}"
+            f"{Validadores.html_escape(icone_seguro)}"
             "</span></div>"
         )
 
@@ -2697,7 +2652,6 @@ def render_kpi_sm(
     tema: TemaKPIType = "azul",
     icone: str = "",
 ) -> None:
-    """Card KPI compacto, usando o mesmo padrão visual do card premium."""
     _card_premium(
         container=container,
         label=label,
