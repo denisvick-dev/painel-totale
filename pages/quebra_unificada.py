@@ -17,7 +17,7 @@ from datetime import datetime
 from html import escape
 from io import BytesIO
 from pathlib import Path
-from typing import Any, cast, Dict
+from typing import Any, cast
 
 # ── Bootstrap sys.path ───────────────────────────────────────────────
 _DIR = Path(__file__).resolve().parent
@@ -28,8 +28,8 @@ for _p in (_DIR, _ROOT):
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
@@ -49,6 +49,8 @@ from components.componentes import (
     render_kpi_sm,
     render_section_header,
     render_table_html,
+)
+from components.componentes import (
     aplicar_estilo as _aplicar_estilo_global,
 )
 from components.criterios import classificar_tipo_servico, render_debug_criterios
@@ -61,7 +63,7 @@ _COL_REGIAO: str = str(getattr(Config, "COL_REGIAO", "REGIÃO"))
 def _obter_folga_sla(df: pd.DataFrame, sla_meta: float) -> dict[str, Any]:
     """Wrapper seguro com tipagem explícita para evitar o erro do Pylance sobre Motor.folga_sla"""
     if hasattr(Motor, "folga_sla"):
-        return getattr(Motor, "folga_sla")(df, sla_meta)
+        return Motor.folga_sla(df, sla_meta)
 
     # Lógica de fallback para evitar quebra no runtime
     if df.empty or "Status Contrato" not in df.columns:
@@ -590,16 +592,19 @@ class _PDFExecutivoBase:
                     if np.isnan(val):
                         continue
                     if val > sla_meta:
-                        bg_c, tx_c = colors.HexColor("#FEE2E2"), colors.HexColor(
-                            cls.COR_CRITICO
+                        bg_c, tx_c = (
+                            colors.HexColor("#FEE2E2"),
+                            colors.HexColor(cls.COR_CRITICO),
                         )
                     elif val > sla_meta * 0.85:
-                        bg_c, tx_c = colors.HexColor("#FEF9C3"), colors.HexColor(
-                            cls.COR_ALERTA
+                        bg_c, tx_c = (
+                            colors.HexColor("#FEF9C3"),
+                            colors.HexColor(cls.COR_ALERTA),
                         )
                     else:
-                        bg_c, tx_c = colors.HexColor("#DCFCE7"), colors.HexColor(
-                            cls.COR_OK
+                        bg_c, tx_c = (
+                            colors.HexColor("#DCFCE7"),
+                            colors.HexColor(cls.COR_OK),
                         )
                     style += [
                         ("BACKGROUND", (col_idx, row_i), (col_idx, row_i), bg_c),
@@ -1002,7 +1007,7 @@ def _render_card_status(segmento: str, m_seg: Any, sla_meta: float):
     <div style="display:flex;gap:14px;align-items:center"><div style="width:44px;height:44px;background:{conf["grad_hero"]};border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px {conf["sombra_hero"]}"><span style="font-size:22px">{conf["icone"]}</span></div><div><div style="font-size:18px;font-weight:800;color:#1F2937">{escape(segmento)}</div><div style="font-size:12px;color:#6B7280">Análise de Quebra</div></div></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap"><div style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;background:{cor_bg};border-radius:999px;border:1px solid {cor_status}"><span style="width:18px;height:18px;background:{cor_status};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">{status_icone}</span><span style="font-size:11px;font-weight:700;color:{cor_txt}">{status_label}</span></div><div style="padding:6px 14px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD"><div style="font-size:10px;color:#6B7280;font-weight:600">QUEBRA ATUAL</div><div style="font-size:16px;color:{cor_status};font-weight:800">{quebra:.2%}</div></div><div style="padding:6px 14px;background:#F0F9FF;border-radius:8px;border:1px solid #BAE6FD"><div style="font-size:10px;color:#6B7280;font-weight:600">META SLA</div><div style="font-size:16px;color:{conf["cor_secundaria"]};font-weight:800">{sla_meta:.2%}</div></div></div>
   </div>
-  <div style="margin:16px 0 6px 0;display:flex;justify-content:space-between;font-size:11px;color:#6B7280;font-weight:600"><span>0%</span><span>Meta {sla_meta:.2%}</span><span>{sla_meta*2:.0%}</span></div>
+  <div style="margin:16px 0 6px 0;display:flex;justify-content:space-between;font-size:11px;color:#6B7280;font-weight:600"><span>0%</span><span>Meta {sla_meta:.2%}</span><span>{sla_meta * 2:.0%}</span></div>
   <div style="height:8px;background:#E5E7EB;border-radius:4px;overflow:hidden;position:relative"><div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#374151;z-index:2"></div><div style="width:{pct}%;height:100%;background:linear-gradient(90deg,{cor_status},{cor_status}CC);border-radius:4px"></div></div>
 </div>""",
         unsafe_allow_html=True,
@@ -1020,7 +1025,7 @@ def _gerar_alertas(
             {
                 "tipo": "critico",
                 "icone": "🔴",
-                "msg": f"Quebra {quebra:.2%} acima da meta {sla_meta:.0%} (+{quebra-sla_meta:.2%})",
+                "msg": f"Quebra {quebra:.2%} acima da meta {sla_meta:.0%} (+{quebra - sla_meta:.2%})",
             }
         )
     if folga.get("estourado"):
@@ -1028,7 +1033,7 @@ def _gerar_alertas(
             {
                 "tipo": "critico",
                 "icone": "🚨",
-                "msg": f"Estouro de {int(folga['naoexec']-folga['limite_ne_total'])} OS além do limite",
+                "msg": f"Estouro de {int(folga['naoexec'] - folga['limite_ne_total'])} OS além do limite",
             }
         )
     if pend > 300:
@@ -1060,7 +1065,7 @@ def _gerar_alertas(
     return alerts
 
 
-def _render_alerts_chips(alerts: list[Dict]):
+def _render_alerts_chips(alerts: list[dict]):
     if not alerts:
         return
     cores = {
@@ -1674,12 +1679,8 @@ def _sub_sem_registro(segmento, df_seg):
     serie = df_seg[col_baixa].fillna("").astype(str).str.strip().str.upper()
     mask = serie.isin(["SEM REGISTRO", "SEM_REGISTRO", "", "NAN", "NONE"])
     if "Status Contrato" in df_seg.columns:
-        mask &= (
-            ~df_seg["Status Contrato"]
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            .isin(STATUS_PENDENTE)
+        mask &= ~df_seg["Status Contrato"].astype(str).str.strip().str.upper().isin(
+            STATUS_PENDENTE
         )
     df_sr = df_seg[mask].copy()
     m1, m2, m3 = st.columns(3)

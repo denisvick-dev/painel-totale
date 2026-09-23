@@ -48,16 +48,36 @@ VAZIOS_GERAIS: set[str] = set()
 
 try:
     from components.criterios import (
-        TERMOS_ND as _TERMOS_ND,
         TERMO_GPON_HABILIDADE as _TERMO_GPON_HABILIDADE,
+    )
+    from components.criterios import (
         TERMO_MIGRACAO_OS as _TERMO_MIGRACAO_OS,
+    )
+    from components.criterios import (
         TERMO_PME_HABILIDADE as _TERMO_PME_HABILIDADE,
+    )
+    from components.criterios import (
+        TERMOS_ND as _TERMOS_ND,
+    )
+    from components.criterios import (
         VAZIOS_GERAIS as _VAZIOS_GERAIS,
+    )
+    from components.criterios import (
         classificar_tipo_servico as _classificar_tipo_servico_criterios,
+    )
+    from components.criterios import (
         criar_flag_gpon as _criar_flag_gpon,
+    )
+    from components.criterios import (
         detectar_col_flag_gpon as _detectar_col_flag_gpon,
+    )
+    from components.criterios import (
         detectar_col_habilidade as _detectar_col_habilidade,
+    )
+    from components.criterios import (
         detectar_col_tipo_os_1 as _detectar_col_tipo_os_1,
+    )
+    from components.criterios import (
         render_painel_criterios as _render_painel_criterios,
     )
 
@@ -555,10 +575,10 @@ def render_kpi_sm(
     estilo = TEMAS_ESPECIAIS[tema]
     col.markdown(
         f"""
-        <div style="background:{estilo['fundo']}; border-left:3px solid {estilo['borda']}; border-radius:6px; padding:12px 16px; margin-bottom:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-family:{Fontes.TEXTO}; font-size:10px; color:{estilo['titulo']}; text-transform:uppercase; letter-spacing:1px; font-weight:700;">{_html(label)}</div>
-            <div style="font-family:{Fontes.TITULO}; font-size:20px; color:{estilo['texto']}; font-weight:800; line-height:1.2; margin-top:4px;">{_html(value)}</div>
-            <div style="font-family:{Fontes.TEXTO}; font-size:11px; color:{estilo['titulo']}; margin-top:2px;">{_html(sub)}</div>
+        <div style="background:{estilo["fundo"]}; border-left:3px solid {estilo["borda"]}; border-radius:6px; padding:12px 16px; margin-bottom:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-family:{Fontes.TEXTO}; font-size:10px; color:{estilo["titulo"]}; text-transform:uppercase; letter-spacing:1px; font-weight:700;">{_html(label)}</div>
+            <div style="font-family:{Fontes.TITULO}; font-size:20px; color:{estilo["texto"]}; font-weight:800; line-height:1.2; margin-top:4px;">{_html(value)}</div>
+            <div style="font-family:{Fontes.TEXTO}; font-size:11px; color:{estilo["titulo"]}; margin-top:2px;">{_html(sub)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -984,9 +1004,9 @@ class DataLoader:
     def buscar_gsheets() -> pd.DataFrame:
         try:
             modulo = importlib.import_module("streamlit_gsheets")
-            connection_type = getattr(modulo, "GSheetsConnection")
+            connection_type = modulo.GSheetsConnection
             conn = st.connection("gsheets", type=connection_type)
-            raw = getattr(conn, "read")(
+            raw = conn.read(
                 spreadsheet=Config.URL_LISTA_ATIVOS, worksheet=Config.WORKSHEET_ATIVOS
             )
             if isinstance(raw, pd.DataFrame) and not raw.empty:
@@ -1577,8 +1597,9 @@ class Motor:
         if not {grupo, "Status Contrato", "TOTAL DE TAREFAS"}.issubset(df.columns):
             return pd.DataFrame()
 
-        probabilidade, meta_sla = float(np.clip(probabilidade, 0, 1)), float(
-            np.clip(meta_sla, 0, 1)
+        probabilidade, meta_sla = (
+            float(np.clip(probabilidade, 0, 1)),
+            float(np.clip(meta_sla, 0, 1)),
         )
         trabalho = df.copy()
         trabalho["TOTAL DE TAREFAS"] = (
@@ -1688,7 +1709,7 @@ def render_matriz_executiva_html(
     for _, linha in df.iterrows():
         primeiro_valor = linha.iloc[0]
         is_total = str(primeiro_valor).strip().upper() == "TOTAL GERAL"
-        html += f"<tr {'class=\'total-row\'' if is_total else ''}>"
+        html += f"<tr {"class='total-row'" if is_total else ''}>"
         for posicao, coluna in enumerate(df.columns):
             valor = linha.iloc[posicao]
             coluna_upper = str(coluna).strip().upper()
@@ -1711,7 +1732,7 @@ def render_matriz_executiva_html(
             elif coluna_upper in {"TOTAL TASKS", "TOTAL_TASKS"}:
                 html += f"<td><strong>{_fmt_int_br(valor)}</strong></td>"
             else:
-                html += f"<td>{_html(valor) if not _is_missing_scalar(valor) else '<span style=\'color:#94A3B8;\'>—</span>'}</td>"
+                html += f"<td>{_html(valor) if not _is_missing_scalar(valor) else "<span style='color:#94A3B8;'>—</span>"}</td>"
         html += "</tr>"
     html += """</tbody></table></div>"""
     st.markdown(html, unsafe_allow_html=True)
@@ -1891,15 +1912,15 @@ def render_resumo_gpon(df: pd.DataFrame) -> None:
                         📡 FLAG_GPON
                     </div>
                     <div style="font-size:24px;font-weight:800;margin-top:4px;">
-                        {resumo['sim']:,}
+                        {resumo["sim"]:,}
                     </div>
                     <div style="font-size:11px;opacity:0.85;margin-top:2px;">
-                        {resumo['percentual']:.1f}% com GPON habilitado
+                        {resumo["percentual"]:.1f}% com GPON habilitado
                     </div>
                 </div>
                 <div style="text-align:right;">
                     <div style="font-size:11px;opacity:0.85;">Total</div>
-                    <div style="font-size:18px;font-weight:700;">{resumo['total']:,}</div>
+                    <div style="font-size:18px;font-weight:700;">{resumo["total"]:,}</div>
                 </div>
             </div>
         </div>
@@ -2278,8 +2299,10 @@ def main() -> None:
     if ROBO_DISPONIVEL and _impl_robo:
         try:
             _impl_robo(
-                etl_fn=lambda df_raw, df_gs_arg=None, **kw: DataLoader.callback_robo_etl(
-                    df_raw, df_gs_arg if df_gs_arg is not None else df_ativos_atual
+                etl_fn=lambda df_raw, df_gs_arg=None, **kw: (
+                    DataLoader.callback_robo_etl(
+                        df_raw, df_gs_arg if df_gs_arg is not None else df_ativos_atual
+                    )
                 ),
                 gsheets_fn=lambda: df_ativos_atual,
                 pasta_padrao=st.session_state.get(
@@ -2387,7 +2410,7 @@ def main() -> None:
         nao_mapeados = int(df["TÉCNICO"].eq("NÃO MAPEADO").sum())
         if nao_mapeados > 0:
             st.warning(
-                f"⚠️ **Aviso de Integração:** {nao_mapeados} O.S. ({nao_mapeados/len(df)*100:.1f}% do volume ativo) não possuem correspondência válida na Lista de Ativos."
+                f"⚠️ **Aviso de Integração:** {nao_mapeados} O.S. ({nao_mapeados / len(df) * 100:.1f}% do volume ativo) não possuem correspondência válida na Lista de Ativos."
             )
         else:
             st.success("🎉 Todos os logins estão mapeados na Lista de Ativos.")
