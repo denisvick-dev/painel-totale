@@ -89,8 +89,19 @@ COLUNAS_DESTINO_SINAPSE: list[str] = [
 
 PLACEHOLDER = "-"
 VALORES_VAZIOS: set[str] = {
-    "", "-", "--", "nan", "none", "null", "na", "n/a", "#n/a",
-    "sem_equipe", "sem equipe", "não informado", "nao informado",
+    "",
+    "-",
+    "--",
+    "nan",
+    "none",
+    "null",
+    "na",
+    "n/a",
+    "#n/a",
+    "sem_equipe",
+    "sem equipe",
+    "não informado",
+    "nao informado",
     "sem monitor",
 }
 
@@ -98,70 +109,172 @@ VALORES_VAZIOS: set[str] = {
 # CONSTANTES DE MAPEAMENTO — TOA
 # ==========================================================
 TOA_TIPO_ATIVIDADE: list[str] = [
-    "Tipo de Atividade.1", "Tipo de Atividade", "Tipo Atividade",
-    "Tipo de OS", "Tipo OS", "Tipo de Ordem", "Tipo", "Serviço",
+    "Tipo de Atividade.1",
+    "Tipo de Atividade",
+    "Tipo Atividade",
+    "Tipo de OS",
+    "Tipo OS",
+    "Tipo de Ordem",
+    "Tipo",
+    "Serviço",
 ]
 TOA_CONTRATO: list[str] = [
-    "Contrato", "Nº Contrato", "Numero do Contrato", "Número do Contrato",
-    "Cod Contrato", "Código do Contrato", "Num Contrato", "Nro Contrato", "CONTRATO",
+    "Contrato",
+    "Nº Contrato",
+    "Numero do Contrato",
+    "Número do Contrato",
+    "Cod Contrato",
+    "Código do Contrato",
+    "Num Contrato",
+    "Nro Contrato",
+    "CONTRATO",
 ]
 TOA_LOGIN_TECNICO: list[str] = [
-    "Login do Técnico", "Login do Tecnico", "Login Técnico", "Login Tecnico",
-    "Login", "Usuário", "Usuario", "Login do Recurso",
+    "Login do Técnico",
+    "Login do Tecnico",
+    "Login Técnico",
+    "Login Tecnico",
+    "Login",
+    "Usuário",
+    "Usuario",
+    "Login do Recurso",
 ]
 TOA_RECURSO: list[str] = [
-    "Recurso", "Nome do Recurso", "Nome Recurso", "Resource",
-    "Responsável", "Responsavel", "Técnico", "Tecnico",
+    "Recurso",
+    "Nome do Recurso",
+    "Nome Recurso",
+    "Resource",
+    "Responsável",
+    "Responsavel",
+    "Técnico",
+    "Tecnico",
 ]
 TOA_STATUS_ATIVIDADE: list[str] = [
-    "Status da Atividade", "Status", "Situação", "Situacao",
-    "Status OS", "Status da OS", "Resultado", "Resultado da Atividade",
+    "Status da Atividade",
+    "Status",
+    "Situação",
+    "Situacao",
+    "Status OS",
+    "Status da OS",
+    "Resultado",
+    "Resultado da Atividade",
 ]
 TOA_INTERVALO_TEMPO: list[str] = [
-    "Intervalo de Tempo", "Intervalo", "Janela", "Janela de Atendimento",
-    "Time Slot", "Slot", "SLA", "Horário", "Horario",
+    "Intervalo de Tempo",
+    "Intervalo",
+    "Janela",
+    "Janela de Atendimento",
+    "Time Slot",
+    "Slot",
+    "SLA",
+    "Horário",
+    "Horario",
 ]
 TOA_ENDERECO: list[str] = [
-    "Endereço", "Endereco", "Logradouro", "Endereço do Cliente",
-    "Endereco do Cliente", "Rua", "Endereço Completo",
+    "Endereço",
+    "Endereco",
+    "Logradouro",
+    "Endereço do Cliente",
+    "Endereco do Cliente",
+    "Rua",
+    "Endereço Completo",
 ]
 TOA_CIDADE: list[str] = ["Cidade", "Município", "Municipio", "CIDADE", "Localidade"]
 TOA_NUMERO_OS: list[str] = [
-    "Número da O.S 1", "Numero da O.S 1", "Número da OS 1", "Numero da OS 1",
-    "Número da O.S. 1", "Número da O.S", "Numero da OS", "Nº OS", "Numero OS", "OS",
+    "Número da O.S 1",
+    "Numero da O.S 1",
+    "Número da OS 1",
+    "Numero da OS 1",
+    "Número da O.S. 1",
+    "Número da O.S",
+    "Numero da OS",
+    "Nº OS",
+    "Numero OS",
+    "OS",
 ]
 
 # ==========================================================
 # CONSTANTES DE MAPEAMENTO — SINAPSE
 # ==========================================================
 SINAPSE_CONTRATO: list[str] = [
-    "Contrato", "Nº Contrato", "Numero do Contrato", "Número do Contrato",
-    "Cod Contrato", "Código do Contrato", "Num Contrato", "Nro Contrato",
-    "Contrato Cliente", "CONTRATO",
+    "Contrato",
+    "Nº Contrato",
+    "Numero do Contrato",
+    "Número do Contrato",
+    "Cod Contrato",
+    "Código do Contrato",
+    "Num Contrato",
+    "Nro Contrato",
+    "Contrato Cliente",
+    "CONTRATO",
 ]
 SINAPSE_COD_AUX_EQUIPE: list[str] = [
-    "CódAuxEquipe", "CodAuxEquipe", "Cod Aux Equipe", "Cód Aux Equipe",
-    "Cod_Aux_Equipe", "COD_AUX_EQUIPE", "Código Auxiliar Equipe",
-    "CodAux", "Cod Aux", "CódAux", "CodEquipe", "Cód Equipe", "Equipe",
+    "CódAuxEquipe",
+    "CodAuxEquipe",
+    "Cod Aux Equipe",
+    "Cód Aux Equipe",
+    "Cod_Aux_Equipe",
+    "COD_AUX_EQUIPE",
+    "Código Auxiliar Equipe",
+    "CodAux",
+    "Cod Aux",
+    "CódAux",
+    "CodEquipe",
+    "Cód Equipe",
+    "Equipe",
 ]
 SINAPSE_NOME_EQUIPE: list[str] = [
-    "Nome Equipe", "Nome da Equipe", "Nome da Equipe/Técnico", "NOME_EQUIPE",
-    "Nome Técnico", "Nome Tecnico", "Nome do Técnico", "Técnico Dono",
-    "Tecnico Dono", "Técnico", "Tecnico", "Executor",
+    "Nome Equipe",
+    "Nome da Equipe",
+    "Nome da Equipe/Técnico",
+    "NOME_EQUIPE",
+    "Nome Técnico",
+    "Nome Tecnico",
+    "Nome do Técnico",
+    "Técnico Dono",
+    "Tecnico Dono",
+    "Técnico",
+    "Tecnico",
+    "Executor",
 ]
 SINAPSE_SUPERVISOR_MONITOR: list[str] = [
-    "Monitor", "Supervisor", "Monitor/Supervisor", "Supervisor/Monitor",
-    "Nome Monitor", "Nome Supervisor", "Coordenador", "Gestor",
-    "SUPERVISOR", "MONITOR", "Líder", "Lider",
+    "Monitor",
+    "Supervisor",
+    "Monitor/Supervisor",
+    "Supervisor/Monitor",
+    "Nome Monitor",
+    "Nome Supervisor",
+    "Coordenador",
+    "Gestor",
+    "SUPERVISOR",
+    "MONITOR",
+    "Líder",
+    "Lider",
 ]
 SINAPSE_DATA: list[str] = [
-    "Data", "DATA", "DATA AGENDA", "Data Agenda", "Data Agendamento",
-    "Data Início", "Data Inicio", "Data Atividade", "Data Atendimento",
-    "Data de Execução", "Data Execucao", "DT_AGENDA", "DATA_EXECUCAO",
+    "Data",
+    "DATA",
+    "DATA AGENDA",
+    "Data Agenda",
+    "Data Agendamento",
+    "Data Início",
+    "Data Inicio",
+    "Data Atividade",
+    "Data Atendimento",
+    "Data de Execução",
+    "Data Execucao",
+    "DT_AGENDA",
+    "DATA_EXECUCAO",
 ]
 SINAPSE_STATUS: list[str] = [
-    "Status da Atividade", "SITUAÇÃO APP", "Situação App", "Situacao App",
-    "Status", "Situação", "Situacao", "RESULTADO DA ATIVIDADE",
+    "Status da Atividade",
+    "SITUAÇÃO APP",
+    "Situação App",
+    "Situacao App",
+    "Status",
+    "Situação",
+    "Situacao",
+    "RESULTADO DA ATIVIDADE",
 ]
 
 VALOR_FILTRO_ATIVIDADE: str = "Retorno Credenciada"
@@ -213,8 +326,11 @@ def _normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
     contador: dict[str, int] = {}
     for col in df.columns:
         nome = (
-            str(col).strip()
-            .replace("\ufeff", "").replace("\u200b", "").replace("\xa0", " ")
+            str(col)
+            .strip()
+            .replace("\ufeff", "")
+            .replace("\u200b", "")
+            .replace("\xa0", " ")
         )
         nome = re.sub(r"\s+", " ", nome).strip() or "coluna_sem_nome"
         if nome in contador:
@@ -230,12 +346,23 @@ def _normalizar_nomes_colunas(df: pd.DataFrame) -> pd.DataFrame:
 def _limpar_valores_string(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     nulos_padrao: set[str] = {
-        "", "nan", "none", "null", "na", "n/a", "#n/a", "#na", "-", "--", "?",
+        "",
+        "nan",
+        "none",
+        "null",
+        "na",
+        "n/a",
+        "#n/a",
+        "#na",
+        "-",
+        "--",
+        "?",
     }
     for col in df.select_dtypes(include=["object", "string"]).columns:
         mask_original_na = df[col].isna()
         serie = (
-            df[col].astype("string")
+            df[col]
+            .astype("string")
             .str.replace("\xa0", " ", regex=False)
             .str.replace("\u200b", "", regex=False)
             .str.replace("\ufeff", "", regex=False)
@@ -264,7 +391,7 @@ def carregar_arquivo(
             df = df.dropna(how="all").reset_index(drop=True)
             stats["metodo"] = "Excel"
             return df, stats
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise ValueError(f"Erro ao processar Excel: {e}") from e
 
     tentativas = [
@@ -361,8 +488,12 @@ def converter_data_robusto(serie: pd.Series) -> pd.Series:
     resultado = pd.to_datetime(s, errors="coerce", dayfirst=True)
     if resultado.isna().sum() > len(s) * 0.3:
         formatos = [
-            "%d/%m/%Y", "%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S",
-            "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y",
+            "%d/%m/%Y",
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y %H:%M:%S",
+            "%Y-%m-%d",
+            "%Y-%m-%d %H:%M:%S",
+            "%d-%m-%Y",
         ]
         for fmt in formatos:
             tentativa = pd.to_datetime(s, errors="coerce", format=fmt)
@@ -409,7 +540,8 @@ def refinar_base_toa(
     # 2. Remoção de Suspensos
     if col_status and col_status in df_filt.columns:
         mask_suspenso = (
-            _serie(df_filt, col_status).astype(str)
+            _serie(df_filt, col_status)
+            .astype(str)
             .str.contains("suspen", case=False, na=False)
         )
         stats["suspensos_removidos"] = int(mask_suspenso.sum())
@@ -469,7 +601,8 @@ def cruzar_com_sinapse(
     # Limpeza de suspensos no Sinapse
     if col_status_sin and col_status_sin in df_s.columns:
         mask_susp = (
-            _serie(df_s, col_status_sin).astype(str)
+            _serie(df_s, col_status_sin)
+            .astype(str)
             .str.contains("suspen", case=False, na=False)
         )
         stats["suspensos_sinapse"] = int(mask_susp.sum())
@@ -611,7 +744,8 @@ def gerar_excel_por_equipe(
             if len(grupos) > max_abas:
                 logger.warning(
                     "Grupos (%s) acima do limite de abas (%s); abas extras omitidas.",
-                    len(grupos), max_abas,
+                    len(grupos),
+                    max_abas,
                 )
                 grupos = grupos[:max_abas]
             for grupo_nome, df_g in grupos:
@@ -692,7 +826,9 @@ with c_up1:
 
 with c_up2:
     st.markdown("### 2️⃣ Base Sinapse (Histórico)")
-    st.caption("Origem dos contratos para identificar CódAuxEquipe, Nome Equipe e Monitor.")
+    st.caption(
+        "Origem dos contratos para identificar CódAuxEquipe, Nome Equipe e Monitor."
+    )
     arquivo_sinapse = st.file_uploader(
         "Importar arquivo Sinapse", type=["csv", "xlsx", "xls"], key="up_sinapse"
     )
@@ -753,11 +889,15 @@ col_data_sin = _detectar_sin(SINAPSE_DATA)
 col_status_sin = _detectar_sin(SINAPSE_STATUS)
 
 if not col_contrato_toa:
-    render_insight("❌ Coluna de **Contrato** não localizada no arquivo TOA.", tipo="critico")
+    render_insight(
+        "❌ Coluna de **Contrato** não localizada no arquivo TOA.", tipo="critico"
+    )
     st.stop()
 
 if not col_contrato_sin:
-    render_insight("❌ Coluna de **Contrato** não localizada no arquivo Sinapse.", tipo="critico")
+    render_insight(
+        "❌ Coluna de **Contrato** não localizada no arquivo Sinapse.", tipo="critico"
+    )
     st.stop()
 
 # FIX #10 — transparência sobre o mapeamento
@@ -784,18 +924,38 @@ with st.expander("🔧 Mapeamento de colunas detectado"):
         pd.DataFrame(
             {
                 "Campo": [
-                    "TOA · Tipo de Atividade", "TOA · Contrato", "TOA · Login",
-                    "TOA · Recurso", "TOA · Status", "TOA · Intervalo",
-                    "TOA · Endereço", "TOA · Cidade", "TOA · Nº OS",
-                    "SIN · Contrato", "SIN · CódAuxEquipe", "SIN · Nome Equipe",
-                    "SIN · Monitor", "SIN · Data", "SIN · Status",
+                    "TOA · Tipo de Atividade",
+                    "TOA · Contrato",
+                    "TOA · Login",
+                    "TOA · Recurso",
+                    "TOA · Status",
+                    "TOA · Intervalo",
+                    "TOA · Endereço",
+                    "TOA · Cidade",
+                    "TOA · Nº OS",
+                    "SIN · Contrato",
+                    "SIN · CódAuxEquipe",
+                    "SIN · Nome Equipe",
+                    "SIN · Monitor",
+                    "SIN · Data",
+                    "SIN · Status",
                 ],
                 "Coluna no arquivo": [
-                    col_tipo_toa, col_contrato_toa, col_login_toa, col_recurso_toa,
-                    col_status_toa, col_intervalo_toa, col_endereco_toa,
-                    col_cidade_toa, col_numero_os_toa, col_contrato_sin,
-                    col_cod_aux_sin, col_nome_equipe_sin, col_supervisor_sin,
-                    col_data_sin, col_status_sin,
+                    col_tipo_toa,
+                    col_contrato_toa,
+                    col_login_toa,
+                    col_recurso_toa,
+                    col_status_toa,
+                    col_intervalo_toa,
+                    col_endereco_toa,
+                    col_cidade_toa,
+                    col_numero_os_toa,
+                    col_contrato_sin,
+                    col_cod_aux_sin,
+                    col_nome_equipe_sin,
+                    col_supervisor_sin,
+                    col_data_sin,
+                    col_status_sin,
                 ],
             }
         ).fillna("— não encontrada —"),
@@ -919,7 +1079,13 @@ total_monitores = int(
         "DONO_MONITOR_SUPERVISOR",
     ].nunique()
 )
-render_kpi(k4, "Monitores Envolvidos", f"{total_monitores:,}", "supervisores distintos", tema="cinza")
+render_kpi(
+    k4,
+    "Monitores Envolvidos",
+    f"{total_monitores:,}",
+    "supervisores distintos",
+    tema="cinza",
+)
 
 # ==========================================================
 # 📈 LEGENDA DE CORES DOS MONITORES
@@ -944,6 +1110,7 @@ for coluna, (rotulo, bg, fg, borda) in zip(st.columns(4), LEGENDA, strict=False)
 # 🔍 BASE DETALHADA
 # ==========================================================
 secao("Base Detalhada de Retornos", f"{len(df_view):,} registros na ordem oficial")
+
 
 def _pred(val: Any, trecho: str) -> bool:
     return trecho in _normalizar_texto(val)
@@ -1043,13 +1210,12 @@ else:
                 data=excel_bytes,
                 file_name=f"retornos_auditoria_{sufixo}.xlsx",
                 mime=(
-                    "application/vnd.openxmlformats-officedocument"
-                    ".spreadsheetml.sheet"
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
                 use_container_width=True,
                 type="primary",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.exception("Falha ao gerar Excel")
             st.error(f"Não foi possível gerar o Excel: {e}", icon="🚫")
 

@@ -1912,12 +1912,15 @@ def render_sidebar_status(
         return
 
     detalhes_dict = detalhes or {}
-    detalhes_html = "".join(f"""
+    detalhes_html = "".join(
+        f"""
         <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;">
             <span style="font-size:10.5px;color:{Cores.TEXTO_3};font-weight:500;">{Validadores.html_escape(k)}</span>
             <span style="font-size:10.5px;color:{Cores.PRIMARIA};font-weight:700;font-variant-numeric:tabular-nums;">{Validadores.html_escape(v)}</span>
         </div>
-        """ for k, v in detalhes_dict.items())
+        """
+        for k, v in detalhes_dict.items()
+    )
 
     ultima_atualizacao_fmt = (
         formatar_datetime_exibicao(ultima_atualizacao) if ultima_atualizacao else ""
@@ -3031,8 +3034,7 @@ def render_table_html(
                     label="📥 Baixar Excel",
                     data=buffer.getvalue(),
                     file_name=(
-                        f"{nome_arquivo}_"
-                        f"{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+                        f"{nome_arquivo}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
                     ),
                     mime=(
                         "application/vnd.openxmlformats-officedocument."
@@ -3155,68 +3157,65 @@ def render_skeleton(
 # EXPORTAÇÃO
 # =============================================================================
 __all__ = [
-    "TemaKPI",
-    "TipoInsight",
-    "TipoStatus",
-    "TipoEmptyState",
-    "TipoBadge",
-    "TipoProgressBar",
-    "TipoTrend",
-    "TipoNotification",
-    "TipoTimelineItem",
-    "TipoHero",
-    "TemaKPIType",
-    "TipoInsightType",
-    "TipoStatusType",
-    "TipoEmptyStateType",
-    "TipoBadgeType",
-    "TipoProgressBarType",
-    "TipoTrendType",
-    "TipoNotificationType",
-    "TipoTimelineItemType",
-    "TipoHeroType",
-    "Fontes",
-    "Cores",
+    "CSSInjector",
     "ConfigCores",
-    "Validadores",
+    "Cores",
+    "FontInjector",
+    "Fontes",
     "Formatadores",
     "PlotlyConfig",
-    "FontInjector",
-    "CSSInjector",
+    "TemaKPI",
+    "TemaKPIType",
+    "TipoBadge",
+    "TipoBadgeType",
+    "TipoEmptyState",
+    "TipoEmptyStateType",
+    "TipoHero",
+    "TipoHeroType",
+    "TipoInsight",
+    "TipoInsightType",
+    "TipoNotification",
+    "TipoNotificationType",
+    "TipoProgressBar",
+    "TipoProgressBarType",
+    "TipoStatus",
+    "TipoStatusType",
+    "TipoTimelineItem",
+    "TipoTimelineItemType",
+    "TipoTrend",
+    "TipoTrendType",
+    "Validadores",
     "aplicar_estilo",
     "aplicar_estilo_corp",
     "aplicar_sidebar_corp",
+    "formatar_datetime_exibicao",
+    "formatar_numero_br",
+    "normalizar_texto_badge",
+    "normalizar_tipo",
+    "render_badge",
+    "render_card",
+    "render_empty_state",
+    "render_hero",
+    "render_hero_migracao",
+    "render_hero_novos_domicilios",
+    "render_hero_pme",
+    "render_hero_totale_1",
+    "render_hero_totale_2",
+    "render_insight",
+    "render_kpi",
+    "render_kpi_sm",
+    "render_metric_card",
+    "render_notification",
+    "render_progress_bar",
+    "render_section_header",
     "render_sidebar_brand",
-    "render_sidebar_section",
     "render_sidebar_divider",
     "render_sidebar_footer_info",
     "render_sidebar_info",
+    "render_sidebar_section",
     "render_sidebar_spacer",
     "render_sidebar_status",
-    "render_hero",
-    "render_hero_totale_1",
-    "render_hero_totale_2",
-    "render_hero_migracao",
-    "render_hero_pme",
-    "render_hero_novos_domicilios",
-    "render_section_header",
-    "render_kpi",
-    "render_metric_card",
-    "render_kpi_sm",
-    "render_card",
-    "render_insight",
-    "render_notification",
-    "render_empty_state",
-    "render_progress_bar",
-    "render_table_html",
-    "render_spacer",
-    "render_badge",
     "render_skeleton",
-    "formatar_numero_br",
-    "normalizar_tipo",
-    "normalizar_texto_badge",
-    "formatar_numero_br",
-    "formatar_datetime_exibicao",
-    "normalizar_tipo",
-    "normalizar_texto_badge",
+    "render_spacer",
+    "render_table_html",
 ]

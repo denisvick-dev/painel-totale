@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Any, Final
+from typing import Final
 
 import numpy as np
 import pandas as pd
@@ -541,8 +541,8 @@ __all__ = [
     "TERMO_MIGRACAO_OS",
     "TERMO_PME_HABILIDADE",
     "VALOR_FLAG_GPON_SIM",
-    "VAZIOS_GERAIS",
     "VAZIOS_CONTRATO",
+    "VAZIOS_GERAIS",
     "classificar_tipo_servico",
     "criar_coluna_tipos_agrupados",
     "criar_flag_gpon",

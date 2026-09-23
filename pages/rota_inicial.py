@@ -2,28 +2,28 @@
 
 from __future__ import annotations
 
+import pickle
 import re
 import unicodedata
 from io import BytesIO
-from typing import Any, Literal, cast
 from pathlib import Path
-import pickle
+from typing import Any, Literal, cast
 
+import folium
+
+# ── Imports para o Mapa ───────────────────────────────────────────────────────
+import geobr
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from folium import Element
+from folium.plugins import MarkerCluster
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
-from streamlit_gsheets import GSheetsConnection
-
-# ── Imports para o Mapa ───────────────────────────────────────────────────────
-import geobr
-import folium
 from streamlit_folium import st_folium
-from folium.plugins import MarkerCluster
-from folium import Element
+from streamlit_gsheets import GSheetsConnection
 
 # ── Componentes corporativos ─────────────────────────────────────────────────
 from components.componentes import (
@@ -883,7 +883,9 @@ def render_tabela_rota_turno(df: pd.DataFrame, titulo: str) -> str:
         classe = (
             "total-escalados"
             if "Escalados" in monitor
-            else "total-montados" if "Montados" in monitor else ""
+            else "total-montados"
+            if "Montados" in monitor
+            else ""
         )
         linhas_html.append(
             f'<tr class="{classe}">'
@@ -1037,9 +1039,11 @@ def detectar_municipios_presentes(df: pd.DataFrame) -> list[str]:
         .str.strip()
         .str.upper()
         .apply(
-            lambda v: unicodedata.normalize("NFKD", v)
-            .encode("ASCII", errors="ignore")
-            .decode()
+            lambda v: (
+                unicodedata.normalize("NFKD", v)
+                .encode("ASCII", errors="ignore")
+                .decode()
+            )
         )
         .unique()
     )
@@ -1265,10 +1269,10 @@ def criar_mapa_folium(
                     fill_opacity=0.7,
                     popup=folium.Popup(
                         f"""
-                        <b>Técnico:</b> {row.get('NOME_OFICIAL', 'N/A')}<br>
+                        <b>Técnico:</b> {row.get("NOME_OFICIAL", "N/A")}<br>
                         <b>Status:</b> {status}<br>
-                        <b>Contrato:</b> {row.get('CONTRATO', 'N/A')}<br>
-                        <b>Cidade:</b> {row.get('CIDADE', 'N/A')}
+                        <b>Contrato:</b> {row.get("CONTRATO", "N/A")}<br>
+                        <b>Cidade:</b> {row.get("CIDADE", "N/A")}
                         """,
                         max_width=250,
                     ),
@@ -1981,7 +1985,9 @@ def main() -> None:
                         (
                             "#EF4444"
                             if d > tolerancia
-                            else "#F59E0B" if d < -tolerancia else "#10B981"
+                            else "#F59E0B"
+                            if d < -tolerancia
+                            else "#10B981"
                         )
                         for d in df_eq_mon["Desvio %"]
                     ],
