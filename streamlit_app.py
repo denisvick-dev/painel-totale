@@ -3,17 +3,13 @@ app.py
 ======
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.2.0 (Integração Design System v4.9.2 - Sidebar Enterprise)
+Versão: 3.2.2 (Integração Design System v4.9.2 - Sidebar Enterprise)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
-• Sidebar 100% integrada ao Design System: Brand Card, Seções, Status e Footer
-  corporativos (Azul #012869 + Laranja #F37C04).
-• Remoção de CSS duplicado da sidebar (agora responsabilidade de componentes.py).
-• CSS global injetado via st.markdown (compatível com todas as versões do Streamlit).
-• Footer reformulado: sem position:fixed (não cobre mais a sidebar).
-• Menu nativo (st.navigation) com headers de seção estilizados.
-• Eliminação de injeção dupla de estilo (aplicar_sidebar_corp removido do fluxo).
+• Correção de Tipagem: Garantia de string estrita para 'ultima_atualizacao' em render_sidebar_status.
+• Sidebar encapsulada em 'with st.sidebar'.
+• Inicialização segura de Session State.
 """
 
 import logging
@@ -68,7 +64,7 @@ class Cores:
 class ConfiguracoesSistema:
     """Configurações globais do sistema."""
 
-    VERSAO: str = "3.2.0"
+    VERSAO: str = "3.2.2"
     AMBIENTE: str = "Produção"
     FUSO_HORARIO: str = "America/Sao_Paulo"
     INTERVALO_REFRESH: int = 60
@@ -97,7 +93,7 @@ def handle_exceptions(func):
             return func(*args, **kwargs)
         except Exception as e:
             logger.error("Erro em %s: %s", func.__name__, e, exc_info=True)
-            st.error(f"Ocorreu um erro: {e!s}")
+            st.error(f"Ocorreu um erro inesperado: {e!s}")
             return None
 
     return wrapper
@@ -109,12 +105,17 @@ def get_current_time() -> datetime:
 
 
 def format_datetime(
-    dt: datetime | None, format_str: str = "%d/%m/%Y às %H:%M:%S"
+    dt: datetime | str | None, format_str: str = "%d/%m/%Y às %H:%M:%S"
 ) -> str:
-    """Formata datetime de forma segura."""
+    """Formata datetime de forma segura garantindo SEMPRE o retorno de uma string."""
     if dt is None:
         return "Não disponível"
-    return dt.strftime(format_str)
+    if isinstance(dt, str):
+        return dt
+    try:
+        return dt.strftime(format_str)
+    except Exception:
+        return str(dt)
 
 
 # ====================================================
@@ -399,14 +400,14 @@ def pagina_home() -> None:
 
 
 def _gerenciar_refresh_automatico() -> None:
-    """Gerencia o refresh automático da página."""
+    """Gerencia o refresh automático da página de forma segura."""
     if "_last_refresh_time" not in st.session_state:
         st.session_state["_last_refresh_time"] = time.time()
 
     tempo_decorrido = time.time() - st.session_state["_last_refresh_time"]
 
     if tempo_decorrido > CONFIG.INTERVALO_REFRESH:
-        logger.info("Executando refresh automático da página")
+        logger.info("Executando refresh automático do portal.")
         st.session_state["_last_refresh_time"] = time.time()
         st.rerun()
 
@@ -418,8 +419,8 @@ class GerenciadorNavegacao:
     """Gerencia a navegação e estrutura de páginas."""
 
     @staticmethod
-    def _definir_paginas() -> dict[str, list]:
-        """Define todas as páginas do sistema."""
+    def _definir_paginas() -> dict[str, list[st.Page]]:
+        """Define todas as páginas do sistema de forma tipada."""
         return {
             "Menu Principal": [
                 st.Page(pagina_home, title="Home", icon="🏠", default=True),
@@ -434,6 +435,7 @@ class GerenciadorNavegacao:
                 st.Page(
                     "pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"
                 ),
+                st.Page("pages/indicadores.py", title="Indicadores", icon="⚡"),
             ],
             "Compilado": [
                 st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷"),
@@ -459,37 +461,40 @@ class GerenciadorNavegacao:
     @staticmethod
     def renderizar_sidebar_corporativa() -> None:
         """
-        Renderiza o cabeçalho corporativo da sidebar (acima do menu nativo).
-        O menu de navegação em si é desenhado pelo st.navigation.
+        Renderiza o cabeçalho corporativo na sidebar com garantia de escopo e tipagem.
         """
-        render_sidebar_brand(
-            nome="TOTALE",
-            subtitulo="Portal de Produção & Performance",
-            versao=f"v{CONFIG.VERSAO}",
-            icone="📊",
-        )
-
-        render_sidebar_section("Status Operacional", icone="🛰️")
-
-        dados_prod = st.session_state.get("dados_prod")
-        if dados_prod is not None:
-            render_sidebar_status(
-                label="Dados Sincronizados",
-                status="Atualizado",
-                tipo="ok",
-                icone="🗄️",
-                # Passa o objeto cru — o Design System formata sozinho
-                ultima_atualizacao=st.session_state.get("ultima_atualizacao"),
-            )
-        else:
-            render_sidebar_status(
-                label="Aguardando Sincronismo",
-                status="Pendente",
-                tipo="alerta",
-                icone="⏳",
+        with st.sidebar:
+            render_sidebar_brand(
+                nome="TOTALE",
+                subtitulo="Portal de Produção & Performance",
+                versao=f"v{CONFIG.VERSAO}",
+                icone="📊",
             )
 
-        render_sidebar_divider(estilo="gradiente")
+            render_sidebar_section("Status Operacional", icone="🛰️")
+
+            dados_prod = st.session_state.get("dados_prod")
+            if dados_prod is not None:
+                # Converte e garante que sempre seja passado um 'str' válido
+                data_formatada: str = format_datetime(
+                    st.session_state.get("ultima_atualizacao")
+                )
+                render_sidebar_status(
+                    label="Dados Sincronizados",
+                    status="Atualizado",
+                    tipo="ok",
+                    icone="🗄️",
+                    ultima_atualizacao=data_formatada,
+                )
+            else:
+                render_sidebar_status(
+                    label="Aguardando Sincronismo",
+                    status="Pendente",
+                    tipo="alerta",
+                    icone="⏳",
+                )
+
+            render_sidebar_divider(estilo="gradiente")
 
 
 # ====================================================
@@ -513,25 +518,32 @@ def main() -> None:
         },
     )
 
-    # 2. Injeção de estilos (uma única vez — Design System + estilos do app)
+    # 2. Inicialização preventiva do Session State
+    if "dados_prod" not in st.session_state:
+        st.session_state["dados_prod"] = None
+    if "ultima_atualizacao" not in st.session_state:
+        st.session_state["ultima_atualizacao"] = None
+
+    # 3. Injeção de estilos (Design System + customizações do app)
     aplicar_estilo()
     GerenciadorEstilos.injetar_css_global()
 
-    # 3. Cabeçalho corporativo da sidebar (marca + status, acima do menu)
+    # 4. Cabeçalho corporativo da sidebar (Marca + status)
     GerenciadorNavegacao.renderizar_sidebar_corporativa()
 
-    # 4. Navegação nativa (seções + páginas)
+    # 5. Navegação nativa (st.navigation)
     paginas = GerenciadorNavegacao._definir_paginas()
     pg = st.navigation(paginas)
     pg.run()
 
-    # 5. Rodapé corporativo da sidebar (abaixo do menu)
-    render_sidebar_spacer(altura=12)
-    render_sidebar_footer_info(
-        empresa="TOTALE Tecnologia",
-        versao=f"v{CONFIG.VERSAO}",
-        ambiente=CONFIG.AMBIENTE,
-    )
+    # 6. Rodapé corporativo da sidebar (renderizado após o menu nativo)
+    with st.sidebar:
+        render_sidebar_spacer(altura=12)
+        render_sidebar_footer_info(
+            empresa="TOTALE Tecnologia",
+            versao=f"v{CONFIG.VERSAO}",
+            ambiente=CONFIG.AMBIENTE,
+        )
 
     logger.info("Aplicação iniciada com sucesso")
 
