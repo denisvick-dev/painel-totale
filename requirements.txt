@@ -27,3 +27,6 @@ fastapi
 starlette<1.4.0
 gdown
 holidays
+geobr
+folium
+streamlit_folium
