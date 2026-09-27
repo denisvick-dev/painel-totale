@@ -1,32 +1,52 @@
-streamlit
-pandas
-openpyxl
-plotly
-streamlit-carousel
-numpy
-st-gsheets-connection
-chardet
-pytz
-duckdb
-streamlit-autorefresh
-gspread
-gspread-dataframe
-gspread-formatting
-gspread-pandas
-google-api-python-client
-google-auth
-google-auth-oauthlib
-altair
-pydeck
-pyarrow
-pillow
-matplotlib
-reportlab
-xlsxwriter
-fastapi
-starlette<1.4.0
-gdown
-holidays
-geobr
-folium
-streamlit_folium
+# ═══════════════════════════════════════════════════════════════════════════════
+# Painel TOTALE — dependências de produção
+# Python: 3.11 (ver runtime.txt)
+#
+# Revisado em 27/09/2026:
+#   • Incluídas as bibliotecas importadas diretamente pelo código e que estavam
+#     ausentes: requests, urllib3.
+#   • Removidas as que não são importadas por nenhum módulo E que não são
+#     exigidas por outra dependência: chardet, pytz, fastapi, starlette,
+#     streamlit-autorefresh, streamlit-carousel.
+#     (gspread-pandas, gspread-dataframe, gspread-formatting, duckdb, matplotlib
+#     e pydeck continuam disponíveis por serem dependências transitivas de
+#     st-gsheets-connection / geobr / streamlit — não precisam ser repetidas.)
+#   • Adicionados limites inferior/superior para evitar quebras por major novo.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Núcleo da aplicação ───────────────────────────────────────────────────────
+streamlit>=1.40,<2
+pandas>=2.2,<4
+numpy>=1.26,<3
+pyarrow>=14
+
+# ── Visualização ──────────────────────────────────────────────────────────────
+plotly>=5.18,<8
+altair>=5
+folium>=0.17
+streamlit-folium>=0.20
+
+# ── Planilhas / Google ────────────────────────────────────────────────────────
+openpyxl>=3.1
+xlsxwriter>=3.2
+gspread>=5.8,<6              # <6 é exigido por st-gsheets-connection
+google-api-python-client>=2
+google-auth>=2.30
+google-auth-oauthlib>=1.2
+gdown>=5
+st-gsheets-connection>=0.1
+
+# ── Geolocalização ────────────────────────────────────────────────────────────
+geobr>=0.2
+geopandas>=1.0,<2            # geobr exige geopandas<2
+
+# ── Relatórios / imagens ──────────────────────────────────────────────────────
+reportlab>=4
+pillow>=10
+
+# ── HTTP (pages/dashboard_meta.py, pages/envio_excel.py, pages/indicadores.py) ─
+requests>=2.31,<3
+urllib3>=2,<3
+
+# ── Utilidades ────────────────────────────────────────────────────────────────
+holidays>=0.50

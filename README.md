@@ -10,7 +10,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Google Sheets](https://img.shields.io/badge/Google_Sheets-34A853?style=flat&logo=google-sheets&logoColor=white)](https://sheets.google.com/)
 [![Plotly](https://img.shields.io/badge/Plotly-3F4F75?style=flat&logo=plotly&logoColor=white)](https://plotly.com/)
-[![License](https://img.shields.io/badge/License-Proprietary-red?style=flat)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat)](LICENSE)
 
 [🌐 Demo ao Vivo](https://painel-totale.streamlit.app) · 
 [🐛 Reportar Bug](https://github.com/denisvick-dev/painel-totale/issues) · 
@@ -61,10 +61,14 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Timeline de desligamentos
 
 ### 🔐 Segurança e Controle
-- **Autenticação** por usuário e senha
+- **Autenticação por usuário e senha na página Gestão de Ativos** — o login é
+  exclusivo de `pages/gestao_ativos.py`, que é a página que escreve na planilha.
+  As demais páginas são somente leitura e ficam abertas no portal.
 - **Perfis de acesso**: Admin, Supervisor, Operador, Leitura
 - **Filtros por base** conforme permissão
 - **Auditoria completa** de todas as ações
+- **Senhas apenas em hash** (PBKDF2-HMAC-SHA256) e usuários vindos de
+  `secrets.toml` — nenhuma credencial no código-fonte
 
 ### ✉️ Gerador de Assinatura de E-mail
 - Template padronizado Totale
@@ -76,28 +80,11 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 
 ## 🚀 Demonstração
 
-### Screenshots
+Aplicação publicada em **[painel-totale.streamlit.app](https://painel-totale.streamlit.app)**.
 
-<details>
-<summary>📊 Dashboard Principal</summary>
-
-![Dashboard](docs/screenshots/dashboard.png)
-
-</details>
-
-<details>
-<summary>🗂️ Hierarquia</summary>
-
-![Hierarquia](docs/screenshots/hierarquia.png)
-
-</details>
-
-<details>
-<summary>✉️ Gerador de Assinatura</summary>
-
-![Assinatura](docs/screenshots/assinatura.png)
-
-</details>
+> 📸 As capturas de tela são mantidas fora do repositório para não inflar o
+> clone. Para registrar novas imagens, salve-as em `docs/screenshots/` e
+> referencie aqui.
 
 ---
 
@@ -155,7 +142,27 @@ Copie o arquivo de exemplo:
 cp .streamlit/secrets.example.toml .streamlit/secrets.toml
 ```
 
-Edite o `.streamlit/secrets.toml` com suas credenciais reais do Google Cloud e usuários.
+Edite o `.streamlit/secrets.toml` com as credenciais da service account e os
+usuários do portal.
+
+**Usuários (login e senha)** — usados pelo login da página **Gestão de Ativos**:
+
+```toml
+[usuarios.seu_login]
+nome  = "Seu Nome"
+role  = "admin"      # admin | supervisor | operador | leitura
+bases = []           # vazio = todas as bases
+senha = "pbkdf2_sha256$260000$<salt>$<hash>"
+```
+
+Gere o hash da senha (nunca grave a senha em texto plano):
+
+```bash
+python -c "from pages.gestao_ativos import gerar_hash_senha; print(gerar_hash_senha('MinhaSenhaForte'))"
+```
+
+> ⚠️ Sem `secrets.toml` (ou sem o bloco `[usuarios.*]`), a página de Gestão de
+> Ativos fica bloqueada — o acesso é negado por padrão.
 
 ### 5. Configure o Google Sheets
 
@@ -201,28 +208,51 @@ Acesse: **http://localhost:8501**
 
 ```
 painel-totale/
-├── 📄 streamlit_app.py           # Aplicação principal
-├── 📄 componentes.py             # Componentes reutilizáveis
-├── 📄 requirements.txt           # Dependências Python
+├── 📄 streamlit_app.py           # Aplicação principal (roteador st.navigation)
+├── 📄 requirements.txt           # Dependências de produção
+├── 📄 requirements-dev.txt       # Dependências de desenvolvimento/testes
+├── 📄 runtime.txt                # Versão do Python (Streamlit Cloud)
+├── 📄 pyproject.toml             # Configuração de pytest e ruff
 ├── 📄 README.md                  # Este arquivo
-├── 📄 LICENSE                    # Licença
+├── 📄 LICENSE                    # Licença (Apache 2.0)
+├── 📄 SIDEBAR_DOCUMENTATION.md   # Documentação do sidebar corporativo
 ├── 📄 .gitignore                 # Arquivos ignorados
 ├── 📁 .streamlit/
-│   ├── config.toml               # Configurações Streamlit
-│   └── secrets.example.toml      # Exemplo de credenciais
+│   ├── config.toml               # Configurações Streamlit (tema, servidor)
+│   └── secrets.example.toml      # Exemplo de credenciais e usuários
 ├── 📁 pages/
-│   ├── gestao_ativos.py          # Gestão de Ativos
-│   ├── gerador_assinatura.py     # Gerador de Assinatura
-│   └── ...                       # Outras páginas
+│   ├── gestao_ativos.py          # Gestão de Ativos (🔐 login exclusivo daqui)
+│   ├── assinatura.py             # Gerador de Assinatura
+│   ├── envio_excel.py            # Atualização de Dados
+│   └── ...                       # Demais painéis operacionais
+├── 📁 components/
+│   ├── componentes.py            # Design System / componentes reutilizáveis
+│   └── criterios.py              # Regras de classificação de serviços
+├── 📁 robo/                      # Sincronismo local de arquivos
+├── 📁 tests/                     # Suíte de testes (pytest + AppTest)
 ├── 📁 assets/
-│   ├── icons/                    # Ícones
+│   ├── icons/                    # Ícones (inclui totale.ico)
 │   └── images/                   # Imagens e templates
 ├── 📁 fonts/
 │   ├── Oscine-Regular.ttf        # Fonte corporativa
 │   └── Oscine-Bold.ttf
-└── 📁 docs/
-    └── screenshots/              # Documentação visual
+└── 📁 old/                       # Código legado (não utilizado pelo portal)
 ```
+
+---
+
+## ✅ Testes e qualidade
+
+```bash
+pip install -r requirements-dev.txt
+
+pytest                       # suíte completa (autenticação, gravação no Sheets, etc.)
+ruff check pages components robo streamlit_app.py
+```
+
+Os testes usam o harness oficial `streamlit.testing.v1.AppTest` e cobrem, entre
+outros pontos: fluxo de login, recusa de senha em texto plano, gravação
+não destrutiva no Google Sheets e compilação de todas as páginas.
 
 ---
 

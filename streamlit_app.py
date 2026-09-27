@@ -69,7 +69,7 @@ class ConfiguracoesSistema:
     FUSO_HORARIO: str = "America/Sao_Paulo"
     INTERVALO_REFRESH: int = 60
     LOGO_PATH: str = "assets/images/novo-logo-totale.png"
-    ICON_PATH: str = "assets/images/icons/totale.ico"
+    ICON_PATH: str = "assets/icons/totale.ico"
 
     @property
     def timezone(self) -> ZoneInfo:

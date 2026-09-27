@@ -150,28 +150,44 @@ except Exception as e:
 # =============================================================================
 # Configurações e Constantes Globais
 # =============================================================================
+def _secret(chave: str, padrao: str) -> str:
+    """
+    Lê uma chave de `st.secrets` com fallback seguro.
+
+    `st.secrets` levanta `StreamlitSecretNotFoundError` quando não existe
+    `.streamlit/secrets.toml`. Como os dataclasses abaixo avaliam os defaults na
+    importação do módulo, sem este guard a página inteira falhava com
+    "No secrets found" — mesmo tendo valor padrão definido no `get`.
+    """
+    try:
+        valor = st.secrets.get(chave, padrao)
+    except Exception:
+        return padrao
+    return str(valor) if valor is not None else padrao
+
+
 @dataclass
 class Configuracoes:
     URL_ATIVOS: str = field(
-        default_factory=lambda: st.secrets.get(
+        default_factory=lambda: _secret(
             "URL_ATIVOS",
             "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg",
         )
     )
     SHEET_ID_ATIVOS: str = field(
-        default_factory=lambda: st.secrets.get(
+        default_factory=lambda: _secret(
             "SHEET_ID_ATIVOS", "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
         )
     )
     SHEET_ABA_ATIVOS: str = "lista_ativos"
     SHEET_ID_PROD: str = field(
-        default_factory=lambda: st.secrets.get(
+        default_factory=lambda: _secret(
             "SHEET_ID_PROD", "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
         )
     )
     SHEET_ABA_PROD: str = "Prod"
     DRIVE_ID_CONS: str = field(
-        default_factory=lambda: st.secrets.get(
+        default_factory=lambda: _secret(
             "DRIVE_ID_CONS", "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
         )
     )

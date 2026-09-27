@@ -1,0 +1,26 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Configuração do Streamlit — Painel TOTALE
+# Documentação: https://docs.streamlit.io/develop/api-reference/configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+[theme]
+# Identidade visual TOTALE
+primaryColor = "#F37C04"            # laranja da marca (destaques/botões)
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F5F9"
+textColor = "#334155"
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+# Uploads de base operacional (Excel/CSV)
+maxUploadSize = 500
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = "none"           # não expõe stack trace ao usuário final
+toolbarMode = "minimal"

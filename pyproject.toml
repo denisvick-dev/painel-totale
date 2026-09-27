@@ -1,0 +1,27 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Configuração de testes e qualidade — Painel TOTALE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+exclude = ["old", ".venv", ".streamlit_cache"]
+
+[tool.ruff.lint]
+# E501 (linha longa) fica fora: a base é legada e o foco é erro real.
+select = ["E", "F", "W", "B", "C4", "SIM", "PIE", "RET", "ARG", "RUF"]
+ignore = [
+    "E402",    # imports após código (padrão antigo mantido em algumas páginas)
+    "E501",    # comprimento de linha
+    "RUF001",  # caracteres "ambíguos" (×, —) usados de propósito nos textos PT-BR
+    "RUF002",
+    "RUF003",
+    "RUF012",  # atributos mutáveis de classe (constantes internas)
+    "ARG001",  # argumentos não usados (assinaturas de compatibilidade)
+    "ARG002",
+]
