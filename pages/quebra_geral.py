@@ -1709,7 +1709,8 @@ def render_matriz_executiva_html(
     for _, linha in df.iterrows():
         primeiro_valor = linha.iloc[0]
         is_total = str(primeiro_valor).strip().upper() == "TOTAL GERAL"
-        html += f"<tr {"class='total-row'" if is_total else ''}>"
+        classe_linha = " class='total-row'" if is_total else ""
+        html += f"<tr{classe_linha}>"
         for posicao, coluna in enumerate(df.columns):
             valor = linha.iloc[posicao]
             coluna_upper = str(coluna).strip().upper()
@@ -1731,8 +1732,10 @@ def render_matriz_executiva_html(
                     html += f"<td>{_html(valor)}</td>"
             elif coluna_upper in {"TOTAL TASKS", "TOTAL_TASKS"}:
                 html += f"<td><strong>{_fmt_int_br(valor)}</strong></td>"
+            elif _is_missing_scalar(valor):
+                html += "<td><span style='color:#94A3B8;'>—</span></td>"
             else:
-                html += f"<td>{_html(valor) if not _is_missing_scalar(valor) else "<span style='color:#94A3B8;'>—</span>"}</td>"
+                html += f"<td>{_html(valor)}</td>"
         html += "</tr>"
     html += """</tbody></table></div>"""
     st.markdown(html, unsafe_allow_html=True)

@@ -806,12 +806,23 @@ render_hero_totale_2(
     badge_tipo="info",
 )
 
-if "dados_prod" not in st.session_state:
+dados_prod = st.session_state.get("dados_prod")
+if not isinstance(dados_prod, dict) or "Prod" not in dados_prod:
     render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
     st.stop()
 
-prod = st.session_state["dados_prod"]["Prod"].copy()
-gpon = st.session_state["dados_prod"]["Gpon"].copy()
+if "Gpon" not in dados_prod:
+    render_insight("Aba **Gpon** não encontrada na base de dados.", tipo="critico")
+    st.stop()
+
+prod = dados_prod["Prod"]
+gpon = dados_prod["Gpon"]
+if not isinstance(prod, pd.DataFrame) or not isinstance(gpon, pd.DataFrame):
+    render_insight("Base de Produção em formato inesperado.", tipo="critico")
+    st.stop()
+
+prod = prod.copy()
+gpon = gpon.copy()
 prod["Pontos"] = pd.to_numeric(prod["Pontos"], errors="coerce").fillna(0)
 gpon["Pontos"] = pd.to_numeric(gpon["Pontos"], errors="coerce").fillna(0)
 df = pd.concat([prod, gpon], ignore_index=True)
