@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -109,18 +110,82 @@ class Safe:
         return df[list(cols)].copy()
 
 
-def _hash_senha(senha: str) -> str:
-    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
+# ═══════════════════════════════════════════════════════════════════════════════
+# [0.1] AUTENTICAÇÃO — exclusiva desta página
+#
+#  • As credenciais vêm de st.secrets["usuarios"] — NUNCA do código-fonte.
+#  • Somente hash de senha:
+#        pbkdf2_sha256$<iteracoes>$<salt_hex>$<hash_hex>   (recomendado)
+#        SHA-256 hexadecimal                                (legado/migração)
+#    Senha em texto plano é RECUSADA.
+#  • Comparação em tempo constante (hmac.compare_digest).
+#  • Bloqueio temporário após tentativas repetidas.
+#
+#  Para gerar o hash de uma senha (e colar no secrets.toml):
+#     python -c "from pages.gestao_ativos import gerar_hash_senha; print(gerar_hash_senha('MinhaSenhaForte'))"
+# ═══════════════════════════════════════════════════════════════════════════════
+ALGORITMO_PBKDF2 = "pbkdf2_sha256"
+ITERACOES_PBKDF2 = 260_000
+_HEXADECIMAIS = frozenset("0123456789abcdefABCDEF")
+MAX_TENTATIVAS = 5
+BLOQUEIO_SEGUNDOS = 60
+
+
+def gerar_hash_senha(senha: str, iteracoes: int = ITERACOES_PBKDF2) -> str:
+    """Gera um hash PBKDF2-HMAC-SHA256 no formato aceito por `_verificar_senha`."""
+    if not isinstance(senha, str) or not senha:
+        raise ValueError("Senha vazia não pode ser transformada em hash.")
+    salt = os.urandom(16)
+    derivada = hashlib.pbkdf2_hmac("sha256", senha.encode("utf-8"), salt, iteracoes)
+    return f"{ALGORITMO_PBKDF2}${iteracoes}${salt.hex()}${derivada.hex()}"
+
+
+def _formato_senha(armazenada: str) -> str:
+    """Classifica o valor armazenado: pbkdf2, sha256 (legado) ou texto_plano."""
+    if armazenada.startswith(f"{ALGORITMO_PBKDF2}$"):
+        return "pbkdf2"
+    if len(armazenada) == 64 and all(c in _HEXADECIMAIS for c in armazenada):
+        return "sha256_legado"
+    return "texto_plano"
 
 
 def _verificar_senha(digitada: str, armazenada: str) -> bool:
+    """
+    Verifica a senha digitada contra o valor armazenado.
+
+    Aceita `pbkdf2_sha256$...` e SHA-256 hexadecimal (compatibilidade com
+    cadastros antigos). **Não aceita** senha em texto plano: nesse caso o acesso
+    é negado, forçando a migração para hash.
+    """
     d = Safe.str(digitada)
     a = Safe.str(armazenada)
     if not d or not a:
         return False
-    if len(a) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in a):
-        return hmac.compare_digest(_hash_senha(d), a.lower())
-    return hmac.compare_digest(d, a)
+
+    formato = _formato_senha(a)
+    if formato == "pbkdf2":
+        try:
+            _, iteracoes_str, salt_hex, hash_hex = a.split("$")
+            iteracoes = int(iteracoes_str)
+            salt = bytes.fromhex(salt_hex)
+            esperado = bytes.fromhex(hash_hex)
+        except (ValueError, TypeError):
+            return False
+        if iteracoes <= 0 or not salt or not esperado:
+            return False
+        derivada = hashlib.pbkdf2_hmac("sha256", d.encode("utf-8"), salt, iteracoes)
+        return hmac.compare_digest(derivada, esperado)
+
+    if formato == "sha256_legado":
+        legado = hashlib.sha256(d.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(legado, a.lower())
+
+    return False
+
+
+def _senha_precisa_migrar(armazenada: str) -> bool:
+    """True quando a senha armazenada está em formato fraco (não-PBKDF2)."""
+    return _formato_senha(Safe.str(armazenada)) != "pbkdf2"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -161,7 +226,49 @@ def _append_gspread(worksheet_name: str, linha: list[Any]) -> bool:
         return False
 
 
+def _col_letra(n: int) -> str:
+    """Converte índice de coluna (1-based) em letra de planilha: 1 -> A, 27 -> AA."""
+    res = ""
+    while n > 0:
+        n, resto = divmod(n - 1, 26)
+        res = chr(65 + resto) + res
+    return res
+
+
+def _registrar_backup(worksheet_name: str, valores: list[list[str]]) -> None:
+    """Guarda em sessão o conteúdo anterior à gravação, para download de segurança."""
+    try:
+        import csv
+        import io
+
+        buffer = io.StringIO()
+        escritor = csv.writer(buffer, delimiter=";")
+        escritor.writerows(valores)
+        st.session_state["_backup_planilha"] = {
+            "aba": worksheet_name,
+            "quando": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+            "csv": buffer.getvalue(),
+        }
+    except Exception:
+        # Backup é uma proteção adicional: se falhar, a gravação segue normalmente.
+        pass
+
+
 def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
+    """
+    Sobrescreve uma aba do Google Sheets **sem apagar dados antes de gravar**.
+
+    Fluxo seguro (não destrutivo):
+
+    1. Lê o conteúdo atual da aba (backup em sessão, disponível para download).
+    2. Grava o novo conteúdo por cima da área correspondente.
+    3. Somente **após** o sucesso da gravação, remove eventuais linhas/colunas
+       remanescentes de uma versão maior.
+
+    Assim, uma falha de rede/API no passo 2 deixa a aba exatamente como estava —
+    antes, o `ws.clear()` prévio esvaziava a aba e uma falha em seguida causava
+    perda total dos dados.
+    """
     try:
         df_api = Safe.para_api(df)
         if df_api.empty:
@@ -169,27 +276,52 @@ def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
         ws = _gspread_sheet(worksheet_name)
         dados = [df_api.columns.tolist()] + df_api.values.tolist()
         num_linhas, num_colunas = len(dados), len(df_api.columns)
+        intervalo = f"A1:{_col_letra(num_colunas)}{num_linhas}"
 
-        def col_letra(n: int) -> str:
-            res = ""
-            while n > 0:
-                n, resto = divmod(n - 1, 26)
-                res = chr(65 + resto) + res
-            return res
+        # 1) Snapshot do estado atual (para backup/auditoria)
+        try:
+            anteriores = ws.get_all_values()
+        except Exception:
+            anteriores = []
+        _registrar_backup(worksheet_name, anteriores)
 
-        ws.clear()
+        # 2) Gravação sobreposta — nada é apagado antes de dar certo
         try:
             ws.update(
-                range_name=f"A1:{col_letra(num_colunas)}{num_linhas}",
+                range_name=intervalo,
                 values=dados,
                 value_input_option="USER_ENTERED",
             )
         except TypeError:
             ws.update(
-                f"A1:{col_letra(num_colunas)}{num_linhas}",
+                intervalo,
                 dados,
                 value_input_option="USER_ENTERED",
             )
+
+        # 3) Limpeza do excedente, apenas depois da gravação bem-sucedida
+        linhas_anteriores = len(anteriores)
+        colunas_anteriores = max((len(linha) for linha in anteriores), default=0)
+        if linhas_anteriores > num_linhas:
+            faixa = (
+                f"A{num_linhas + 1}:"
+                f"{_col_letra(max(num_colunas, colunas_anteriores))}{linhas_anteriores}"
+            )
+            try:
+                ws.batch_clear([faixa])
+            except Exception as exc:
+                # Dados novos já estão salvos; sobras não invalidam a gravação.
+                st.info(f"ℹ️ Gravação concluída; não foi possível limpar sobras ({exc}).")
+        elif colunas_anteriores > num_colunas:
+            faixa = (
+                f"{_col_letra(num_colunas + 1)}1:"
+                f"{_col_letra(colunas_anteriores)}{linhas_anteriores}"
+            )
+            try:
+                ws.batch_clear([faixa])
+            except Exception:
+                pass
+
         st.cache_data.clear()
         return True
     except Exception as exc:
@@ -253,25 +385,50 @@ class Config:
 
     @staticmethod
     def usuarios() -> dict[str, dict]:
-        base = {
-            "denisvick": {
-                "senha": "admin123",
-                "nome": "Denis Vick",
-                "role": "admin",
-                "bases": [],
-            }
-        }
+        """
+        Usuários cadastrados em `st.secrets["usuarios"]`.
+
+        ⚠️ Nenhuma credencial fica no código-fonte: sem `secrets.toml`
+        configurado o dicionário volta vazio e o acesso é negado.
+
+        Formato esperado:
+
+        .. code-block:: toml
+
+            [usuarios.seu_login]
+            nome  = "Seu Nome"
+            role  = "admin"      # admin | supervisor | operador | leitura
+            bases = []           # vazio = todas as bases
+            senha = "pbkdf2_sha256$260000$<salt>$<hash>"
+        """
+        base: dict[str, dict] = {}
         try:
-            raw = dict(st.secrets.get("usuarios", {}))
-            for login, d in raw.items():
-                base[Safe.lower(str(login))] = {
-                    "senha": Safe.str(d.get("senha", "")),
-                    "nome": Safe.str(d.get("nome", login)),
-                    "role": Safe.str(d.get("role", "leitura")),
-                    "bases": [Safe.str(b) for b in list(d.get("bases", []))],
-                }
+            bruto = st.secrets.get("usuarios", {})
+            dados = bruto.to_dict() if hasattr(bruto, "to_dict") else dict(bruto)
         except Exception:
-            pass
+            return base
+
+        for login, info in (dados or {}).items():
+            try:
+                registro = info.to_dict() if hasattr(info, "to_dict") else dict(info)
+            except (TypeError, ValueError):
+                continue
+            senha = Safe.str(registro.get("senha"))
+            if not senha:
+                continue
+            chave = Safe.lower(str(login))
+            if not chave:
+                continue
+            bases = registro.get("bases") or []
+            if isinstance(bases, str):
+                bases = [bases] if bases.strip() else []
+            role = Safe.lower(str(registro.get("role") or "leitura"))
+            base[chave] = {
+                "senha": senha,
+                "nome": Safe.str(registro.get("nome")) or str(login),
+                "role": role if role in ("admin", "supervisor", "operador", "leitura") else "leitura",
+                "bases": [Safe.str(b) for b in list(bases) if Safe.str(b)],
+            }
         return base
 
 
@@ -334,6 +491,8 @@ class Repo:
 
 @dataclass
 class Usuario:
+    """Usuário autenticado nesta página e suas permissões."""
+
     login: str
     nome: str
     role: str
@@ -644,6 +803,17 @@ def view_auditoria(repo, usr):
         df.iloc[::-1].reset_index(drop=True), titulo="Log de Eventos", max_rows=100
     )
 
+    # Backup da última gravação (proteção contra sobrescrita indevida)
+    backup = st.session_state.get("_backup_planilha")
+    if isinstance(backup, dict) and backup.get("csv"):
+        st.download_button(
+            f"⬇️ Baixar backup — aba '{backup.get('aba')}' ({backup.get('quando')})",
+            data=backup["csv"].encode("utf-8"),
+            file_name=f"backup_{backup.get('aba')}.csv",
+            mime="text/csv",
+            key="btn_backup_planilha",
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # [4] MAIN & LOGIN
@@ -654,34 +824,76 @@ def _init():
             st.session_state[k] = v
 
 
-def tela_login():
+def _segundos_bloqueio_restantes() -> int:
+    """Tempo restante de bloqueio após tentativas de login repetidas."""
+    restante = float(st.session_state.get("login_bloqueado_ate", 0)) - time.time()
+    return int(restante) if restante > 0 else 0
+
+
+def _registrar_falha_login() -> None:
+    falhas = int(st.session_state.get("login_falhas", 0)) + 1
+    st.session_state["login_falhas"] = falhas
+    if falhas >= MAX_TENTATIVAS:
+        st.session_state["login_bloqueado_ate"] = time.time() + BLOQUEIO_SEGUNDOS
+        st.session_state["login_falhas"] = 0
+
+
+def tela_login() -> None:
+    """Tela de login desta página. Único ponto de autenticação do sistema."""
     _, col, _ = st.columns([1, 1.4, 1])
     with col:
         render_hero_totale_1(Config.APP_NOME, "Plataforma Corporativa de Gestão")
+
+        usuarios = Config.usuarios()
+        if not usuarios:
+            st.error("⛔ Nenhum usuário configurado — o acesso está bloqueado.")
+            st.markdown(
+                "Cadastre os usuários em `.streamlit/secrets.toml` "
+                "(veja `.streamlit/secrets.example.toml`).\n\n"
+                "Para gerar o hash da senha:\n"
+                "```bash\n"
+                "python -c \"from pages.gestao_ativos import gerar_hash_senha; "
+                "print(gerar_hash_senha('MinhaSenhaForte'))\"\n"
+                "```"
+            )
+            return
+
+        bloqueio = _segundos_bloqueio_restantes()
+        if bloqueio:
+            st.warning(
+                f"⏳ Muitas tentativas inválidas. Aguarde {bloqueio}s para tentar novamente."
+            )
+            return
+
         with st.form("login"):
-            u = st.text_input("👤 Usuário")
-            p = st.text_input("🔑 Senha", type="password")
+            u = st.text_input("👤 Usuário", autocomplete="username")
+            p = st.text_input("🔑 Senha", type="password", autocomplete="current-password")
             ok = st.form_submit_button(
                 "Entrar →", type="primary", use_container_width=True
             )
-        if ok:
-            chave = Safe.lower(str(u))
-            dados = Config.usuarios().get(chave)
-            if dados and _verificar_senha(p, dados["senha"]):
-                st.session_state.update(
-                    {
-                        "autenticado": True,
-                        "usuario": Usuario(
-                            Safe.lower(str(u)),
-                            dados["nome"],
-                            dados["role"],
-                            dados["bases"],
-                        ),
-                    }
-                )
-                st.rerun()
-            else:
-                st.error("❌ Credenciais inválidas.")
+
+        if not ok:
+            return
+
+        chave = Safe.lower(str(u))
+        dados = usuarios.get(chave)
+        if not (chave and str(p)) or not dados or not _verificar_senha(p, dados["senha"]):
+            _registrar_falha_login()
+            st.error("❌ Credenciais inválidas.")
+            return
+
+        if _senha_precisa_migrar(dados["senha"]):
+            st.warning(
+                "⚠️ Sua senha está em formato legado (SHA-256 sem salt). "
+                "Gere um novo hash PBKDF2 e atualize o `secrets.toml`."
+            )
+        st.session_state.update(
+            {
+                "autenticado": True,
+                "usuario": Usuario(chave, dados["nome"], dados["role"], dados["bases"]),
+            }
+        )
+        st.rerun()
 
 
 def tela_principal():
@@ -701,6 +913,7 @@ def tela_principal():
         st.rerun()
     if st.sidebar.button("🚪 Sair", use_container_width=True):
         st.session_state.update({"autenticado": False, "usuario": None})
+        st.session_state.pop("login_falhas", None)
         st.rerun()
 
     render_sidebar_divider()
