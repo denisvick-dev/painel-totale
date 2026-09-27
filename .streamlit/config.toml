@@ -1,0 +1,7 @@
+# Tema base do Portal TOTALE — alinhado ao Design System (components/componentes.py v5.0)
+[theme]
+base = "light"
+primaryColor = "#0A48AA"
+backgroundColor = "#F4F6FA"
+secondaryBackgroundColor = "#EEF2F7"
+textColor = "#1F2937"
