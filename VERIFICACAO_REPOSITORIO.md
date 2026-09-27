@@ -172,9 +172,14 @@ pg.run()          # nenhuma checagem de st.session_state/autenticacao
 ```
 
 Somente `pages/gestao_ativos.py` tem tela de login própria (e isolada). **Todas as outras 15
-páginas são abertas a qualquer pessoa com a URL** — incluindo `Atualização de Dados`
-(`pages/envio_excel.py`), que **escreve** no Google Sheets. **Ação:** um guard de autenticação
-central no entrypoint, aplicado antes de `pg.run()`.
+páginas são abertas a qualquer pessoa com a URL.**
+
+> 📌 **Decisão registrada em 27/09/2026:** o projeto optou por **manter** esse desenho —
+> o login existe apenas em `pages/gestao_ativos.py` (a única página que grava na
+> planilha) e as páginas de leitura seguem abertas. Um guard central chegou a ser
+> implementado e foi revertido a pedido do responsável. Reforçado por teste
+> (`tests/test_gestao_ativos_auth.py::test_login_e_senha_apenas_em_gestao_ativos`),
+> que falha se alguém reintroduzir autenticação em outro módulo.
 
 #### 3.5 `pages/login.py`: senha em texto plano aceita + cadastro aberto (código órfão)
 
@@ -495,12 +500,22 @@ Vale registrar o que está bem feito — não é só problema:
 4. `try/except` nos `st.secrets.get()` de `pages/dashboard_meta.py` (item 3.2).
 5. Corrigir `ICON_PATH` → `assets/icons/totale.ico`.
 
-### Sprint 1 — segurança (dias)
-6. Remover `denisvick/admin123` do código; usuários só via `secrets.toml`.
-7. Implementar guard de autenticação no entrypoint, antes de `pg.run()`.
-8. Remover o fallback de senha em texto plano (`gestao_ativos.py:123`).
-9. Remover `ws.clear()` de `_gravar_gspread` (usar `batch_update`/aba temporária) + confirmação.
-10. Adicionar `usuarios.db`, `.streamlit_cache/` e `*.db` ao `.gitignore`; `git rm --cached` do `.pkl`.
+### Sprint 1 — segurança (dias) — ✅ implementado em 27/09/2026
+6. ✅ Remover `denisvick/admin123` do código; usuários só via `secrets.toml`.
+7. ✅ **Decisão do projeto:** a autenticação é concentrada **exclusivamente** em
+   `pages/gestao_ativos.py` (única página que escreve na planilha). Não há gate
+   central no entrypoint nem autenticação nas demais páginas — elas são de
+   leitura e permanecem abertas no portal.
+8. ✅ Remover o fallback de senha em texto plano (`gestao_ativos.py:123`) +
+   migração para PBKDF2-HMAC-SHA256.
+9. ✅ Remover `ws.clear()` de `_gravar_gspread` (grava sobrepondo e só limpa as
+   sobras depois do sucesso) + backup da versão anterior disponível para download.
+10. ✅ Adicionar `usuarios.db`, `.streamlit_cache/` e `*.db` ao `.gitignore`;
+    `git rm --cached` do `.pkl`.
+
+> 🧪 Além dos itens acima: suíte de testes (`tests/`) com pytest + `AppTest`,
+> `pyproject.toml` com configuração de pytest/ruff, `runtime.txt`,
+> `.streamlit/config.toml` e `.streamlit/secrets.example.toml`.
 
 ### Sprint 2 — engenharia (semanas)
 11. Apagar `old/`, `pages/home.py`, `pages/login.py` (guardar em tag).
