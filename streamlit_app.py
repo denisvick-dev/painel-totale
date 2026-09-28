@@ -3,13 +3,18 @@ app.py
 ======
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.2.2 (Integração Design System v4.9.2 - Sidebar Enterprise)
+Versão: 3.3.0 (Integração Design System v4.9.0 - Seletor de Cores da Sidebar Claro/Azul/Laranja)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
+• Seletor nativo 'st.selectbox' integrado à sidebar para alternância dinâmica entre os 3 temas:
+  1. Claro (Padrão Corporativo)
+  2. Azul (Navy Imersivo)
+  3. Laranja (Vibrante TOTALE)
+• Sincronização em tempo real com o Design System através de 'aplicar_estilo(tema_sidebar=...)'.
 • Correção de Tipagem: Garantia de string estrita para 'ultima_atualizacao' em render_sidebar_status.
 • Sidebar encapsulada em 'with st.sidebar'.
-• Inicialização segura de Session State.
+• Inicialização segura de Session State com persistência de tema.
 """
 
 import logging
@@ -22,7 +27,9 @@ from zoneinfo import ZoneInfo
 import streamlit as st
 
 from components.componentes import (
+    TemaSidebarType,
     aplicar_estilo,
+    definir_tema_sidebar,
     render_sidebar_brand,
     render_sidebar_divider,
     render_sidebar_footer_info,
@@ -64,7 +71,7 @@ class Cores:
 class ConfiguracoesSistema:
     """Configurações globais do sistema."""
 
-    VERSAO: str = "3.2.2"
+    VERSAO: str = "3.3.0"
     AMBIENTE: str = "Produção"
     FUSO_HORARIO: str = "America/Sao_Paulo"
     INTERVALO_REFRESH: int = 60
@@ -125,7 +132,7 @@ class GerenciadorEstilos:
     """
     Gerencia estilos do CORPO da página.
 
-    ⚠️ A sidebar é 100% estilizada por components/componentes.py (v4.9.2).
+    ⚠️ A sidebar é 100% estilizada por components/componentes.py (v4.9.0).
     Não duplicar regras de [data-testid="stSidebar"] aqui.
     """
 
@@ -391,7 +398,7 @@ def pagina_home() -> None:
     ComponentesHome.render_card_boas_vindas()
     ComponentesHome.render_status_sistema()
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     ComponentesHome.render_cards_modulos()
 
     ComponentesHome.render_footer()
@@ -461,7 +468,8 @@ class GerenciadorNavegacao:
     @staticmethod
     def renderizar_sidebar_corporativa() -> None:
         """
-        Renderiza o cabeçalho corporativo na sidebar com garantia de escopo e tipagem.
+        Renderiza o cabeçalho corporativo na sidebar com garantia de escopo e tipagem,
+        incluindo o seletor nativo st.selectbox para escolha da cor da sidebar.
         """
         with st.sidebar:
             render_sidebar_brand(
@@ -471,6 +479,41 @@ class GerenciadorNavegacao:
                 icone="📊",
             )
 
+            # ====================================================
+            # 🎨 SELETOR NATIVO (st.selectbox) DA COR DA SIDEBAR
+            # ====================================================
+            render_sidebar_section("Aparência da Sidebar", icone="🎨")
+
+            opcoes_tema: list[TemaSidebarType] = ["claro", "azul", "laranja"]
+            labels_tema = {
+                "claro": "☀️ Claro Corporativo",
+                "azul": "🔷 Deep Executive Navy",
+                "laranja": "🔶 Terracotta & Amber",
+            }
+            tema_atual = st.session_state.get("tema_sidebar", "claro")
+            idx_atual = (
+                opcoes_tema.index(tema_atual) if tema_atual in opcoes_tema else 0
+            )
+
+            tema_selecionado = st.selectbox(
+                "Escolha a cor da sidebar",
+                options=opcoes_tema,
+                index=idx_atual,
+                format_func=lambda x: labels_tema.get(x, str(x).title()),
+                key="seletor_cor_sidebar",
+                help="Selecione o esquema de cores para a barra lateral",
+            )
+
+            # Aplicação reativa imediata se o usuário mudar no selectbox
+            if tema_selecionado != tema_atual:
+                st.session_state["tema_sidebar"] = tema_selecionado
+                definir_tema_sidebar(tema_selecionado)
+                aplicar_estilo(tema_sidebar=tema_selecionado)
+                st.rerun()
+
+            render_sidebar_divider(estilo="pontilhado", espacamento="pequeno")
+
+            # Status Operacional
             render_sidebar_section("Status Operacional", icone="🛰️")
 
             dados_prod = st.session_state.get("dados_prod")
@@ -523,12 +566,24 @@ def main() -> None:
         st.session_state["dados_prod"] = None
     if "ultima_atualizacao" not in st.session_state:
         st.session_state["ultima_atualizacao"] = None
+    if "tema_sidebar" not in st.session_state:
+        st.session_state["tema_sidebar"] = "claro"
 
-    # 3. Injeção de estilos (Design System + customizações do app)
-    aplicar_estilo()
+    # Sincroniza o valor caso o widget já tenha sido renderizado em runs anteriores
+    if (
+        "seletor_cor_sidebar" in st.session_state
+        and st.session_state["seletor_cor_sidebar"] != st.session_state["tema_sidebar"]
+    ):
+        st.session_state["tema_sidebar"] = st.session_state["seletor_cor_sidebar"]
+
+    tema_ativo = st.session_state["tema_sidebar"]
+
+    # 3. Injeção de estilos (Design System com o tema ativo + customizações do app)
+    aplicar_estilo(tema_sidebar=tema_ativo)
+    definir_tema_sidebar(tema_ativo)
     GerenciadorEstilos.injetar_css_global()
 
-    # 4. Cabeçalho corporativo da sidebar (Marca + status)
+    # 4. Cabeçalho corporativo da sidebar (Marca + seletor de cor + status)
     GerenciadorNavegacao.renderizar_sidebar_corporativa()
 
     # 5. Navegação nativa (st.navigation)

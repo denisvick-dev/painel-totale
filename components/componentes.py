@@ -3,15 +3,21 @@ components/componentes.py
 =========================
 Design System Streamlit — TOTALE
 
-Versão: 4.8.0
+Versão: 4.9.0
 Autor: TOTALE Tecnologia
 
-4.8.0 — acabamento visual, sem remover API:
-• Heróis e cartões com gradiente estático, malha suave e menos animação.
-• Tipografia, canvas, abas, botões e métricas nativas alinhados à marca.
-• Tabela com cabeçalho sticky e badges mais sóbrios.
-• Preservado da 4.7.1: trava de tile longo, inversão título/ícone,
-  Material Symbols com ligadura e sem fundo no glifo.
+4.9.0 — Suporte a 3 tipos de sidebar (Claro, Azul e Laranja):
+• Claro (padrão): fundo branco/suave, acabamento corporativo sutil com detalhes navy e laranja.
+• Azul: imersivo corporativo navy TOTALE (#011838 a #012869), contraste refinado, realces
+  em laranja TOTALE e cards translúcidos.
+• Laranja: elegante e vibrante no tom secundário TOTALE (#8C2A0A a #C2410C), alto contraste
+  com navy profundo (#011838) e branco.
+• Integração completa com componentes da sidebar (brand, section, divider, info, status, footer)
+  e widgets nativos do Streamlit.
+• Configuração via aplicar_estilo(tema_sidebar=...), aplicar_sidebar_corp(tema=...) ou
+  definir_tema_sidebar(...).
+• Preservado da 4.8.0/4.7.1: heróis e cartões estáticos, cabeçalho sticky em tabelas,
+  trava de tile longo, inversão de segurança título/ícone e Material Symbols com ligadura.
 """
 
 from __future__ import annotations
@@ -78,6 +84,7 @@ TipoTimelineItemType: TypeAlias = Literal[
 TipoHeroType: TypeAlias = Literal[
     "padrao", "migracao", "pme", "totale_1", "totale_2", "novos_domicilios"
 ]
+TemaSidebarType: TypeAlias = Literal["claro", "azul", "laranja", "padrao"]
 
 BaseFormatter: TypeAlias = str | Callable[[object], str]
 FmtDict: TypeAlias = dict[str, BaseFormatter | None]
@@ -92,6 +99,13 @@ class TemaKPI(str, Enum):
     CINZA = "cinza"
     ROXO = "roxo"
     GRADIENTE = "gradiente"
+
+
+class TemaSidebar(str, Enum):
+    CLARO = "claro"
+    AZUL = "azul"
+    LARANJA = "laranja"
+    PADRAO = "claro"
 
 
 class TipoInsight(str, Enum):
@@ -299,6 +313,42 @@ class ConfigCores:
         "padrao": ("#F8FAFC", "#64748B", "📭", "Conteúdo não disponível"),
     }
 
+    SIDEBAR: dict[str, dict[str, str]] = {
+        "claro": {
+            "fundo": "linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 50%, #F1F5F9 100%)",
+            "borda": "#E2E8F0",
+            "texto_primario": "#012869",
+            "texto_secundario": "#64748B",
+            "card_fundo": "#FFFFFF",
+            "card_borda": "#E2E8F0",
+            "nav_ativo_fundo": "#012869",
+            "nav_ativo_texto": "#FFFFFF",
+            "accent_topo": "linear-gradient(90deg, #012869 0%, #0A48AA 65%, #F37C04 100%)",
+        },
+        "azul": {
+            "fundo": "linear-gradient(180deg, #020C1B 0%, #061730 45%, #0B254A 100%)",
+            "borda": "rgba(255, 255, 255, 0.08)",
+            "texto_primario": "#FFFFFF",
+            "texto_secundario": "#CBD5E1",
+            "card_fundo": "rgba(255, 255, 255, 0.035)",
+            "card_borda": "rgba(255, 255, 255, 0.08)",
+            "nav_ativo_fundo": "linear-gradient(90deg, rgba(243, 124, 4, 0.18) 0%, rgba(243, 124, 4, 0.04) 100%)",
+            "nav_ativo_texto": "#FFFFFF",
+            "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FB923C 100%)",
+        },
+        "laranja": {
+            "fundo": "linear-gradient(180deg, #160702 0%, #2A0F04 40%, #3E1606 75%, #541E09 100%)",
+            "borda": "rgba(243, 124, 4, 0.16)",
+            "texto_primario": "#FFFFFF",
+            "texto_secundario": "#FFEDD5",
+            "card_fundo": "rgba(0, 0, 0, 0.22)",
+            "card_borda": "rgba(255, 255, 255, 0.10)",
+            "nav_ativo_fundo": "linear-gradient(90deg, rgba(243, 124, 4, 0.32) 0%, rgba(243, 124, 4, 0.10) 100%)",
+            "nav_ativo_texto": "#FFFFFF",
+            "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FFB067 60%, #FFFFFF 100%)",
+        },
+    }
+
     PLOTLY_COLORWAY: list[str] = [
         Cores.PRIMARIA,
         Cores.SECUNDARIA,
@@ -360,6 +410,32 @@ def normalizar_tema_kpi(tema: Any) -> TemaKPIType:
         {"azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"},
         "azul",
     )  # type: ignore[return-value]
+
+
+def normalizar_tema_sidebar(tema: Any) -> TemaSidebarType:
+    s = normalizar_tipo(
+        tema,
+        {"claro", "azul", "laranja", "padrao"},
+        "claro",
+    )
+    if s == "padrao":
+        return "claro"
+    return s  # type: ignore[return-value]
+
+
+def definir_tema_sidebar(tema: TemaSidebarType | str) -> None:
+    """Define o tema ativo da sidebar ('claro', 'azul' ou 'laranja') na sessão Streamlit."""
+    tema_norm = normalizar_tema_sidebar(tema)
+    st.session_state["_totale_sidebar_theme"] = tema_norm
+
+
+def _obter_tema_sidebar(tema_param: Any = None) -> TemaSidebarType:
+    """Obtém o tema da sidebar a partir do parâmetro explícito ou do session_state."""
+    if tema_param is not None:
+        return normalizar_tema_sidebar(tema_param)
+    return normalizar_tema_sidebar(
+        st.session_state.get("_totale_sidebar_theme", "claro")
+    )
 
 
 def normalizar_tipo_badge(tipo: Any) -> TipoBadgeType:
@@ -649,7 +725,7 @@ _CSS_HEROS = """
 .hero-title { font-size: clamp(26px, 3vw, 36px); font-weight: 800; color: #fff; margin: 0 0 8px; line-height: 1.08; position: relative; z-index: 2; }
 .hero-subtitle { font-size: 15px; color: rgba(255,255,255,0.78); margin: 0; line-height: 1.55; position: relative; z-index: 2; max-width: 68ch; }
 .hero-badge, .th-badge {
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex align-items: center; gap: 6px;
     background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);
     color: #fff; font-size: 10px; font-weight: 750; letter-spacing: 0.12em;
     text-transform: uppercase; padding: 5px 11px; border-radius: 999px; position: relative; z-index: 2;
@@ -863,33 +939,285 @@ div[data-testid="stDownloadButton"] > button:hover {
 [data-testid="stAlert"] { border-radius: 12px !important; }
 """
 
-_CSS_SIDEBAR = """
+# =============================================================================
+# CSS ESPECÍFICO DOS 3 TIPOS DE SIDEBAR (CLARO, AZUL E LARANJA)
+# =============================================================================
+_CSS_SIDEBAR_CLARO = """
 [data-testid="stSidebar"] {
     position: relative;
-    background: linear-gradient(180deg, #FFFFFF 0%, #F7F9FC 100%) !important;
-    border-right: 1px solid #E6EDF5 !important;
+    background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 50%, #F1F5F9 100%) !important;
+    border-right: 1px solid #E2E8F0 !important;
 }
 [data-testid="stSidebar"]::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; z-index: 100;
-    background: linear-gradient(90deg, #012869 0%, #0A48AA 58%, #F37C04 100%);
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2.5px; z-index: 100;
+    background: linear-gradient(90deg, #012869 0%, #0A48AA 65%, #F37C04 100%);
 }
 [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 12px; }
 [data-testid="stSidebarNav"] [data-testid="stNavSectionHeader"] {
-    font-size: 10px !important; font-weight: 800 !important; letter-spacing: 0.12em !important;
-    text-transform: uppercase !important; color: #012869 !important; padding: 8px 12px 8px 14px !important;
+    font-size: 10px !important; font-weight: 800 !important; letter-spacing: 0.1em !important;
+    text-transform: uppercase !important; color: #475569 !important; padding: 10px 12px 6px 14px !important;
 }
 [data-testid="stSidebarNav"] a {
-    border-radius: 9px !important; color: #334155 !important; font-weight: 600 !important;
-    font-size: 13.5px !important; border: 1px solid transparent !important;
+    border-radius: 8px !important; color: #334155 !important; font-weight: 550 !important;
+    font-size: 13px !important; border: 1px solid transparent !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
 }
 [data-testid="stSidebarNav"] a:hover {
-    background: #F4F7FC !important; color: #012869 !important;
+    background: #F1F5F9 !important; color: #012869 !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] {
-    background: #012869 !important; color: #fff !important; font-weight: 700 !important;
-    box-shadow: 0 6px 14px rgba(1,40,105,0.22);
+    background: #012869 !important; color: #FFFFFF !important; font-weight: 650 !important;
+    border: 1px solid #011E52 !important;
+    box-shadow: 0 2px 8px rgba(1, 40, 105, 0.16) !important;
 }
-[data-testid="stSidebarNav"] a[aria-current="page"] span { color: #fff !important; }
+[data-testid="stSidebarNav"] a[aria-current="page"] span { color: #FFFFFF !important; }
+/* Widgets nativos na sidebar clara */
+[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea {
+    background: #FFFFFF !important;
+    border: 1px solid #CBD5E1 !important;
+    color: #0F172A !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
+[data-testid="stSidebar"] input:hover {
+    border-color: #012869 !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] span { color: #0F172A !important; }
+[data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #475569 !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
+[data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #334155 !important; }
+[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    background: #F8FAFC !important;
+    border: 1px solid #E2E8F0 !important;
+    color: #012869 !important;
+    border-radius: 8px !important;
+    font-weight: 650 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+    background: #012869 !important;
+    border-color: #012869 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 4px 12px rgba(1, 40, 105, 0.18) !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    background: #FFFFFF !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 10px !important;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #012869 !important; font-weight: 700 !important; }
+[data-testid="stSidebar"] hr { border-color: #E2E8F0 !important; }
+[data-testid="stSidebar"] .sidebar-brand-name {
+    color: #012869 !important;
+    background: linear-gradient(100deg, #012869 10%, #0A48AA 62%, #F37C04 140%) !important;
+    -webkit-background-clip: text !important; background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+[data-testid="stSidebar"] .sidebar-brand-sub { color: #64748B !important; }
+[data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
+[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid #E2E8F0 !important; }
+"""
+
+_CSS_SIDEBAR_AZUL = """
+[data-testid="stSidebar"] {
+    position: relative;
+    background: linear-gradient(180deg, #020C1B 0%, #061730 45%, #0B254A 100%) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #CBD5E1 !important;
+}
+[data-testid="stSidebar"]::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2.5px; z-index: 100;
+    background: linear-gradient(90deg, #F37C04 0%, #FB923C 100%);
+}
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 12px; }
+[data-testid="stSidebar"], [data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] li {
+    color: #CBD5E1;
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] h4, [data-testid="stSidebar"] strong {
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
+    color: #94A3B8 !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebarNav"] [data-testid="stNavSectionHeader"] {
+    font-size: 10px !important; font-weight: 800 !important; letter-spacing: 0.12em !important;
+    text-transform: uppercase !important; color: #94A3B8 !important; padding: 10px 12px 6px 14px !important;
+}
+[data-testid="stSidebarNav"] a {
+    border-radius: 8px !important; color: #94A3B8 !important; font-weight: 550 !important;
+    font-size: 13px !important; border: 1px solid transparent !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stSidebarNav"] a:hover {
+    background: rgba(255, 255, 255, 0.05) !important; color: #FFFFFF !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+    background: linear-gradient(90deg, rgba(243, 124, 4, 0.18) 0%, rgba(243, 124, 4, 0.04) 100%) !important;
+    border-left: 3px solid #F37C04 !important;
+    border-top: 1px solid rgba(243, 124, 4, 0.28) !important;
+    border-right: 1px solid rgba(243, 124, 4, 0.16) !important;
+    border-bottom: 1px solid rgba(243, 124, 4, 0.28) !important;
+    color: #FFFFFF !important; font-weight: 700 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"] span { color: #FFFFFF !important; }
+/* Widgets Streamlit nativos na Sidebar Azul */
+[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: #FFFFFF !important;
+    border-radius: 8px !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
+[data-testid="stSidebar"] input:hover {
+    border-color: rgba(243, 124, 4, 0.5) !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] span { color: #FFFFFF !important; }
+[data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #94A3B8 !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
+[data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #CBD5E1 !important; }
+[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    background: rgba(255, 255, 255, 0.07) !important;
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    border-radius: 8px !important;
+    font-weight: 650 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+    background: #F37C04 !important;
+    border-color: #F37C04 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 4px 12px rgba(243, 124, 4, 0.28) !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    background: rgba(255, 255, 255, 0.035) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #FFFFFF !important; font-weight: 700 !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.10) !important; }
+[data-testid="stSidebar"] .sidebar-brand-name {
+    color: #FFFFFF !important;
+    background: linear-gradient(100deg, #FFFFFF 30%, #E2E8F0 100%) !important;
+    -webkit-background-clip: text !important; background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+}
+[data-testid="stSidebar"] .sidebar-brand-sub { color: #94A3B8 !important; }
+[data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
+[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08) !important; }
+"""
+
+_CSS_SIDEBAR_LARANJA = """
+[data-testid="stSidebar"] {
+    position: relative;
+    background: linear-gradient(180deg, #160702 0%, #2A0F04 40%, #3E1606 75%, #541E09 100%) !important;
+    border-right: 1px solid rgba(243, 124, 4, 0.16) !important;
+    color: #FFEDD5 !important;
+}
+[data-testid="stSidebar"]::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2.5px; z-index: 100;
+    background: linear-gradient(90deg, #F37C04 0%, #FFB067 60%, #FFFFFF 100%);
+}
+[data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 12px; }
+[data-testid="stSidebar"], [data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] li {
+    color: #FFEDD5;
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] h4, [data-testid="stSidebar"] strong {
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button {
+    color: #FED7AA !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button:hover {
+    background: rgba(255, 255, 255, 0.10) !important;
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebarNav"] [data-testid="stNavSectionHeader"] {
+    font-size: 10px !important; font-weight: 800 !important; letter-spacing: 0.12em !important;
+    text-transform: uppercase !important; color: #FDBA74 !important; padding: 10px 12px 6px 14px !important;
+    opacity: 0.95;
+}
+[data-testid="stSidebarNav"] a {
+    border-radius: 8px !important; color: #FED7AA !important; font-weight: 550 !important;
+    font-size: 13px !important; border: 1px solid transparent !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stSidebarNav"] a:hover {
+    background: rgba(255, 255, 255, 0.08) !important; color: #FFFFFF !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+    background: linear-gradient(90deg, rgba(243, 124, 4, 0.32) 0%, rgba(243, 124, 4, 0.10) 100%) !important;
+    border-left: 3px solid #F37C04 !important;
+    border-top: 1px solid rgba(243, 124, 4, 0.35) !important;
+    border-right: 1px solid rgba(243, 124, 4, 0.20) !important;
+    border-bottom: 1px solid rgba(243, 124, 4, 0.35) !important;
+    color: #FFFFFF !important; font-weight: 700 !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.40) !important;
+}
+[data-testid="stSidebarNav"] a[aria-current="page"] span { color: #FFFFFF !important; }
+/* Widgets Streamlit nativos na Sidebar Laranja Terracotta */
+[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea {
+    background: rgba(0, 0, 0, 0.24) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: #FFFFFF !important;
+    border-radius: 8px !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
+[data-testid="stSidebar"] input:hover {
+    border-color: #F37C04 !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] span { color: #FFFFFF !important; }
+[data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #FED7AA !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
+[data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #FFEDD5 !important; }
+[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+    background: rgba(255, 255, 255, 0.10) !important;
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 8px !important;
+    font-weight: 650 !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+    background: #011838 !important;
+    border-color: #F37C04 !important;
+    color: #FFFFFF !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] details {
+    background: rgba(0, 0, 0, 0.20) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 10px !important;
+    color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #FFFFFF !important; font-weight: 700 !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.14) !important; }
+[data-testid="stSidebar"] .sidebar-brand-name {
+    color: #FFFFFF !important;
+    background: none !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+}
+[data-testid="stSidebar"] .sidebar-brand-sub { color: #FED7AA !important; }
+[data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
+[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.12) !important; }
 """
 
 _CSS_SIDEBAR_NAV_ATIVO = """
@@ -900,9 +1228,16 @@ html body [data-testid="stSidebar"] [data-testid="stSidebarNav"] [aria-current="
 [data-testid="stElementContainer"]:has(iframe[height="0"]) { display: none !important; }
 """
 
-_CSS_SIDEBAR_ATIVO_LARANJA = """
-/* Variante não injetada: o item ativo permanece navy, mais sóbrio que o laranja preenchido. */
-"""
+_CSS_SIDEBAR_TEMAS: dict[str, str] = {
+    "claro": _CSS_SIDEBAR_CLARO,
+    "azul": _CSS_SIDEBAR_AZUL,
+    "laranja": _CSS_SIDEBAR_LARANJA,
+}
+
+
+def _gerar_css_sidebar(tema: str) -> str:
+    tema_norm = normalizar_tema_sidebar(tema)
+    return _CSS_SIDEBAR_TEMAS.get(tema_norm, _CSS_SIDEBAR_CLARO)
 
 
 class PlotlyConfig:
@@ -1063,21 +1398,30 @@ class NavContrastFix:
 
 class CSSInjector:
     @staticmethod
-    @lru_cache(maxsize=1)
-    def _build_css() -> str:
+    @lru_cache(maxsize=8)
+    def _build_css(tema_sidebar: str = "claro") -> str:
+        css_sidebar = _gerar_css_sidebar(tema_sidebar)
         return (
             f"{FontInjector._build_links_html()}\n<style>\n"
             f"{_CSS_VARS_ROOT}\n{_CSS_RESET_GLOBAL}\n{_CSS_HEROS}\n{_CSS_CARDS}\n"
-            f"{_CSS_TABELAS}\n{_CSS_EXTRAS}\n{_CSS_STREAMLIT_CHROME}\n{_CSS_SIDEBAR}\n"
+            f"{_CSS_TABELAS}\n{_CSS_EXTRAS}\n{_CSS_STREAMLIT_CHROME}\n{css_sidebar}\n"
             f"{_CSS_SIDEBAR_NAV_ATIVO}\n</style>"
         )
 
     @staticmethod
-    def injetar() -> None:
-        css_html = CSSInjector._build_css()
+    def injetar(tema_sidebar: str = "claro") -> None:
+        tema_norm = normalizar_tema_sidebar(tema_sidebar)
+        css_html = CSSInjector._build_css(tema_norm)
         _safe_render_html(css_html)
-        if st.session_state.get("_totale_css_head_injected"):
+
+        # Se o tema atual já estiver injetado no DOM do head pai, não precisa repetir
+        tema_anterior = st.session_state.get("_totale_css_head_tema")
+        if (
+            st.session_state.get("_totale_css_head_injected")
+            and tema_anterior == tema_norm
+        ):
             return
+
         inicio = css_html.find("<style>")
         fim = css_html.rfind("</style>")
         regras = (
@@ -1106,21 +1450,68 @@ class CSSInjector:
             height=0,
         )
         st.session_state["_totale_css_head_injected"] = True
+        st.session_state["_totale_css_head_tema"] = tema_norm
 
 
-def aplicar_estilo() -> None:
+def aplicar_estilo(tema_sidebar: TemaSidebarType = "claro") -> None:
+    """Aplica o Design System TOTALE com suporte a 3 temas de sidebar ('claro', 'azul', 'laranja')."""
+    tema_norm = normalizar_tema_sidebar(tema_sidebar)
+    st.session_state["_totale_sidebar_theme"] = tema_norm
     PlotlyConfig.configurar()
     FontInjector.injetar_no_head_pai()
-    CSSInjector.injetar()
+    CSSInjector.injetar(tema_sidebar=tema_norm)
     NavContrastFix.injetar()
 
 
-def aplicar_estilo_corp() -> None:
-    aplicar_estilo()
+def aplicar_estilo_corp(tema_sidebar: TemaSidebarType = "claro") -> None:
+    """Alias corporativo de aplicar_estilo()."""
+    aplicar_estilo(tema_sidebar=tema_sidebar)
 
 
-def aplicar_sidebar_corp() -> None:
-    aplicar_estilo()
+def aplicar_sidebar_corp(tema: TemaSidebarType = "claro") -> None:
+    """Aplica tema de sidebar TOTALE ('claro', 'azul' ou 'laranja')."""
+    aplicar_estilo(tema_sidebar=tema)
+
+
+def render_sidebar_theme_selector(
+    label: str = "TEMA DA SIDEBAR",
+    container: Any = None,
+    key: str = "_totale_sidebar_theme_select",
+    mostrar_icone: bool = True,
+    aplicar_automaticamente: bool = True,
+) -> TemaSidebarType:
+    """Renderiza um st.selectbox nativo para escolher a cor da sidebar ('claro', 'azul', 'laranja').
+
+    Aplica automaticamente o estilo e atualiza o estado da sessão quando
+    aplicar_automaticamente=True.
+    """
+    alvo = container if container is not None else st.sidebar
+
+    opcoes: list[TemaSidebarType] = ["claro", "azul", "laranja"]
+    labels = {
+        "claro": "☀️ Claro Corporativo" if mostrar_icone else "Claro Corporativo",
+        "azul": "🔷 Deep Executive Navy" if mostrar_icone else "Deep Executive Navy",
+        "laranja": "🔶 Terracotta & Amber" if mostrar_icone else "Terracotta & Amber",
+    }
+
+    tema_atual = _obter_tema_sidebar()
+    idx_atual = opcoes.index(tema_atual) if tema_atual in opcoes else 0
+
+    escolha = alvo.selectbox(
+        label,
+        options=opcoes,
+        format_func=lambda x: labels.get(x, str(x).title()),
+        index=idx_atual,
+        key=key,
+    )
+
+    tema_escolhido = normalizar_tema_sidebar(escolha)
+
+    if aplicar_automaticamente:
+        definir_tema_sidebar(tema_escolhido)
+        aplicar_estilo(tema_sidebar=tema_escolhido)
+
+    return tema_escolhido
 
 
 def render_sidebar_brand(
@@ -1131,6 +1522,7 @@ def render_sidebar_brand(
     icone: str = "⚡",
     titulo: str = "",
     logo: str | None = None,
+    tema: TemaSidebarType | None = None,
     **kwargs: Any,
 ) -> None:
     nome_final = str(titulo or nome or "").strip()
@@ -1141,6 +1533,8 @@ def render_sidebar_brand(
     if not nome_final and not subtitulo_final and not logo_final:
         return
 
+    tema_ativo = _obter_tema_sidebar(tema)
+
     with st.sidebar:
         logo_valida = bool(logo_final and Validadores.url(str(logo_final)))
         if logo_valida:
@@ -1148,22 +1542,73 @@ def render_sidebar_brand(
 
         badge_html = ""
         if versao_final:
+            if tema_ativo == "azul":
+                b_bg, b_fg, b_bd = (
+                    "rgba(255,255,255,0.12)",
+                    Cores.SECUNDARIA_LIGHT,
+                    "rgba(255,255,255,0.20)",
+                )
+            elif tema_ativo == "laranja":
+                b_bg, b_fg, b_bd = (
+                    "rgba(255,255,255,0.20)",
+                    "#FFFFFF",
+                    "rgba(255,255,255,0.30)",
+                )
+            else:
+                b_bg, b_fg, b_bd = Cores.AZUL_SUAVE, Cores.PRIMARIA, "#D6E0F0"
+
             badge_html = (
-                '<span class="totale-badge-pill" style="margin-top:8px;'
-                f'background:{Cores.AZUL_SUAVE};color:{Cores.PRIMARIA};border-color:#D6E0F0;">'
+                f'<span class="totale-badge-pill" style="margin-top:8px;'
+                f'background:{b_bg};color:{b_fg};border-color:{b_bd};">'
                 f"{Validadores.html_escape(versao_final)}</span>"
             )
+
         icone_html = "" if logo_valida else _icone_tile(icone_final, "brand")
-        nome_html = (
-            f'<h2 class="sidebar-brand-name">{Validadores.html_escape(nome_final)}</h2>'
-            if nome_final
-            else ""
-        )
-        subtitulo_html = (
-            f'<div class="sidebar-brand-sub">{Validadores.html_escape(subtitulo_final)}</div>'
-            if subtitulo_final
-            else ""
-        )
+
+        if tema_ativo == "azul":
+            nome_style = (
+                "font-family: var(--font-titulo); font-size: 18px; font-weight: 800; "
+                "letter-spacing: -0.03em; margin: 0; line-height: 1.1; "
+                "background: linear-gradient(100deg, #FFFFFF 20%, #FDBA74 100%); "
+                "-webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;"
+            )
+            sub_style = "font-size: 11px; color: #CBD5E1; margin-top: 3px; letter-spacing: 0.01em;"
+        elif tema_ativo == "laranja":
+            nome_style = (
+                "font-family: var(--font-titulo); font-size: 18px; font-weight: 800; "
+                "letter-spacing: -0.03em; margin: 0; line-height: 1.1; color: #FFFFFF;"
+            )
+            sub_style = "font-size: 11px; color: #FFEDD5; margin-top: 3px; letter-spacing: 0.01em;"
+        else:
+            nome_style = ""
+            sub_style = ""
+
+        if nome_style:
+            nome_html = (
+                f'<h2 class="sidebar-brand-name" style="{nome_style}">{Validadores.html_escape(nome_final)}</h2>'
+                if nome_final
+                else ""
+            )
+        else:
+            nome_html = (
+                f'<h2 class="sidebar-brand-name">{Validadores.html_escape(nome_final)}</h2>'
+                if nome_final
+                else ""
+            )
+
+        if sub_style:
+            subtitulo_html = (
+                f'<div class="sidebar-brand-sub" style="{sub_style}">{Validadores.html_escape(subtitulo_final)}</div>'
+                if subtitulo_final
+                else ""
+            )
+        else:
+            subtitulo_html = (
+                f'<div class="sidebar-brand-sub">{Validadores.html_escape(subtitulo_final)}</div>'
+                if subtitulo_final
+                else ""
+            )
+
         markup = (
             '<div class="sidebar-brand">'
             '<div style="display:flex;align-items:center;gap:10px;">'
@@ -1174,21 +1619,41 @@ def render_sidebar_brand(
 
 
 def render_sidebar_section(
-    titulo: str, icone: str = "", collapsible: bool = False
+    titulo: str,
+    icone: str = "",
+    collapsible: bool = False,
+    tema: TemaSidebarType | None = None,
 ) -> None:
     if collapsible:
         with st.sidebar.expander(f"{icone} {titulo}".strip(), expanded=True):
             pass
         return
+
+    tema_ativo = _obter_tema_sidebar(tema)
+
+    if tema_ativo == "azul":
+        bar_color = Cores.SECUNDARIA
+        titulo_color = "#FFFFFF"
+        icone_color = Cores.SECUNDARIA_LIGHT
+    elif tema_ativo == "laranja":
+        bar_color = "#011838"
+        titulo_color = "#FFFFFF"
+        icone_color = "#FFF7ED"
+    else:
+        bar_color = Cores.SECUNDARIA
+        titulo_color = Cores.PRIMARIA
+        icone_color = Cores.SECUNDARIA
+
     icone_html = (
-        f'<span style="font-size:14px;line-height:1;color:{Cores.SECUNDARIA};">'
+        f'<span style="font-size:14px;line-height:1;color:{icone_color};">'
         f"{Validadores.html_escape(icone)}</span>"
         if icone
         else ""
     )
     markup = (
-        '<div class="sidebar-section-header">'
-        f'<div style="font-size:11px;font-weight:750;color:{Cores.PRIMARIA};'
+        f'<div class="sidebar-section-header" style="position:relative;margin:16px 0 6px;padding:4px 0 8px 12px;">'
+        f'<span style="position:absolute;left:0;top:6px;width:3px;height:12px;border-radius:99px;background:{bar_color};"></span>'
+        f'<div style="font-size:11px;font-weight:750;color:{titulo_color};'
         'text-transform:uppercase;letter-spacing:0.08em;display:flex;align-items:center;gap:6px;">'
         f"{icone_html}<span>{Validadores.html_escape(titulo)}</span></div></div>"
     )
@@ -1201,10 +1666,37 @@ def render_sidebar_divider(
     espacamento: Literal["pequeno", "medio", "grande"] = "medio",
     cor: str = "",
     label: str = "",
+    tema: TemaSidebarType | None = None,
 ) -> None:
     margens = {"pequeno": "6px 0", "medio": "14px 0", "grande": "24px 0"}
     margem = margens.get(espacamento, margens["medio"])
-    cor_final = cor or Cores.BORDA
+
+    tema_ativo = _obter_tema_sidebar(tema)
+
+    if tema_ativo == "azul":
+        cor_default = "rgba(255,255,255,0.14)"
+        gradiente_padrao = (
+            "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,"
+            "rgba(255,255,255,0.3) 50%,transparent 100%);"
+        )
+        label_color = Cores.SECUNDARIA_LIGHT
+    elif tema_ativo == "laranja":
+        cor_default = "rgba(255,255,255,0.22)"
+        gradiente_padrao = (
+            "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,"
+            "rgba(255,255,255,0.4) 50%,transparent 100%);"
+        )
+        label_color = "#FFFFFF"
+    else:
+        cor_default = Cores.BORDA
+        gradiente_padrao = (
+            "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,"
+            f"{Cores.PRIMARIA}55 40%,{Cores.SECUNDARIA} 70%,transparent 100%);"
+        )
+        label_color = Cores.PRIMARIA
+
+    cor_final = cor or cor_default
+
     if estilo == "espaco":
         alturas = {"pequeno": "8px", "medio": "16px", "grande": "28px"}
         _safe_render_html(
@@ -1215,18 +1707,16 @@ def render_sidebar_divider(
     if estilo == "pontilhado":
         style_line = f"border:none;border-top:1.5px dashed {cor_final};"
     elif estilo == "gradiente":
-        style_line = (
-            "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,"
-            f"{Cores.PRIMARIA}55 40%,{Cores.SECUNDARIA} 70%,transparent 100%);"
-        )
+        style_line = gradiente_padrao
     else:
         style_line = f"border:none;border-top:1px solid {cor_final};"
+
     if label:
         label_esc = Validadores.html_escape(label)
         markup = (
             f'<div style="display:flex;align-items:center;gap:10px;margin:{margem};">'
             f'<div style="flex:1;{style_line}"></div>'
-            f'<span style="font-size:9px;font-weight:750;color:{Cores.PRIMARIA};'
+            f'<span style="font-size:9px;font-weight:750;color:{label_color};'
             f'text-transform:uppercase;letter-spacing:0.12em;">{label_esc}</span>'
             f'<div style="flex:1;{style_line}"></div></div>'
         )
@@ -1245,6 +1735,7 @@ def render_sidebar_footer_info(
     ambiente: str = "",
     unidade: str = "",
     mostrar_relógio: bool = False,
+    tema: TemaSidebarType | None = None,
     **kwargs: Any,
 ) -> None:
     mostrar_rel = mostrar_relógio or kwargs.get("mostrar_relogio", False)
@@ -1254,6 +1745,31 @@ def render_sidebar_footer_info(
     agora = _agora_br()
     if ano is None:
         ano = agora.year
+
+    tema_ativo = _obter_tema_sidebar(tema)
+
+    if tema_ativo == "azul":
+        border_col = "rgba(255,255,255,0.08)"
+        lbl_col = "#94A3B8"
+        val_col = "#FFFFFF"
+        sub_col = "#CBD5E1"
+        bar_col = Cores.SECUNDARIA
+        v_bg, v_fg = "rgba(243,124,4,0.12)", Cores.SECUNDARIA_LIGHT
+    elif tema_ativo == "laranja":
+        border_col = "rgba(255,255,255,0.12)"
+        lbl_col = "#FED7AA"
+        val_col = "#FFFFFF"
+        sub_col = "#FFEDD5"
+        bar_col = Cores.SECUNDARIA
+        v_bg, v_fg = "rgba(255,255,255,0.12)", "#FFF7ED"
+    else:
+        border_col = "#E2E8F0"
+        lbl_col = "#64748B"
+        val_col = Cores.PRIMARIA
+        sub_col = Cores.TEXTO_2
+        bar_col = Cores.SECUNDARIA
+        v_bg, v_fg = Cores.AZUL_SUAVE, Cores.PRIMARIA
+
     amb_cfg = {
         "produção": ("#ECFDF5", "#065F46", "#059669"),
         "producao": ("#ECFDF5", "#065F46", "#059669"),
@@ -1266,7 +1782,7 @@ def render_sidebar_footer_info(
         "local": ("#F3F4F6", "#374151", "#9CA3AF"),
     }
     versao_html = (
-        f'<span class="totale-badge-pill" style="background:{Cores.AZUL_SUAVE};color:{Cores.PRIMARIA};">'
+        f'<span class="totale-badge-pill" style="background:{v_bg};color:{v_fg};">'
         f"{Validadores.html_escape(versao if str(versao).startswith('v') else f'v{versao}')}</span>"
         if versao
         else ""
@@ -1287,8 +1803,8 @@ def render_sidebar_footer_info(
         else ""
     )
     unidade_html = (
-        f'<div style="font-size:11px;font-weight:650;color:{Cores.TEXTO_2};margin-bottom:8px;'
-        f'border-left:3px solid {Cores.SECUNDARIA};padding-left:8px;">'
+        f'<div style="font-size:11px;font-weight:650;color:{sub_col};margin-bottom:8px;'
+        f'border-left:3px solid {bar_col};padding-left:8px;">'
         f"{Validadores.html_escape(unidade)}</div>"
         if unidade
         else ""
@@ -1297,21 +1813,21 @@ def render_sidebar_footer_info(
     if itens_dict:
         rows = "".join(
             '<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;">'
-            f'<span style="font-size:11px;color:{Cores.TEXTO_3};">{Validadores.html_escape(k)}</span>'
-            f'<span style="font-size:11px;color:{Cores.PRIMARIA};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
+            f'<span style="font-size:11px;color:{lbl_col};">{Validadores.html_escape(k)}</span>'
+            f'<span style="font-size:11px;color:{val_col};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
             for k, v in itens_dict.items()
         )
-        itens_html = f'<div style="border-top:1px solid {Cores.BORDA};padding-top:8px;">{rows}</div>'
+        itens_html = f'<div style="border-top:1px solid {border_col};padding-top:8px;">{rows}</div>'
     relogio_html = (
-        f'<div style="font-size:10px;color:{Cores.TEXTO_3};text-align:center;margin-top:8px;">'
+        f'<div style="font-size:10px;color:{lbl_col};text-align:center;margin-top:8px;">'
         f"{agora.strftime('%d/%m/%Y %H:%M')}</div>"
         if mostrar_rel
         else ""
     )
     copy_final = copyright or f"© {ano} {empresa}"
     copy_html = (
-        f'<div style="margin-top:10px;padding-top:8px;border-top:1px solid {Cores.BORDA};'
-        f'font-size:10px;color:{Cores.TEXTO_3};text-align:center;">'
+        f'<div style="margin-top:10px;padding-top:8px;border-top:1px solid {border_col};'
+        f'font-size:10px;color:{lbl_col};text-align:center;">'
         f"{Validadores.html_escape(copy_final)}</div>"
     )
     with st.sidebar:
@@ -1330,10 +1846,47 @@ def render_sidebar_info(
     rodape: str = "",
     status: Literal["online", "offline", "ausente", "ocupado", ""] = "online",
     titulo: str = "",
+    tema: TemaSidebarType | None = None,
 ) -> None:
     itens_dict: dict[str, Any] = (
         dict(itens) if isinstance(itens, dict) else dict(itens or [])
     )
+    tema_ativo = _obter_tema_sidebar(tema)
+
+    if tema_ativo == "azul":
+        card_bg = "rgba(255, 255, 255, 0.035)"
+        card_bd = "rgba(255, 255, 255, 0.08)"
+        avatar_bg = Cores.PRIMARIA_LIGHT
+        nome_col = "#FFFFFF"
+        role_col = "#FDBA74"
+        email_col = "#94A3B8"
+        item_lbl_col = "#94A3B8"
+        item_val_col = "#FFFFFF"
+        rodape_col = "#94A3B8"
+        titulo_col = "#FFFFFF"
+    elif tema_ativo == "laranja":
+        card_bg = "rgba(0, 0, 0, 0.22)"
+        card_bd = "rgba(255, 255, 255, 0.10)"
+        avatar_bg = Cores.PRIMARIA_DARK
+        nome_col = "#FFFFFF"
+        role_col = "#FDBA74"
+        email_col = "rgba(255, 255, 255, 0.82)"
+        item_lbl_col = "#FED7AA"
+        item_val_col = "#FFFFFF"
+        rodape_col = "rgba(255, 255, 255, 0.75)"
+        titulo_col = "#FFFFFF"
+    else:
+        card_bg = "#FFFFFF"
+        card_bd = "#E2E8F0"
+        avatar_bg = Cores.PRIMARIA
+        nome_col = Cores.PRIMARIA
+        role_col = Cores.SECUNDARIA_DARK
+        email_col = "#64748B"
+        item_lbl_col = "#64748B"
+        item_val_col = "#012869"
+        rodape_col = "#64748B"
+        titulo_col = Cores.PRIMARIA
+
     status_cfg = {
         "online": ("#059669", "Online"),
         "offline": ("#94A3B8", "Offline"),
@@ -1359,7 +1912,7 @@ def render_sidebar_info(
             mono = "U"
         avatar_html = (
             '<div style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;'
-            f'justify-content:center;background:{Cores.PRIMARIA};color:#fff;font-weight:800;">{mono}</div>'
+            f'justify-content:center;background:{avatar_bg};color:#fff;font-weight:800;">{mono}</div>'
         )
     status_label_html = ""
     if status and status in status_cfg:
@@ -1371,19 +1924,19 @@ def render_sidebar_info(
     user_section = ""
     if user_name or role or email or avatar:
         name_html = (
-            f'<p style="margin:0;font-size:13px;font-weight:750;color:{Cores.PRIMARIA};">'
+            f'<p style="margin:0;font-size:13px;font-weight:750;color:{nome_col};">'
             f"{Validadores.html_escape(user_name)}</p>"
             if user_name
             else ""
         )
         role_html = (
-            f'<p style="margin:2px 0 0;font-size:11px;color:{Cores.SECUNDARIA};font-weight:650;">'
+            f'<p style="margin:2px 0 0;font-size:11px;color:{role_col};font-weight:650;">'
             f"{Validadores.html_escape(role)}</p>"
             if role
             else ""
         )
         email_html = (
-            f'<p style="margin:2px 0 0;font-size:11px;color:{Cores.TEXTO_3};">'
+            f'<p style="margin:2px 0 0;font-size:11px;color:{email_col};">'
             f"{Validadores.html_escape(email)}</p>"
             if email
             else ""
@@ -1396,18 +1949,18 @@ def render_sidebar_info(
     if itens_dict:
         rows = "".join(
             '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;">'
-            f'<span style="font-size:11px;color:{Cores.TEXTO_3};">{Validadores.html_escape(k)}</span>'
-            f'<span style="font-size:11px;color:{Cores.PRIMARIA};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
+            f'<span style="font-size:11px;color:{item_lbl_col};">{Validadores.html_escape(k)}</span>'
+            f'<span style="font-size:11px;color:{item_val_col};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
             for k, v in itens_dict.items()
         )
         itens_html = f'<div style="margin-top:8px;">{rows}</div>'
     rodape_html = (
-        f'<div style="margin-top:8px;font-size:10px;color:{Cores.TEXTO_3};">{Validadores.html_escape(rodape)}</div>'
+        f'<div style="margin-top:8px;font-size:10px;color:{rodape_col};">{Validadores.html_escape(rodape)}</div>'
         if rodape
         else ""
     )
     titulo_html = (
-        f'<div class="sidebar-section-header"><span style="font-size:11px;font-weight:750;color:{Cores.PRIMARIA};'
+        f'<div class="sidebar-section-header"><span style="font-size:11px;font-weight:750;color:{titulo_col};'
         f'text-transform:uppercase;letter-spacing:0.08em;">{Validadores.html_escape(titulo)}</span></div>'
         if titulo
         else ""
@@ -1416,7 +1969,7 @@ def render_sidebar_info(
         return
     markup = (
         f"{titulo_html}"
-        '<div style="background:#fff;border:1px solid #E6EDF5;border-radius:14px;padding:14px;margin:8px 0 12px;">'
+        f'<div style="background:{card_bg};border:1px solid {card_bd};border-radius:14px;padding:14px;margin:8px 0 12px;">'
         f"{user_section}{itens_html}{rodape_html}</div>"
     )
     with st.sidebar:
@@ -1450,8 +2003,11 @@ def render_sidebar_status(
     tipo: Literal["ok", "info", "alerta", "critico"] = "ok",
     compacto: bool = False,
     container: Any = None,
+    tema: TemaSidebarType | None = None,
     **kwargs: Any,
 ) -> None:
+    tema_ativo = _obter_tema_sidebar(tema)
+
     cfg_status = {
         "ok": ("#047857", "#ECFDF5", "#A7F3D0", "#065F46"),
         "info": ("#1D4ED8", "#EFF6FF", "#BFDBFE", "#1E3A8A"),
@@ -1469,31 +2025,60 @@ def render_sidebar_status(
         target = container if container is not None else st.sidebar
         _safe_render_html(f'<div style="margin:6px 0;">{pill}</div>', target)
         return
+
+    if tema_ativo == "azul":
+        card_bg = "rgba(255, 255, 255, 0.035)"
+        card_bd = "rgba(255, 255, 255, 0.08)"
+        lbl_col = "#94A3B8"
+        total_sub_col = "#CBD5E1"
+        total_val_col = "#FFFFFF"
+        detail_k_col = "#94A3B8"
+        detail_v_col = "#FFFFFF"
+        date_col = "#94A3B8"
+    elif tema_ativo == "laranja":
+        card_bg = "rgba(0, 0, 0, 0.22)"
+        card_bd = "rgba(255, 255, 255, 0.10)"
+        lbl_col = "#FED7AA"
+        total_sub_col = "#FFEDD5"
+        total_val_col = "#FFFFFF"
+        detail_k_col = "#FED7AA"
+        detail_v_col = "#FFFFFF"
+        date_col = "#FDBA74"
+    else:
+        card_bg = "#FFFFFF"
+        card_bd = "#E2E8F0"
+        lbl_col = "#64748B"
+        total_sub_col = "#475569"
+        total_val_col = "#012869"
+        detail_k_col = "#64748B"
+        detail_v_col = "#012869"
+        date_col = "#64748B"
+
     detalhes_dict = detalhes or {}
     detalhes_html = "".join(
         '<div style="display:flex;justify-content:space-between;padding:3px 0;">'
-        f'<span style="font-size:11px;color:{Cores.TEXTO_3};">{Validadores.html_escape(k)}</span>'
-        f'<span style="font-size:11px;color:{Cores.PRIMARIA};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
+        f'<span style="font-size:11px;color:{detail_k_col};">{Validadores.html_escape(k)}</span>'
+        f'<span style="font-size:11px;color:{detail_v_col};font-weight:750;">{Validadores.html_escape(v)}</span></div>'
         for k, v in detalhes_dict.items()
     )
     ultima_fmt = (
         formatar_datetime_exibicao(ultima_atualizacao) if ultima_atualizacao else ""
     )
     data_html = (
-        f'<div style="font-size:11px;color:{Cores.TEXTO_3};margin-top:6px;">Atualizado {Validadores.html_escape(ultima_fmt)}</div>'
+        f'<div style="font-size:11px;color:{date_col};margin-top:6px;">Atualizado {Validadores.html_escape(ultima_fmt)}</div>'
         if ultima_fmt
         else ""
     )
     total_html = (
-        f'<div style="font-size:12px;color:{Cores.TEXTO_2};margin-top:4px;">Total <strong style="color:{Cores.PRIMARIA};">{Validadores.html_escape(total_registros)}</strong></div>'
+        f'<div style="font-size:12px;color:{total_sub_col};margin-top:4px;">Total <strong style="color:{total_val_col};">{Validadores.html_escape(total_registros)}</strong></div>'
         if total_registros is not None
         else ""
     )
     markup = (
-        '<div style="background:#fff;border:1px solid #E6EDF5;border-radius:14px;padding:12px 14px;margin:10px 0 14px;'
+        f'<div style="background:{card_bg};border:1px solid {card_bd};border-radius:14px;padding:12px 14px;margin:10px 0 14px;'
         f'box-shadow:inset 3px 0 0 {cor};">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
-        f'<span style="font-size:10px;font-weight:800;letter-spacing:0.08em;color:{Cores.TEXTO_3};">{label_esc}</span>'
+        f'<span style="font-size:10px;font-weight:800;letter-spacing:0.08em;color:{lbl_col};">{label_esc}</span>'
         f"{pill}</div>{total_html}{detalhes_html}{data_html}</div>"
     )
     target = container if container is not None else st.sidebar
@@ -2263,6 +2848,8 @@ __all__ = [
     "PlotlyConfig",
     "TemaKPI",
     "TemaKPIType",
+    "TemaSidebar",
+    "TemaSidebarType",
     "TipoBadge",
     "TipoBadgeType",
     "TipoEmptyState",
@@ -2285,9 +2872,11 @@ __all__ = [
     "aplicar_estilo",
     "aplicar_estilo_corp",
     "aplicar_sidebar_corp",
+    "definir_tema_sidebar",
     "formatar_datetime_exibicao",
     "formatar_numero_br",
     "normalizar_texto_badge",
+    "normalizar_tema_sidebar",
     "normalizar_tipo",
     "render_badge",
     "render_card",
@@ -2312,6 +2901,7 @@ __all__ = [
     "render_sidebar_section",
     "render_sidebar_spacer",
     "render_sidebar_status",
+    "render_sidebar_theme_selector",
     "render_skeleton",
     "render_spacer",
     "render_table_html",
