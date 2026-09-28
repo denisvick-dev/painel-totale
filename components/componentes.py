@@ -3,21 +3,48 @@ components/componentes.py
 =========================
 Design System Streamlit — TOTALE
 
-Versão: 4.9.0
+Versão: 5.1.0
 Autor: TOTALE Tecnologia
 
-4.9.0 — Suporte a 3 tipos de sidebar (Claro, Azul e Laranja):
-• Claro (padrão): fundo branco/suave, acabamento corporativo sutil com detalhes navy e laranja.
-• Azul: imersivo corporativo navy TOTALE (#011838 a #012869), contraste refinado, realces
-  em laranja TOTALE e cards translúcidos.
-• Laranja: elegante e vibrante no tom secundário TOTALE (#8C2A0A a #C2410C), alto contraste
-  com navy profundo (#011838) e branco.
-• Integração completa com componentes da sidebar (brand, section, divider, info, status, footer)
-  e widgets nativos do Streamlit.
-• Configuração via aplicar_estilo(tema_sidebar=...), aplicar_sidebar_corp(tema=...) ou
-  definir_tema_sidebar(...).
-• Preservado da 4.8.0/4.7.1: heróis e cartões estáticos, cabeçalho sticky em tabelas,
-  trava de tile longo, inversão de segurança título/ícone e Material Symbols com ligadura.
+5.1.0 — Refino visual da navegação nos 3 temas de sidebar (baseado em feedback
+das telas reais do portal):
+• Item ativo (Azul): preenchimento marrom (laranja alpha sobre navy) substituído
+  por gradiente em azul de marca rgba(10,72,170,0.45→0.10); hairline laranja
+  sutil (0.16) no lugar do contorno fechado; barra de acento laranja 3px.
+• Item ativo (Laranja): contorno fechado substituído por hairline âmbar 0.18 +
+  barra de acento #FFB067 (clara, destaca-se do próprio fill) e fill levemente
+  mais quente à esquerda (0.36→0.10).
+• Item ativo (Claro): ganha barra de acento laranja 3px (consistência de marca
+  entre os 3 skins).
+• Alinhamento sem "pulo" de 2px: todos os links da navegação passam a ter
+  border-left transparente de 3px (antes só o item ativo tinha 3px).
+• Hierarquia de rótulos (Azul): itens passivos de #94A3B8 → #CBD5E1 (10.27:1),
+  deixando os títulos de seção (#94A3B8) mais escuros que os itens.
+• Hover (Azul) levemente mais visível (0.05 → 0.07 de branco translúcido).
+
+5.0.0 — Verificação e melhoria dos temas de sidebar (Claro, Azul e Laranja):
+• Paleta centralizada em ConfigCores.SIDEBAR com tokens semânticos verificados:
+  fundo, borda, texto (primário/secundário), ícones, cards, nav ativo/passaivo,
+  botões, inputs, foco e acentos — cada tema com contraste WCAG AA validado.
+• Ferramenta de verificação de contraste embutida:
+  `python components/componentes.py` (ou `verificar_contrastes_sidebar()`)
+  calcula luminância relativa e razão de contraste (WCAG 2.1) e sinaliza
+  pares abaixo do mínimo (4.5:1 texto / 3:1 texto grande e componentes de UI).
+• Correções de contraste aplicadas na navegação passiva (azul #334155 sobre
+  #F1F5F9 hover no tema claro; #94A3B8/#FED7AA com !important nos temas
+  escuros — regras genéricas do Streamlit venciam por ordem de cascade).
+• Inputs com contraparte escura: `input-surface`, `input-text`, `input-border`
+  em todos os temas; checkbox/radio com borda de contraste (mínimo 3:1).
+• Estados de foco visíveis em todos os temas; scrollbars tematizadas;
+  botões desabilitados estilizados; variante de botão secundário laranja
+  nos temas escuros.
+• Componentes de sidebar com `nav_contrast` parametrizável (padrão branco
+  no item ativo); default do seletor de tema corrigido para o tema da sessão
+  (antes sempre reiniciava em "claro"); marca alinhada em todos os temas;
+  checkboxes/radios nativos pintados por tema.
+• Preservado da 4.9.0: os 3 skins de sidebar (Claro, Azul, Laranja),
+  heróis e cartões estáticos, cabeçalho sticky em tabelas, trava de tile
+  longo, inversão de segurança título/ícone e Material Symbols com ligadura.
 """
 
 from __future__ import annotations
@@ -313,38 +340,81 @@ class ConfigCores:
         "padrao": ("#F8FAFC", "#64748B", "📭", "Conteúdo não disponível"),
     }
 
+    # Paleta centralizada e verificada dos 3 temas de sidebar (v5.0.0).
+    # Cada cor abaixo passa pela verificação de contraste WCAG embutida
+    # (ver: verificar_contrastes_sidebar / CLI `python components/componentes.py`).
     SIDEBAR: dict[str, dict[str, str]] = {
         "claro": {
             "fundo": "linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 50%, #F1F5F9 100%)",
+            # base inferior do gradiente: #F1F5F9 (usado nos testes de contraste)
+            "fundo_base": "#F1F5F9",
             "borda": "#E2E8F0",
-            "texto_primario": "#012869",
-            "texto_secundario": "#64748B",
+            "texto_primario": "#011E52",
+            "texto_secundario": "#475569",
+            "icone": "#475569",
             "card_fundo": "#FFFFFF",
             "card_borda": "#E2E8F0",
             "nav_ativo_fundo": "#012869",
             "nav_ativo_texto": "#FFFFFF",
+            "nav_passivo_texto": "#334155",
+            "nav_passivo_hover_texto": "#011E52",
+            "botao_fundo": "#F8FAFC",
+            "botao_texto": "#011E52",
+            "botao_hover_fundo": "#011E52",
+            "botao_hover_texto": "#FFFFFF",
+            "input_fundo": "#FFFFFF",
+            "input_texto": "#0F172A",
+            "input_borda": "#78879E",
+            "input_focus": "#C2410C",
+            "foco": "#C2410C",
             "accent_topo": "linear-gradient(90deg, #012869 0%, #0A48AA 65%, #F37C04 100%)",
         },
         "azul": {
             "fundo": "linear-gradient(180deg, #020C1B 0%, #061730 45%, #0B254A 100%)",
-            "borda": "rgba(255, 255, 255, 0.08)",
+            "fundo_base": "#0B254A",
+            "borda": "rgba(255, 255, 255, 0.10)",
             "texto_primario": "#FFFFFF",
             "texto_secundario": "#CBD5E1",
+            "icone": "#94A3B8",
             "card_fundo": "rgba(255, 255, 255, 0.035)",
-            "card_borda": "rgba(255, 255, 255, 0.08)",
-            "nav_ativo_fundo": "linear-gradient(90deg, rgba(243, 124, 4, 0.18) 0%, rgba(243, 124, 4, 0.04) 100%)",
+            "card_borda": "rgba(255, 255, 255, 0.10)",
+            "nav_ativo_fundo": "linear-gradient(90deg, rgba(10, 72, 170, 0.45) 0%, rgba(10, 72, 170, 0.10) 100%)",
             "nav_ativo_texto": "#FFFFFF",
+            "nav_passivo_texto": "#CBD5E1",
+            "nav_passivo_hover_texto": "#FFFFFF",
+            "botao_fundo": "rgba(255, 255, 255, 0.07)",
+            "botao_texto": "#FFFFFF",
+            "botao_hover_fundo": "#C2410C",
+            "botao_hover_texto": "#FFFFFF",
+            "input_fundo": "rgba(255, 255, 255, 0.05)",
+            "input_texto": "#FFFFFF",
+            "input_borda": "rgba(255, 255, 255, 0.42)",
+            "input_focus": "#F37C04",
+            "foco": "#F37C04",
             "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FB923C 100%)",
         },
         "laranja": {
             "fundo": "linear-gradient(180deg, #160702 0%, #2A0F04 40%, #3E1606 75%, #541E09 100%)",
-            "borda": "rgba(243, 124, 4, 0.16)",
+            "fundo_base": "#541E09",
+            "borda": "rgba(243, 124, 4, 0.22)",
             "texto_primario": "#FFFFFF",
             "texto_secundario": "#FFEDD5",
+            "icone": "#FED7AA",
             "card_fundo": "rgba(0, 0, 0, 0.22)",
-            "card_borda": "rgba(255, 255, 255, 0.10)",
-            "nav_ativo_fundo": "linear-gradient(90deg, rgba(243, 124, 4, 0.32) 0%, rgba(243, 124, 4, 0.10) 100%)",
+            "card_borda": "rgba(255, 255, 255, 0.12)",
+            "nav_ativo_fundo": "linear-gradient(90deg, rgba(243, 124, 4, 0.36) 0%, rgba(243, 124, 4, 0.10) 100%)",
             "nav_ativo_texto": "#FFFFFF",
+            "nav_passivo_texto": "#FED7AA",
+            "nav_passivo_hover_texto": "#FFFFFF",
+            "botao_fundo": "rgba(255, 255, 255, 0.10)",
+            "botao_texto": "#FFFFFF",
+            "botao_hover_fundo": "#011838",
+            "botao_hover_texto": "#FFFFFF",
+            "input_fundo": "rgba(0, 0, 0, 0.24)",
+            "input_texto": "#FFFFFF",
+            "input_borda": "rgba(255, 255, 255, 0.42)",
+            "input_focus": "#F37C04",
+            "foco": "#F37C04",
             "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FFB067 60%, #FFFFFF 100%)",
         },
     }
@@ -424,9 +494,23 @@ def normalizar_tema_sidebar(tema: Any) -> TemaSidebarType:
 
 
 def definir_tema_sidebar(tema: TemaSidebarType | str) -> None:
-    """Define o tema ativo da sidebar ('claro', 'azul' ou 'laranja') na sessão Streamlit."""
+    """Define o tema ativo da sidebar ('claro', 'azul' ou 'laranja') na sessão Streamlit.
+
+    v5.0.0: sincroniza também o widget do `render_sidebar_theme_selector` (quando
+    já existir) para que trocas programáticas de tema (botões, callbacks, URL)
+    não sejam revertidas na execução seguinte pelo estado do selectbox.
+    """
     tema_norm = normalizar_tema_sidebar(tema)
     st.session_state["_totale_sidebar_theme"] = tema_norm
+    if st.session_state.get("_totale_sidebar_theme_select") != tema_norm:
+        try:
+            st.session_state["_totale_sidebar_theme_select"] = tema_norm
+        except Exception:
+            # Widget já instanciado nesta execução — a sincronização ocorre
+            # naturalmente na próxima execução do script.
+            logger.debug(
+                "Seletor de tema não sincronizado em tempo real (tema=%s).", tema_norm
+            )
 
 
 def _obter_tema_sidebar(tema_param: Any = None) -> TemaSidebarType:
@@ -588,6 +672,279 @@ class Formatadores:
         return texto
 
 
+# =============================================================================
+# VERIFICAÇÃO DE CORES DA SIDEBAR (WCAG 2.1) — NOVO NA 5.0.0
+# =============================================================================
+def _hex_para_rgb(cor: str) -> tuple[int, int, int] | None:
+    """Converte '#RGB', '#RRGGBB' ou 'rgb(r,g,b)' para tupla (r, g, b)."""
+    s = str(cor).strip().lower()
+    m = re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{6})", s)
+    if m:
+        h = m.group(1)
+        if len(h) == 3:
+            h = "".join(ch * 2 for ch in h)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    m = re.fullmatch(r"rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})[^)]*\)", s)
+    if m:
+        r, g, b = (min(255, int(x)) for x in m.groups())
+        return (r, g, b)
+    return None
+
+
+def _extrair_alpha(cor: str) -> float:
+    """Retorna o alfa de 'rgba(...)' (1.0 para cores opacas)."""
+    m = re.search(r"rgba\s*\([^)]*,\s*([0-9]*\.?[0-9]+)\s*\)", str(cor).strip())
+    if m:
+        return min(1.0, max(0.0, float(m.group(1))))
+    return 1.0
+
+
+def _compor_cor(cor: str, base: str) -> str | None:
+    """Compõe uma cor (hex/rgb(a)) sobre uma base sólida e devolve '#RRGGBB'.
+
+    Permite avaliar cores translúcidas (ex.: rgba(255,255,255,0.42)) contra o
+    fundo em que realmente aparecem — essencial para os skins escuros.
+    """
+    rgb = _hex_para_rgb(cor)
+    base_rgb = _hex_para_rgb(base)
+    if rgb is None or base_rgb is None:
+        return None
+    a = _extrair_alpha(cor)
+    if a >= 1.0:
+        return "#%02X%02X%02X" % rgb
+    comp = tuple(round(a * v + (1 - a) * b) for v, b in zip(rgb, base_rgb))
+    return "#%02X%02X%02X" % comp
+
+
+def _para_solidas(cor: str, base: str) -> list[str]:
+    """Resolve uma cor em sólidos sobre `base`.
+
+    - hex/rgb(a)  → 1 cor composta sobre a base;
+    - gradiente   → cada stop composto sobre a base (avaliação do pior caso).
+    """
+    s = str(cor).strip()
+    if "gradient(" in s:
+        tokens = re.findall(r"#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)", s)
+        solidas = []
+        for tok in tokens:
+            comp = _compor_cor(tok, base)
+            if comp:
+                solidas.append(comp)
+        return solidas
+    comp = _compor_cor(s, base)
+    return [comp] if comp else []
+
+
+def _luminancia(cor: str) -> float | None:
+    """Luminância relativa (WCAG 2.1). None quando a cor não é sólida/parseável."""
+    rgb = _hex_para_rgb(cor)
+    if rgb is None:
+        return None
+    canais = []
+    for v in rgb:
+        c = v / 255.0
+        canais.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = canais
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contraste(cor1: str, cor2: str) -> float | None:
+    """Razão de contraste entre duas cores sólidas (1.0 a 21.0); None se indefinível."""
+    l1 = _luminancia(cor1)
+    l2 = _luminancia(cor2)
+    if l1 is None or l2 is None:
+        return None
+    if l1 < l2:
+        l1, l2 = l2, l1
+    return (l1 + 0.05) / (l2 + 0.05)
+
+
+def _contraste_par(fg: str, bg: str, base: str) -> float | None:
+    """Contraste do pior caso de um par (foreground, background).
+
+    Ambos são resolvidos para cores sólidas compostas sobre `base`; o fg
+    translúcido é composto sobre cada variação do bg. Gradientes são
+    avaliados stop a stop (pior caso).
+    """
+    fundos = _para_solidas(bg, base)
+    if not fundos:
+        return None
+    razoes: list[float] = []
+    for b in fundos:
+        fgs = _para_solidas(fg, b)
+        if not fgs:
+            return None
+        for f in fgs:
+            r = _contraste(f, b)
+            if r is None:
+                return None
+            razoes.append(r)
+    return min(razoes) if razoes else None
+
+
+def verificar_contrastes_sidebar(
+    detalhar: bool = False,
+    minimo: float = 4.5,
+    minimo_ui: float = 3.0,
+) -> list[dict[str, Any]]:
+    """Verifica as cores dos 3 temas de sidebar contra os critérios WCAG AA.
+
+    Cada par é avaliado com composição alpha sobre a base do tema e, quando
+    aplicável, stop a stop em gradientes (pior caso). Cada item do relatório
+    contém: tema, par, contraste, mínimo exigido, status
+    ('ok', 'baixo', 'decorativo' ou 'nao_verificavel') e `aprovado`.
+
+    Pares 'decorativos' (ex.: divisor estrutural da sidebar) são informativos
+    e não reprova o tema — bordas de controles (inputs) seguem 3:1 (WCAG 1.4.11).
+
+    Uso:
+        >>> relatorio = verificar_contrastes_sidebar()
+        >>> falhas = [r for r in relatorio if not r["aprovado"]]
+    """
+    pares: list[dict[str, Any]] = []
+    for tema, pal in ConfigCores.SIDEBAR.items():
+        fundo = pal.get("fundo_base", "")
+        cfg: list[tuple[str, str, str, float, bool]] = [
+            (
+                "texto primário vs fundo",
+                pal.get("texto_primario", ""),
+                fundo,
+                minimo,
+                False,
+            ),
+            (
+                "texto secundário vs fundo",
+                pal.get("texto_secundario", ""),
+                fundo,
+                minimo,
+                False,
+            ),
+            ("ícone vs fundo", pal.get("icone", ""), fundo, minimo, False),
+            (
+                "nav passivo vs fundo",
+                pal.get("nav_passivo_texto", ""),
+                fundo,
+                minimo,
+                False,
+            ),
+            (
+                "nav passivo hover vs fundo",
+                pal.get("nav_passivo_hover_texto", ""),
+                fundo,
+                minimo,
+                False,
+            ),
+            (
+                "nav ativo vs fundo",
+                pal.get("nav_ativo_texto", ""),
+                pal.get("nav_ativo_fundo", ""),
+                minimo,
+                False,
+            ),
+            (
+                "botão vs fundo",
+                pal.get("botao_texto", ""),
+                pal.get("botao_fundo", ""),
+                minimo,
+                False,
+            ),
+            (
+                "botão hover vs fundo",
+                pal.get("botao_hover_texto", ""),
+                pal.get("botao_hover_fundo", ""),
+                minimo,
+                False,
+            ),
+            (
+                "input texto vs input fundo",
+                pal.get("input_texto", ""),
+                pal.get("input_fundo", ""),
+                minimo,
+                False,
+            ),
+            (
+                "input borda vs fundo (UI)",
+                pal.get("input_borda", ""),
+                fundo,
+                minimo_ui,
+                False,
+            ),
+            (
+                "input borda vs input fundo (UI)",
+                pal.get("input_borda", ""),
+                pal.get("input_fundo", ""),
+                minimo_ui,
+                False,
+            ),
+            ("foco vs fundo (UI)", pal.get("foco", ""), fundo, minimo_ui, False),
+            ("borda da sidebar vs fundo", pal.get("borda", ""), fundo, 0.0, True),
+        ]
+        for rotulo, fg, bg, min_req, decorativo in cfg:
+            ratio = _contraste_par(fg, bg, fundo)
+            if decorativo:
+                status = "decorativo"
+                aprovado = True
+            elif ratio is None:
+                status = "nao_verificavel"
+                aprovado = True
+            else:
+                aprovado = ratio >= min_req
+                status = "ok" if aprovado else "baixo"
+            pares.append(
+                {
+                    "tema": tema,
+                    "par": rotulo,
+                    "fg": fg,
+                    "bg": bg,
+                    "contraste": ratio,
+                    "minimo": min_req,
+                    "status": status,
+                    "aprovado": aprovado,
+                }
+            )
+
+    falhas = [p for p in pares if not p["aprovado"]]
+    if detalhar or falhas:
+        largura = max((len(p["par"]) for p in pares), default=40)
+        print("Verificação de contraste da sidebar — Design System TOTALE (WCAG AA)")
+        print("(cores alpha/gradiente compostas sobre a base do tema; pior caso)")
+        print("-" * (largura + 52))
+        atual = None
+        for p in pares:
+            if p["tema"] != atual:
+                atual = p["tema"]
+                print(f"\n[{atual.upper()}]")
+            ratio = p["contraste"]
+            ratio_txt = f"{ratio:.2f}:1" if ratio is not None else "   n/d  "
+            flag = {
+                "ok": "OK ",
+                "baixo": "BAIXO",
+                "nao_verificavel": "n/d",
+                "decorativo": "INFO",
+            }[p["status"]]
+            min_txt = (
+                "decor." if p["status"] == "decorativo" else f"mín {p['minimo']:.1f}:1"
+            )
+            print(
+                f"  {flag:<7} {p['par']:<{largura}}  {ratio_txt}"
+                f"  ({min_txt})  {p['fg']} / {p['bg']}"
+            )
+        print("-" * (largura + 52))
+        total = len(pares)
+        ok = sum(1 for p in pares if p["status"] == "ok")
+        dec = sum(1 for p in pares if p["status"] == "decorativo")
+        nver = sum(1 for p in pares if p["status"] == "nao_verificavel")
+        print(
+            f"Resumo: {total} verificações | {ok} OK | {len(falhas)} abaixo do mínimo"
+            f" | {dec} decorativas | {nver} não verificável(is)\n"
+        )
+        if falhas:
+            print("!! Ajustar cores com contraste abaixo do mínimo WCAG AA.")
+        else:
+            print("Todos os pares obrigatórios atendem ao mínimo WCAG AA.")
+    return pares
+
+
 def _garantir_container(container: Any = None) -> Any:
     if container is None:
         return st
@@ -605,7 +962,8 @@ def _safe_render_html(html_str: str, container: Any = None) -> None:
     c = _garantir_container(container)
     clean = html_str.strip()
 
-    # Prioriza c.html (Streamlit 1.34+) para injeção pura sem quebrar CSS
+    # st.html (Streamlit 1.64+): injeção pura no DOM da página, sem iframe,
+    # sanitizada com DOMPurify — preserva <style> e atributos style/data-*.
     if hasattr(c, "html"):
         try:
             c.html(clean)
@@ -632,6 +990,40 @@ def _texto_icone_seguro(icone: str) -> str:
     if len(texto) > 15 and " " in texto:
         return texto[0]
     return texto
+
+
+def _injetar_js(html: str) -> None:
+    """Executa um snippet `<script>` no documento da aplicação.
+
+    v5.0.0: prefere `st.html(unsafe_allow_javascript=True)` (Streamlit ≥ 1.64,
+    substituto de `components.html`, deprecado após 2026-06-01): o script roda
+    direto no documento real da app, sem iframe. Fallback automático para
+    `components.html` (iframe de mesma origem) em versões anteriores.
+
+    Os templates JS usam os placeholders `__DOC__`/`__WIN__` para se ajustar
+    ao modo de injeção:
+      - st.html         → `document` / `window`
+      - components.html → `window.parent.document` / `window.parent`
+    """
+    fn = getattr(st, "html", None)
+    if fn is not None:
+        try:
+            fn(
+                html.replace("__DOC__", "document").replace("__WIN__", "window"),
+                unsafe_allow_javascript=True,
+            )
+            return
+        except Exception:
+            logger.debug(
+                "st.html com JS indisponível/falhou; usando components.html.",
+                exc_info=True,
+            )
+    components.html(
+        html.replace("__DOC__", "window.parent.document").replace(
+            "__WIN__", "window.parent"
+        ),
+        height=0,
+    )
 
 
 def _icone_tile(icone: str, variante: str = "section") -> str:
@@ -706,7 +1098,7 @@ footer[data-testid="stFooter"] { display: none !important; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #D5DEEA; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
-*:focus-visible { outline: 2px solid #F37C04; outline-offset: 2px; border-radius: 6px; }
+*:focus-visible { outline: 2px solid #C2410C; outline-offset: 2px; border-radius: 6px; }
 """
 
 _CSS_HEROS = """
@@ -737,7 +1129,7 @@ _CSS_HEROS = """
 .hero-title { font-size: clamp(26px, 3vw, 36px); font-weight: 800; color: #fff; margin: 0 0 8px; line-height: 1.08; position: relative; z-index: 2; }
 .hero-subtitle { font-size: 15px; color: rgba(255,255,255,0.78); margin: 0; line-height: 1.55; position: relative; z-index: 2; max-width: 68ch; }
 .hero-badge, .th-badge {
-    display: inline-flex align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
     background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);
     color: #fff; font-size: 10px; font-weight: 750; letter-spacing: 0.12em;
     text-transform: uppercase; padding: 5px 11px; border-radius: 999px; position: relative; z-index: 2;
@@ -887,11 +1279,11 @@ _CSS_EXTRAS = """
 .sidebar-brand-name {
     font-family: var(--font-titulo); font-size: 18px; font-weight: 800; letter-spacing: -0.03em;
     margin: 0; line-height: 1.1;
-    color: #012869;
+    color: #011E52;
     background: linear-gradient(100deg, #012869 10%, #0A48AA 62%, #F37C04 140%);
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
-.sidebar-brand-sub { font-size: 11px; color: #64748B; margin-top: 3px; letter-spacing: 0.01em; }
+.sidebar-brand-sub { font-size: 11px; color: #475569; margin-top: 3px; letter-spacing: 0.01em; }
 .sidebar-section-header { margin: 16px 0 6px; padding: 4px 0 8px 12px; position: relative; }
 .sidebar-section-header::before {
     content: ""; position: absolute; left: 0; top: 6px; width: 3px; height: 12px; border-radius: 99px; background: #F37C04;
@@ -918,6 +1310,10 @@ button[kind="primary"], button[data-testid="stBaseButton-primary"] {
 button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {
     background: #011838 !important; border-color: #F37C04 !important;
     box-shadow: 0 6px 16px rgba(1,40,105,0.22) !important;
+}
+button[kind="primary"]:disabled, button[data-testid="stBaseButton-primary"]:disabled {
+    background: #94A3B8 !important; border-color: #94A3B8 !important;
+    color: #F8FAFC !important; box-shadow: none !important; cursor: not-allowed !important;
 }
 button[kind="secondary"]:hover, button[data-testid="stBaseButton-secondary"]:hover,
 div[data-testid="stDownloadButton"] > button:hover {
@@ -953,6 +1349,8 @@ div[data-testid="stDownloadButton"] > button:hover {
 
 # =============================================================================
 # CSS ESPECÍFICO DOS 3 TIPOS DE SIDEBAR (CLARO, AZUL E LARANJA)
+# v5.0.0: contraste verificado (WCAG AA), inputs com borda de contraste,
+# checkbox/radio pintados, foco visível, scrollbars e botões desabilitados.
 # =============================================================================
 _CSS_SIDEBAR_CLARO = """
 [data-testid="stSidebar"] {
@@ -972,23 +1370,25 @@ _CSS_SIDEBAR_CLARO = """
 [data-testid="stSidebarNav"] a {
     border-radius: 8px !important; color: #334155 !important; font-weight: 550 !important;
     font-size: 13px !important; border: 1px solid transparent !important;
+    border-left: 3px solid transparent !important;
     transition: background 0.15s ease, color 0.15s ease !important;
 }
 [data-testid="stSidebarNav"] a:hover {
-    background: #F1F5F9 !important; color: #012869 !important;
+    background: #F1F5F9 !important; color: #011E52 !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] {
-    background: #012869 !important; color: #FFFFFF !important; font-weight: 650 !important;
+    background: #012869 !important; color: #FFFFFF !important; font-weight: 700 !important;
     border: 1px solid #011E52 !important;
+    border-left: 3px solid #F37C04 !important;
     box-shadow: 0 2px 8px rgba(1, 40, 105, 0.16) !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] span { color: #FFFFFF !important; }
-/* Widgets nativos na sidebar clara */
+/* Widgets nativos na sidebar clara — borda com contraste mínimo 3:1 (WCAG 1.4.11) */
 [data-testid="stSidebar"] div[data-baseweb="select"] > div,
 [data-testid="stSidebar"] input,
 [data-testid="stSidebar"] textarea {
     background: #FFFFFF !important;
-    border: 1px solid #CBD5E1 !important;
+    border: 1px solid #78879E !important;
     color: #0F172A !important;
     border-radius: 8px !important;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
@@ -998,22 +1398,44 @@ _CSS_SIDEBAR_CLARO = """
 [data-testid="stSidebar"] input:hover {
     border-color: #012869 !important;
 }
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stSidebar"] input:focus,
+[data-testid="stSidebar"] textarea:focus {
+    border-color: #C2410C !important;
+    box-shadow: 0 0 0 2px rgba(194, 65, 12, 0.28) !important;
+    outline: none !important;
+}
 [data-testid="stSidebar"] div[data-baseweb="select"] span { color: #0F172A !important; }
 [data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #475569 !important; }
 [data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
 [data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #334155 !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] [data-baseweb="checkbox--checkmark"],
+[data-testid="stSidebar"] label[data-baseweb="radio"] [data-baseweb="radio--circle"] {
+    border-color: #475569 !important;
+}
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] input:checked + div,
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] [data-baseweb="checkbox--checkmark"] {
+    border-color: #012869 !important;
+}
 [data-testid="stSidebar"] div[data-testid="stButton"] > button {
     background: #F8FAFC !important;
     border: 1px solid #E2E8F0 !important;
-    color: #012869 !important;
+    color: #011E52 !important;
     border-radius: 8px !important;
     font-weight: 650 !important;
 }
 [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
-    background: #012869 !important;
-    border-color: #012869 !important;
+    background: #011E52 !important;
+    border-color: #011E52 !important;
     color: #FFFFFF !important;
     box-shadow: 0 4px 12px rgba(1, 40, 105, 0.18) !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled {
+    background: #F1F5F9 !important;
+    border-color: #E2E8F0 !important;
+    color: #94A3B8 !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] details {
     background: #FFFFFF !important;
@@ -1021,24 +1443,29 @@ _CSS_SIDEBAR_CLARO = """
     border-radius: 10px !important;
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
 }
-[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #012869 !important; font-weight: 700 !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #011E52 !important; font-weight: 700 !important; }
 [data-testid="stSidebar"] hr { border-color: #E2E8F0 !important; }
+[data-testid="stSidebar"] *::-webkit-scrollbar { width: 8px; height: 8px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-track { background: transparent; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 [data-testid="stSidebar"] .sidebar-brand-name {
-    color: #012869 !important;
+    color: #011E52 !important;
     background: linear-gradient(100deg, #012869 10%, #0A48AA 62%, #F37C04 140%) !important;
     -webkit-background-clip: text !important; background-clip: text !important;
     -webkit-text-fill-color: transparent !important;
 }
-[data-testid="stSidebar"] .sidebar-brand-sub { color: #64748B !important; }
+[data-testid="stSidebar"] .sidebar-brand-sub { color: #475569 !important; }
 [data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
 [data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid #E2E8F0 !important; }
+[data-testid="stSidebar"]:focus-within *:focus-visible { outline-color: #C2410C !important; }
 """
 
 _CSS_SIDEBAR_AZUL = """
 [data-testid="stSidebar"] {
     position: relative;
     background: linear-gradient(180deg, #020C1B 0%, #061730 45%, #0B254A 100%) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.10) !important;
     color: #CBD5E1 !important;
 }
 [data-testid="stSidebar"]::before {
@@ -1046,9 +1473,10 @@ _CSS_SIDEBAR_AZUL = """
     background: linear-gradient(90deg, #F37C04 0%, #FB923C 100%);
 }
 [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 12px; }
-[data-testid="stSidebar"], [data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] li {
-    color: #CBD5E1;
+/* Cor de texto de base do tema (regras de widgets abaixo sobrescrevem com !important) */
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] li, [data-testid="stSidebar"] .stMarkdown {
+    color: #CBD5E1 !important;
 }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
 [data-testid="stSidebar"] h4, [data-testid="stSidebar"] strong {
@@ -1066,21 +1494,21 @@ _CSS_SIDEBAR_AZUL = """
     text-transform: uppercase !important; color: #94A3B8 !important; padding: 10px 12px 6px 14px !important;
 }
 [data-testid="stSidebarNav"] a {
-    border-radius: 8px !important; color: #94A3B8 !important; font-weight: 550 !important;
+    border-radius: 8px !important; color: #CBD5E1 !important; font-weight: 550 !important;
     font-size: 13px !important; border: 1px solid transparent !important;
+    border-left: 3px solid transparent !important;
     transition: all 0.15s ease !important;
 }
 [data-testid="stSidebarNav"] a:hover {
-    background: rgba(255, 255, 255, 0.05) !important; color: #FFFFFF !important;
+    background: rgba(255, 255, 255, 0.07) !important; color: #FFFFFF !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] {
-    background: linear-gradient(90deg, rgba(243, 124, 4, 0.18) 0%, rgba(243, 124, 4, 0.04) 100%) !important;
+    /* Preenchimento em azul de marca (antes: laranja sobre navy = marrom sujo) */
+    background: linear-gradient(90deg, rgba(10, 72, 170, 0.45) 0%, rgba(10, 72, 170, 0.10) 100%) !important;
+    border: 1px solid rgba(243, 124, 4, 0.16) !important;
     border-left: 3px solid #F37C04 !important;
-    border-top: 1px solid rgba(243, 124, 4, 0.28) !important;
-    border-right: 1px solid rgba(243, 124, 4, 0.16) !important;
-    border-bottom: 1px solid rgba(243, 124, 4, 0.28) !important;
     color: #FFFFFF !important; font-weight: 700 !important;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] span { color: #FFFFFF !important; }
 /* Widgets Streamlit nativos na Sidebar Azul */
@@ -1088,56 +1516,79 @@ _CSS_SIDEBAR_AZUL = """
 [data-testid="stSidebar"] input,
 [data-testid="stSidebar"] textarea {
     background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.42) !important;
     color: #FFFFFF !important;
     border-radius: 8px !important;
     transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 [data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
 [data-testid="stSidebar"] input:hover {
-    border-color: rgba(243, 124, 4, 0.5) !important;
+    border-color: #F37C04 !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stSidebar"] input:focus,
+[data-testid="stSidebar"] textarea:focus {
+    border-color: #F37C04 !important;
+    box-shadow: 0 0 0 2px rgba(243, 124, 4, 0.30) !important;
+    outline: none !important;
 }
 [data-testid="stSidebar"] div[data-baseweb="select"] span { color: #FFFFFF !important; }
 [data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #94A3B8 !important; }
 [data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
 [data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #CBD5E1 !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] [data-baseweb="checkbox--checkmark"],
+[data-testid="stSidebar"] label[data-baseweb="radio"] [data-baseweb="radio--circle"] {
+    border-color: rgba(255, 255, 255, 0.55) !important;
+}
 [data-testid="stSidebar"] div[data-testid="stButton"] > button {
     background: rgba(255, 255, 255, 0.07) !important;
     color: #FFFFFF !important;
-    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
     border-radius: 8px !important;
     font-weight: 650 !important;
 }
 [data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
-    background: #F37C04 !important;
-    border-color: #F37C04 !important;
+    background: #C2410C !important;
+    border-color: #C2410C !important;
     color: #FFFFFF !important;
-    box-shadow: 0 4px 12px rgba(243, 124, 4, 0.28) !important;
+    box-shadow: 0 4px 12px rgba(194, 65, 12, 0.35) !important;
+}
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.10) !important;
+    color: #94A3B8 !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] details {
     background: rgba(255, 255, 255, 0.035) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
     border-radius: 10px !important;
     color: #FFFFFF !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #FFFFFF !important; font-weight: 700 !important; }
-[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.10) !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.12) !important; }
+[data-testid="stSidebar"] *::-webkit-scrollbar { width: 8px; height: 8px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-track { background: transparent; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 99px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb:hover { background: rgba(243, 124, 4, 0.65); }
 [data-testid="stSidebar"] .sidebar-brand-name {
     color: #FFFFFF !important;
-    background: linear-gradient(100deg, #FFFFFF 30%, #E2E8F0 100%) !important;
+    background: linear-gradient(100deg, #FFFFFF 20%, #FDBA74 100%) !important;
     -webkit-background-clip: text !important; background-clip: text !important;
     -webkit-text-fill-color: transparent !important;
 }
-[data-testid="stSidebar"] .sidebar-brand-sub { color: #94A3B8 !important; }
+[data-testid="stSidebar"] .sidebar-brand-sub { color: #CBD5E1 !important; }
 [data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
-[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08) !important; }
+[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.10) !important; }
+[data-testid="stSidebar"]:focus-within *:focus-visible { outline-color: #F37C04 !important; }
 """
 
 _CSS_SIDEBAR_LARANJA = """
 [data-testid="stSidebar"] {
     position: relative;
     background: linear-gradient(180deg, #160702 0%, #2A0F04 40%, #3E1606 75%, #541E09 100%) !important;
-    border-right: 1px solid rgba(243, 124, 4, 0.16) !important;
+    border-right: 1px solid rgba(243, 124, 4, 0.22) !important;
     color: #FFEDD5 !important;
 }
 [data-testid="stSidebar"]::before {
@@ -1145,9 +1596,10 @@ _CSS_SIDEBAR_LARANJA = """
     background: linear-gradient(90deg, #F37C04 0%, #FFB067 60%, #FFFFFF 100%);
 }
 [data-testid="stSidebar"] [data-testid="stSidebarContent"] { padding-top: 12px; }
-[data-testid="stSidebar"], [data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] li {
-    color: #FFEDD5;
+/* Cor de texto de base do tema (regras de widgets abaixo sobrescrevem com !important) */
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] label,
+[data-testid="stSidebar"] li, [data-testid="stSidebar"] .stMarkdown {
+    color: #FFEDD5 !important;
 }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
 [data-testid="stSidebar"] h4, [data-testid="stSidebar"] strong {
@@ -1168,17 +1620,17 @@ _CSS_SIDEBAR_LARANJA = """
 [data-testid="stSidebarNav"] a {
     border-radius: 8px !important; color: #FED7AA !important; font-weight: 550 !important;
     font-size: 13px !important; border: 1px solid transparent !important;
+    border-left: 3px solid transparent !important;
     transition: all 0.15s ease !important;
 }
 [data-testid="stSidebarNav"] a:hover {
     background: rgba(255, 255, 255, 0.08) !important; color: #FFFFFF !important;
 }
 [data-testid="stSidebarNav"] a[aria-current="page"] {
-    background: linear-gradient(90deg, rgba(243, 124, 4, 0.32) 0%, rgba(243, 124, 4, 0.10) 100%) !important;
-    border-left: 3px solid #F37C04 !important;
-    border-top: 1px solid rgba(243, 124, 4, 0.35) !important;
-    border-right: 1px solid rgba(243, 124, 4, 0.20) !important;
-    border-bottom: 1px solid rgba(243, 124, 4, 0.35) !important;
+    /* Fill âmbar mais legível + barra âmbar clara (antes: contorno laranja fechado em volta toda) */
+    background: linear-gradient(90deg, rgba(243, 124, 4, 0.36) 0%, rgba(243, 124, 4, 0.10) 100%) !important;
+    border: 1px solid rgba(255, 176, 103, 0.18) !important;
+    border-left: 3px solid #FFB067 !important;
     color: #FFFFFF !important; font-weight: 700 !important;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.40) !important;
 }
@@ -1188,7 +1640,7 @@ _CSS_SIDEBAR_LARANJA = """
 [data-testid="stSidebar"] input,
 [data-testid="stSidebar"] textarea {
     background: rgba(0, 0, 0, 0.24) !important;
-    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    border: 1px solid rgba(255, 255, 255, 0.42) !important;
     color: #FFFFFF !important;
     border-radius: 8px !important;
     transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
@@ -1197,14 +1649,25 @@ _CSS_SIDEBAR_LARANJA = """
 [data-testid="stSidebar"] input:hover {
     border-color: #F37C04 !important;
 }
+[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stSidebar"] input:focus,
+[data-testid="stSidebar"] textarea:focus {
+    border-color: #F37C04 !important;
+    box-shadow: 0 0 0 2px rgba(243, 124, 4, 0.32) !important;
+    outline: none !important;
+}
 [data-testid="stSidebar"] div[data-baseweb="select"] span { color: #FFFFFF !important; }
 [data-testid="stSidebar"] div[data-baseweb="select"] svg { fill: #FED7AA !important; }
 [data-testid="stSidebar"] label[data-baseweb="checkbox"] span,
 [data-testid="stSidebar"] label[data-baseweb="radio"] span { color: #FFEDD5 !important; }
+[data-testid="stSidebar"] label[data-baseweb="checkbox"] [data-baseweb="checkbox--checkmark"],
+[data-testid="stSidebar"] label[data-baseweb="radio"] [data-baseweb="radio--circle"] {
+    border-color: rgba(255, 255, 255, 0.60) !important;
+}
 [data-testid="stSidebar"] div[data-testid="stButton"] > button {
     background: rgba(255, 255, 255, 0.10) !important;
     color: #FFFFFF !important;
-    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border: 1px solid rgba(255, 255, 255, 0.20) !important;
     border-radius: 8px !important;
     font-weight: 650 !important;
 }
@@ -1214,14 +1677,25 @@ _CSS_SIDEBAR_LARANJA = """
     color: #FFFFFF !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
 }
+[data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    color: rgba(255, 255, 255, 0.55) !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
+}
 [data-testid="stSidebar"] [data-testid="stExpander"] details {
     background: rgba(0, 0, 0, 0.20) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
     border-radius: 10px !important;
     color: #FFFFFF !important;
 }
 [data-testid="stSidebar"] [data-testid="stExpander"] summary { color: #FFFFFF !important; font-weight: 700 !important; }
-[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.14) !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255, 255, 255, 0.16) !important; }
+[data-testid="stSidebar"] *::-webkit-scrollbar { width: 8px; height: 8px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-track { background: transparent; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.24); border-radius: 99px; }
+[data-testid="stSidebar"] *::-webkit-scrollbar-thumb:hover { background: rgba(243, 124, 4, 0.75); }
 [data-testid="stSidebar"] .sidebar-brand-name {
     color: #FFFFFF !important;
     background: none !important;
@@ -1229,7 +1703,8 @@ _CSS_SIDEBAR_LARANJA = """
 }
 [data-testid="stSidebar"] .sidebar-brand-sub { color: #FED7AA !important; }
 [data-testid="stSidebar"] .sidebar-section-header::before { background: #F37C04 !important; }
-[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.12) !important; }
+[data-testid="stSidebar"] .sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.16) !important; }
+[data-testid="stSidebar"]:focus-within *:focus-visible { outline-color: #FDBA74 !important; }
 """
 
 _CSS_SIDEBAR_NAV_ATIVO = """
@@ -1327,14 +1802,14 @@ class FontInjector:
         if st.session_state.get("_totale_fonts_head_injected", False):
             return
         urls_js = ", ".join(f'"{u}"' for u in GoogleFonts.URLS)
-        components.html(
+        _injetar_js(
             f"""
             <script>
             (function () {{
                 const urls = [{urls_js}];
                 const preconnects = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
                 let parentDoc;
-                try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
+                try {{ parentDoc = __DOC__; }} catch (e) {{ return; }}
                 const head = parentDoc.head;
                 preconnects.forEach(function (href) {{
                     if (head.querySelector('link[href="' + href + '"]')) return;
@@ -1353,20 +1828,26 @@ class FontInjector:
             }})();
             </script>
             """,
-            height=0,
         )
         st.session_state["_totale_fonts_head_injected"] = True
 
 
 class NavContrastFix:
-    _COR = "#FFFFFF"
+    """Garante contraste do item ativo da navegação da sidebar.
+
+    v5.0.0: a cor do texto é resolvida por tema (branco nos 3 skins) e o
+    mecanismo passou a ser reutilizável via `injetar(cor=..., ativo=...)`.
+    """
+
+    _COR_PADRAO = "#FFFFFF"
     _JS = """
 <script>
 (function () {
     var doc;
-    try { doc = window.parent.document; } catch (e) { return; }
+    try { doc = __DOC__; } catch (e) { return; }
     if (!doc || !doc.body) return;
     var COR = "__COR__";
+    var MODO = "__MODO__";
     var SEL_ATIVO = '[data-testid="stSidebar"] [aria-current="page"]';
     var SEL_MARCADO = '[data-testid="stSidebar"] [data-totale-ativo]';
     function pinta(el) {
@@ -1379,10 +1860,14 @@ class NavContrastFix:
     }
     function aplicar() {
         doc.querySelectorAll(SEL_MARCADO).forEach(function (a) {
-            if (a.getAttribute("aria-current") === "page") return;
+            if (a.getAttribute("aria-current") === "page" && MODO === "ativo") return;
+            if (a.getAttribute("aria-current") !== "page" && MODO === "passivo") return;
             limpa(a); a.querySelectorAll("*").forEach(limpa); a.removeAttribute("data-totale-ativo");
         });
-        doc.querySelectorAll(SEL_ATIVO).forEach(function (a) {
+        var alvo = MODO === "passivo"
+            ? '[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:not([aria-current="page"])'
+            : SEL_ATIVO;
+        doc.querySelectorAll(alvo).forEach(function (a) {
             pinta(a); a.querySelectorAll("*").forEach(pinta); a.setAttribute("data-totale-ativo", "1");
         });
     }
@@ -1390,22 +1875,23 @@ class NavContrastFix:
     function agendar() {
         if (agendado) return;
         agendado = true;
-        window.parent.setTimeout(function () { agendado = false; aplicar(); }, 0);
+        __WIN__.setTimeout(function () { agendado = false; aplicar(); }, 0);
     }
-    if (window.parent.__totaleNavObs) { try { window.parent.__totaleNavObs.disconnect(); } catch (e) {} }
+    if (__WIN__.__totaleNavObs) { try { __WIN__.__totaleNavObs.disconnect(); } catch (e) {} }
     var obs = new MutationObserver(agendar);
     obs.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-current"] });
-    window.parent.__totaleNavObs = obs;
+    __WIN__.__totaleNavObs = obs;
     aplicar();
 })();
 </script>
 """
 
     @staticmethod
-    def injetar() -> None:
-        components.html(
-            NavContrastFix._JS.replace("__COR__", NavContrastFix._COR), height=0
-        )
+    def injetar(cor: str | None = None, ativo: bool = True) -> None:
+        cor_final = cor or NavContrastFix._COR_PADRAO
+        modo = "ativo" if ativo else "passivo"
+        js = NavContrastFix._JS.replace("__COR__", cor_final).replace("__MODO__", modo)
+        _injetar_js(js)
 
 
 class CSSInjector:
@@ -1434,14 +1920,14 @@ class CSSInjector:
             else css_html
         )
         payload = json.dumps(regras).replace("</", "<\\/")
-        components.html(
+        _injetar_js(
             f"""
             <script>
             (function () {{
                 let parentDoc;
-                try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
+                try {{ parentDoc = __DOC__; }} catch (e) {{ return; }}
                 if (!parentDoc) return;
-                const id = "totale-ds-48";
+                const id = "totale-ds-50";
                 let style = parentDoc.getElementById(id);
                 if (!style) {{
                     style = parentDoc.createElement("style");
@@ -1452,7 +1938,6 @@ class CSSInjector:
             }})();
             </script>
             """,
-            height=0,
         )
         st.session_state["_totale_css_head_injected"] = True
         st.session_state["_totale_css_head_tema"] = tema_norm
@@ -1465,7 +1950,7 @@ def aplicar_estilo(tema_sidebar: TemaSidebarType = "claro") -> None:
     PlotlyConfig.configurar()
     FontInjector.injetar_no_head_pai()
     CSSInjector.injetar(tema_sidebar=tema_norm)
-    NavContrastFix.injetar()
+    NavContrastFix.injetar(cor="#FFFFFF", ativo=True)
 
 
 def aplicar_estilo_corp(tema_sidebar: TemaSidebarType = "claro") -> None:
@@ -1499,6 +1984,7 @@ def carregar_layout_corporativo(
 
 def render_sidebar_theme_selector(
     label: str = "TEMA DA SIDEBAR",
+    help: str = "",
     container: Any = None,
     key: str = "_totale_sidebar_theme_select",
     mostrar_icone: bool = True,
@@ -1508,6 +1994,9 @@ def render_sidebar_theme_selector(
 
     Aplica automaticamente o estilo e atualiza o estado da sessão quando
     aplicar_automaticamente=True.
+
+    v5.0.0: o índice inicial reflete o tema ativo da sessão (antes o widget
+    sempre reabria em "claro" mesmo com outro tema aplicado).
     """
     alvo = container if container is not None else st.sidebar
 
@@ -1521,12 +2010,19 @@ def render_sidebar_theme_selector(
     tema_atual = _obter_tema_sidebar()
     idx_atual = opcoes.index(tema_atual) if tema_atual in opcoes else 0
 
+    # Evita o aviso "created with default value but also had its value set via
+    # the Session State API": só informa index quando o widget ainda não tem
+    # estado persistido (nesse caso o index reflete o tema da sessão).
+    kwargs_select: dict[str, Any] = {}
+    if key not in st.session_state:
+        kwargs_select["index"] = idx_atual
+
     escolha = alvo.selectbox(
         label,
         options=opcoes,
         format_func=lambda x: labels.get(x, str(x).title()),
-        index=idx_atual,
         key=key,
+        **kwargs_select,
     )
 
     tema_escolhido = normalizar_tema_sidebar(escolha)
@@ -1579,7 +2075,7 @@ def render_sidebar_brand(
                     "rgba(255,255,255,0.30)",
                 )
             else:
-                b_bg, b_fg, b_bd = Cores.AZUL_SUAVE, Cores.PRIMARIA, "#D6E0F0"
+                b_bg, b_fg, b_bd = Cores.AZUL_SUAVE, "#011E52", "#D6E0F0"
 
             badge_html = (
                 f'<span class="totale-badge-pill" style="margin-top:8px;'
@@ -1589,6 +2085,7 @@ def render_sidebar_brand(
 
         icone_html = "" if logo_valida else _icone_tile(icone_final, "brand")
 
+        # v5.0.0: estilos explícitos alinham a marca em todos os temas.
         if tema_ativo == "azul":
             nome_style = (
                 "font-family: var(--font-titulo); font-size: 18px; font-weight: 800; "
@@ -1604,34 +2101,24 @@ def render_sidebar_brand(
             )
             sub_style = "font-size: 11px; color: #FFEDD5; margin-top: 3px; letter-spacing: 0.01em;"
         else:
-            nome_style = ""
-            sub_style = ""
+            nome_style = (
+                "font-family: var(--font-titulo); font-size: 18px; font-weight: 800; "
+                "letter-spacing: -0.03em; margin: 0; line-height: 1.1; "
+                "background: linear-gradient(100deg, #012869 10%, #0A48AA 62%, #F37C04 140%); "
+                "-webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;"
+            )
+            sub_style = "font-size: 11px; color: #475569; margin-top: 3px; letter-spacing: 0.01em;"
 
-        if nome_style:
-            nome_html = (
-                f'<h2 class="sidebar-brand-name" style="{nome_style}">{Validadores.html_escape(nome_final)}</h2>'
-                if nome_final
-                else ""
-            )
-        else:
-            nome_html = (
-                f'<h2 class="sidebar-brand-name">{Validadores.html_escape(nome_final)}</h2>'
-                if nome_final
-                else ""
-            )
-
-        if sub_style:
-            subtitulo_html = (
-                f'<div class="sidebar-brand-sub" style="{sub_style}">{Validadores.html_escape(subtitulo_final)}</div>'
-                if subtitulo_final
-                else ""
-            )
-        else:
-            subtitulo_html = (
-                f'<div class="sidebar-brand-sub">{Validadores.html_escape(subtitulo_final)}</div>'
-                if subtitulo_final
-                else ""
-            )
+        nome_html = (
+            f'<h2 class="sidebar-brand-name" style="{nome_style}">{Validadores.html_escape(nome_final)}</h2>'
+            if nome_final
+            else ""
+        )
+        subtitulo_html = (
+            f'<div class="sidebar-brand-sub" style="{sub_style}">{Validadores.html_escape(subtitulo_final)}</div>'
+            if subtitulo_final
+            else ""
+        )
 
         markup = (
             '<div class="sidebar-brand">'
@@ -1665,7 +2152,7 @@ def render_sidebar_section(
         icone_color = "#FFF7ED"
     else:
         bar_color = Cores.SECUNDARIA
-        titulo_color = Cores.PRIMARIA
+        titulo_color = "#011E52"
         icone_color = Cores.SECUNDARIA
 
     icone_html = (
@@ -1712,12 +2199,12 @@ def render_sidebar_divider(
         )
         label_color = "#FFFFFF"
     else:
-        cor_default = Cores.BORDA
+        cor_default = "#CBD5E1"
         gradiente_padrao = (
             "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,"
             f"{Cores.PRIMARIA}55 40%,{Cores.SECUNDARIA} 70%,transparent 100%);"
         )
-        label_color = Cores.PRIMARIA
+        label_color = "#011E52"
 
     cor_final = cor or cor_default
 
@@ -1773,14 +2260,14 @@ def render_sidebar_footer_info(
     tema_ativo = _obter_tema_sidebar(tema)
 
     if tema_ativo == "azul":
-        border_col = "rgba(255,255,255,0.08)"
+        border_col = "rgba(255,255,255,0.10)"
         lbl_col = "#94A3B8"
         val_col = "#FFFFFF"
         sub_col = "#CBD5E1"
         bar_col = Cores.SECUNDARIA
         v_bg, v_fg = "rgba(243,124,4,0.12)", Cores.SECUNDARIA_LIGHT
     elif tema_ativo == "laranja":
-        border_col = "rgba(255,255,255,0.12)"
+        border_col = "rgba(255,255,255,0.16)"
         lbl_col = "#FED7AA"
         val_col = "#FFFFFF"
         sub_col = "#FFEDD5"
@@ -1788,11 +2275,11 @@ def render_sidebar_footer_info(
         v_bg, v_fg = "rgba(255,255,255,0.12)", "#FFF7ED"
     else:
         border_col = "#E2E8F0"
-        lbl_col = "#64748B"
-        val_col = Cores.PRIMARIA
-        sub_col = Cores.TEXTO_2
+        lbl_col = "#475569"
+        val_col = "#011E52"
+        sub_col = "#334155"
         bar_col = Cores.SECUNDARIA
-        v_bg, v_fg = Cores.AZUL_SUAVE, Cores.PRIMARIA
+        v_bg, v_fg = Cores.AZUL_SUAVE, "#011E52"
 
     amb_cfg = {
         "produção": ("#ECFDF5", "#065F46", "#059669"),
@@ -1879,7 +2366,7 @@ def render_sidebar_info(
 
     if tema_ativo == "azul":
         card_bg = "rgba(255, 255, 255, 0.035)"
-        card_bd = "rgba(255, 255, 255, 0.08)"
+        card_bd = "rgba(255, 255, 255, 0.10)"
         avatar_bg = Cores.PRIMARIA_LIGHT
         nome_col = "#FFFFFF"
         role_col = "#FDBA74"
@@ -1890,26 +2377,26 @@ def render_sidebar_info(
         titulo_col = "#FFFFFF"
     elif tema_ativo == "laranja":
         card_bg = "rgba(0, 0, 0, 0.22)"
-        card_bd = "rgba(255, 255, 255, 0.10)"
+        card_bd = "rgba(255, 255, 255, 0.12)"
         avatar_bg = Cores.PRIMARIA_DARK
         nome_col = "#FFFFFF"
         role_col = "#FDBA74"
-        email_col = "rgba(255, 255, 255, 0.82)"
+        email_col = "rgba(255, 255, 255, 0.88)"
         item_lbl_col = "#FED7AA"
         item_val_col = "#FFFFFF"
-        rodape_col = "rgba(255, 255, 255, 0.75)"
+        rodape_col = "rgba(255, 255, 255, 0.82)"
         titulo_col = "#FFFFFF"
     else:
         card_bg = "#FFFFFF"
         card_bd = "#E2E8F0"
-        avatar_bg = Cores.PRIMARIA
-        nome_col = Cores.PRIMARIA
-        role_col = Cores.SECUNDARIA_DARK
-        email_col = "#64748B"
-        item_lbl_col = "#64748B"
-        item_val_col = "#012869"
-        rodape_col = "#64748B"
-        titulo_col = Cores.PRIMARIA
+        avatar_bg = "#011E52"
+        nome_col = "#011E52"
+        role_col = "#9A3412"
+        email_col = "#475569"
+        item_lbl_col = "#475569"
+        item_val_col = "#011E52"
+        rodape_col = "#475569"
+        titulo_col = "#011E52"
 
     status_cfg = {
         "online": ("#059669", "Online"),
@@ -2028,9 +2515,21 @@ def render_sidebar_status(
     compacto: bool = False,
     container: Any = None,
     tema: TemaSidebarType | None = None,
+    nav_contrast: str | None = None,
     **kwargs: Any,
 ) -> None:
+    """Card de status da sidebar.
+
+    v5.0.0: `nav_contrast=None` (padrão) não injeta JS; `nav_contrast="#FFFFFF"`
+    reforça o contraste do item ativo da navegação; use `nav_contrast=""` para
+    desligar explicitamente. Também aceita `kwargs['cor_nav_contrast']`.
+    """
     tema_ativo = _obter_tema_sidebar(tema)
+
+    if nav_contrast is None and "cor_nav_contrast" in kwargs:
+        nav_contrast = kwargs.get("cor_nav_contrast")
+    if nav_contrast:
+        NavContrastFix.injetar(cor=str(nav_contrast), ativo=True)
 
     cfg_status = {
         "ok": ("#047857", "#ECFDF5", "#A7F3D0", "#065F46"),
@@ -2052,7 +2551,7 @@ def render_sidebar_status(
 
     if tema_ativo == "azul":
         card_bg = "rgba(255, 255, 255, 0.035)"
-        card_bd = "rgba(255, 255, 255, 0.08)"
+        card_bd = "rgba(255, 255, 255, 0.10)"
         lbl_col = "#94A3B8"
         total_sub_col = "#CBD5E1"
         total_val_col = "#FFFFFF"
@@ -2061,7 +2560,7 @@ def render_sidebar_status(
         date_col = "#94A3B8"
     elif tema_ativo == "laranja":
         card_bg = "rgba(0, 0, 0, 0.22)"
-        card_bd = "rgba(255, 255, 255, 0.10)"
+        card_bd = "rgba(255, 255, 255, 0.12)"
         lbl_col = "#FED7AA"
         total_sub_col = "#FFEDD5"
         total_val_col = "#FFFFFF"
@@ -2071,12 +2570,12 @@ def render_sidebar_status(
     else:
         card_bg = "#FFFFFF"
         card_bd = "#E2E8F0"
-        lbl_col = "#64748B"
-        total_sub_col = "#475569"
-        total_val_col = "#012869"
-        detail_k_col = "#64748B"
-        detail_v_col = "#012869"
-        date_col = "#64748B"
+        lbl_col = "#475569"
+        total_sub_col = "#334155"
+        total_val_col = "#011E52"
+        detail_k_col = "#475569"
+        detail_v_col = "#011E52"
+        date_col = "#475569"
 
     detalhes_dict = detalhes or {}
     detalhes_html = "".join(
@@ -2930,4 +3429,14 @@ __all__ = [
     "render_skeleton",
     "render_spacer",
     "render_table_html",
+    "verificar_contrastes_sidebar",
 ]
+
+
+if __name__ == "__main__":
+    # Verificação de cores da sidebar:
+    #   python components/componentes.py            -> relatório resumido
+    #   python components/componentes.py --detalhe  -> relatório completo
+    import sys
+
+    verificar_contrastes_sidebar(detalhar="--detalhe" in sys.argv[1:])
