@@ -603,15 +603,27 @@ def _safe_render_html(html_str: str, container: Any = None) -> None:
     if not html_str:
         return
     c = _garantir_container(container)
-    clean = html_str.replace("\n", " ").replace("\r", " ").replace("\t", " ")
-    clean = re.sub(r">\s+<", "><", clean)
-    clean = re.sub(r" {2,}", " ", clean)
-    clean = clean.strip()
+    clean = html_str.strip()
+
+    # Prioriza c.html (Streamlit 1.34+) para injeção pura sem quebrar CSS
+    if hasattr(c, "html"):
+        try:
+            c.html(clean)
+            return
+        except Exception:
+            pass
+
+    clean_md = clean.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    clean_md = re.sub(r">\s+<", "><", clean_md)
+    clean_md = re.sub(r" {2,}", " ", clean_md).strip()
     try:
-        c.markdown(clean, unsafe_allow_html=True)
+        c.markdown(clean_md, unsafe_allow_html=True)
     except Exception as exc:
         logger.error("Falha ao renderizar HTML customizado: %s", exc)
-        st.markdown(clean, unsafe_allow_html=True)
+        try:
+            st.markdown(clean_md, unsafe_allow_html=True)
+        except Exception:
+            pass
 
 
 def _texto_icone_seguro(icone: str) -> str:
@@ -1414,14 +1426,6 @@ class CSSInjector:
         css_html = CSSInjector._build_css(tema_norm)
         _safe_render_html(css_html)
 
-        # Se o tema atual já estiver injetado no DOM do head pai, não precisa repetir
-        tema_anterior = st.session_state.get("_totale_css_head_tema")
-        if (
-            st.session_state.get("_totale_css_head_injected")
-            and tema_anterior == tema_norm
-        ):
-            return
-
         inicio = css_html.find("<style>")
         fim = css_html.rfind("</style>")
         regras = (
@@ -1436,6 +1440,7 @@ class CSSInjector:
             (function () {{
                 let parentDoc;
                 try {{ parentDoc = window.parent.document; }} catch (e) {{ return; }}
+                if (!parentDoc) return;
                 const id = "totale-ds-48";
                 let style = parentDoc.getElementById(id);
                 if (!style) {{
@@ -1471,6 +1476,25 @@ def aplicar_estilo_corp(tema_sidebar: TemaSidebarType = "claro") -> None:
 def aplicar_sidebar_corp(tema: TemaSidebarType = "claro") -> None:
     """Aplica tema de sidebar TOTALE ('claro', 'azul' ou 'laranja')."""
     aplicar_estilo(tema_sidebar=tema)
+
+
+def carregar_layout_corporativo(
+    tema_sidebar: TemaSidebarType | None = None,
+    renderizar_sidebar: bool = False,
+    nome: str = "TOTALE",
+    subtitulo: str = "Portal de Produção & Performance",
+    versao: str = "",
+) -> None:
+    """Garante a aplicação do Design System TOTALE em qualquer página.
+
+    Pode ser chamada no início de qualquer página individual em pages/*.
+    """
+    tema_ativo = _obter_tema_sidebar(tema_sidebar)
+    aplicar_estilo(tema_sidebar=tema_ativo)
+    if renderizar_sidebar:
+        with st.sidebar:
+            render_sidebar_brand(nome=nome, subtitulo=subtitulo, versao=versao)
+            render_sidebar_theme_selector()
 
 
 def render_sidebar_theme_selector(
@@ -2872,6 +2896,7 @@ __all__ = [
     "aplicar_estilo",
     "aplicar_estilo_corp",
     "aplicar_sidebar_corp",
+    "carregar_layout_corporativo",
     "definir_tema_sidebar",
     "formatar_datetime_exibicao",
     "formatar_numero_br",

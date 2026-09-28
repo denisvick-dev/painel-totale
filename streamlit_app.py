@@ -24,19 +24,51 @@ from datetime import datetime
 from functools import wraps
 from zoneinfo import ZoneInfo
 
+from typing import Literal, Any, cast
+
 import streamlit as st
 
-from components.componentes import (
-    TemaSidebarType,
-    aplicar_estilo,
-    definir_tema_sidebar,
-    render_sidebar_brand,
-    render_sidebar_divider,
-    render_sidebar_footer_info,
-    render_sidebar_section,
-    render_sidebar_spacer,
-    render_sidebar_status,
-)
+try:
+    from components.componentes import (
+        aplicar_estilo,
+        render_sidebar_brand,
+        render_sidebar_divider,
+        render_sidebar_footer_info,
+        render_sidebar_section,
+        render_sidebar_spacer,
+        render_sidebar_status,
+    )
+except ImportError:
+    from components.componentes import (
+        aplicar_estilo,
+        render_sidebar_brand,
+        render_sidebar_divider,
+        render_sidebar_footer_info,
+        render_sidebar_section,
+        render_sidebar_spacer,
+        render_sidebar_status,
+    )
+
+# Fallback seguro para definir_tema_sidebar caso components.py ainda não tenha sido atualizado no servidor
+try:
+    from components.componentes import definir_tema_sidebar
+except (ImportError, AttributeError):
+    try:
+        from components.componentes import definir_tema_sidebar
+    except (ImportError, AttributeError):
+
+        def definir_tema_sidebar(tema: str) -> None:
+            st.session_state["_totale_sidebar_theme"] = str(tema).strip().lower()
+
+
+def _aplicar_estilo_seguro(tema: Any = "claro") -> None:
+    """Aplica estilo compatível tanto com o Design System v4.9.0 quanto v4.8.0."""
+    definir_tema_sidebar(str(tema))
+    try:
+        aplicar_estilo(tema_sidebar=cast(Any, tema))
+    except TypeError:
+        aplicar_estilo()
+
 
 # Configuração de logging
 logging.basicConfig(
@@ -430,7 +462,7 @@ class GerenciadorNavegacao:
         """Define todas as páginas do sistema de forma tipada."""
         return {
             "Menu Principal": [
-                st.Page(pagina_home, title="Home", icon="🏠", default=True),
+                st.Page("pages/home.py", title="Home", icon="🏠", default=True),
                 st.Page(
                     "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
                 ),
@@ -468,8 +500,8 @@ class GerenciadorNavegacao:
     @staticmethod
     def renderizar_sidebar_corporativa() -> None:
         """
-        Renderiza o cabeçalho corporativo na sidebar com garantia de escopo e tipagem,
-        incluindo o seletor nativo st.selectbox para escolha da cor da sidebar.
+        Renderiza o cabeçalho corporativo na sidebar compartilhado entre TODAS as páginas,
+        incluindo a marca TOTALE, o seletor nativo de cor e o status do sistema.
         """
         with st.sidebar:
             render_sidebar_brand(
@@ -484,32 +516,32 @@ class GerenciadorNavegacao:
             # ====================================================
             render_sidebar_section("Aparência da Sidebar", icone="🎨")
 
-            opcoes_tema: list[TemaSidebarType] = ["claro", "azul", "laranja"]
+            opcoes_tema: list[str] = ["claro", "azul", "laranja"]
             labels_tema = {
                 "claro": "☀️ Claro Corporativo",
                 "azul": "🔷 Deep Executive Navy",
                 "laranja": "🔶 Terracotta & Amber",
             }
+
+            def _ao_mudar_cor_sidebar() -> None:
+                novo_tema = st.session_state.get("seletor_cor_sidebar", "claro")
+                st.session_state["tema_sidebar"] = novo_tema
+                _aplicar_estilo_seguro(novo_tema)
+
             tema_atual = st.session_state.get("tema_sidebar", "claro")
             idx_atual = (
                 opcoes_tema.index(tema_atual) if tema_atual in opcoes_tema else 0
             )
 
-            tema_selecionado = st.selectbox(
+            st.selectbox(
                 "Escolha a cor da sidebar",
                 options=opcoes_tema,
                 index=idx_atual,
                 format_func=lambda x: labels_tema.get(x, str(x).title()),
                 key="seletor_cor_sidebar",
+                on_change=_ao_mudar_cor_sidebar,
                 help="Selecione o esquema de cores para a barra lateral",
             )
-
-            # Aplicação reativa imediata se o usuário mudar no selectbox
-            if tema_selecionado != tema_atual:
-                st.session_state["tema_sidebar"] = tema_selecionado
-                definir_tema_sidebar(tema_selecionado)
-                aplicar_estilo(tema_sidebar=tema_selecionado)
-                st.rerun()
 
             render_sidebar_divider(estilo="pontilhado", espacamento="pequeno")
 
@@ -569,29 +601,25 @@ def main() -> None:
     if "tema_sidebar" not in st.session_state:
         st.session_state["tema_sidebar"] = "claro"
 
-    # Sincroniza o valor caso o widget já tenha sido renderizado em runs anteriores
-    if (
-        "seletor_cor_sidebar" in st.session_state
-        and st.session_state["seletor_cor_sidebar"] != st.session_state["tema_sidebar"]
-    ):
-        st.session_state["tema_sidebar"] = st.session_state["seletor_cor_sidebar"]
-
-    tema_ativo = st.session_state["tema_sidebar"]
-
-    # 3. Injeção de estilos (Design System com o tema ativo + customizações do app)
-    aplicar_estilo(tema_sidebar=tema_ativo)
-    definir_tema_sidebar(tema_ativo)
-    GerenciadorEstilos.injetar_css_global()
-
-    # 4. Cabeçalho corporativo da sidebar (Marca + seletor de cor + status)
-    GerenciadorNavegacao.renderizar_sidebar_corporativa()
-
-    # 5. Navegação nativa (st.navigation)
+    # 3. Definição do menu nativo e st.navigation primeiro
     paginas = GerenciadorNavegacao._definir_paginas()
     pg = st.navigation(paginas)
+
+    # 4. Injeção de estilos corporativos (garante o CSS ativo em TODAS as páginas)
+    tema_ativo = st.session_state.get(
+        "seletor_cor_sidebar", st.session_state["tema_sidebar"]
+    )
+    st.session_state["tema_sidebar"] = tema_ativo
+    _aplicar_estilo_seguro(tema_ativo)
+    GerenciadorEstilos.injetar_css_global()
+
+    # 5. Cabeçalho corporativo da sidebar (Marca + seletor de cor + status) para TODAS as páginas
+    GerenciadorNavegacao.renderizar_sidebar_corporativa()
+
+    # 6. Execução da página ativa
     pg.run()
 
-    # 6. Rodapé corporativo da sidebar (renderizado após o menu nativo)
+    # 7. Rodapé corporativo da sidebar (renderizado após o menu nativo para TODAS as páginas)
     with st.sidebar:
         render_sidebar_spacer(altura=12)
         render_sidebar_footer_info(
