@@ -2157,3 +2157,4 @@ with tab_alertas:
             st.caption(
                 f"Mais {len(alertas) - 12} alertas omitidos para não poluir a leitura."
             )
+            
