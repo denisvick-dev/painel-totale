@@ -1,7 +1,7 @@
 """
 dashboard_meta.py
 =================
-Dashboard de Metas Operacionais - TOTALE (v4.3.0)
+Dashboard de Metas Operacionais - TOTALE (v4.6.2)
 
 Leitura do painel:
 1. Faixa executiva: realizado, projeção e se o fechamento cabe na meta.
@@ -44,8 +44,12 @@ else:
         DeltaGenerator = Any
 
 TipoInsightType = Literal["ok", "info", "alerta", "critico", "acao"]
-TemaKPIType = Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"]
-TipoProgressBarType = Literal["azul", "laranja", "verde", "vermelho", "roxo", "gradiente"]
+TemaKPIType = Literal[
+    "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"
+]
+TipoProgressBarType = Literal[
+    "azul", "laranja", "verde", "vermelho", "roxo", "gradiente"
+]
 
 try:
     from components.componentes import (
@@ -112,7 +116,9 @@ except ImportError:
             st.caption(label)
         st.progress(min(valor / maximo, 1.0) if maximo else 0.0)
 
-    def _fallback_insight(msg: str = "", tipo: str = "info", titulo: str = "", **kwargs: Any) -> None:
+    def _fallback_insight(
+        msg: str = "", tipo: str = "info", titulo: str = "", **kwargs: Any
+    ) -> None:
         texto = f"{titulo} — {msg}" if titulo else msg
         if tipo in ("alerta", "critico"):
             st.warning(texto)
@@ -123,7 +129,9 @@ except ImportError:
 
     aplicar_estilo = _noop
     aplicar_sidebar_corp = _noop
-    render_empty_state = lambda **k: st.info(k.get("titulo") or k.get("descricao") or "Sem dados")
+    render_empty_state = lambda **k: st.info(
+        k.get("titulo") or k.get("descricao") or "Sem dados"
+    )
     render_hero_totale_2 = lambda **k: st.title(k.get("titulo", "Dashboard"))
     render_insight = _fallback_insight
     render_kpi = _fallback_kpi
@@ -156,7 +164,7 @@ except Exception as e:
     logger.warning("Estilização customizada falhou: %s", e)
 
 
-VERSAO = "4.3.0"
+VERSAO = "4.6.2"
 ROTULOS_VAZIOS = {"", "NAN", "NONE", "NA", "N/A", "NAO INFORMADO", "NULL"}
 
 
@@ -331,11 +339,15 @@ def mapear_colunas(df: pd.DataFrame, regras: dict[str, list[str]]) -> pd.DataFra
             if destino in destino_para_origem:
                 break
     if destino_para_origem:
-        df_copia = df_copia.rename(columns={o: d for d, o in destino_para_origem.items()})
+        df_copia = df_copia.rename(
+            columns={o: d for d, o in destino_para_origem.items()}
+        )
     return df_copia.loc[:, ~df_copia.columns.duplicated(keep="first")].copy()
 
 
-def garantir_datetime(df: pd.DataFrame, col: str = "DATA", origem: str = "") -> pd.DataFrame:
+def garantir_datetime(
+    df: pd.DataFrame, col: str = "DATA", origem: str = ""
+) -> pd.DataFrame:
     if col not in df.columns or df.empty:
         return df.copy()
     df_copia = df.copy()
@@ -367,7 +379,9 @@ def garantir_datetime(df: pd.DataFrame, col: str = "DATA", origem: str = "") -> 
             continue
     if restantes.any():
         try:
-            parsed = pd.to_datetime(s[restantes], dayfirst=(origem == "br"), errors="coerce")
+            parsed = pd.to_datetime(
+                s[restantes], dayfirst=(origem == "br"), errors="coerce"
+            )
             ok = parsed.notna()
             if ok.any():
                 resultado.loc[parsed.index[ok]] = parsed.loc[ok]
@@ -380,28 +394,74 @@ def garantir_datetime(df: pd.DataFrame, col: str = "DATA", origem: str = "") -> 
 def garantir_datetime_auto(
     df: pd.DataFrame, col: str = "DATA", nome_fonte: str = ""
 ) -> pd.DataFrame:
-    """Escolhe BR ou US pela leitura mais próxima da operação de hoje."""
+    """Detecta a orientação da coluna inteira e normaliza para datetime.
+
+    A orientação é inferida pelos registros não ambíguos do próprio arquivo:
+    13/09 indica DD/MM, enquanto 09/26 indica MM/DD. Datas ambíguas seguem a
+    orientação predominante da coluna; empate usa MM/DD como padrão legado.
+    """
     if col not in df.columns or df.empty:
         return df.copy()
+    if pd.api.types.is_datetime64_any_dtype(df[col]):
+        df_out = df.copy()
+        df_out[col] = pd.to_datetime(df_out[col], errors="coerce")
+        return df_out
 
-    hoje = pd.Timestamp(datetime.now(CFG.TZ).date())
-    candidatos: dict[str, pd.Series] = {}
-    for origem in ("br", "us"):
-        df_t = garantir_datetime(df, col=col, origem=origem)
-        candidatos[origem] = df_t[col]
+    padrao_data = re.compile(r"^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s|$)")
+    votos_br = 0
+    votos_us = 0
+    for valor in df[col].dropna().astype(str):
+        achado = padrao_data.match(valor.strip())
+        if not achado:
+            continue
+        primeiro, segundo = int(achado.group(1)), int(achado.group(2))
+        if primeiro > 12 and segundo <= 12:
+            votos_br += 1
+        elif segundo > 12 and primeiro <= 12:
+            votos_us += 1
+    dayfirst_padrao = votos_br > votos_us
 
-    def _score(s: pd.Series) -> float:
-        validas = s.dropna()
-        if validas.empty:
-            return float("inf")
-        taxa_nat = 1.0 - (len(validas) / max(len(s), 1))
-        dist_media = (validas - hoje).abs().dt.days.median()
-        return float(taxa_nat * 3650 + dist_media)
+    def _parse_valor(valor: Any) -> Any:
+        if _is_na_scalar(valor):
+            return pd.NaT
+        texto = str(valor).strip()
+        if not texto or texto.upper() in {"NAT", "NULL", "<NA>", "-"}:
+            return pd.NaT
 
-    melhor = min(candidatos, key=lambda o: _score(candidatos[o]))
-    logger.info("Leitura de datas (%s): origem '%s' escolhida.", nome_fonte or col, melhor)
+        match = padrao_data.match(texto)
+        if match:
+            primeiro, segundo = int(match.group(1)), int(match.group(2))
+            if primeiro > 12 and segundo <= 12:
+                dayfirst = True
+            elif segundo > 12 and primeiro <= 12:
+                dayfirst = False
+            else:
+                dayfirst = dayfirst_padrao
+            try:
+                parsed = pd.to_datetime(texto, dayfirst=dayfirst, errors="coerce")
+                return parsed if not pd.isna(parsed) else pd.NaT
+            except Exception:
+                return pd.NaT
+
+        try:
+            # ISO (YYYY-MM-DD) e timestamps sem ambiguidade.
+            parsed = pd.to_datetime(texto, yearfirst=True, errors="coerce")
+            return parsed if not pd.isna(parsed) else pd.NaT
+        except Exception:
+            return pd.NaT
+
     df_out = df.copy()
-    df_out[col] = candidatos[melhor]
+    parsed = df_out[col].map(_parse_valor)
+    df_out[col] = pd.to_datetime(parsed, errors="coerce")
+    orientacao = "DD/MM/AAAA" if dayfirst_padrao else "MM/DD/AAAA"
+    logger.info(
+        "Coluna de data '%s' normalizada em %s (%s; votos BR=%d, US=%d).",
+        col,
+        nome_fonte or "fonte",
+        orientacao,
+        votos_br,
+        votos_us,
+    )
     return df_out
 
 
@@ -487,7 +547,9 @@ def _feriados_brasil(ano: int) -> tuple[date, ...]:
 def _busday_count(inicio: date, fim_inclusivo: date, feriados: tuple[date, ...]) -> int:
     if fim_inclusivo < inicio:
         return 0
-    hol = np.array([np.datetime64(str(d), "D") for d in feriados], dtype="datetime64[D]")
+    hol = np.array(
+        [np.datetime64(str(d), "D") for d in feriados], dtype="datetime64[D]"
+    )
     return int(
         np.busday_count(
             np.datetime64(str(inicio), "D"),
@@ -536,7 +598,9 @@ def data_ancora_projecao(df: pd.DataFrame, coluna_data: str = "DATA") -> date | 
     return datas.max().normalize().date()
 
 
-def fator_projecao(df: pd.DataFrame, coluna_data: str = "DATA") -> tuple[float, int, int, int]:
+def fator_projecao(
+    df: pd.DataFrame, coluna_data: str = "DATA"
+) -> tuple[float, int, int, int]:
     ancora = data_ancora_projecao(df, coluna_data)
     if ancora is None:
         return 1.0, 0, 0, 0
@@ -553,6 +617,51 @@ def calcular_atingimento_series(valor: pd.Series, meta: float) -> pd.Series:
     if m <= 0.0:
         return pd.Series(0.0, index=valor.index, dtype=float)
     return (pd.to_numeric(valor, errors="coerce").fillna(0.0) / m) * 100.0
+
+
+def classificar_semaforo(valor_projetado: Any, metas: dict[str, int]) -> str:
+    """Classifica a projeção em três faixas visuais de atingimento."""
+    valor = _to_float_safe(valor_projetado)
+    if valor < metas["minima"]:
+        return "🔴 Abaixo do mínimo"
+    if valor < metas["meta_base"]:
+        return "🟠 Entre mínimo e meta"
+    return "🟢 Meta atingida"
+
+
+def calcular_cenarios(
+    realizado: Any,
+    fator: float,
+    variacao: float = 0.15,
+) -> dict[str, int]:
+    """Varia em ±15% o volume projetado ainda não realizado."""
+    real = max(0, int(round(_to_float_safe(realizado))))
+    fator_seguro = max(_to_float_safe(fator), 0.0)
+    atual = max(real, int(real * fator_seguro))
+    restante_projetado = max(atual - real, 0)
+    return {
+        "Conservador": int(round(real + restante_projetado * (1 - variacao))),
+        "Atual": atual,
+        "Otimista": int(round(real + restante_projetado * (1 + variacao))),
+    }
+
+
+def adicionar_cenarios_agrupados(
+    df: pd.DataFrame,
+    coluna_real: str,
+    coluna_projetada: str,
+    prefixo: str,
+    variacao: float = 0.15,
+) -> pd.DataFrame:
+    """Acrescenta cenários conservador e otimista a cada linha agrupada."""
+    restante_projetado = (df[coluna_projetada] - df[coluna_real]).clip(lower=0)
+    df[f"{prefixo} Conservadora"] = (
+        (df[coluna_real] + restante_projetado * (1 - variacao)).round().astype(int)
+    )
+    df[f"{prefixo} Otimista"] = (
+        (df[coluna_real] + restante_projetado * (1 + variacao)).round().astype(int)
+    )
+    return df
 
 
 def resolver_status_atingimento(valor: Any, metas: dict[str, int]) -> tuple[str, str]:
@@ -619,7 +728,9 @@ def _baixar_drive_csv(file_id: str) -> bytes:
                 match = re.search(r"confirm=([A-Za-z0-9_]+)", text_content)
                 if match:
                     params["confirm"] = match.group(1)
-                    resp = sess.get(url, params=params, stream=True, timeout=CFG.TIMEOUT)
+                    resp = sess.get(
+                        url, params=params, stream=True, timeout=CFG.TIMEOUT
+                    )
                     resp.raise_for_status()
                 else:
                     raise requests.exceptions.RequestException(
@@ -645,7 +756,9 @@ def _baixar_drive_csv(file_id: str) -> bytes:
                 try:
                     os.remove(tmp_path)
                 except OSError:
-                    logger.debug("Não foi possível remover o arquivo temporário %s", tmp_path)
+                    logger.debug(
+                        "Não foi possível remover o arquivo temporário %s", tmp_path
+                    )
 
 
 @st.cache_data(ttl=CFG.CACHE_TTL_HIERARQUIA, show_spinner="Carregando Hierarquia...")
@@ -655,7 +768,9 @@ def carregar_hierarquia() -> pd.DataFrame:
         from streamlit_gsheets import GSheetsConnection
 
         conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(spreadsheet=CFG.URL_ATIVOS, worksheet=CFG.SHEET_ABA_ATIVOS, ttl=0)
+        df = conn.read(
+            spreadsheet=CFG.URL_ATIVOS, worksheet=CFG.SHEET_ABA_ATIVOS, ttl=0
+        )
     except (ImportError, Exception) as e:
         logger.debug("GSheetsConnection falhou: %s", e)
     if df.empty:
@@ -674,7 +789,13 @@ def carregar_hierarquia() -> pd.DataFrame:
         df,
         {
             "LOGIN": ["LOGIN", "USER", "USUARIO", "MATRICULA", "ID"],
-            "TECNICO": ["TECNICO", "NOME", "COLABORADOR", "NOME TÉCNICO", "FUNCIONARIO"],
+            "TECNICO": [
+                "TECNICO",
+                "NOME",
+                "COLABORADOR",
+                "NOME TÉCNICO",
+                "FUNCIONARIO",
+            ],
             "MONITOR": ["MONITOR", "SUPERVISOR", "GESTOR", "LIDER", "COORDENADOR"],
             "BASE": ["BASE", "FILIAL", "REGIONAL", "REGIÃO", "CIDADE", "LOCAL"],
             "PROJETO": ["PROJETO", "CONTRATO", "CAMPANHA", "OPERACAO", "CLIENTE"],
@@ -688,12 +809,18 @@ def carregar_hierarquia() -> pd.DataFrame:
     df = add_norm_cols(df)
     if "_LOGIN_NORM" in df.columns:
         df = df[df["_LOGIN_NORM"].str.strip() != ""].copy()
-        return df.drop_duplicates(subset=["_LOGIN_NORM"], keep="first").reset_index(drop=True)
+        return df.drop_duplicates(subset=["_LOGIN_NORM"], keep="first").reset_index(
+            drop=True
+        )
     return df.drop_duplicates(subset=["LOGIN"], keep="first").reset_index(drop=True)
 
 
 @st.cache_data(ttl=CFG.CACHE_TTL_CONSULTIVO, show_spinner="Baixando Consultivos...")
-def carregar_consultivos() -> tuple[pd.DataFrame, str | None]:
+def carregar_consultivos(
+    cache_version: str = VERSAO,
+) -> tuple[pd.DataFrame, str | None]:
+    # cache_version entra na chave do cache para invalidar dados antigos quando a regra de data muda.
+    logger.debug("Cache de consultivos: versão %s", cache_version)
     try:
         df = _ler_csv_bytes(_baixar_drive_csv(CFG.DRIVE_ID_CONS))
         if df.empty:
@@ -701,7 +828,14 @@ def carregar_consultivos() -> tuple[pd.DataFrame, str | None]:
         df = mapear_colunas(
             df,
             {
-                "DATA": ["DATA", "DT_CRIACAO", "DATA_FINALIZACAO", "DT_FINALIZACAO", "DATA_CONSULTIVO", "Date"],
+                "DATA": [
+                    "DATA",
+                    "DT_CRIACAO",
+                    "DATA_FINALIZACAO",
+                    "DT_FINALIZACAO",
+                    "DATA_CONSULTIVO",
+                    "Date",
+                ],
                 "LOGIN": ["LOGIN NETSALES", "LOGIN", "USUARIO", "MATRICULA", "User"],
                 "PROJETO": ["PROJETO", "CONTRATO", "Project"],
                 "BASE": ["BASE", "FILIAL", "REGIONAL", "Region", "CIDADE"],
@@ -714,6 +848,7 @@ def carregar_consultivos() -> tuple[pd.DataFrame, str | None]:
             return pd.DataFrame(), "Coluna DATA não encontrada em Consultivos."
         if col_data_detectada != "DATA":
             df = df.rename(columns={col_data_detectada: "DATA"})
+        # A origem pode variar entre MM/DD, DD/MM e ISO; normalizar automaticamente.
         df = garantir_datetime_auto(df, col="DATA", nome_fonte="Consultivos")
         if df["DATA"].isna().all():
             return pd.DataFrame(), "Todas as datas são inválidas em Consultivos."
@@ -723,7 +858,8 @@ def carregar_consultivos() -> tuple[pd.DataFrame, str | None]:
 
 
 @st.cache_data(ttl=CFG.CACHE_TTL_PRODUCAO, show_spinner="Lendo Produção...")
-def carregar_producao() -> tuple[pd.DataFrame, str | None]:
+def carregar_producao(cache_version: str = VERSAO) -> tuple[pd.DataFrame, str | None]:
+    logger.debug("Cache de produção: versão %s", cache_version)
     try:
         resp = http_session().get(
             f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_PROD}/gviz/tq?tqx=out:csv&sheet={url_quote(CFG.SHEET_ABA_PROD)}",
@@ -739,12 +875,41 @@ def carregar_producao() -> tuple[pd.DataFrame, str | None]:
         df = mapear_colunas(
             df,
             {
-                "DATA": ["DATA", "DT_EXECUCAO", "DATA_EXECUCAO", "DATA_FINALIZACAO", "DATA CONCLUSAO", "Date", "DATA_OS"],
-                "LOGIN": ["LOGIN", "MATRICULA", "CÓD.EQUIPE", "COD_EQUIPE", "User", "ID_TECNICO"],
+                "DATA": [
+                    "DATA",
+                    "DT_EXECUCAO",
+                    "DATA_EXECUCAO",
+                    "DATA_FINALIZACAO",
+                    "DATA CONCLUSAO",
+                    "Date",
+                    "DATA_OS",
+                ],
+                "LOGIN": [
+                    "LOGIN",
+                    "MATRICULA",
+                    "CÓD.EQUIPE",
+                    "COD_EQUIPE",
+                    "User",
+                    "ID_TECNICO",
+                ],
                 "NUM_OS": ["NUM_OS", "NUMERO_OS", "OS", "ORDEM_SERVICO", "ID"],
-                "PROJETO": ["PROJETO", "CAMPANHA", "OPERACAO", "Project", "CONTRATO", "CLIENTE", "COD_PROJETO"],
+                "PROJETO": [
+                    "PROJETO",
+                    "CAMPANHA",
+                    "OPERACAO",
+                    "Project",
+                    "CONTRATO",
+                    "CLIENTE",
+                    "COD_PROJETO",
+                ],
                 "BASE": ["BASE", "FILIAL", "Region", "CIDADE", "LOCAL", "REGIÃO"],
-                "TECNICO": ["NOME EQUIPE", "TECNICO", "NOME", "Technician", "COLABORADOR"],
+                "TECNICO": [
+                    "NOME EQUIPE",
+                    "TECNICO",
+                    "NOME",
+                    "Technician",
+                    "COLABORADOR",
+                ],
                 "MONITOR": ["MONITOR", "SUPERVISOR", "Manager", "GESTOR", "LIDER"],
             },
         )
@@ -777,14 +942,18 @@ def add_norm_cols(df: pd.DataFrame) -> pd.DataFrame:
                 df_copia[src]
                 .astype(str)
                 .map(normalizar_texto)
-                .replace(["", "NAN", "NONE", "NA", "NÃO INFORMADO", "NAO INFORMADO"], "")
+                .replace(
+                    ["", "NAN", "NONE", "NA", "NÃO INFORMADO", "NAO INFORMADO"], ""
+                )
             )
         else:
             df_copia[dst] = ""
     return df_copia
 
 
-def enriquecer_dados_completos(df: pd.DataFrame, hierarquia: pd.DataFrame) -> pd.DataFrame:
+def enriquecer_dados_completos(
+    df: pd.DataFrame, hierarquia: pd.DataFrame
+) -> pd.DataFrame:
     if df.empty or hierarquia.empty:
         return add_norm_cols(df)
     colunas_originais_antes = list(df.columns)
@@ -803,7 +972,9 @@ def enriquecer_dados_completos(df: pd.DataFrame, hierarquia: pd.DataFrame) -> pd
     if hierarquia_valida.empty:
         return df_resultado
     cols_para_merge = ["_LOGIN_NORM"] + [
-        c for c in ["BASE", "PROJETO", "MONITOR", "TECNICO"] if c in hierarquia_valida.columns
+        c
+        for c in ["BASE", "PROJETO", "MONITOR", "TECNICO"]
+        if c in hierarquia_valida.columns
     ]
     lk_lookup = hierarquia_valida[cols_para_merge].rename(
         columns={c: f"{c}_SRC" for c in cols_para_merge if c != "_LOGIN_NORM"}
@@ -814,11 +985,15 @@ def enriquecer_dados_completos(df: pd.DataFrame, hierarquia: pd.DataFrame) -> pd
         if col_src in df_resultado.columns:
             if col_origem not in df_resultado.columns:
                 df_resultado[col_origem] = None
-            df_resultado[col_origem] = df_resultado[col_src].combine_first(df_resultado[col_origem])
+            df_resultado[col_origem] = df_resultado[col_src].combine_first(
+                df_resultado[col_origem]
+            )
             df_resultado = df_resultado.drop(columns=[col_src])
     for col_base in ["BASE", "PROJETO", "MONITOR", "TECNICO"]:
         if col_base in df_resultado.columns:
-            df_resultado[f"_{col_base}_NORM"] = df_resultado[col_base].astype(str).map(normalizar_texto)
+            df_resultado[f"_{col_base}_NORM"] = (
+                df_resultado[col_base].astype(str).map(normalizar_texto)
+            )
     if (
         "_PROJETO_NORM" in df_resultado.columns
         and "BASE" in df_resultado.columns
@@ -870,13 +1045,54 @@ def duplicatas_os(df: pd.DataFrame) -> int:
 
 
 def render_tabela_segura(df: pd.DataFrame, **kwargs: Any) -> None:
+    """Exibe colunas de data como DD/MM/AAAA sem alterar os dados de cálculo.
+
+    A coluna DATA pode chegar como datetime ou como texto MM/DD/AAAA. O parser
+    da cópia de apresentação interpreta texto de origem em padrão US e converte
+    só essa cópia para texto brasileiro.
+    """
+    df_display = df.copy()
+    for col in df_display.columns:
+        nome_coluna = normalizar_texto(col)
+        eh_coluna_data = (
+            nome_coluna in {"DATA", "DATE", "DATA/HORA", "DATA HORA"}
+            or nome_coluna.startswith("DATA_")
+            or nome_coluna.startswith("DATA ")
+            or nome_coluna.endswith("_DATA")
+        )
+        if not eh_coluna_data:
+            continue
+
+        if pd.api.types.is_datetime64_any_dtype(df_display[col]):
+            serie = pd.to_datetime(df_display[col], errors="coerce")
+        else:
+            serie = garantir_datetime(
+                df_display[[col]].rename(columns={col: "DATA"}),
+                col="DATA",
+                origem="us",
+            )["DATA"]
+
+        tem_hora = (
+            bool(
+                (
+                    serie.dropna().dt.hour.ne(0)
+                    | serie.dropna().dt.minute.ne(0)
+                    | serie.dropna().dt.second.ne(0)
+                ).any()
+            )
+            if serie.notna().any()
+            else False
+        )
+        formato = "%d/%m/%Y %H:%M" if tem_hora else "%d/%m/%Y"
+        df_display[col] = serie.dt.strftime(formato).fillna("-")
+
     try:
-        render_table_html(df, **kwargs)
+        render_table_html(df_display, **kwargs)
     except TypeError:
         kwargs.pop("color_rules", None)
         kwargs.pop("colunas_num", None)
         kwargs.pop("alinhamentos", None)
-        render_table_html(df, **kwargs)
+        render_table_html(df_display, **kwargs)
 
 
 def render_resumo_cards(
@@ -903,18 +1119,24 @@ def render_resumo_cards(
     não parecer crítico só porque a meta mensal ainda não foi acumulada.
     Faltantes = Meta - Realizado. Se já passou da meta, mostra o excedente.
     """
-    subtitulo = "Realizado, projeção de fechamento e ritmo necessário (Meta − Realizado)"
+    subtitulo = (
+        "Realizado, projeção de fechamento e ritmo necessário (Meta − Realizado)"
+    )
     if ancora is not None:
         subtitulo += f" • projeção ancorada em {formatar_data_br(ancora)}"
     render_section_header(titulo=titulo, icone=icone, subtitulo=subtitulo)
 
     pct_real = calcular_atingimento_float(realizado, meta)
     pct_proj = calcular_atingimento_float(projetado, meta)
-    tema_proj: TemaKPIType = tema_kpi_de_valor(projetado, metas) if metas else (
-        "verde" if projetado >= meta else "vermelho"
+    tema_proj: TemaKPIType = (
+        tema_kpi_de_valor(projetado, metas)
+        if metas
+        else ("verde" if projetado >= meta else "vermelho")
     )
-    status_nome = resolver_status_atingimento(projetado, metas)[0] if metas else (
-        "Meta Atingida" if projetado >= meta else "Abaixo da meta"
+    status_nome = (
+        resolver_status_atingimento(projetado, metas)[0]
+        if metas
+        else ("Meta Atingida" if projetado >= meta else "Abaixo da meta")
     )
 
     c1, c2, c3 = st.columns(3, gap="large")
@@ -1031,7 +1253,9 @@ def coletar_alertas(
                 )
             )
     elif df_prod.empty and df_cons.empty:
-        alertas.append(("Nenhuma linha de produção ou consultivo no recorte atual.", "critico"))
+        alertas.append(
+            ("Nenhuma linha de produção ou consultivo no recorte atual.", "critico")
+        )
 
     for nome, df in (("produção", df_prod), ("consultivos", df_cons)):
         sem_tec, pct_tec = percentual_sem_vinculo(df, "TECNICO")
@@ -1103,21 +1327,27 @@ def coletar_alertas(
         presentes = {normalizar_texto(x) for x in resumo["Agrupamento"].astype(str)}
         for base in BASES_PRIORITARIAS:
             if normalizar_texto(base) not in presentes:
-                alertas.append((f"{base} não aparece no agrupamento deste recorte.", "alerta"))
+                alertas.append(
+                    (f"{base} não aparece no agrupamento deste recorte.", "alerta")
+                )
 
     return alertas
 
 
 df_hierarquia_raw = carregar_hierarquia()
-df_cons_raw, erro_cons = carregar_consultivos()
-df_prod_raw, erro_prod = carregar_producao()
+df_cons_raw, erro_cons = carregar_consultivos(VERSAO)
+df_prod_raw, erro_prod = carregar_producao(VERSAO)
 df_prod = enriquecer_dados_completos(df_prod_raw, df_hierarquia_raw)
 df_cons = enriquecer_dados_completos(df_cons_raw, df_hierarquia_raw)
 
-if not df_prod.empty and any(c not in df_prod.columns for c in ["DATA", "LOGIN", "BASE", "PROJETO"]):
+if not df_prod.empty and any(
+    c not in df_prod.columns for c in ["DATA", "LOGIN", "BASE", "PROJETO"]
+):
     st.error(
         "Colunas críticas perdidas em Produção: "
-        + ", ".join(c for c in ["DATA", "LOGIN", "BASE", "PROJETO"] if c not in df_prod.columns)
+        + ", ".join(
+            c for c in ["DATA", "LOGIN", "BASE", "PROJETO"] if c not in df_prod.columns
+        )
     )
     st.stop()
 
@@ -1161,7 +1391,8 @@ render_sidebar_spacer(altura="medio")
 render_sidebar_section("Filtros Consolidados")
 
 all_bases = sorted(
-    set(obter_valores_unicos_seguro(df_prod, "BASE")) | set(obter_valores_unicos_seguro(df_cons, "BASE"))
+    set(obter_valores_unicos_seguro(df_prod, "BASE"))
+    | set(obter_valores_unicos_seguro(df_cons, "BASE"))
 )
 all_monitores = sorted(
     set(obter_valores_unicos_seguro(df_prod, "MONITOR"))
@@ -1187,7 +1418,9 @@ filtro_net_opcao = st.sidebar.checkbox(
     on_change=_aplicar_canais_net,
     help="Ao marcar, seleciona NET-ABCDM, NET-LESTE, NET-LESTE VT, NET-GUARULHOS e NET-GRU VT.",
 )
-default_proj = [p for p in PROJETOS_NET if p in all_projetos] if filtro_net_opcao else []
+default_proj = (
+    [p for p in PROJETOS_NET if p in all_projetos] if filtro_net_opcao else []
+)
 filtro_projeto = st.sidebar.multiselect(
     "Projeto / Contrato",
     all_projetos,
@@ -1218,16 +1451,21 @@ todas_datas = (
     else pd.Series(dtype="datetime64[ns]")
 )
 hoje_tz = datetime.now(CFG.TZ).date()
-data_min, data_max = (hoje_tz - timedelta(30), hoje_tz)
+data_min_disponivel, data_max = (hoje_tz - timedelta(30), hoje_tz)
 if not todas_datas.empty:
-    data_min = pd.to_datetime(todas_datas.min()).date()
+    data_min_disponivel = pd.to_datetime(todas_datas.min()).date()
     data_max = pd.to_datetime(todas_datas.max()).date()
+
+# Metas são mensais: por padrão, inicia no primeiro dia do mês mais recente
+# disponível, em vez de acumular todo o histórico contra uma meta de um mês.
+data_min = max(data_max.replace(day=1), data_min_disponivel)
 raw_filtro_datas = st.sidebar.date_input(
     "Janela Temporal",
     (data_min, data_max),
-    data_min,
+    data_min_disponivel,
     data_max,
     format="DD/MM/YYYY",
+    key="janela_temporal_v450",
 )
 _filtro_datas_safe: tuple[date, date] | None = None
 if isinstance(raw_filtro_datas, (tuple, list)):
@@ -1277,8 +1515,19 @@ fator_global_cons, dias_rest_c, dias_tot_c, dias_trab_c = (
 )
 ancora_os = data_ancora_projecao(df_prod_f, "DATA")
 ancora_cons = data_ancora_projecao(df_cons_f, "DATA")
-_data_inicio_str = formatar_data_br(_filtro_datas_safe[0] if _filtro_datas_safe else data_min)
-_data_fim_str = formatar_data_br(_filtro_datas_safe[1] if _filtro_datas_safe else data_max)
+_data_inicio_str = formatar_data_br(
+    _filtro_datas_safe[0] if _filtro_datas_safe else data_min
+)
+_data_fim_str = formatar_data_br(
+    _filtro_datas_safe[1] if _filtro_datas_safe else data_max
+)
+_periodo_multimes = bool(
+    _filtro_datas_safe
+    and (
+        _filtro_datas_safe[0].year != _filtro_datas_safe[1].year
+        or _filtro_datas_safe[0].month != _filtro_datas_safe[1].month
+    )
+)
 
 render_hero_totale_2(
     titulo="Painel Consolidado de Metas",
@@ -1294,18 +1543,28 @@ st.caption(
 for err in (erro_prod, erro_cons):
     if err:
         render_insight(f"Atenção na carga de dados: {err}", tipo="alerta")
+if _periodo_multimes:
+    render_insight(
+        "O período selecionado inclui mais de um mês, mas as metas configuradas são mensais. "
+        "Para uma projeção comparável à meta, selecione um único mês.",
+        tipo="alerta",
+    )
 
 real_prod = len(df_prod_f)
 proj_prod = int(real_prod * fator_global_os)
 meta_prod = METAS_PRODUCAO_OS_GERAL["meta_base"]
 os_faltantes_geral = meta_prod - real_prod
-os_media_diaria_geral = max(os_faltantes_geral, 0) / dias_rest_os if dias_rest_os > 0 else 0
+os_media_diaria_geral = (
+    max(os_faltantes_geral, 0) / dias_rest_os if dias_rest_os > 0 else 0
+)
 
 real_cons = len(df_cons_f)
 proj_cons = int(real_cons * fator_global_cons)
 meta_cons = METAS_CONSULTIVO_GERAL["meta_base"]
 cons_faltantes_geral = meta_cons - real_cons
-cons_media_diaria_geral = max(cons_faltantes_geral, 0) / dias_rest_c if dias_rest_c > 0 else 0
+cons_media_diaria_geral = (
+    max(cons_faltantes_geral, 0) / dias_rest_c if dias_rest_c > 0 else 0
+)
 
 k_os, k_cons, k_ritmo = st.columns(3, gap="large")
 render_kpi(
@@ -1334,12 +1593,135 @@ render_kpi(
 )
 
 
+cenarios_os = calcular_cenarios(real_prod, fator_global_os)
+cenarios_cons = calcular_cenarios(real_cons, fator_global_cons)
+
+render_section_header(
+    titulo="Cenários de fechamento",
+    icone="🔮",
+    subtitulo="Compare o fechamento estimado com a meta mensal em três ritmos de produção.",
+)
+st.caption(
+    "Conservador e otimista variam em 15% o volume projetado ainda não realizado. "
+    "O cenário atual mantém a projeção linear."
+)
+
+
+def _status_cenario(valor: int, metas: dict[str, int]) -> str:
+    nome, _ = resolver_status_atingimento(valor, metas)
+    if nome == "Alta Performance":
+        return "🟢 Alta performance"
+    if nome == "Meta Atingida":
+        return "🟢 Meta projetada"
+    if nome == "Atenção / Mínimo":
+        return "🟠 No mínimo"
+    return "🔴 Abaixo do mínimo"
+
+
+df_cenarios = pd.DataFrame(
+    [
+        {
+            "Indicador": "📊 O.S.",
+            "Meta mensal": meta_prod,
+            "Conservador": cenarios_os["Conservador"],
+            "Atual": cenarios_os["Atual"],
+            "Otimista": cenarios_os["Otimista"],
+            "% da meta (atual)": calcular_atingimento_float(
+                cenarios_os["Atual"], meta_prod
+            ),
+            "Status atual": _status_cenario(
+                cenarios_os["Atual"], METAS_PRODUCAO_OS_GERAL
+            ),
+        },
+        {
+            "Indicador": "💼 Consultivos",
+            "Meta mensal": meta_cons,
+            "Conservador": cenarios_cons["Conservador"],
+            "Atual": cenarios_cons["Atual"],
+            "Otimista": cenarios_cons["Otimista"],
+            "% da meta (atual)": calcular_atingimento_float(
+                cenarios_cons["Atual"], meta_cons
+            ),
+            "Status atual": _status_cenario(
+                cenarios_cons["Atual"], METAS_CONSULTIVO_GERAL
+            ),
+        },
+    ]
+)
+
+# Formatação localizada e destaque visual por cenário.
+_cenario_styler = (
+    df_cenarios.style.format(
+        {
+            "Meta mensal": lambda valor: _fmt_int(valor),
+            "Conservador": lambda valor: _fmt_int(valor),
+            "Atual": lambda valor: _fmt_int(valor),
+            "Otimista": lambda valor: _fmt_int(valor),
+            "% da meta (atual)": lambda valor: f"{valor:.1f}%",
+        }
+    )
+    .set_properties(
+        subset=["Conservador"],
+        **{"background-color": "#fff7ed", "color": "#9a3412", "font-weight": "600"},
+    )
+    .set_properties(
+        subset=["Atual"],
+        **{"background-color": "#eff6ff", "color": "#1d4ed8", "font-weight": "700"},
+    )
+    .set_properties(
+        subset=["Otimista"],
+        **{"background-color": "#ecfdf5", "color": "#047857", "font-weight": "600"},
+    )
+    .set_properties(
+        subset=["Indicador", "Status atual"],
+        **{"font-weight": "600", "text-align": "left"},
+    )
+    .set_table_styles(
+        [
+            {
+                "selector": "th",
+                "props": [
+                    ("background-color", "#f1f5f9"),
+                    ("color", "#334155"),
+                    ("font-weight", "700"),
+                    ("padding", "10px 12px"),
+                    ("text-align", "center"),
+                    ("border-bottom", "2px solid #cbd5e1"),
+                ],
+            },
+            {
+                "selector": "td",
+                "props": [
+                    ("padding", "12px"),
+                    ("text-align", "center"),
+                    ("border-bottom", "1px solid #e2e8f0"),
+                ],
+            },
+            {
+                "selector": "table",
+                "props": [
+                    ("border-collapse", "separate"),
+                    ("border-spacing", "0"),
+                    ("border-radius", "10px"),
+                    ("overflow", "hidden"),
+                ],
+            },
+        ]
+    )
+)
+st.dataframe(
+    _cenario_styler,
+    hide_index=True,
+    use_container_width=True,
+    height=185,
+)
+
+
 def processar_resumo_agrupado(
     prod: pd.DataFrame, cons: pd.DataFrame, ft_os: float, ft_cons: float
 ) -> pd.DataFrame:
-    if (
-        not prod.empty
-        and all(c in prod.columns for c in ["CHAVE_AGRUPAMENTO", "DATA", "TECNICO"])
+    if not prod.empty and all(
+        c in prod.columns for c in ["CHAVE_AGRUPAMENTO", "DATA", "TECNICO"]
     ):
         a = (
             prod.groupby("CHAVE_AGRUPAMENTO")
@@ -1351,11 +1733,16 @@ def processar_resumo_agrupado(
             .reset_index()
         )
     else:
-        a = pd.DataFrame(columns=["CHAVE_AGRUPAMENTO", "Agrupamento", "OS_Volume", "Tecnicos_Ativos"])
+        a = pd.DataFrame(
+            columns=["CHAVE_AGRUPAMENTO", "Agrupamento", "OS_Volume", "Tecnicos_Ativos"]
+        )
     if not cons.empty and all(c in cons.columns for c in ["CHAVE_AGRUPAMENTO", "DATA"]):
         b = (
             cons.groupby("CHAVE_AGRUPAMENTO")
-            .agg(Agrupamento_C=("CHAVE_AGRUPAMENTO", "first"), Cons_Volume=("DATA", "size"))
+            .agg(
+                Agrupamento_C=("CHAVE_AGRUPAMENTO", "first"),
+                Cons_Volume=("DATA", "size"),
+            )
             .reset_index()
         )
     else:
@@ -1387,7 +1774,9 @@ def processar_resumo_agrupado(
         0,
     ).astype(int)
     m["% Meta O.S. (Proj)"] = np.round(
-        calcular_atingimento_series(m["O.S. Projetadas"], float(METAS_PRODUCAO_OS_BASE["meta_base"])),
+        calcular_atingimento_series(
+            m["O.S. Projetadas"], float(METAS_PRODUCAO_OS_BASE["meta_base"])
+        ),
         1,
     )
     m["% Meta Cons. (Proj)"] = np.round(
@@ -1396,8 +1785,20 @@ def processar_resumo_agrupado(
         ),
         1,
     )
+    m["Status O.S."] = m["O.S. Projetadas"].apply(
+        lambda valor: classificar_semaforo(valor, METAS_PRODUCAO_OS_BASE)
+    )
+    m["Status Consultivos"] = m["Consultivos Projetados"].apply(
+        lambda valor: classificar_semaforo(valor, METAS_CONSULTIVO_BASE)
+    )
+    m = adicionar_cenarios_agrupados(m, "OS_Volume", "O.S. Projetadas", "O.S.")
+    m = adicionar_cenarios_agrupados(
+        m, "Cons_Volume", "Consultivos Projetados", "Consultivos"
+    )
     m["_ordem"] = np.where(m["OS_Volume"] > 0, m["% Meta O.S. (Proj)"], 999.0)
-    m = m.sort_values(["_ordem", "Agrupamento"], ascending=[True, True]).drop(columns=["_ordem"])
+    m = m.sort_values(["_ordem", "Agrupamento"], ascending=[True, True]).drop(
+        columns=["_ordem"]
+    )
     return m.reset_index(drop=True)
 
 
@@ -1489,12 +1890,18 @@ with tab_bases:
                 "Agrupamento",
                 "OS_Volume",
                 "O.S. Projetadas",
+                "O.S. Conservadora",
+                "O.S. Otimista",
                 "O.S. Faltantes",
                 "% Meta O.S. (Proj)",
+                "Status O.S.",
                 "Cons_Volume",
                 "Consultivos Projetados",
+                "Consultivos Conservadora",
+                "Consultivos Otimista",
                 "Cons. Faltantes",
                 "% Meta Cons. (Proj)",
+                "Status Consultivos",
                 "Tecnicos_Ativos",
             ]
         ].rename(columns={"OS_Volume": "O.S. Real", "Cons_Volume": "Cons. Real"})
@@ -1509,10 +1916,14 @@ with tab_bases:
             fmt={
                 "O.S. Real": "{:,.0f}",
                 "O.S. Projetadas": "{:,.0f}",
+                "O.S. Conservadora": "{:,.0f}",
+                "O.S. Otimista": "{:,.0f}",
                 "O.S. Faltantes": "{:,.0f}",
                 "% Meta O.S. (Proj)": "{:.1f}%",
                 "Cons. Real": "{:,.0f}",
                 "Consultivos Projetados": "{:,.0f}",
+                "Consultivos Conservadora": "{:,.0f}",
+                "Consultivos Otimista": "{:,.0f}",
                 "Cons. Faltantes": "{:,.0f}",
                 "% Meta Cons. (Proj)": "{:.1f}%",
                 "Tecnicos_Ativos": "{:,.0f}",
@@ -1520,9 +1931,13 @@ with tab_bases:
             colunas_num=[
                 "O.S. Real",
                 "O.S. Projetadas",
+                "O.S. Conservadora",
+                "O.S. Otimista",
                 "O.S. Faltantes",
                 "Cons. Real",
                 "Consultivos Projetados",
+                "Consultivos Conservadora",
+                "Consultivos Otimista",
                 "Cons. Faltantes",
                 "Tecnicos_Ativos",
             ],
@@ -1556,7 +1971,9 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
             == base_nome.strip().upper()
         ]
         if b_data.empty:
-            disponiveis = ", ".join(df_resumo_agrupado["Agrupamento"].astype(str).head(8).tolist())
+            disponiveis = ", ".join(
+                df_resumo_agrupado["Agrupamento"].astype(str).head(8).tolist()
+            )
             render_empty_state(
                 tipo="filtro",
                 titulo="Agrupamento sem dados",
@@ -1572,9 +1989,13 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
             os_projetado = _to_float_safe(b_data["O.S. Projetadas"].iloc[0])
             cons_real = _to_float_safe(b_data["Cons_Volume"].iloc[0])
             cons_projetado = _to_float_safe(b_data["Consultivos Projetados"].iloc[0])
-            tecnicos_base = max(1, int(_to_float_safe(b_data["Tecnicos_Ativos"].iloc[0], default=1)))
+            tecnicos_base = max(
+                1, int(_to_float_safe(b_data["Tecnicos_Ativos"].iloc[0], default=1))
+            )
         except (IndexError, KeyError, ValueError, TypeError) as exc:
-            render_insight(f"Erro ao processar os dados de {base_nome}: {exc}", tipo="critico")
+            render_insight(
+                f"Erro ao processar os dados de {base_nome}: {exc}", tipo="critico"
+            )
             return
 
         meta_os = float(METAS_PRODUCAO_OS_BASE["meta_base"])
@@ -1629,7 +2050,9 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
         st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
 
         cons_faltantes = meta_cons_base - cons_real
-        cons_media_diaria = max(cons_faltantes, 0) / dias_rest_c if dias_rest_c > 0 else 0
+        cons_media_diaria = (
+            max(cons_faltantes, 0) / dias_rest_c if dias_rest_c > 0 else 0
+        )
         render_resumo_cards(
             titulo="Consultivos",
             icone="💼",
@@ -1731,4 +2154,6 @@ with tab_alertas:
         for mensagem, tipo in alertas[:12]:
             render_insight(mensagem, tipo=tipo)
         if len(alertas) > 12:
-            st.caption(f"Mais {len(alertas) - 12} alertas omitidos para não poluir a leitura.")
+            st.caption(
+                f"Mais {len(alertas) - 12} alertas omitidos para não poluir a leitura."
+            )
