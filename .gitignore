@@ -1,6 +1,16 @@
 .streamlit/secrets*.toml
 !.streamlit/secrets.example.toml
 
+# Lixo de sistema operacional / editores (não deve ser versionado)
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+*.orig
+*.rej
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
