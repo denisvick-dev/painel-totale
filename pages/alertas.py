@@ -7,9 +7,9 @@ import streamlit as st
 from components.alertas_automaticos import Alerta, avaliar_alertas
 from components.componentes import (
     aplicar_estilo,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 
 def _render_alerta(alerta: Alerta) -> None:

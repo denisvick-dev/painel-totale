@@ -13,10 +13,10 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
+from components.sidebar import render_page_sidebar_theme_selector
 
 # ====================================================
 # BLOCO 1: CONFIGURAÇÕES E INICIALIZAÇÃO
@@ -101,10 +101,11 @@ st.markdown(
 )
 
 
+from config.settings import URL_ATIVOS_EDIT
+
+
 class Configuracoes:
-    url_ativos = (
-        "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-    )
+    url_ativos = URL_ATIVOS_EDIT
     meta_diaria_consultivos = 7
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import pickle
 import re
 import unicodedata
 from io import BytesIO
@@ -14,6 +13,7 @@ import folium
 
 # ── Imports para o Mapa ───────────────────────────────────────────────────────
 import geobr
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -34,9 +34,9 @@ from components.componentes import (
     render_insight,
     render_kpi,
     render_kpi_sm,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +63,12 @@ if "total_montados_manual" not in st.session_state:
 if "_reset_counter" not in st.session_state:
     st.session_state["_reset_counter"] = 0
 
+from config.settings import URL_ATIVOS_EDIT
+
 # ====================================================
 # 2. CONFIGURAÇÕES GLOBAIS
 # ====================================================
-URL_GSHEETS = (
-    "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-)
+URL_GSHEETS = URL_ATIVOS_EDIT
 
 CONTRATO_VALORES_VAZIOS = {"", "NAN", "NONE", "N/A", "NA", "-", "0", "NULL", "<NA>"}
 
@@ -925,16 +925,15 @@ MUNICIPIOS_REGIAO_INTERESSE = [
 @st.cache_data(ttl=86400, show_spinner=False)  # 24 horas
 def carregar_geometria_municipios_sp() -> pd.DataFrame | None:
     """
-    Carrega geometrias dos municípios com cache otimizado.
+    Carrega geometrias dos municípios com cache otimizado em Parquet.
     Prioriza municípios da região de interesse.
     """
     try:
-        # Tenta carregar do cache em disco primeiro
-        cache_file = CACHE_DIR / "geo_sp_2022.pkl"
+        # Tenta carregar do cache em disco primeiro (formato Parquet seguro)
+        cache_file = CACHE_DIR / "geo_sp_2022.parquet"
         if cache_file.exists():
-            with open(cache_file, "rb") as f:
-                df_sp = pickle.load(f)
-                return cast(pd.DataFrame, df_sp)
+            df_sp = gpd.read_parquet(cache_file)
+            return cast(pd.DataFrame, df_sp)
 
         # Carrega da API do IBGE
         df_sp = geobr.read_municipality(code_muni="SP", year=2022)  # type: ignore
@@ -965,9 +964,9 @@ def carregar_geometria_municipios_sp() -> pd.DataFrame | None:
 
         df_filtrado = df_sp[df_sp["name_muni_norm"].isin(municipios_interesse)].copy()
 
-        # Salva em disco para próxima execução
-        with open(cache_file, "wb") as f:
-            pickle.dump(df_filtrado, f)
+        # Salva em disco em formato Parquet seguro para próxima execução
+        if hasattr(df_filtrado, "to_parquet"):
+            df_filtrado.to_parquet(cache_file)
 
         return cast(pd.DataFrame, df_filtrado)
 

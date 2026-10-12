@@ -1,7 +1,6 @@
 # gerador_assinatura.py
 import io
 import logging
-import traceback
 from pathlib import Path
 
 import streamlit as st
@@ -16,12 +15,14 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi_sm,
-    render_page_sidebar_theme_selector,
     render_section_header,
-    render_sidebar_brand,
 )
 from components.componentes import (
     aplicar_estilo as aplicar_estilo_corp,
+)
+from components.sidebar import (
+    render_page_sidebar_theme_selector,
+    render_sidebar_brand,
 )
 
 logger = logging.getLogger(__name__)
@@ -341,11 +342,11 @@ with col1:
         badge_tipo="info",
     )
 
-    nome = st.text_input("Nome Completo *", value="Denis Vick", placeholder="Ex: Denis Vick")
+    nome = st.text_input("Nome Completo *", value="", placeholder="Ex: João da Silva")
     cargo = st.text_input(
         "Cargo / Função *",
-        value="Analista de COP | Leste & ABCDM",
-        placeholder="Ex: Analista de COP",
+        value="",
+        placeholder="Ex: Analista de COP | Leste & ABCDM",
     )
 
     st.markdown(
@@ -356,7 +357,7 @@ with col1:
     col_tel1, col_tel2 = st.columns(2)
     with col_tel1:
         telefone1_raw = st.text_input(
-            "Principal", value="11993045101", placeholder="Apenas números", max_chars=11
+            "Principal", value="", placeholder="Apenas números", max_chars=11
         )
     with col_tel2:
         telefone2_raw = st.text_input(
@@ -460,8 +461,8 @@ with col2:
         )
 
     except Exception as e:
-        render_insight(f"Erro inesperado: {e}", "critico")
-        st.code(traceback.format_exc(), language="python")
+        logger.exception("Falha inesperada ao gerar assinatura")
+        render_insight(f"Erro inesperado ao gerar a assinatura: {e}", "critico")
 
 # ============ GUIA DE INSTALAÇÃO ============
 

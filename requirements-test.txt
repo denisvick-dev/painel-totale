@@ -1,6 +1,7 @@
 pytest>=8,<9
 ruff>=0.16,<0.17
-streamlit>=1.52
-pandas
-numpy
-plotly
+streamlit>=1.52,<2.0
+pandas>=2.2,<4.0
+numpy>=1.26,<3.0
+plotly>=5.24,<8.0
+requests>=2.31,<3.0

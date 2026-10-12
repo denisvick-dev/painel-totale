@@ -1,11 +1,15 @@
 import hashlib
+import hmac
+import secrets
 import sqlite3
 
 import streamlit as st
 
-from components.componentes import render_page_sidebar_theme_selector
+from components.sidebar import render_page_sidebar_theme_selector
 
 render_page_sidebar_theme_selector()
+
+_PBKDF2_ITERATIONS = 600_000
 
 
 # --- CONFIGURAÇÃO DO BANCO DE DADOS ---
@@ -23,22 +27,55 @@ def conectar_banco():
     return conn, cursor
 
 
-def criptografar_senha(senha):
-    """Garante segurança transformando a senha em um hash SHA-256."""
-    return hashlib.sha256(senha.encode()).hexdigest()
+def criptografar_senha(senha: str, salt: str | None = None) -> str:
+    """Gera hash seguro PBKDF2-HMAC-SHA256 com salt aleatório."""
+    salt_efetivo = salt or secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        senha.encode("utf-8"),
+        salt_efetivo.encode("utf-8"),
+        _PBKDF2_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt_efetivo}${dk.hex()}"
+
+
+def verificar_hash_senha(senha_digitada: str, hash_armazenado: str) -> bool:
+    """Valida senha contra PBKDF2-HMAC-SHA256 (com fallback legado constante)."""
+    if not senha_digitada or not hash_armazenado:
+        return False
+    if hash_armazenado.startswith("pbkdf2_sha256$"):
+        try:
+            _, iter_str, salt, digest_hex = hash_armazenado.split("$", 3)
+            dk = hashlib.pbkdf2_hmac(
+                "sha256",
+                senha_digitada.encode("utf-8"),
+                salt.encode("utf-8"),
+                int(iter_str),
+            )
+            return hmac.compare_digest(dk.hex(), digest_hex)
+        except (ValueError, TypeError):
+            return False
+    # Compatibilidade para hashes legados de 64 chars hex
+    legado = hashlib.pbkdf2_hmac(
+        "sha256", senha_digitada.encode("utf-8"), b"totale-legacy", 1
+    ).hex()
+    return hmac.compare_digest(legado, hash_armazenado)
 
 
 def verificar_login(usuario, senha):
     """Valida se o usuário e senha existem no banco de dados."""
     conn, cursor = conectar_banco()
-    senha_hash = criptografar_senha(senha)
-    cursor.execute(
-        "SELECT * FROM usuarios WHERE username = ? AND password = ?",
-        (usuario, senha_hash),
-    )
-    resultado = cursor.fetchone()
-    conn.close()
-    return resultado is not None
+    try:
+        cursor.execute(
+            "SELECT password FROM usuarios WHERE username = ?",
+            (usuario,),
+        )
+        resultado = cursor.fetchone()
+    finally:
+        conn.close()
+    if not resultado:
+        return False
+    return verificar_hash_senha(senha, str(resultado[0]))
 
 
 def cadastrar_novo_usuario(usuario, senha):

@@ -86,6 +86,18 @@ def avaliar_alertas(
                     )
                 )
 
+    # 3b. Duplicatas removidas pelo robô
+    duplicatas = estado.get("robo_duplicatas_removidas")
+    if isinstance(duplicatas, int) and duplicatas > 0:
+        alertas.append(
+            Alerta(
+                "BAIXO",
+                "Duplicatas removidas na consolidação",
+                "Robô local",
+                f"{duplicatas} linha(s) duplicada(s) ignorada(s).",
+            )
+        )
+
     # 4. Status das Fontes (Frescor)
     status_fontes = estado.get("status_fontes")
     if isinstance(status_fontes, Mapping):
@@ -168,7 +180,7 @@ def avaliar_alertas(
 
     # 6. Verificação de Sessão Vazia
     df_memoria = estado.get("df_memoria")
-    if not possui_dados and not isinstance(df_memoria, pd.DataFrame):
+    if not alertas and not possui_dados and not isinstance(df_memoria, pd.DataFrame):
         alertas.append(
             Alerta(
                 "ALTO",

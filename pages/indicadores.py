@@ -1,12 +1,10 @@
 import logging
 import unicodedata
 from datetime import datetime
-from io import BytesIO, StringIO
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
 
 # Importação do Design System TOTALE
@@ -17,14 +15,21 @@ from components.componentes import (
     render_insight,
     render_kpi,
     render_metric_card,
-    render_page_sidebar_theme_selector,
     render_progress_bar,
     render_section_header,
+    render_table_html,
+)
+from components.sidebar import (
+    render_page_sidebar_theme_selector,
     render_sidebar_brand,
     render_sidebar_divider,
     render_sidebar_footer_info,
     render_sidebar_status,
-    render_table_html,
+)
+from config.settings import DRIVE_ID_INDICADORES, SHEET_ID_ATIVOS
+from services.google_drive_client import (
+    carregar_excel_drive,
+    carregar_planilha_gsheets_csv,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,8 +55,8 @@ MARGEM_CRITICA = 5.0
 MIN_OS_BOTTOM = 3
 
 # --- CONFIGURAÇÃO DOS ARQUIVOS ---
-DRIVE_FILE_ID = "1k6NrvdZzdSV_sGOQkMKIssEhh7p7wyO0"
-LISTA_ATIVOS_ID = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+DRIVE_FILE_ID = DRIVE_ID_INDICADORES
+LISTA_ATIVOS_ID = SHEET_ID_ATIVOS
 
 SHEET_LOGIN_MAPPING: dict[str, str] = {
     "Geoloc_Os": "LOGIN_TEC",
@@ -570,16 +575,8 @@ def regras_texto_pp(valores: pd.Series) -> dict[str, str]:
 # --- CARREGAMENTO E CRUZAMENTO ---
 @st.cache_data(ttl=3600)
 def load_excel_from_drive(file_id: str) -> dict[str, pd.DataFrame] | None:
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
     try:
-        response = requests.get(url, timeout=60)
-        response.raise_for_status()
-        all_sheets: dict[str, pd.DataFrame] = pd.read_excel(
-            BytesIO(response.content), sheet_name=None, engine="openpyxl"
-        )
-        for sheet in all_sheets.values():
-            sheet.columns = sheet.columns.astype(str).str.strip()
-        return all_sheets
+        return carregar_excel_drive(file_id, timeout=60)
     except Exception as e:
         st.error(f"❌ Erro ao carregar Excel do Drive: {e}")
         return None
@@ -587,12 +584,12 @@ def load_excel_from_drive(file_id: str) -> dict[str, pd.DataFrame] | None:
 
 @st.cache_data(ttl=3600)
 def load_google_sheet(sheet_id: str) -> pd.DataFrame | None:
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
-        response = requests.get(url, timeout=60)
-        response.raise_for_status()
-        df = pd.read_csv(StringIO(response.text))
-        df.columns = df.columns.astype(str).str.strip()
+        df = carregar_planilha_gsheets_csv(
+            sheet_id=sheet_id, timeout=60, usar_conexao_streamlit=False
+        )
+        if df.empty:
+            raise ValueError("Planilha retornou vazia.")
         return df
     except Exception as e:
         st.error(f"❌ Erro ao carregar lista_ativos: {e}")
@@ -2428,7 +2425,8 @@ with st.sidebar:
         f"Vínculo de logins: {pct_vinculo:.1f}% ({fmt_int(vinculo_total - vinculo_sem)} de {fmt_int(vinculo_total)})"
     )
     if st.button("🔄 Atualizar bases", width="stretch"):
-        st.cache_data.clear()
+        load_excel_from_drive.clear()
+        load_google_sheet.clear()
         st.rerun()
 
     render_sidebar_divider(estilo="gradiente", label="Legenda")

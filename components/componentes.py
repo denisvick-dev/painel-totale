@@ -33,6 +33,27 @@ import plotly.io as pio
 import streamlit as st
 import streamlit.components.v1 as components
 
+from components.sidebar import (
+    TemaSidebarType,
+    _css_tema,
+    _obter_tema_sidebar,
+    carregar_layout_corporativo,
+    definir_tema_sidebar,
+    normalizar_tema_sidebar,
+    render_page_sidebar_theme_selector,
+    render_sidebar_brand,
+    render_sidebar_divider,
+    render_sidebar_footer_info,
+    render_sidebar_info,
+    render_sidebar_section,
+    render_sidebar_spacer,
+    render_sidebar_status,
+    render_sidebar_theme_selector,
+)
+from components.sidebar import (
+    aplicar_sidebar_corp as _aplicar_sidebar_corp_mod,
+)
+
 logger = logging.getLogger(__name__)
 
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
@@ -1023,17 +1044,28 @@ class CSSInjector:
     """Injeta os estilos globais do Design System."""
 
     @staticmethod
-    @lru_cache(maxsize=1)
-    def _build_css() -> str:
+    @lru_cache(maxsize=8)
+    def _build_css(tema_sidebar: str | None = None) -> str:
+        bloco_sidebar = ""
+        if tema_sidebar is not None:
+            css_sb = _css_tema(tema_sidebar)
+            ini_sb = css_sb.find("<style>")
+            fim_sb = css_sb.rfind("</style>")
+            bloco_sidebar = (
+                "\n" + css_sb[ini_sb + len("<style>") : fim_sb].strip()
+                if ini_sb >= 0 and fim_sb > ini_sb
+                else f"\n{css_sb}"
+            )
         return (
             f"{FontInjector._build_links_html()}\n<style>\n"
             f"{_CSS_VARS_ROOT}\n{_CSS_RESET_GLOBAL}\n{_CSS_HEROS}\n{_CSS_CARDS}\n"
-            f"{_CSS_TABELAS}\n{_CSS_EXTRAS}\n{_CSS_STREAMLIT_CHROME}\n</style>"
+            f"{_CSS_TABELAS}\n{_CSS_EXTRAS}\n{_CSS_STREAMLIT_CHROME}{bloco_sidebar}\n</style>"
         )
 
     @staticmethod
-    def injetar() -> None:
-        css_html = CSSInjector._build_css()
+    def injetar(tema_sidebar: TemaSidebarType | str | None = None) -> None:
+        tema_efetivo = _obter_tema_sidebar(tema_sidebar)
+        css_html = CSSInjector._build_css(tema_efetivo)
         _safe_render_html(css_html)
 
         inicio = css_html.find("<style>")
@@ -1064,18 +1096,28 @@ class CSSInjector:
             """,
         )
         st.session_state["_totale_css_head_injected"] = True
+        st.session_state["_totale_css_head_tema"] = tema_efetivo
 
 
-def aplicar_estilo() -> None:
+def aplicar_estilo(tema_sidebar: TemaSidebarType | str | None = None) -> None:
     """Aplica o Design System TOTALE à página."""
+    tema_efetivo = _obter_tema_sidebar(tema_sidebar)
     PlotlyConfig.configurar()
     FontInjector.injetar_no_head_pai()
-    CSSInjector.injetar()
+    _aplicar_sidebar_corp_mod(tema_efetivo)
+    CSSInjector.injetar(tema_efetivo)
 
 
-def aplicar_estilo_corp() -> None:
+def aplicar_estilo_corp(tema_sidebar: TemaSidebarType | str | None = None) -> None:
     """Alias corporativo de ``aplicar_estilo``."""
-    aplicar_estilo()
+    aplicar_estilo(tema_sidebar=tema_sidebar)
+
+
+def aplicar_sidebar_corp(tema: TemaSidebarType | str | None = None) -> None:
+    """Aplica o estilo do sidebar e sincroniza ``_totale_css_head_tema``."""
+    tema_efetivo = _obter_tema_sidebar(tema)
+    _aplicar_sidebar_corp_mod(tema_efetivo)
+    st.session_state["_totale_css_head_tema"] = tema_efetivo
 
 
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
@@ -1840,6 +1882,7 @@ __all__ = [
     "PlotlyConfig",
     "TemaKPI",
     "TemaKPIType",
+    "TemaSidebarType",
     "TipoBadge",
     "TipoBadgeType",
     "TipoEmptyState",
@@ -1861,9 +1904,13 @@ __all__ = [
     "Validadores",
     "aplicar_estilo",
     "aplicar_estilo_corp",
+    "aplicar_sidebar_corp",
+    "carregar_layout_corporativo",
+    "definir_tema_sidebar",
     "formatar_datetime_exibicao",
     "formatar_numero_br",
     "injetar_css",
+    "normalizar_tema_sidebar",
     "normalizar_texto_badge",
     "normalizar_tipo",
     "render_badge",
@@ -1880,8 +1927,17 @@ __all__ = [
     "render_kpi_sm",
     "render_metric_card",
     "render_notification",
+    "render_page_sidebar_theme_selector",
     "render_progress_bar",
     "render_section_header",
+    "render_sidebar_brand",
+    "render_sidebar_divider",
+    "render_sidebar_footer_info",
+    "render_sidebar_info",
+    "render_sidebar_section",
+    "render_sidebar_spacer",
+    "render_sidebar_status",
+    "render_sidebar_theme_selector",
     "render_skeleton",
     "render_spacer",
     "render_table_html",

@@ -15,6 +15,7 @@ Autor: TOTALE Tecnologia
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,14 @@ from functools import wraps
 from typing import Any, ParamSpec, TypeVar
 
 import streamlit as st
+
+try:
+    from streamlit.runtime.scriptrunner_utils.exceptions import (
+        RerunException,
+        StopException,
+    )
+except ImportError:  # pragma: no cover - fallback para variações internas do Streamlit
+    RerunException = StopException = ()  # type: ignore[misc, assignment]
 
 from components.componentes import aplicar_estilo
 from components.sidebar import (
@@ -86,15 +95,23 @@ CONFIG = ConfiguracoesSistema()
 # 🔧 BLOCO 2: DECORATORS E UTILITÁRIOS
 # ====================================================
 def handle_exceptions(func: Callable[P, R]) -> Callable[P, R | None]:
-    """Decorador que registra exceções e mostra um erro amigável no app."""
+    """Decorador que registra exceções e mostra um erro amigável com ID de correlação."""
 
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:
         try:
             return func(*args, **kwargs)
+        except (RerunException, StopException):
+            raise
         except Exception as exc:
-            logger.exception("Erro em %s: %s", func.__name__, exc)
-            st.error(f"Ocorreu um erro inesperado: {exc!s}")
+            error_id = uuid.uuid4().hex[:8].upper()
+            logger.exception(
+                "Erro em %s [ref=%s]: %s", func.__name__, error_id, exc
+            )
+            st.error(
+                f"Ocorreu um erro inesperado ao carregar a página "
+                f"(código de referência #{error_id})."
+            )
             return None
 
     return wrapper

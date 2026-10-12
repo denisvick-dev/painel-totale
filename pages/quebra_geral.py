@@ -24,7 +24,6 @@ from html import escape
 from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Final, Literal, cast
-from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -145,16 +144,29 @@ _ROBO_FN, _ROBO_ERRO = _carregar_robo()
 ROBO_DISPONIVEL: bool = _ROBO_FN is not None
 
 
+from config.settings import (
+    SHEET_ABA_ATIVOS as _DEFAULT_WORKSHEET_ATIVOS,
+)
+from config.settings import (
+    SHEET_ID_ATIVOS as _DEFAULT_SHEET_ID_ATIVOS,
+)
+from config.settings import (
+    URL_ATIVOS_EDIT as _DEFAULT_URL_LISTA_ATIVOS,
+)
+from config.settings import (
+    url_gsheets_export,
+    url_gsheets_gviz_csv,
+)
+
+
 class Config:
     """Constantes de negócio e visuais."""
 
     SLA_QUEBRA_MAXIMA: Final[float] = 0.20
     SLA_MIGRACAO_MAXIMA: Final[float] = 0.25
-    URL_LISTA_ATIVOS: Final[str] = (
-        "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-    )
-    SHEET_ID_ATIVOS: Final[str] = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-    WORKSHEET_ATIVOS: Final[str] = "lista_ativos"
+    URL_LISTA_ATIVOS: Final[str] = _DEFAULT_URL_LISTA_ATIVOS
+    SHEET_ID_ATIVOS: Final[str] = _DEFAULT_SHEET_ID_ATIVOS
+    WORKSHEET_ATIVOS: Final[str] = _DEFAULT_WORKSHEET_ATIVOS
     STATUS_ORDEM: Final[tuple[str, ...]] = ("Executada", "Não Executada", "Pendente")
     ORDEM_TIPOS: Final[tuple[str, ...]] = (
         "Novos Domicílios",
@@ -350,7 +362,10 @@ def normalizar_login(valor: Any) -> str:
         return ""
     texto = normalizar_texto(valor).replace(" ", "")
     m = RE_LOGIN_DECIMAL.match(texto)
-    return m.group(1) if m else texto
+    base = m.group(1) if m else texto
+    if base.isdigit():
+        return base.lstrip("0") or "0"
+    return base
 
 
 def padronizar_tipo_servico(tipo: Any) -> str:
@@ -433,6 +448,8 @@ class DF:
                 continue
             for norm, orig in mapa.items():
                 if alvo == "CONTRATO" and "STATUS" in norm:
+                    continue
+                if "TECNICO" in alvo and "LOGIN" not in alvo and "LOGIN" in norm:
                     continue
                 if alvo in norm or norm in alvo:
                     return orig
@@ -637,6 +654,8 @@ def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
 
 
 class Utils:
+    normalizar_login = staticmethod(normalizar_login)
+
     @staticmethod
     def classificar_status_excel(df: pd.DataFrame) -> pd.Series:
         return ClassificadorStatus.classificar(df)
@@ -690,8 +709,12 @@ class DataLoader:
     @st.cache_data(ttl=300, show_spinner="Sincronizando Lista de Ativos...")
     def buscar_gsheets() -> pd.DataFrame:
         urls = (
-            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}/export?format=csv&sheet={quote(Config.WORKSHEET_ATIVOS)}",
-            f"https://docs.google.com/spreadsheets/d/{Config.SHEET_ID_ATIVOS}/gviz/tq?tqx=out:csv&sheet={quote(Config.WORKSHEET_ATIVOS)}",
+            url_gsheets_export(
+                Config.SHEET_ID_ATIVOS, fmt="csv", sheet=Config.WORKSHEET_ATIVOS
+            ),
+            url_gsheets_gviz_csv(
+                Config.SHEET_ID_ATIVOS, sheet=Config.WORKSHEET_ATIVOS
+            ),
         )
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -781,6 +804,8 @@ class DataLoader:
         return resultado.drop_duplicates(subset=["LOGIN"], keep="last").reset_index(
             drop=True
         )
+
+    _processar_lista_ativos = processar_lista_ativos
 
     @staticmethod
     def classificar_regiao(valor: Any) -> str:
@@ -916,6 +941,11 @@ class DataLoader:
         b_final = np.where(b1 != "", b1, b2)
         if any(b_final != ""):
             result["_B"] = pd.Series(b_final, index=result.index)
+        match_mask = (
+            m1["_JOIN_KEY"].isin(set(at_key["_JOIN_KEY"]))
+            | m2["_JOIN_CLEAN"].isin(set(at_clean["_JOIN_CLEAN"]))
+        ) & (work["_JOIN_KEY"] != "")
+        result.attrs["logins_encontrados"] = int(match_mask.sum())
         return result
 
     @staticmethod
@@ -1025,6 +1055,7 @@ class DataLoader:
             or c.startswith("_ATIVO")
             or c in ("_T", "_M", "_B")
         ]
+        logins_encontrados = int(base.attrs.get("logins_encontrados", 0))
         base = base.drop(columns=aux, errors="ignore").reset_index(drop=True)
         base.attrs.update(
             {
@@ -1036,6 +1067,7 @@ class DataLoader:
                 "valores_tipo_servico_originais": valores_tipo,
                 "total_processado": len(base),
                 "flag_gpon_sim_count": flag_gpon_sim,
+                "logins_encontrados": logins_encontrados,
             }
         )
         return base
@@ -1411,7 +1443,7 @@ def render_table_html(df: pd.DataFrame, **kw: Any) -> None:
     if COMPONENTES.table_html:
         COMPONENTES.table_html(df, **kw)
     else:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
 
 def render_insight(texto: str, tipo: TipoInsight = "info") -> None:
@@ -1550,7 +1582,7 @@ def render_bloco_importacao(dados_prontos: bool = False) -> bool:
     return st.button(
         "Atualizar relatório",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         key="btn_atualizar_relatorio",
     )
 
@@ -1696,7 +1728,7 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
         data=gerar_excel(matriz, "Matriz_Resumo"),
         file_name="Matriz_Resumo_Quebra.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -1750,7 +1782,10 @@ def view_analise_detalhada(
             )
             critico = int(proj["Projeção Fechamento"].gt(meta_sla * 1.25).sum())
             conv_med = float(proj["Conversão Necessária"].mean())
-            pct = lambda x: f"{x / total:.0%}" if total else "0%"
+
+            def pct(x: int) -> str:
+                return f"{x / total:.0%}" if total else "0%"
+
             render_kpi_sm(k1, "Dentro da Meta", str(dentro), pct(dentro), "verde")
             render_kpi_sm(k2, "Atenção", str(atencao), pct(atencao), "amarelo")
             render_kpi_sm(k3, "Crítico", str(critico), pct(critico), "vermelho")
@@ -1810,7 +1845,7 @@ def view_auditoria(df: pd.DataFrame) -> None:
         dist = df["TIPO_SERVICO"].value_counts().reset_index()
         dist.columns = ["Segmento", "Registros"]
         dist["%"] = (dist["Registros"] / total * 100).round(1).astype(str) + "%"
-        st.dataframe(dist, hide_index=True, use_container_width=True)
+        st.dataframe(dist, hide_index=True, width="stretch")
         nd = int(dist.loc[dist["Segmento"] == "Novos Domicílios", "Registros"].sum())
         pme = int(dist.loc[dist["Segmento"] == "PME", "Registros"].sum())
         if nd == 0 and pme == 0:
@@ -1852,7 +1887,7 @@ def view_auditoria(df: pd.DataFrame) -> None:
                 st.markdown("Amostras de habilidade")
                 st.code(df[col_hab].dropna().astype(str).unique()[:15].tolist())
     with st.expander("Visualizar amostra da base processada", expanded=False):
-        st.dataframe(df.head(200), use_container_width=True, hide_index=True)
+        st.dataframe(df.head(200), width="stretch", hide_index=True)
 
 
 _CHAVES_SESSAO: Final[tuple[str, ...]] = (
@@ -1901,13 +1936,17 @@ def _sidebar_ativos(nonce: int) -> None:
                     st.toast(f"{len(proc)} ativos carregados.")
             except Exception as erro:
                 st.error(f"Erro ao processar base de ativos: {erro}")
-        if st.button("Reiniciar aplicação", use_container_width=True, type="secondary"):
+        if st.button("Reiniciar aplicação", width="stretch", type="secondary"):
             limpar_sessao(True)
-            st.cache_data.clear()
+            DataLoader.ler_arquivo.clear()
+            DataLoader.buscar_gsheets.clear()
+            _cache_matriz.clear()
             st.rerun()
-        if st.button("Limpar cache", use_container_width=True, type="secondary"):
+        if st.button("Limpar cache", width="stretch", type="secondary"):
             limpar_sessao(True)
-            st.cache_data.clear()
+            DataLoader.ler_arquivo.clear()
+            DataLoader.buscar_gsheets.clear()
+            _cache_matriz.clear()
             st.rerun()
 
 

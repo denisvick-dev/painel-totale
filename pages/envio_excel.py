@@ -18,7 +18,6 @@ Página do app Streamlit (rodar como página em pages/ ou como main).
 
 from __future__ import annotations
 
-import csv
 import math
 import re
 from collections.abc import Callable, Mapping
@@ -26,16 +25,29 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
 import streamlit as st
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from components.saude_dados import avaliar_consistencia, avaliar_frescor
+from config.settings import (
+    FUSO_BR,
+    TIMEOUT_HTTP_PADRAO,
+    URL_ATIVOS_CSV,
+    URL_CONS_DOWNLOAD,
+    URL_PROD_XLSX,
+)
+from services.google_drive_client import (
+    adicionar_confirm_url,
+    baixar_bytes_drive,
+    criar_sessao_http,
+    e_resposta_html,
+    extrair_token_confirm,
+    ler_csv_uma_tentativa,
+    separadores_csv,
+    urls_download_drive,
+)
 
 AlinhamentoColuna = Literal["top", "center", "bottom"]
 
@@ -82,16 +94,19 @@ try:
         render_hero_totale_1,
         render_insight,
         render_kpi,
-        render_page_sidebar_theme_selector,
         render_section_header,
-        render_sidebar_brand,
         render_table_html,
+    )
+    from components.sidebar import (
+        render_page_sidebar_theme_selector,
+        render_sidebar_brand,
     )
 except Exception:  # ambiente sem o design system — o app ainda abre
     aplicar_estilo = _noop
     render_hero_totale_1 = _hero_fb
     render_insight = _insight_fb
     render_kpi = _kpi_fb
+    render_page_sidebar_theme_selector = _noop  # type: ignore[assignment]
     render_section_header = _header_fb
     render_sidebar_brand = _noop
     render_table_html = _tabela_fb
@@ -100,15 +115,9 @@ except Exception:  # ambiente sem o design system — o app ainda abre
 class Configuracoes:
     """Central de configurações e URLs das fontes de dados."""
 
-    URL_PROD = (
-        "https://docs.google.com/spreadsheets/d/"
-        "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v/export?format=xlsx"
-    )
-    URL_CONS = "https://drive.google.com/uc?id=1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs&export=download"
-    URL_ATIVOS = (
-        "https://docs.google.com/spreadsheets/d/"
-        "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/export?format=csv"
-    )
+    URL_PROD = URL_PROD_XLSX
+    URL_CONS = URL_CONS_DOWNLOAD
+    URL_ATIVOS = URL_ATIVOS_CSV
 
     # Tokens tratados como vazio. Quem ainda lê VAZIOS continua achando o conjunto;
     # a comparação de verdade usa PADRAO_VAZIO (inclui na e n/a, que o set antigo não tinha).
@@ -116,8 +125,8 @@ class Configuracoes:
     PADRAO_VAZIO = r"^(?:-|nan|none|na|n/a|<na>|nat|null)$"
     _RE_VAZIO = re.compile(PADRAO_VAZIO, re.IGNORECASE)
 
-    FUSO = ZoneInfo("America/Sao_Paulo")
-    TIMEOUT = 30
+    FUSO = FUSO_BR
+    TIMEOUT = TIMEOUT_HTTP_PADRAO
     FOLGA_TIMER_SEG = 2
     ABAS_PROD: list[str] | None = None  # None = todas as abas
     ABA_PROD_UI = "Prod"
@@ -221,132 +230,39 @@ class ProcessadorDeDados:
     @staticmethod
     def urls_download(url: str) -> list[str]:
         """URL principal + usercontent com confirm=t (pula o HTML do Drive)."""
-        urls = [url]
-        m = re.search(r"(?:uc\?id=|d/)([A-Za-z0-9_-]{20,})", url)
-        if m:
-            alt = (
-                "https://drive.usercontent.google.com/download"
-                f"?id={m.group(1)}&export=download&confirm=t"
-            )
-            if alt not in urls:
-                urls.append(alt)
-        return urls
+        return urls_download_drive(url)
 
     @staticmethod
     def _e_html(conteudo: bytes, content_type: str) -> bool:
-        amostra = conteudo[:512].lstrip()
-        if amostra.startswith(b"PK\x03\x04"):
-            return False
-        ctype = content_type.lower()
-        if "text/html" in ctype or "application/xhtml" in ctype:
-            return True
-        baixo = amostra[:64].lower()
-        return baixo.startswith((b"<!doctype", b"<html", b"<head", b"<body"))
+        return e_resposta_html(conteudo, content_type)
 
     @staticmethod
     def _token_confirm(corpo: bytes) -> str | None:
-        m = re.search(rb"[?&]confirm=([0-9A-Za-z_\-]+)", corpo)
-        if m:
-            return m.group(1).decode("ascii", "ignore")
-        m = re.search(rb"name=[\"']confirm[\"'][^>]*value=[\"']([^\"']+)", corpo)
-        if not m:
-            m = re.search(rb"value=[\"']([^\"']+)[\"'][^>]*name=[\"']confirm[\"']", corpo)
-        if m:
-            return m.group(1).decode("ascii", "ignore")
-        if b"download_warning" in corpo or b"uc-download-link" in corpo:
-            return "t"
-        return None
+        return extrair_token_confirm(corpo)
 
     @classmethod
     def _com_confirm(cls, url: str, token: str) -> str:
-        partes = urlsplit(url)
-        query = dict(parse_qsl(partes.query, keep_blank_values=True))
-        query["confirm"] = token
-        return urlunsplit((partes.scheme, partes.netloc, partes.path, urlencode(query), ""))
+        return adicionar_confirm_url(url, token)
 
     @classmethod
     def baixar_bytes(cls, sess: requests.Session, url: str) -> bytes:
         """Baixa o arquivo; segue o confirm do Drive e o fallback usercontent."""
-        for candidato in cls.urls_download(url):
-            resposta = sess.get(candidato, timeout=Configuracoes.TIMEOUT)
-            resposta.raise_for_status()
-            corpo = resposta.content
-            ctype = resposta.headers.get("Content-Type", "")
-            if not cls._e_html(corpo, ctype):
-                return corpo
-            token = cls._token_confirm(corpo)
-            if not token:
-                continue
-            resposta2 = sess.get(cls._com_confirm(candidato, token), timeout=Configuracoes.TIMEOUT)
-            resposta2.raise_for_status()
-            if not cls._e_html(resposta2.content, resposta2.headers.get("Content-Type", "")):
-                return resposta2.content
-        raise RuntimeError(
-            "O Google Drive respondeu com uma página HTML. "
-            "Verifique se o arquivo está compartilhado como "
-            "'qualquer pessoa com o link'."
-        )
+        return baixar_bytes_drive(sess, url, timeout=Configuracoes.TIMEOUT)
 
     @staticmethod
     def criar_sessao() -> requests.Session:
-        sess = requests.Session()
-        sess.headers["User-Agent"] = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-        )
-        try:
-            retry = Retry(
-                total=3,
-                connect=3,
-                read=3,
-                backoff_factor=1.0,
-                status_forcelist=(429, 500, 502, 503, 504),
-                allowed_methods=frozenset({"GET"}),
-                raise_on_status=False,
-            )
-        except TypeError:  # urllib3 < 1.26 não conhece allowed_methods
-            retry = Retry(
-                total=3,
-                connect=3,
-                read=3,
-                backoff_factor=1.0,
-                status_forcelist=(429, 500, 502, 503, 504),
-            )
-        sess.mount("https://", HTTPAdapter(max_retries=retry))
-        return sess
+        return criar_sessao_http()
 
     _DELIMITADORES_CSV = (",", ";", "\t", "|")
 
     @classmethod
     def _separadores_csv(cls, texto: str) -> list[str]:
         """Sniffer primeiro (respeita aspas); contagem só como desempate."""
-        primeira = texto.splitlines()[0] if texto else ""
-        contagem = {s: primeira.count(s) for s in cls._DELIMITADORES_CSV}
-        seps: list[str] = []
-        try:
-            sniff = csv.Sniffer().sniff(texto[:8000], delimiters=",;\t|").delimiter
-        except csv.Error:
-            sniff = ""
-        if sniff in cls._DELIMITADORES_CSV:
-            seps.append(sniff)
-        for sep, qtde in sorted(contagem.items(), key=lambda item: item[1], reverse=True):
-            if qtde > 0 and sep not in seps:
-                seps.append(sep)
-        return seps or [","]
+        return separadores_csv(texto)
 
     @classmethod
     def _ler_csv_uma(cls, conteudo: bytes, sep: str, enc: str) -> pd.DataFrame:
-        kwargs: dict[str, object] = {
-            "sep": sep,
-            "encoding": enc,
-            "dtype": str,
-            "low_memory": False,
-        }
-        try:
-            return pd.read_csv(BytesIO(conteudo), on_bad_lines="skip", **kwargs)  # type: ignore[call-overload]
-        except TypeError:
-            # pandas antigo não tem on_bad_lines
-            return pd.read_csv(BytesIO(conteudo), **kwargs)  # type: ignore[call-overload]
+        return ler_csv_uma_tentativa(conteudo, sep, enc)
 
     @classmethod
     def ler_csv_remoto(cls, conteudo: bytes) -> pd.DataFrame:

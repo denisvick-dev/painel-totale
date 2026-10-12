@@ -26,9 +26,9 @@ from components.componentes import (
     render_insight,
     render_kpi,
     render_kpi_sm,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 # Fallback caso a paleta não tenha essa cor exportada
 try:

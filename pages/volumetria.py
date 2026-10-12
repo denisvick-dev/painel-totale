@@ -34,7 +34,6 @@ from components.componentes import (
     render_hero_totale_1,
     render_insight,
     render_kpi_sm,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
 from components.componentes import (
@@ -43,6 +42,7 @@ from components.componentes import (
 from components.componentes import (
     render_kpi as render_kpi_corp,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 # ==========================================================
 # ROBÔ DE MONITORAMENTO AUTOMÁTICO
@@ -63,13 +63,14 @@ st.set_page_config(
 render_page_sidebar_theme_selector()
 
 
+from config.settings import URL_ATIVOS_EDIT
+
+
 # ==========================================================
 # CONFIGURAÇÕES E CONSTANTES
 # ==========================================================
 class Config:
-    URL_GSHEETS = (
-        "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg/edit"
-    )
+    URL_GSHEETS = URL_ATIVOS_EDIT
     META_EXECUCAO = 0.80
     META_EXECUTADAS_TECNICO = 7
 

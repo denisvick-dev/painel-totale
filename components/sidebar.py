@@ -262,7 +262,8 @@ _CSS_SIDEBAR = r"""
     transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
 }
 [data-testid="stSidebar"] div[data-baseweb="select"] span,
-[data-testid="stSidebar"] [data-testid="stSelectbox"] input[role="combobox"] {
+[data-testid="stSidebar"] [data-testid="stSelectbox"] input[role="combobox"],
+[data-testid="stSidebar"] [data-testid="stSelectbox"] [role="group"] input[role="combobox"] {
     color: var(--totale-sb-input-text) !important;
     -webkit-text-fill-color: var(--totale-sb-input-text) !important;
 }
@@ -738,7 +739,6 @@ def render_sidebar_divider(
     margens = {"pequeno": "6px 0", "medio": "14px 0", "grande": "24px 0"}
     margem = margens.get(espacamento, margens["medio"])
     tema_ativo = _obter_tema_sidebar(tema)
-    tokens = _TEMAS[tema_ativo]
     if tema_ativo == "claro":
         cor_default = "#CBD5E1"
         gradiente = "border:none;height:1px;background:linear-gradient(90deg,transparent 0%,#01286955 40%,#F37C04 70%,transparent 100%);"
