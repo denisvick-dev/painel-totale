@@ -8,9 +8,10 @@ Detecção de BASE pelo nome do arquivo:
     • "SPO"   → NET-LESTE
     • "GRS"   → NET-GUARULHOS
 
-Por padrão entra no pipeline só o arquivo mais recente de cada base.
-Exports TOTALE costumam ser snapshot; concatenar o histórico duplica O.S.
-No expander da sidebar dá para voltar ao modo "todos os arquivos".
+O pipeline lê sempre apenas o arquivo válido mais recente da pasta inteira,
+sem selecionar um arquivo por base. A comparação usa a data de modificação.
+Exports TOTALE costumam ser snapshots; ler somente o mais recente evita
+concatenar arquivos antigos e duplicar O.S.
 
 A leitura Excel não depende do registry io.excel.* do pandas. Copia os bytes
 antes de parsear, para soltar o lock do OneDrive, e recusa arquivo que mudou
@@ -54,7 +55,13 @@ PADROES_TOTALE: tuple[str, ...] = (
     "Atividades-*.xls",
 )
 EXTENSOES_VALIDAS: tuple[str, ...] = (".csv", ".xlsx", ".xls")
-EXTENSOES_TEMP: tuple[str, ...] = (".tmp", ".crdownload", ".partial", ".download", ".part")
+EXTENSOES_TEMP: tuple[str, ...] = (
+    ".tmp",
+    ".crdownload",
+    ".partial",
+    ".download",
+    ".part",
+)
 
 MAPA_BASES_ARQUIVO: dict[str, str] = {
     "ABCDM": "NET-ABCDM",
@@ -63,13 +70,26 @@ MAPA_BASES_ARQUIVO: dict[str, str] = {
 }
 
 _VALORES_AUSENTES: frozenset[str] = frozenset(
-    {"", "nan", "none", "na", "n/a", "<na>", "nat", "null", "não informado", "nao informado", "-"}
+    {
+        "",
+        "nan",
+        "none",
+        "na",
+        "n/a",
+        "<na>",
+        "nat",
+        "null",
+        "não informado",
+        "nao informado",
+        "-",
+    }
 )
 _TAMANHO_MINIMO_XLSX: int = 2_000
 _TAMANHO_MAXIMO_PADRAO: int = 80 * 1024 * 1024
 _LOCK_STALE_SEGUNDOS: int = 180
 
-ModoLeitura = Literal["ultimo_por_base", "todos"]
+# Os valores antigos são aceitos para compatibilidade. A seleção agora é sempre única.
+ModoLeitura = Literal["ultimo", "ultimo_por_base", "todos"]
 EtlFn = Callable[[pd.DataFrame, pd.DataFrame], "pd.DataFrame | None"]
 FonteSheets = Callable[[], pd.DataFrame] | pd.DataFrame | None
 Candidato = tuple[str, float, int]
@@ -163,7 +183,9 @@ def _cabecalho_fraco(colunas: Sequence[object]) -> bool:
     if not nomes:
         return True
     ruins = sum(
-        1 for n in nomes if not n or n.lower().startswith("unnamed") or n.lower().startswith("col_")
+        1
+        for n in nomes
+        if not n or n.lower().startswith("unnamed") or n.lower().startswith("col_")
     )
     return ruins / len(nomes) >= 0.5
 
@@ -224,7 +246,9 @@ def detectar_marcador_arquivo(caminho_ou_nome: str | None) -> str | None:
 
 
 def _canonizar_coluna_base(df: pd.DataFrame) -> pd.DataFrame:
-    variantes = [col for col in df.columns if str(col).casefold() == "base" and col != "BASE"]
+    variantes = [
+        col for col in df.columns if str(col).casefold() == "base" and col != "BASE"
+    ]
     if not variantes:
         return df
     saida = df.copy()
@@ -301,7 +325,9 @@ def obter_metadados_arquivo(caminho: str | None) -> dict[str, str]:
             "nome": p.name,
             "ext": p.suffix.lower(),
             "tamanho": formatar_tamanho(stat.st_size),
-            "modificado": datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M:%S"),
+            "modificado": datetime.fromtimestamp(stat.st_mtime).strftime(
+                "%d/%m/%Y %H:%M:%S"
+            ),
             "caminho_completo": str(p.resolve()),
         }
     except OSError:
@@ -347,14 +373,17 @@ def _listar_candidatos_com_stat(
     if not p.is_dir():
         return []
 
-    arquivos = [arq for arq in _listar_arquivos(p, recursivo) if not _arquivo_ignorado(arq.name)]
+    arquivos = [
+        arq for arq in _listar_arquivos(p, recursivo) if not _arquivo_ignorado(arq.name)
+    ]
     encontrados = [arq for arq in arquivos if _casa_padrao(arq.name, padroes)]
 
     if not encontrados:
         encontrados = [
             arq
             for arq in arquivos
-            if "atividades" in arq.name.lower() and arq.suffix.lower() in EXTENSOES_VALIDAS
+            if "atividades" in arq.name.lower()
+            and arq.suffix.lower() in EXTENSOES_VALIDAS
         ]
     if not encontrados:
         marcadores = tuple(m.lower() for m in MAPA_BASES_ARQUIVO)
@@ -386,7 +415,9 @@ def buscar_arquivo_mais_recente(
     return caminho, mtime, size
 
 
-def mapear_arquivos_por_base(pasta: str, recursivo: bool = False) -> dict[str, Candidato]:
+def mapear_arquivos_por_base(
+    pasta: str, recursivo: bool = False
+) -> dict[str, Candidato]:
     por_base: dict[str, Candidato] = {}
     for item in _listar_candidatos_com_stat(pasta, recursivo=recursivo):
         base = detectar_base_arquivo(item[0])
@@ -397,32 +428,16 @@ def mapear_arquivos_por_base(pasta: str, recursivo: bool = False) -> dict[str, C
 
 def selecionar_arquivos(
     candidatos: Sequence[Candidato],
-    modo: ModoLeitura = "ultimo_por_base",
+    modo: ModoLeitura = "ultimo",
 ) -> list[Candidato]:
-    """Escolhe o que entra no pipeline.
+    """Seleciona somente o arquivo de maior mtime, sem separar por base.
 
-    ultimo_por_base: o mais novo de cada marcador. Arquivo sem SPO/GRS/ABCDM
-    só entra se nenhum arquivo marcado foi encontrado.
-    todos: a pasta inteira, do mais novo para o mais antigo.
+    `modo` permanece na assinatura para compatibilidade; qualquer valor
+    seleciona no máximo um arquivo.
     """
-    if modo == "todos":
-        return list(candidatos)
-
-    por_base: dict[str, Candidato] = {}
-    sem_marcador: Candidato | None = None
-    for item in candidatos:
-        base = detectar_base_arquivo(item[0])
-        if base is None:
-            if sem_marcador is None:
-                sem_marcador = item
-            continue
-        if base not in por_base:
-            por_base[base] = item
-    if por_base:
-        return sorted(por_base.values(), key=lambda item: detectar_base_arquivo(item[0]) or "")
-    if sem_marcador is not None:
-        return [sem_marcador]
-    return []
+    if not candidatos:
+        return []
+    return [max(candidatos, key=lambda item: item[1])]
 
 
 def contar_arquivos_por_base(candidatos: Sequence[Candidato]) -> dict[str, int]:
@@ -438,7 +453,9 @@ def _ler_bytes_estavel(caminho: str, tamanho_maximo: int) -> bytes:
     try:
         tamanho = os.path.getsize(caminho)
     except OSError as e:
-        raise ArquivoBloqueadoError(f"'{Path(caminho).name}' não pôde ser medido.") from e
+        raise ArquivoBloqueadoError(
+            f"'{Path(caminho).name}' não pôde ser medido."
+        ) from e
     if tamanho > tamanho_maximo:
         raise ValueError(
             f"'{Path(caminho).name}' tem {formatar_tamanho(tamanho)}, acima do limite de {formatar_tamanho(tamanho_maximo)}."
@@ -467,7 +484,9 @@ def _validar_xlsx(raw: bytes, nome: str) -> None:
         raise ValueError(f"'{nome}' tem {len(raw)} bytes — download incompleto.")
     bio = BytesIO(raw)
     if not zipfile.is_zipfile(bio):
-        raise ValueError(f"'{nome}' não é um .xlsx válido (zip corrompido ou extensão errada).")
+        raise ValueError(
+            f"'{nome}' não é um .xlsx válido (zip corrompido ou extensão errada)."
+        )
     bio.seek(0)
     with zipfile.ZipFile(bio) as zf:
         ruim = zf.testzip()
@@ -475,7 +494,9 @@ def _validar_xlsx(raw: bytes, nome: str) -> None:
         raise ValueError(f"'{nome}' está corrompido no membro interno: {ruim}")
 
 
-def _ler_excel_via_openpyxl_nativo(raw: bytes, sheet_name: str | int, header: int) -> pd.DataFrame:
+def _ler_excel_via_openpyxl_nativo(
+    raw: bytes, sheet_name: str | int, header: int
+) -> pd.DataFrame:
     from openpyxl import load_workbook
 
     wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
@@ -613,8 +634,14 @@ def _ler_excel_robusto(
     dica = ""
     joined = " | ".join(erros)
     if "engine ausente" in joined.lower():
-        dica = " → pip install openpyxl" if ext != ".xls" else " → pip install python-calamine"
-    raise RuntimeError(f"{joined}{dica}" if erros else f"Falha desconhecida ao ler {nome}.")
+        dica = (
+            " → pip install openpyxl"
+            if ext != ".xls"
+            else " → pip install python-calamine"
+        )
+    raise RuntimeError(
+        f"{joined}{dica}" if erros else f"Falha desconhecida ao ler {nome}."
+    )
 
 
 def _ler_csv_de_bytes(raw: bytes, nome: str) -> tuple[pd.DataFrame | None, str | None]:
@@ -653,7 +680,9 @@ def ler_arquivo_detalhado(
     nome = Path(caminho_arquivo).name
     ext = Path(caminho_arquivo).suffix.lower()
     if ext not in EXTENSOES_VALIDAS:
-        return LeituraArquivo(None, f"{nome}: extensão {ext or '—'} não é CSV/Excel.", None)
+        return LeituraArquivo(
+            None, f"{nome}: extensão {ext or '—'} não é CSV/Excel.", None
+        )
 
     try:
         if ext in (".xlsx", ".xls"):
@@ -664,7 +693,9 @@ def ler_arquivo_detalhado(
                 tamanho_maximo=tamanho_maximo,
             )
             df = _padronizar_dataframe(df)
-            if _cabecalho_fraco(list(df.columns)) or not _contem_colunas(df, colunas_esperadas):
+            if _cabecalho_fraco(list(df.columns)) or not _contem_colunas(
+                df, colunas_esperadas
+            ):
                 try:
                     alternativo, motor_alt = _ler_excel_robusto(
                         caminho_arquivo,
@@ -694,12 +725,13 @@ def ler_arquivo_detalhado(
     except ArquivoBloqueadoError:
         raise
     except Exception as e:
-        # A mensagem vai para a UI do robô; o log guarda o traceback completo.
         logger.debug("Falha ao ler %s: %s", nome, e, exc_info=True)
         return LeituraArquivo(None, f"{nome}: {type(e).__name__} — {e}", None)
 
     if df.empty:
-        return LeituraArquivo(None, f"{nome}: arquivo lido, porém sem linhas de dados.", motor)
+        return LeituraArquivo(
+            None, f"{nome}: arquivo lido, porém sem linhas de dados.", motor
+        )
 
     df = _alinhar_colunas_esperadas(df, colunas_esperadas)
     faltando = _faltam_colunas(df, colunas_esperadas)
@@ -735,7 +767,7 @@ def ler_arquivo_totale(
 
 def processar_candidatos(
     candidatos: Sequence[Candidato],
-    modo: ModoLeitura = "ultimo_por_base",
+    modo: ModoLeitura = "ultimo",
     colunas_esperadas: list[str] | None = None,
     sheet_name: str | int | None = 0,
     tamanho_maximo: int = _TAMANHO_MAXIMO_PADRAO,
@@ -787,12 +819,9 @@ def processar_candidatos(
             0,
         )
 
-    df = pd.concat(_unificar_nomes_colunas(frames), ignore_index=True)
+    # `selecionar_arquivos` garante um único frame; não concatena snapshots.
+    df = frames[0]
     removidas = 0
-    if modo == "todos" and len(frames) > 1:
-        antes = len(df)
-        df = df.drop_duplicates()
-        removidas = antes - len(df)
     return ResultadoCiclo(
         df,
         tuple(bases),
@@ -807,7 +836,9 @@ def processar_candidatos(
 # ── UI ──────────────────────────────────────────────────────────────
 def _exigir_streamlit() -> object:
     if st is None:
-        raise RuntimeError("Streamlit não está instalado. A sidebar do robô só roda no app.")
+        raise RuntimeError(
+            "Streamlit não está instalado. A sidebar do robô só roda no app."
+        )
     return st
 
 
@@ -835,10 +866,8 @@ def _estado_bool(chave: str, padrao: bool) -> bool:
 
 
 def _modo_atual() -> ModoLeitura:
-    valor = _estado_str("robo_modo_leitura", "ultimo_por_base")
-    if valor == "todos":
-        return "todos"
-    return "ultimo_por_base"
+    """O modo é fixo: somente o arquivo de maior mtime entra no pipeline."""
+    return "ultimo"
 
 
 def _lock_ativo() -> bool:
@@ -879,7 +908,7 @@ def _executar_verificacao_robo(
     colunas_esperadas: list[str] | None = None,
     sheet_name: str | int | None = 0,
     ciclos_estabilidade: int = 2,
-    modo: ModoLeitura = "ultimo_por_base",
+    modo: ModoLeitura = "ultimo",
     recursivo: bool = False,
 ) -> None:
     if st is None or not _estado_bool("robo_ativo", True) or _lock_ativo():
@@ -908,7 +937,8 @@ def _executar_verificacao_robo(
         if (
             tuple(
                 selecionar_arquivos(
-                    _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo), modo
+                    _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo),
+                    modo,
                 )
             )
             != assinatura
@@ -935,7 +965,8 @@ def _executar_verificacao_robo(
         if (
             tuple(
                 selecionar_arquivos(
-                    _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo), modo
+                    _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo),
+                    modo,
                 )
             )
             != assinatura
@@ -976,7 +1007,9 @@ def _executar_verificacao_robo(
             st.session_state["df_memoria"] = resultado.df
 
         if resultado.bases:
-            _toast_dedup(f"Bases: {', '.join(resultado.bases)} — pipeline concluído!", icon="🚀")
+            _toast_dedup(
+                f"Bases: {', '.join(resultado.bases)} — pipeline concluído!", icon="🚀"
+            )
         else:
             _toast_dedup("Pipeline concluído!", icon="🚀")
         _rerun_aplicacao()
@@ -1007,8 +1040,8 @@ def renderizar_robo_local(
 
     if "robo_ativo" not in st.session_state:
         st.session_state["robo_ativo"] = True
-    if "robo_modo_leitura" not in st.session_state:
-        st.session_state["robo_modo_leitura"] = "ultimo_por_base"
+    # Migra qualquer configuração antiga; o modo múltiplo foi removido.
+    st.session_state["robo_modo_leitura"] = "ultimo"
     if "robo_recursivo" not in st.session_state:
         st.session_state["robo_recursivo"] = False
     if not st.session_state.get("robo_pasta_alvo"):
@@ -1016,7 +1049,8 @@ def renderizar_robo_local(
     if (
         pasta_padrao
         and not st.session_state.get("_robo_pasta_user_set")
-        and st.session_state.get("robo_pasta_alvo") in (None, "", obter_pasta_robo_padrao())
+        and st.session_state.get("robo_pasta_alvo")
+        in (None, "", obter_pasta_robo_padrao())
     ):
         st.session_state["robo_pasta_alvo"] = pasta_padrao
 
@@ -1054,19 +1088,7 @@ def renderizar_robo_local(
                 st.session_state["_robo_pasta_user_set"] = True
             st.session_state["robo_pasta_alvo"] = pasta_input
             pasta_alvo = str(pasta_input)
-            modo_label = st.radio(
-                "Quais arquivos entram",
-                ("Último de cada base", "Todos da pasta"),
-                index=0 if _modo_atual() == "ultimo_por_base" else 1,
-                key="robo_modo_ui",
-                help=(
-                    "Último de cada base evita contar o mesmo snapshot várias vezes. "
-                    "Use todos só se cada arquivo for um lote novo, sem reexportar o anterior."
-                ),
-            )
-            st.session_state["robo_modo_leitura"] = (
-                "ultimo_por_base" if modo_label == "Último de cada base" else "todos"
-            )
+            st.caption("Leitura fixa: somente o arquivo mais recente da pasta inteira.")
             st.session_state["robo_recursivo"] = bool(
                 st.checkbox(
                     "Incluir subpastas",
@@ -1104,17 +1126,8 @@ def renderizar_robo_local(
             )
 
         extras = len(candidatos_ui) - len(selecionados_ui)
-        if modo == "ultimo_por_base" and extras > 0:
-            st.sidebar.caption(f"{extras} arquivo(s) antigo(s) fora do pipeline.")
-        if modo == "todos":
-            repetidos = {
-                base: n for base, n in contar_arquivos_por_base(candidatos_ui).items() if n > 1
-            }
-            if repetidos:
-                resumo = ", ".join(f"{base} ×{n}" for base, n in repetidos.items())
-                st.sidebar.caption(
-                    f"Vários arquivos da mesma base ({resumo}). Snapshots vão duplicar volume."
-                )
+        if extras > 0:
+            st.sidebar.caption(f"{extras} arquivo(s) mais antigo(s) fora do pipeline.")
 
         st.sidebar.markdown(
             """
@@ -1138,14 +1151,20 @@ def renderizar_robo_local(
             meta = obter_metadados_arquivo(caminho_b)
             ok = processados_map.get(caminho_b) == mtime_b
             icone = "✅" if ok else "📥"
-            st.sidebar.caption(f"{icone} {base} — {meta['nome'][:32]} ({meta['tamanho']})")
+            st.sidebar.caption(
+                f"{icone} {base} — {meta['nome'][:32]} ({meta['tamanho']})"
+            )
 
         sem_base = [c for c, _, _ in candidatos_ui if detectar_base_arquivo(c) is None]
         if sem_base:
-            st.sidebar.caption(f"⚠️ {len(sem_base)} arquivo(s) sem SPO, GRS ou ABCDM no nome.")
+            st.sidebar.caption(
+                f"⚠️ {len(sem_base)} arquivo(s) sem SPO, GRS ou ABCDM no nome."
+            )
         removidas = st.session_state.get("robo_duplicatas_removidas")
         if isinstance(removidas, int) and removidas > 0:
-            st.sidebar.caption(f"{removidas} linha(s) idêntica(s) removida(s) na junção.")
+            st.sidebar.caption(
+                f"{removidas} linha(s) idêntica(s) removida(s) na junção."
+            )
     else:
         estado = "🟢 Monitorando" if ativo else "⏸ Pausado"
         st.sidebar.info(f"{estado}: `{Path(pasta_alvo).name}`")
@@ -1181,10 +1200,10 @@ def renderizar_robo_local(
 def executar_ciclo_headless(
     pasta: str,
     destino_csv: str | None = None,
-    modo: ModoLeitura = "ultimo_por_base",
+    modo: ModoLeitura = "ultimo",
     colunas_esperadas: list[str] | None = None,
 ) -> ResultadoCiclo:
-    """Um ciclo sem Streamlit. Útil para Agendador de Tarefas, com a sessão do browser fechada."""
+    """Um ciclo sem Streamlit. Processa apenas o arquivo mais recente da pasta."""
     resultado = processar_candidatos(
         _listar_candidatos_com_stat(pasta),
         modo=modo,
@@ -1223,7 +1242,9 @@ __all__ = [
 
 if __name__ == "__main__":
     pasta_cli = sys.argv[1] if len(sys.argv) > 1 else obter_pasta_robo_padrao()
-    destino = sys.argv[2] if len(sys.argv) > 2 else str(Path(pasta_cli) / "_robo_cache.csv")
+    destino = (
+        sys.argv[2] if len(sys.argv) > 2 else str(Path(pasta_cli) / "_robo_cache.csv")
+    )
     ciclo = executar_ciclo_headless(pasta_cli, destino_csv=destino)
     if ciclo.df is None:
         print(ciclo.bloqueio or " | ".join(ciclo.erros) or "Nenhum arquivo processado.")
