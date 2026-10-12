@@ -53,8 +53,10 @@ from components.criterios import classificar_tipo_servico, render_debug_criterio
 
 # ── Importação Inteligente e Resiliente de quebra.py ──────────────────
 try:
-    from pages.quebra_geral import Config, Motor, Utils
+    from pages.quebra_geral import Config, DataLoader, Motor, Utils, _cache_matriz
 except ImportError:
+    DataLoader = None  # type: ignore[assignment]
+    _cache_matriz = None  # type: ignore[assignment]
     try:
         import quebra  # type: ignore
 
@@ -1303,7 +1305,7 @@ def _sub_visao_geral(
             legend=dict(orientation="h"),
         )
         st.plotly_chart(
-            fig_pie, use_container_width=True, config={"displayModeBar": False}
+            fig_pie, width="stretch", config={"displayModeBar": False}
         )
     with col_gauge:
         cor_bar = "#B91C1C" if m_seg["quebra_atual"] > sla_meta else "#0F766E"
@@ -1337,7 +1339,7 @@ def _sub_visao_geral(
             )
         )
         fig.update_layout(height=280, margin=dict(t=40, b=10, l=20, r=20))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     render_section("📈 Projeções de Fechamento")
     cen = {
         n: _obter_resumo_segmento(df_seg, p)
@@ -1488,7 +1490,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         xaxis=dict(tickangle=-30),
         margin=dict(t=60, b=160),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     if _COL_REGIAO in df_seg.columns and col_baixa:
         try:
             render_section("Quebra por Região")
@@ -1506,7 +1508,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
             )
             fig_reg.update_layout(yaxis_tickformat=".1%", height=320)
             st.plotly_chart(
-                fig_reg, use_container_width=True, config={"displayModeBar": False}
+                fig_reg, width="stretch", config={"displayModeBar": False}
             )
         except Exception:
             pass
@@ -1571,7 +1573,7 @@ def _sub_tecnicos(
             xaxis_tickformat=".1%",
             height=max(360, len(df_plot) * 42),
         )
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
 
 def _sub_plano_acao(
@@ -1690,14 +1692,14 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
         Utils.gerar_excel(df_view, "Filtrado"),
         f"pendentes_{_slug(segmento)}_filtrado.xlsx",
         key=f"dl_pend_f_{segmento}",
-        use_container_width=True,
+        width="stretch",
     )
     c2.download_button(
         "Exportar completo",
         Utils.gerar_excel(df_pend, "Completo"),
         f"pendentes_{_slug(segmento)}_completo.xlsx",
         key=f"dl_pend_c_{segmento}",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -1759,7 +1761,7 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
         Utils.gerar_excel(df_view, "Sem_Registro"),
         f"sem_registro_{_slug(segmento)}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         key=f"dl_sr_{segmento}",
-        use_container_width=True,
+        width="stretch",
     )
 
 
@@ -1823,7 +1825,7 @@ def _sub_comparativo(
         annotation_text=f"Meta {sla_meta:.0%}",
     )
     fig.update_layout(barmode="group", yaxis_tickformat=".1%", height=380)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     render_table_html(
         df_comp,
         fmt={
@@ -1853,7 +1855,7 @@ def _sub_comparativo(
             )
             fig_h.update_layout(height=320)
             st.plotly_chart(
-                fig_h, use_container_width=True, config={"displayModeBar": False}
+                fig_h, width="stretch", config={"displayModeBar": False}
             )
         except Exception:
             pass
@@ -1945,11 +1947,14 @@ def main() -> None:
         )
         st.divider()
         with st.expander("Sistema", expanded=False):
-            if st.button("Reiniciar", use_container_width=True):
+            if st.button("Reiniciar", width="stretch"):
                 st.rerun()
-            if st.button("Limpar cache", use_container_width=True):
-                st.cache_data.clear()
-                st.cache_resource.clear()
+            if st.button("Limpar cache", width="stretch"):
+                if DataLoader is not None:
+                    DataLoader.ler_arquivo.clear()
+                    DataLoader.buscar_gsheets.clear()
+                if _cache_matriz is not None and hasattr(_cache_matriz, "clear"):
+                    _cache_matriz.clear()
                 st.success("Cache limpo.")
                 st.rerun()
         st.divider()
@@ -1988,7 +1993,7 @@ def main() -> None:
                 "Gerar PDF comparativo",
                 key="gen_pdf_todos",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             ):
                 with st.spinner("Gerando PDF comparativo..."):
                     try:
@@ -2005,7 +2010,7 @@ def main() -> None:
                     f"comparativo_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                     "application/pdf",
                     key="dl_pdf_todos",
-                    use_container_width=True,
+                    width="stretch",
                 )
         st.divider()
         t1, t2, t3, t4, t5 = st.tabs(
@@ -2058,7 +2063,7 @@ def main() -> None:
             f"Gerar PDF — {segmento}",
             key=f"gen_pdf_{segmento}",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         ):
             with st.spinner("Gerando PDF..."):
                 try:
@@ -2075,7 +2080,7 @@ def main() -> None:
                 f"relatorio_{_slug(str(segmento))}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                 "application/pdf",
                 key=f"dl_pdf_{segmento}",
-                use_container_width=True,
+                width="stretch",
             )
     with col_desc:
         render_insight(

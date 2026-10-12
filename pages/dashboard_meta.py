@@ -22,16 +22,12 @@ from __future__ import annotations
 
 import io
 import logging
-import os
-import re
-import tempfile
 import unicodedata
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
-from urllib.parse import quote as url_quote
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -71,15 +67,18 @@ TipoProgressBarType = Literal[
 try:
     from components.componentes import (  # pyright: ignore[reportMissingImports]
         aplicar_estilo,
-        aplicar_sidebar_corp,
         render_empty_state,
         render_hero_totale_2,
         render_insight,
         render_kpi,
         render_metric_card,
-        render_page_sidebar_theme_selector,
         render_progress_bar,
         render_section_header,
+        render_table_html,
+    )
+    from components.sidebar import (
+        aplicar_sidebar_corp,
+        render_page_sidebar_theme_selector,
         render_sidebar_brand,
         render_sidebar_divider,
         render_sidebar_footer_info,
@@ -87,7 +86,6 @@ try:
         render_sidebar_section,
         render_sidebar_spacer,
         render_sidebar_status,
-        render_table_html,
     )
 except ImportError:
 
@@ -216,42 +214,39 @@ MAPA_ALIAS_PROJETO: dict[str, str] = {
 }
 
 
-def _obter_secret(chave: str, default: str) -> str:
-    try:
-        if hasattr(st, "secrets") and chave in st.secrets:
-            return str(st.secrets[chave])
-    except Exception:
-        pass
-    return default
+from config.settings import (
+    FUSO_BR,
+    URL_ATIVOS_BASE,
+    obter_drive_id_cons,
+    obter_sheet_id_ativos,
+    obter_sheet_id_prod,
+    url_gsheets_export,
+    url_gsheets_gviz_csv,
+)
+from config.settings import (
+    SHEET_ABA_ATIVOS as _DEFAULT_ABA_ATIVOS,
+)
+from config.settings import (
+    SHEET_ABA_PROD as _DEFAULT_ABA_PROD,
+)
+from config.settings import (
+    obter_secret as _obter_secret,
+)
+from services.google_drive_client import baixar_arquivo_drive, criar_sessao_http
 
 
 @dataclass
 class Configuracoes:
     URL_ATIVOS: str = field(
-        default_factory=lambda: _obter_secret(
-            "URL_ATIVOS",
-            "https://docs.google.com/spreadsheets/d/1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg",
-        )
+        default_factory=lambda: _obter_secret("URL_ATIVOS", URL_ATIVOS_BASE)
     )
-    SHEET_ID_ATIVOS: str = field(
-        default_factory=lambda: _obter_secret(
-            "SHEET_ID_ATIVOS", "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-        )
-    )
-    SHEET_ABA_ATIVOS: str = "lista_ativos"
-    SHEET_ID_PROD: str = field(
-        default_factory=lambda: _obter_secret(
-            "SHEET_ID_PROD", "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
-        )
-    )
-    SHEET_ABA_PROD: str = "Prod"
-    DRIVE_ID_CONS: str = field(
-        default_factory=lambda: _obter_secret(
-            "DRIVE_ID_CONS", "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
-        )
-    )
+    SHEET_ID_ATIVOS: str = field(default_factory=obter_sheet_id_ativos)
+    SHEET_ABA_ATIVOS: str = _DEFAULT_ABA_ATIVOS
+    SHEET_ID_PROD: str = field(default_factory=obter_sheet_id_prod)
+    SHEET_ABA_PROD: str = _DEFAULT_ABA_PROD
+    DRIVE_ID_CONS: str = field(default_factory=obter_drive_id_cons)
     TIMEOUT: int = 60
-    TZ: ZoneInfo = field(default_factory=lambda: ZoneInfo("America/Sao_Paulo"))
+    TZ: ZoneInfo = field(default_factory=lambda: FUSO_BR)
     CACHE_TTL_HIERARQUIA: int = 3600
     CACHE_TTL_CONSULTIVO: int = 600
     CACHE_TTL_PRODUCAO: int = 300
@@ -268,9 +263,7 @@ METAS_CONSULTIVO_GERAL = {"minima": 1_200, "meta_base": 1_575, "alta_perf": 1_80
 
 @st.cache_resource
 def http_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({"User-Agent": f"totale-dashboard/{VERSAO}"})
-    return s
+    return criar_sessao_http(user_agent=f"totale-dashboard/{VERSAO}")
 
 
 @st.cache_data(show_spinner=False)
@@ -571,62 +564,15 @@ def _ler_csv_bytes(conteudo: bytes) -> pd.DataFrame:
 
 
 def _baixar_drive_csv(file_id: str) -> bytes:
-    sess = http_session()
-    url = "https://docs.google.com/uc?export=download"
-    params = {"id": file_id}
-    try:
-        resp = sess.get(url, params=params, stream=True, timeout=CFG.TIMEOUT)
-        resp.raise_for_status()
-        token = next(
-            (v for k, v in resp.cookies.items() if k.startswith("download_warning")),
-            None,
-        )
-        if token:
-            params["confirm"] = token
-            resp = sess.get(url, params=params, stream=True, timeout=CFG.TIMEOUT)
-            resp.raise_for_status()
-        elif "text/html" in resp.headers.get("Content-Type", ""):
-            text_content = resp.text
-            if "<!doctype html" in text_content.lower()[:500]:
-                match = re.search(r"confirm=([A-Za-z0-9_]+)", text_content)
-                if match:
-                    params["confirm"] = match.group(1)
-                    resp = sess.get(
-                        url, params=params, stream=True, timeout=CFG.TIMEOUT
-                    )
-                    resp.raise_for_status()
-                else:
-                    raise requests.exceptions.RequestException(
-                        "ID inválido, arquivo privado ou limite atingido."
-                    )
-        return resp.content
-    except Exception as e:
-        logger.warning("Abordagem nativa falhou (%s). Tentando gdown...", e)
-        tmp_path = ""
-        try:
-            from gdown.download import download as gdown_download
-
-            with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-            gdown_download(id=file_id, output=tmp_path, quiet=True, resume=True)
-            with open(tmp_path, "rb") as handle:
-                return handle.read()
-        except Exception:
-            raise e
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
+    return baixar_arquivo_drive(file_id, sess=http_session(), timeout=CFG.TIMEOUT)
 
 
 @st.cache_data(ttl=CFG.CACHE_TTL_HIERARQUIA, show_spinner="Carregando Hierarquia...")
 def carregar_hierarquia() -> pd.DataFrame:
     df = pd.DataFrame()
     urls = [
-        f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_ATIVOS}/export?format=csv&sheet={url_quote(CFG.SHEET_ABA_ATIVOS)}",
-        f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_ATIVOS}/gviz/tq?tqx=out:csv&sheet={url_quote(CFG.SHEET_ABA_ATIVOS)}",
+        url_gsheets_export(CFG.SHEET_ID_ATIVOS, fmt="csv", sheet=CFG.SHEET_ABA_ATIVOS),
+        url_gsheets_gviz_csv(CFG.SHEET_ID_ATIVOS, sheet=CFG.SHEET_ABA_ATIVOS),
     ]
     for url in urls:
         if not df.empty:
@@ -756,7 +702,7 @@ def carregar_consultivos(
 def carregar_producao(cache_version: str = VERSAO) -> tuple[pd.DataFrame, str | None]:
     try:
         resp = http_session().get(
-            f"https://docs.google.com/spreadsheets/d/{CFG.SHEET_ID_PROD}/gviz/tq?tqx=out:csv&sheet={url_quote(CFG.SHEET_ABA_PROD)}",
+            url_gsheets_gviz_csv(CFG.SHEET_ID_PROD, sheet=CFG.SHEET_ABA_PROD),
             timeout=CFG.TIMEOUT,
         )
         resp.raise_for_status()
@@ -1498,8 +1444,11 @@ raw_filtro_datas = st.sidebar.date_input(
 _filtro_datas_safe = normalizar_janela_datas(raw_filtro_datas)
 render_sidebar_divider(espacamento="medio")
 if st.sidebar.button("Atualizar bases", width="stretch"):
-    st.cache_data.clear()
-    st.cache_resource.clear()
+    carregar_hierarquia.clear()
+    carregar_consultivos.clear()
+    carregar_producao.clear()
+    converter_para_excel.clear()
+    http_session.clear()
     st.rerun()
 if _filtro_datas_safe is None:
     st.sidebar.info("Selecione a data inicial e a data final do período.")

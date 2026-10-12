@@ -19,11 +19,11 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_page_sidebar_theme_selector,
     render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
 from components.metricas_executivas import resumo_frequencia
+from components.sidebar import render_page_sidebar_theme_selector
 
 st.set_page_config(
     page_title="Central de Performance",

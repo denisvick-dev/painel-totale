@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import secrets
 import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -25,15 +26,18 @@ from components.componentes import (
     render_empty_state,
     render_hero_totale_1,
     render_kpi,
-    render_page_sidebar_theme_selector,
     render_section_header,
+    render_table_html,
+)
+from components.sidebar import (
+    render_page_sidebar_theme_selector,
     render_sidebar_brand,
     render_sidebar_divider,
     render_sidebar_footer_info,
     render_sidebar_info,
     render_sidebar_section,
-    render_table_html,
 )
+from config.settings import SHEET_ID_ATIVOS
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +118,27 @@ class Safe:
         return df[list(cols)].copy()
 
 
-def _hash_senha(senha: str) -> str:
-    return hashlib.sha256(senha.encode("utf-8")).hexdigest()
+_PBKDF2_ITERATIONS = 600_000
+_PREFIXOS_FORMULA_PERIGOSOS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitizar_celula_planilha(valor: Any) -> str:
+    """Sanitiza célula e neutraliza Formula Injection (CSV/Sheets Injection)."""
+    texto = Safe.celula(valor)
+    if texto and texto.startswith(_PREFIXOS_FORMULA_PERIGOSOS):
+        return f"'{texto}"
+    return texto
+
+
+def _hash_senha(senha: str, salt: str | None = None) -> str:
+    salt_efetivo = salt or secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac(
+        "sha256",
+        senha.encode("utf-8"),
+        salt_efetivo.encode("utf-8"),
+        _PBKDF2_ITERATIONS,
+    )
+    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt_efetivo}${dk.hex()}"
 
 
 def _verificar_senha(digitada: str, armazenada: str) -> bool:
@@ -123,8 +146,23 @@ def _verificar_senha(digitada: str, armazenada: str) -> bool:
     a = Safe.str(armazenada)
     if not d or not a:
         return False
+    if a.startswith("pbkdf2_sha256$"):
+        try:
+            _, iter_str, salt, digest_hex = a.split("$", 3)
+            dk = hashlib.pbkdf2_hmac(
+                "sha256",
+                d.encode("utf-8"),
+                salt.encode("utf-8"),
+                int(iter_str),
+            )
+            return hmac.compare_digest(dk.hex(), digest_hex.lower())
+        except (ValueError, TypeError):
+            return False
     if len(a) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in a):
-        return hmac.compare_digest(_hash_senha(d), a.lower())
+        dk_legado = hashlib.pbkdf2_hmac(
+            "sha256", d.encode("utf-8"), b"", 1
+        ).hex()
+        return hmac.compare_digest(dk_legado, a.lower())
     return hmac.compare_digest(d, a)
 
 
@@ -157,7 +195,10 @@ def _gspread_sheet(worksheet_name: str) -> gspread.Worksheet:
 def _append_gspread(worksheet_name: str, linha: list[Any]) -> bool:
     try:
         ws = _gspread_sheet(worksheet_name)
-        ws.append_row([Safe.celula(v) for v in linha], value_input_option="USER_ENTERED")
+        ws.append_row(
+            [_sanitizar_celula_planilha(v) for v in linha],
+            value_input_option="RAW",
+        )
         return True
     except Exception as exc:
         st.warning(f"️ Append falhou: {exc}")
@@ -170,7 +211,12 @@ def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
         if df_api.empty:
             return False
         ws = _gspread_sheet(worksheet_name)
-        dados = [df_api.columns.tolist()] + df_api.values.tolist()
+        cabecalho = [_sanitizar_celula_planilha(c) for c in df_api.columns.tolist()]
+        linhas = [
+            [_sanitizar_celula_planilha(v) for v in row]
+            for row in df_api.values.tolist()
+        ]
+        dados = [cabecalho] + linhas
         num_linhas, num_colunas = len(dados), len(df_api.columns)
 
         def col_letra(n: int) -> str:
@@ -180,20 +226,26 @@ def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
                 res = chr(65 + resto) + res
             return res
 
-        ws.clear()
+        ultima_col = col_letra(num_colunas)
         try:
             ws.update(
-                range_name=f"A1:{col_letra(num_colunas)}{num_linhas}",
+                range_name=f"A1:{ultima_col}{num_linhas}",
                 values=dados,
-                value_input_option="USER_ENTERED",
+                value_input_option="RAW",
             )
         except TypeError:
             ws.update(
-                f"A1:{col_letra(num_colunas)}{num_linhas}",
+                f"A1:{ultima_col}{num_linhas}",
                 dados,
-                value_input_option="USER_ENTERED",
+                value_input_option="RAW",
             )
-        st.cache_data.clear()
+        # Limpa apenas linhas excedentes após a gravação bem-sucedida
+        try:
+            if ws.row_count > num_linhas:
+                ws.batch_clear([f"A{num_linhas + 1}:{ultima_col}{ws.row_count}"])
+        except Exception:
+            logger.debug("Limpeza de linhas excedentes ignorada.", exc_info=True)
+        _fetch.clear()
         return True
     except Exception as exc:
         st.error(f"❌ Erro ao gravar: {exc}")
@@ -203,7 +255,7 @@ def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
 class Config:
     APP_NOME = "Gestão de Ativos TOTALE"
     APP_VERSAO = "4.1.0"
-    SHEET_ID = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
+    SHEET_ID = SHEET_ID_ATIVOS
     ABAS = {
         "ativos": "lista_ativos",
         "desligados": "desligados",
@@ -344,7 +396,7 @@ class Repo:
                     Safe.str(detalhe),
                 ],
             )
-            st.cache_data.clear()
+            _fetch.clear()
         except Exception as exc:
             st.warning(f"⚠️ Log falhou: {exc}")
 
@@ -699,7 +751,7 @@ def tela_principal():
 
     # Botões de ação
     if st.sidebar.button("🔄 Sincronizar Dados", width="stretch"):
-        st.cache_data.clear()
+        _fetch.clear()
         st.rerun()
     if st.sidebar.button("🚪 Sair", width="stretch"):
         st.session_state.update({"autenticado": False, "usuario": None})

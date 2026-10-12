@@ -46,6 +46,6 @@ dados = st.session_state.get("dados_totale")
 if isinstance(dados, pd.DataFrame):
     fonte = st.session_state.get("origem_dados", "Robô Local")
     st.success(f"Dados carregados via {fonte}")
-    st.dataframe(dados.head(), use_container_width=True)
+    st.dataframe(dados.head(), width="stretch")
 else:
     st.info("Aguardando a detecção do arquivo mais recente na pasta configurada...")

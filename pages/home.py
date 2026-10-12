@@ -35,7 +35,6 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_page_sidebar_theme_selector,
     render_section_header,
     render_spacer,
 )
@@ -46,6 +45,7 @@ from components.metricas_executivas import (
     serie_diaria,
     serie_quebra_diaria,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 logger = logging.getLogger(__name__)
 
@@ -748,26 +748,37 @@ def render_cockpit_executivo() -> None:
     )
     links = st.columns(3)
     with links[0]:
-        st.page_link(
-            "pages/pontos.py",
-            label="Detalhar metas e produção",
-            icon="📈",
-            width="stretch",
-        )
+        try:
+            st.page_link(
+                "pages/pontos.py",
+                label="Detalhar metas e produção",
+                icon="📈",
+                width="stretch",
+            )
+        except Exception:
+            logger.debug("page_link indisponível para pages/pontos.py", exc_info=True)
     with links[1]:
-        st.page_link(
-            "pages/volumetria.py",
-            label="Detalhar volumetria",
-            icon="📊",
-            width="stretch",
-        )
+        try:
+            st.page_link(
+                "pages/volumetria.py",
+                label="Detalhar volumetria",
+                icon="📊",
+                width="stretch",
+            )
+        except Exception:
+            logger.debug("page_link indisponível para pages/volumetria.py", exc_info=True)
     with links[2]:
-        st.page_link(
-            "pages/quebra_unificada.py",
-            label="Detalhar quebra por segmento",
-            icon="📉",
-            width="stretch",
-        )
+        try:
+            st.page_link(
+                "pages/quebra_unificada.py",
+                label="Detalhar quebra por segmento",
+                icon="📉",
+                width="stretch",
+            )
+        except Exception:
+            logger.debug(
+                "page_link indisponível para pages/quebra_unificada.py", exc_info=True
+            )
     render_spacer(14)
 
 
@@ -788,12 +799,15 @@ def render_resumo_alertas() -> None:
                 st.caption(f"{alerta.origem}: {alerta.detalhe}")
             if len(alertas) > 3:
                 st.caption(f"E mais {len(alertas) - 3} alerta(s).")
-    st.page_link(
-        "pages/alertas.py",
-        label="Abrir central de alertas",
-        icon="⚠️",
-        width="stretch",
-    )
+    try:
+        st.page_link(
+            "pages/alertas.py",
+            label="Abrir central de alertas",
+            icon="⚠️",
+            width="stretch",
+        )
+    except Exception:
+        logger.debug("page_link indisponível para pages/alertas.py", exc_info=True)
     render_spacer(14)
 
 

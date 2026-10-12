@@ -35,9 +35,9 @@ from components.componentes import (
     render_hero,
     render_insight,
     render_kpi,
-    render_page_sidebar_theme_selector,
     render_table_html,
 )
+from components.sidebar import render_page_sidebar_theme_selector
 
 logger = logging.getLogger(__name__)
 

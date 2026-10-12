@@ -19,6 +19,7 @@ Uso:
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from datetime import datetime, time
 from io import BytesIO
@@ -28,10 +29,11 @@ import pandas as pd
 import streamlit as st
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
-from streamlit_gsheets import GSheetsConnection
 
 from components.componentes import aplicar_estilo as aplicar_estilo_ds
-from components.componentes import render_page_sidebar_theme_selector
+from components.sidebar import render_page_sidebar_theme_selector
+from config.settings import obter_sheet_id_ativos
+from services.google_drive_client import carregar_planilha_gsheets_csv
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ st.set_page_config(
 # ═══════════════════════════════════════════════════════
 # CSS CORPORATIVO
 # ═══════════════════════════════════════════════════════
-def aplicar_estilo() -> None:
+def _injetar_css_local() -> None:
     st.markdown(
         """
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -442,39 +444,8 @@ def carregar_lista_ativos() -> pd.DataFrame:
     Lê a aba de técnicos do Google Sheets com fallbacks para evitar HTTP 400.
     Retorna DataFrame com colunas: Login | Técnico | Monitor | Base
     """
-    sheet_id = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
-
-    try:
-        if "GSHEETS_ID" in st.secrets:
-            sheet_id = st.secrets["GSHEETS_ID"]
-    except Exception:
-        pass
-
-    df = None
-
-    # Método 1: Google Visualization API (GViz CSV - Não exige gid e previne erro 400)
-    try:
-        url_gviz = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv"
-        df = pd.read_csv(url_gviz)
-    except Exception:
-        df = None
-
-    # Método 2: Conexão Nativa Streamlit
-    if df is None or df.empty:
-        try:
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            df = conn.read(spreadsheet=f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit")
-        except Exception:
-            df = None
-
-    # Método 3: Export direto sem gid fixo
-    if df is None or df.empty:
-        try:
-            url_export = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-            df = pd.read_csv(url_export)
-        except Exception as e:
-            st.warning(f"⚠️ Não foi possível conectar com Google Sheets: {e}")
-            return pd.DataFrame()
+    sheet_id = obter_sheet_id_ativos()
+    df = carregar_planilha_gsheets_csv(sheet_id=sheet_id, usar_conexao_streamlit=True)
 
     if df is None or df.empty:
         return pd.DataFrame()
@@ -851,7 +822,7 @@ def aplicar_cor_horario(valor: Any) -> str:
             return "background-color: #FEF3C7; color: #92400E; font-weight: 600;"
         else:
             return "background-color: #FEE2E2; color: #991B1B; font-weight: 600;"
-    except:
+    except Exception:
         return ""
 
 
@@ -874,10 +845,11 @@ def main() -> None:
     with st.sidebar:
         st.markdown("### ⚙️ Painel de Controle")
 
-        if st.button("🔄 Reiniciar Aplicação", use_container_width=True):
+        if st.button("🔄 Reiniciar Aplicação", width="stretch"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
-            st.cache_data.clear()
+            carregar_lista_ativos.clear()
+            carregar_arquivo.clear()
             st.rerun()
 
     # ─────────────────────────────────────────────────
@@ -1159,7 +1131,7 @@ def main() -> None:
 
         st.dataframe(
             styled_tec,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             height=400,
             column_config={
@@ -1184,7 +1156,7 @@ def main() -> None:
                 data=gerar_excel(df_exibir_tec, "Ranking_Tecnicos"),
                 file_name=f"ranking_tecnicos_{timestamp}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
+                width="stretch",
             )
         with col_dl2:
             csv_t = df_exibir_tec.to_csv(index=False, sep=";", encoding="utf-8-sig").encode(
@@ -1195,7 +1167,7 @@ def main() -> None:
                 data=csv_t,
                 file_name=f"ranking_tecnicos_{timestamp}.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
 
         # ─────────────────────────────────────────────────
@@ -1262,7 +1234,7 @@ def main() -> None:
 
             st.dataframe(
                 styled_mon,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height="auto",
                 column_config={
@@ -1292,7 +1264,7 @@ def main() -> None:
                     data=gerar_excel(df_exibir_mon, "Ranking_Monitores"),
                     file_name=f"ranking_monitores_{timestamp}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
+                    width="stretch",
                 )
             with col_dm2:
                 csv_m = df_exibir_mon.to_csv(index=False, sep=";", encoding="utf-8-sig").encode(
@@ -1303,7 +1275,7 @@ def main() -> None:
                     data=csv_m,
                     file_name=f"ranking_monitores_{timestamp}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
     # ─────────────────────────────────────────────────
@@ -1406,7 +1378,7 @@ def main() -> None:
     df_exibir = df_filtrado[colunas_prio + outras].copy()
 
     with st.spinner("Montando tabela de pendentes..."):
-        st.dataframe(df_exibir, use_container_width=True, hide_index=True, height=500)
+        st.dataframe(df_exibir, width="stretch", hide_index=True, height=500)
 
     # Exportação
     render_section("📥", "Exportar Lista para Rota")
@@ -1420,7 +1392,7 @@ def main() -> None:
             data=gerar_excel(df_exibir, "Pendentes_Rota"),
             file_name=f"rota_pendentes_{timestamp}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            width="stretch",
             type="primary",
         )
 
@@ -1431,7 +1403,7 @@ def main() -> None:
             data=csv,
             file_name=f"rota_pendentes_{timestamp}.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_info:
