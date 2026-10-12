@@ -24,6 +24,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
@@ -38,6 +39,7 @@ from config.settings import (
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
 )
+from robo.robo_local import renderizar_robo_local
 from services.google_drive_client import (
     adicionar_confirm_url,
     baixar_bytes_drive,
@@ -933,6 +935,43 @@ def _painel_fragmento() -> None:
     _painel_dados(_intervalo_da_sidebar())
 
 
+def _pipeline_robo_local(
+    df_local: pd.DataFrame,
+    _df_gsheets: pd.DataFrame,
+) -> pd.DataFrame:
+    """Mantém os contratos de saída usados pelo robô e pelos painéis."""
+    df = df_local.copy()
+    df.columns = [str(col).strip().upper() for col in df.columns]
+
+    # `dados_totale` é o contrato legado da antiga página do robô; `df_memoria`
+    # alimenta os painéis operacionais. Ambos recebem o mesmo resultado tratado.
+    st.session_state["dados_totale"] = df
+    st.session_state["df_memoria"] = df
+    return df
+
+
+def _pasta_padrao_robo_local() -> str:
+    """Preserva a pasta padrão usada pela página dedicada do robô."""
+    pasta = Path(__file__).resolve().parents[1] / "robo" / "dados"
+    pasta.mkdir(parents=True, exist_ok=True)
+    return str(pasta)
+
+
+def _painel_saida_robo_local() -> None:
+    """Exibe na central os dados produzidos pelo sincronismo local."""
+    render_section_header(
+        "🤖", "Robô local", "Saída do arquivo mais recente na pasta monitorada"
+    )
+    dados = st.session_state.get("dados_totale")
+    if not isinstance(dados, pd.DataFrame):
+        st.info("Aguardando a detecção e o processamento de um arquivo local.")
+        return
+
+    fonte = st.session_state.get("origem_dados", "Robô Local")
+    st.success(f"Dados carregados via {fonte}")
+    st.dataframe(dados.head(), width="stretch")
+
+
 def _rodar() -> None:
     st.set_page_config(
         page_title="Atualização de Dados | TOTALE",
@@ -960,7 +999,10 @@ def _rodar() -> None:
 
     render_hero_totale_1(
         titulo="🔁 Central de Atualização",
-        subtitulo="Sincronização de bases de Produção, Consultivos e Lista de Ativos",
+        subtitulo=(
+            "Sincronização de Produção, Consultivos e Ativos, com monitoramento "
+            "de arquivos locais"
+        ),
     )
 
     intervalo_seg = _intervalo_da_sidebar()
@@ -975,6 +1017,13 @@ def _rodar() -> None:
             "alerta",
         )
         _painel_dados(intervalo_seg)
+
+    st.sidebar.markdown("---")
+    renderizar_robo_local(
+        etl_fn=_pipeline_robo_local,
+        pasta_padrao=_pasta_padrao_robo_local(),
+    )
+    _painel_saida_robo_local()
 
 
 if __name__ == "__main__":

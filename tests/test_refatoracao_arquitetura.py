@@ -6,7 +6,10 @@ import ast
 import re
 from pathlib import Path
 
+import pandas as pd
+
 import config.settings as cfg
+import pages.envio_excel as envio_excel
 import robo.robo_engine as robo_engine
 import robo.robo_local as robo_local
 import services.google_drive_client as drive_client
@@ -50,6 +53,32 @@ def test_robo_local_delega_para_robo_engine() -> None:
     assert robo_local.detectar_base_arquivo is robo_engine.detectar_base_arquivo
     assert robo_local.buscar_arquivo_mais_recente is robo_engine.buscar_arquivo_mais_recente
     assert robo_local.ArquivoBloqueadoError is robo_engine.ArquivoBloqueadoError
+
+
+def test_robo_local_unificado_na_atualizacao_de_dados() -> None:
+    """A página dedicada sai da navegação; o sincronismo local fica na central."""
+    codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
+    codigo_atualizacao = (RAIZ / "pages" / "envio_excel.py").read_text(encoding="utf-8")
+
+    assert not (RAIZ / "robo" / "main.py").exists()
+    assert 'st.Page("robo/main.py"' not in codigo_app
+    assert "renderizar_robo_local(" in codigo_atualizacao
+
+
+def test_saida_robo_preserva_os_dois_contratos_de_sessao(monkeypatch) -> None:
+    """O resultado local conserva `dados_totale` e `df_memoria` para consumidores."""
+    from types import SimpleNamespace
+
+    estado: dict[str, object] = {}
+    monkeypatch.setattr(envio_excel, "st", SimpleNamespace(session_state=estado))
+    original = pd.DataFrame({" nome ": ["Técnico"], " os ": [42]})
+
+    resultado = envio_excel._pipeline_robo_local(original, pd.DataFrame())
+
+    assert resultado.columns.tolist() == ["NOME", "OS"]
+    assert original.columns.tolist() == [" nome ", " os "]
+    assert estado["dados_totale"] is resultado
+    assert estado["df_memoria"] is resultado
 
 
 def test_config_e_services_centralizam_google_drive_e_sheets() -> None:
