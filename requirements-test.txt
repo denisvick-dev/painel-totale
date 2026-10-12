@@ -1,3 +1,6 @@
+# Dependências mínimas para CI/testes (ver .github/workflows/quality.yml).
+# Precisa cobrir tudo o que os testes importam: `tests/test_quebra_geral.py`
+# importa `pages/quebra_geral.py`, que usa openpyxl para formatar a planilha.
 pytest>=8,<9
 ruff>=0.16,<0.17
 streamlit>=1.52,<2.0
@@ -5,3 +8,4 @@ pandas>=2.2,<4.0
 numpy>=1.26,<3.0
 plotly>=5.24,<8.0
 requests>=2.31,<3.0
+openpyxl>=3.1,<4.0

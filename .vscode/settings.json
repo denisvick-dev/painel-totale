@@ -1,11 +1,4 @@
 {
-    "editor.fontFamily": "Fira Mono, monospace",
-    "python.analysis.ignore": ["pandas", "numpy", "gdown"],
     "python.analysis.typeCheckingMode": "basic",
-    "chat.tools.terminal.autoApprove": {
-        "/^& 'C:\\\\Users\\\\denis\\\\Projects\\\\painel-totale-teste\\\\painel-totale-teste\\\\\\.venv\\\\Scripts\\\\python\\.exe' -m compileall -q components\\\\metricas_executivas\\.py components\\\\saude_dados\\.py components\\\\alertas_automaticos\\.py pages\\\\home\\.py pages\\\\envio_excel\\.py pages\\\\quebra_unificada\\.py pages\\\\pontos\\.py pages\\\\alertas\\.py streamlit_app\\.py$/": {
-            "approve": true,
-            "matchCommandLine": true
-        }
-    }
+    "python.analysis.ignore": ["pandas", "numpy", "gdown"]
 }

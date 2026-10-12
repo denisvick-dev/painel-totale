@@ -192,6 +192,9 @@ Acesse: **http://localhost:8501**
 # Guarda de sintaxe/estrutura, sem dependências externas
 python tests/test_sintaxe.py
 
+# Guarda de higiene: assets órfãos, lixo de SO, caminhos de máquina, árvore do README
+python tests/test_higiene_repositorio.py
+
 # Lint configurado no repositório
 ruff check .
 
@@ -233,18 +236,26 @@ painel-totale/
 ├── .github/workflows/quality.yml # Lint e testes em push/PR
 ├── .streamlit/
 │   └── secrets.example.toml      # Modelo local de configuração (sem credenciais reais)
-├── components/
-│   ├── componentes.py            # Design System compartilhado
+├── components/                   # Componentes compartilhados
+│   ├── componentes.py            # Design System (KPI, gráficos, CSS global)
+│   ├── sidebar.py                # Sidebar corporativa: temas, seletor e componentes
 │   ├── criterios.py              # Regras de classificação operacional
+│   ├── metricas_executivas.py    # Métricas e resumos executivos
+│   ├── alertas_automaticos.py    # Avaliação de alertas operacionais
+│   ├── saude_dados.py            # Frescor e consistência das fontes
 │   └── css_paginas.py            # Estilos reutilizáveis das páginas
+├── config/                       # IDs, URLs e parâmetros centralizados
+├── services/                     # Clientes externos (Google Drive/Sheets)
 ├── pages/                        # Páginas do aplicativo Streamlit
 ├── robo/                         # Leitura e monitoramento de arquivos locais
 ├── tests/                        # Testes de regressão e guardas estáticas
-├── data/                         # Dados de referência
-├── assets/                       # Ícones, imagens e marca
+├── assets/                       # Ícones, imagens e marca usados pelo app
 ├── fonts/                        # Fontes corporativas
-└── old/                          # Scripts arquivados, fora do fluxo ativo
+└── .streamlit_cache/             # Cache geoespacial versionado (Parquet)
 ```
+
+> Não há diretório `old/`: scripts legados foram removidos e um teste-guarda
+> (`tests/test_refatoracao_arquitetura.py`) impede que artefatos órfãos voltem.
 
 ---
 

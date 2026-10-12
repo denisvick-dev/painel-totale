@@ -1,453 +1,151 @@
-# 📊 Documentação: Melhorias do Sidebar TOTALE
+# 📊 Documentação: Sidebar TOTALE (`components/sidebar.py`)
 
 ## Visão Geral
 
-Este documento descreve todas as melhorias implementadas no sidebar em ambos os projetos (`painel-totale` e `producao-totale`), incluindo funcionalidades novas, componentes reutilizáveis e boas práticas de implementação.
+O módulo `components/sidebar.py` concentra o CSS dos temas, o seletor de tema persistente e os
+componentes corporativos da sidebar do portal. Ele substitui o CSS que antes ficava acoplado ao
+`streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas.
+
+O Design System (`components/componentes.py`) reexporta os principais símbolos deste módulo, então
+as páginas podem importar tanto de `components.sidebar` quanto de `components.componentes`.
 
 ---
 
 ## 🏗️ Estrutura de Arquivos
 
 ```
-painel-totale/
+painel-totale-teste/
+├── streamlit_app.py            # Entry point: navegação, shell raiz e sidebar completa
 ├── components/
-│   ├── __init__.py
-│   ├── componentes.py          # Componentes gerais (KPI, charts, etc)
-│   └── sidebar.py              # 🆕 Sidebar corporativo com componentização
-│
-└── streamlit_app.py            # ✏️ Atualizado para usar novo sidebar
-
-producao-totale/
-├── components/
-│   ├── componentes.py
-│   └── sidebar.py              # ✏️ Melhorado com novas funções helper
-│
-└── streamlit_app.py
+│   ├── componentes.py          # Design System; reexporta os helpers do sidebar
+│   └── sidebar.py              # 🎨 Sidebar corporativo: temas, seletor e componentes
+├── pages/                      # Páginas; usam render_page_sidebar_theme_selector()
+└── tests/
+    └── test_tema_sidebar.py    # Guardas de tema, seletor e persistência
 ```
 
 ---
 
-## ✨ Melhorias Implementadas
+## 🎨 Temas
 
-### 1. Centralização & Componentização
+| Tema | Nome exibido no seletor | Papel |
+|------|-------------------------|-------|
+| `claro` | ☀️ Claro Corporativo | Tema padrão |
+| `azul` | 🔷 Deep Executive Navy | Fundo escuro corporativo |
+| `laranja` | 🔶 Terracotta & Amber | Fundo quente com acento laranja |
 
-#### painel-totale
-- ✅ Novo arquivo **`components/sidebar.py`** dedicado
-- ✅ CSS removido de `streamlit_app.py` (evita duplicação)
-- ✅ Função `aplicar_sidebar_corp()` para injeção única
-- ✅ Caching de CSS com `@st.cache_data`
+O alias legado `padrao` é normalizado para `claro` por `normalizar_tema_sidebar()`; valores
+inválidos caem no tema padrão em vez de quebrar o widget.
 
-**Antes:**
-```python
-# streamlit_app.py - CSS acoplado ❌
-class Visual:
-    def injetar_css_global():
-        st.html("""<style>...sidebar css...</style>""")
-```
+### Estado na sessão
 
-**Depois:**
-```python
-# components/sidebar.py - Separado e cacheado ✅
-from components.sidebar import aplicar_sidebar_corp
-
-aplicar_sidebar_corp()  # Chamada única, CSS cacheado
-```
-
-#### producao-totale
-- ✅ Mantida estrutura existente (já tinha `sidebar.py`)
-- ✅ Adicionadas funções auxiliares para consistência
-- ✅ Melhorada documentação
+| Chave | Conteúdo |
+|-------|----------|
+| `_totale_sidebar_theme` | Tema ativo — fonte da verdade entre reruns e páginas |
+| `_totale_sidebar_css_tema` | Tema do CSS de sidebar já injetado |
+| `_totale_sidebar_theme_select` | Chave do widget `selectbox` do seletor |
+| `_totale_root_navigation_shell` | Marcado pelo entrypoint quando o shell raiz está ativo |
+| `_totale_css_head_tema` | Tema sincronizado pelo `aplicar_sidebar_corp()` do Design System |
 
 ---
 
-### 2. Recursos Corporativos Completos
+## ✨ API
 
-#### 2.1 Informações do Usuário
-Novo componente para exibir dados do usuário logado:
-
-```python
-from components.sidebar import render_sidebar_info
-
-render_sidebar_info(
-    user_name="João Silva",
-    email="joao@totale.com",
-    role="Técnico de Produção",
-    avatar="👤",
-)
-```
-
-**Apresentação:**
-- Avatar customizável (emoji ou URL)
-- Nome em destaque
-- Cargo/função
-- Email (quebra de linha automática)
-- Estilos corporativos
-
-#### 2.2 Indicador de Status do Sistema
-Novo componente para mostrar saúde do sistema:
-
-```python
-from components.sidebar import render_sidebar_status
-from datetime import datetime
-
-render_sidebar_status(
-    sistema_ok=True, ultima_atualizacao=datetime.now(), mensagem="Sistema operacional"
-)
-```
-
-**Características:**
-- Indicador visual (✅ ou ❌)
-- Status OK (verde) ou erro (vermelho)
-- Timestamp da última atualização
-- Mensagem customizável
-
-#### 2.3 Filtros Corporativos
-Novo wrapper para inputs com styling:
-
-```python
-from components.sidebar import render_sidebar_filtro
-
-filtro = render_sidebar_filtro(
-    label="Selecione a Region",
-    options=["SP", "RJ", "MG", "RS"],
-    default="SP",
-    key="filtro_regiao",
-)
-```
-
-**Vantagens:**
-- Styling corporativo automático
-- Suporte a multi-seleção
-- Ajuda contextual
-- Índice padrão configurável
-
-#### 2.4 Componentes de Organização
-Novos helpers para estruturar o sidebar:
-
-```python
-from components.sidebar import (
-    render_sidebar_section,
-    render_sidebar_divider,
-    render_sidebar_footer_info,
-)
-
-# Seção com título corporativo
-render_sidebar_section("📊 Relatórios")
-
-# Divisor visual
-render_sidebar_divider()
-
-# Footer com versão, ambiente e hora
-render_sidebar_footer_info(versao="3.1.0", ambiente="Produção", mostrar_timestamp=True)
-```
-
-#### 2.5 Funções Auxiliares de Tempo
-Helpers para trabalhar com timezone do Brasil:
-
-```python
-from components.sidebar import get_hora_atual_brt, get_data_atual_br
-
-hora = get_hora_atual_brt()  # "14:32:45"
-data = get_data_atual_br()  # "01/09/2026"
-```
-
----
-
-### 3. Estilo Visual Corporativo
-
-#### 3.1 Paleta de Cores
-```python
-TOTALE_AZUL = "#012869"  # Deep Midnight Navy
-TOTALE_LARANJA = "#F37C04"  # Solar Orange
-TOTALE_LARANJA_CLARO = "#FFBE64"  # Light Orange
-```
-
-#### 3.2 Gradiente do Sidebar (painel-totale)
-```
-Topo:        Laranja claro → Laranja → Marrom
-Transição:   Transição suave para azul
-Base:        Azul profundo → Azul muito escuro
-```
-
-**Efeito:** Tema corporativo moderno com bom contraste
-
-#### 3.3 Menu de Navegação
-- Links com cards arredondados
-- Hover com transição suave (+2px translate)
-- Página ativa com:
-  - Gradiente azul-laranja
-  - Borda laranja destacada
-  - Sombra aumentada
-  - Texto branco em destaque
-
-#### 3.4 Inputs (Selectbox, Datepicker)
-- Fundo semi-transparente
-- Borda com cor corporativa
-- Hover com intensificação de cor
-- Focus com sombra colorida
-
-#### 3.5 Botões
-- Gradiente laranja (hover)
-- Sombra suave
-- Transição de elevação
-- Estados secundários suportados
-
----
-
-### 4. Performance & Otimizações
-
-#### 4.1 Caching de CSS
-```python
-@st.cache_data(ttl=3600)
-def _get_sidebar_css() -> str:
-    """Retorna o CSS do sidebar (cacheado para performance)."""
-    return f"""<style>...</style>"""
-```
-
-**Benefício:** CSS compilado apenas uma vez por hora
-
-#### 4.2 Injeção Única
-```python
-# Evita múltiplas injeções do mesmo CSS
-if "sidebar_applied" not in st.session_state:
-    aplicar_sidebar_corp()
-    st.session_state.sidebar_applied = True
-```
-
-#### 4.3 Responsividade
-- Scrollbar customizada (WebKit)
-- Layout fluido em mobile
-- Colapsibilidade melhorada
-- Ícones escaláveis
-
----
-
-### 5. Recursos Avançados
-
-#### 5.1 Scrollbar Customizada
-```css
-[data-testid="stSidebar"] ::-webkit-scrollbar {
-    width: 8px;
-}
-[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {
-    background: rgba(243, 124, 4, 0.4);
-}
-```
-
-**Efeito:** Scrollbar estilizada em laranja corporativo
-
-#### 5.2 Animações Suaves
-- Hover com `transition: all 0.22s ease`
-- Active com `transform: translateY(-2px)`
-- Pulsação de status online
-
-#### 5.3 Acessibilidade
-- Bom contraste de cores (WCAG AA+)
-- Ícones com fallback CSS
-- Labels descritivos
-- Espaçamento adequado
-
----
-
-## 📚 Guia de Uso
-
-### Para Painel-Totale
-
-**1. No `streamlit_app.py`:**
-```python
-from components.sidebar import aplicar_sidebar_corp
-
-
-def main():
-    aplicar_sidebar_corp()  # Chamar uma vez no início
-    st.logo("assets/images/novo-logo-totale.png")
-    # ... resto da app
-```
-
-**2. Em qualquer página:**
-```python
-from components.sidebar import (
-    render_sidebar_info,
-    render_sidebar_status,
-    render_sidebar_filtro,
-)
-
-# No sidebar
-with st.sidebar:
-    render_sidebar_info(user_name=st.session_state.get("user"), email="user@totale.com")
-    render_sidebar_status(sistema_ok=True)
-
-    filtro = render_sidebar_filtro("Região", ["SP", "RJ", "MG"])
-```
-
-### Para Producao-Totale
-
-**Já funciona com `render_sidebar_corp()`:**
-```python
-from components.sidebar import render_sidebar_corp
-
-render_sidebar_corp(on_logout=handle_logout)
-```
-
-**Novos recursos disponíveis:**
-```python
-from components.sidebar import render_sidebar_info, render_sidebar_footer_info
-
-# Adicionar info do usuário
-render_sidebar_info(user_name=st.session_state.tecnico)
-
-# Adicionar footer
-render_sidebar_footer_info(versao="1.0.0")
-```
-
----
-
-## 🔍 Recursos por Arquivo
-
-### painel-totale/components/sidebar.py
-
-| Função | Descrição | Uso |
-|--------|-----------|-----|
-| `aplicar_sidebar_corp()` | Aplica CSS corporativo | `aplicar_sidebar_corp()` |
-| `render_sidebar_info()` | Info do usuário | `render_sidebar_info(user_name="João")` |
-| `render_sidebar_status()` | Status do sistema | `render_sidebar_status(sistema_ok=True)` |
-| `render_sidebar_filtro()` | Filtros corporativos | `render_sidebar_filtro("Label", options)` |
-| `render_sidebar_section()` | Título de seção | `render_sidebar_section("Título")` |
-| `render_sidebar_divider()` | Divisor visual | `render_sidebar_divider()` |
-| `render_sidebar_footer_info()` | Footer com versão | `render_sidebar_footer_info(versao="3.1.0")` |
-| `get_hora_atual_brt()` | Hora em BRT | `hora = get_hora_atual_brt()` |
-| `get_data_atual_br()` | Data em DD/MM/YYYY | `data = get_data_atual_br()` |
-
-### producao-totale/components/sidebar.py
+### Aplicação de estilo
 
 | Função | Descrição |
 |--------|-----------|
-| `injetar_css_sidebar_corp()` | Aplica CSS (metálico) |
-| `render_sidebar_corp()` | Renderiza sidebar completo com perfil |
-| *(+ todas as funções acima)* | Novos helpers adicionados |
+| `aplicar_estilo(tema_sidebar=None)` | Aplica o CSS **do sidebar**, mantendo o tema da sessão quando omitido |
+| `aplicar_estilo_corp(tema_sidebar=None)` | Alias corporativo de `aplicar_estilo()` |
+| `aplicar_sidebar_corp(tema=None)` | Reaplica o tema atual ou aplica um tema explícito |
+| `carregar_layout_corporativo(...)` | Atalho: aplica o tema e, se pedido, desenha marca + seletor |
+
+> Para o CSS **global** do portal (Design System + Plotly + fontes + sidebar), use
+> `components.componentes.aplicar_estilo()`, que internamente já chama o CSS do sidebar.
+
+### Tema
+
+| Função | Descrição |
+|--------|-----------|
+| `normalizar_tema_sidebar(tema)` | Normaliza nomes (`padrao` → `claro`) e valida valores |
+| `definir_tema_sidebar(tema)` | Persiste o tema ativo e sincroniza o seletor |
+| `render_sidebar_theme_selector(...)` | Seletor de tema completo, com persistência automática |
+| `render_page_sidebar_theme_selector()` | Seletor **apenas** quando a página não usa o shell raiz |
+
+### Componentes
+
+| Função | Descrição |
+|--------|-----------|
+| `render_sidebar_brand(...)` | Marca, subtítulo, ícone/logotipo e badge de versão |
+| `render_sidebar_section(titulo, icone, collapsible)` | Título de seção (ou `expander`) |
+| `render_sidebar_divider(estilo, espacamento, cor, label)` | Divisor, linha rotulada ou espaço |
+| `render_sidebar_info(...)` | Cartão de usuário, dados complementares e presença |
+| `render_sidebar_status(...)` | Badge compacto ou cartão detalhado de status do sistema |
+| `render_sidebar_footer_info(...)` | Versão, ambiente, relógio opcional e copyright |
+| `render_sidebar_spacer(altura)` | Espaço vertical controlado |
+| `formatar_datetime_exibicao(valor, com_segundos=False)` | Formata `datetime`/`Timestamp`/texto para exibição |
 
 ---
 
-## 🎨 Customizações Possíveis
+## 🚀 Uso
 
-### 1. Alterar Cores
-```python
-# Em qualquer arquivo, substituir cores no CSS:
-COR_PRIMARIA = "#seu-azul"
-COR_SECUNDARIA = "#sua-laranja"
-```
-
-### 2. Adicionar Componentes
-```python
-# Criar nova função em sidebar.py
-def render_sidebar_custom_widget():
-    st.markdown("""<div>Seu componente aqui</div>""", unsafe_allow_html=True)
-```
-
-### 3. Modificar Estilo de Inputs
-Todos os inputs no sidebar herdam o styling automático via CSS
-
----
-
-## 📊 Antes vs Depois
-
-| Aspecto | Antes | Depois |
-|--------|--------|---------|
-| **Centralização** | CSS em 3+ lugares | Arquivo único `sidebar.py` |
-| **Componentização** | Nenhuma | 8+ funções reutilizáveis |
-| **Performance** | CSS reinjection | CSS cacheado (1h) |
-| **User Info** | Manual com HTML | Componente automático |
-| **Status Sistema** | Não existia | Indicador visual + timestamp |
-| **Filtros** | Sem styling | Styling corporativo automático |
-| **Footer** | Manual | Função helper |
-| **Timezone** | Não padronizado | Funções helper (BRT) |
-| **Documentação** | Nenhuma | Completa e detalhada |
-
----
-
-## ✅ Checklist de Implementação
-
-### painel-totale
-- [x] Criar `components/sidebar.py` com all features
-- [x] Remover CSS do sidebar de `streamlit_app.py`
-- [x] Adicionar import de `aplicar_sidebar_corp`
-- [x] Testar visual em todas as páginas
-- [x] Verificar performance (cache)
-
-### producao-totale
-- [x] Adicionar funções helper a `sidebar.py`
-- [x] Documentar uso das novas funções
-- [x] Garantir compatibilidade com código existente
-
----
-
-## 🚀 Próximas Melhorias Sugeridas
-
-1. **Tema Escuro/Claro**: Adicionar toggle de tema
-2. **Responder ao Mobile**: Sidebar colapsível adaptativo
-3. **Animações CSS**: Transições mais elaboradas no menu
-4. **Search no Menu**: Campo de busca em páginas
-5. **Notificações**: Badge de notificações no sidebar
-6. **Preferências de Usuário**: Salvar preferências no localStorage
-7. **Internacionalização (i18n)**: Suporte a múltiplos idiomas
-
----
-
-## 🔧 Correção v5.3.0 — Tema da sidebar persistente entre páginas
-
-**Sintoma:** a cor do sidebar só ficava correta enquanto o usuário estava na Home.
-Ao navegar para qualquer página de `pages/*`, o menu voltava para o tema Claro
-(ou mantinha o CSS antigo), mesmo com outro tema selecionado no seletor.
-
-**Causa raiz:** o entrypoint `streamlit_app.py` aplicava o tema escolhido, mas
-cada página de `pages/*` reinjeta o Design System chamando `aplicar_estilo()`
-sem argumento. Como o parâmetro tinha default `"claro"`, o valor fixo
-sobrescrevia o tema da sessão em toda troca de página.
-
-**Solução aplicada em `components/componentes.py`:**
+### No entrypoint (`streamlit_app.py`)
 
 ```python
-# Antes (v5.2.0) — qualquer página resetava o sidebar para o tema claro
-def aplicar_estilo(tema_sidebar: TemaSidebarType = "claro") -> None: ...
+from components.componentes import aplicar_estilo
+from components.sidebar import (
+    definir_tema_sidebar,
+    render_sidebar_brand,
+    render_sidebar_divider,
+    render_sidebar_footer_info,
+    render_sidebar_section,
+    render_sidebar_spacer,
+    render_sidebar_status,
+    render_sidebar_theme_selector,
+)
 
+definir_tema_sidebar(tema_ativo)
+aplicar_estilo()                                    # Design System + sidebar
 
-# Depois (v5.3.0) — sem argumento, preserva o tema ativo da sessão
-def aplicar_estilo(tema_sidebar: TemaSidebarType | str | None = None) -> None:
-    tema_norm = _obter_tema_sidebar(tema_sidebar)  # sessão > seletor > legado
-    definir_tema_sidebar(tema_norm)  # sincroniza o selectbox
-    ...
+render_sidebar_brand(nome="TOTALE", subtitulo="Portal de Operações", versao="3.4.0")
+render_sidebar_section("Aparência", icone="🎨")
+tema_escolhido = render_sidebar_theme_selector()    # já persiste e reaplica o CSS
+render_sidebar_divider()
+render_sidebar_status(status="ok", label="Sistema operacional")
+render_sidebar_spacer("pequeno")
+render_sidebar_footer_info(versao="v3.4.0", ambiente="Produção")
 ```
 
-- `aplicar_estilo()`, `aplicar_estilo_corp()` e `aplicar_sidebar_corp()` agora
-  herdam o tema ativo (`_totale_sidebar_theme` / `_totale_sidebar_theme_select`).
-- Passar um tema explícito continua funcionando (`aplicar_estilo("azul")`).
-- CSS local de sidebar que fixava cores (fundo branco em `p_atendimento.py`,
-  cor/borda de input em `consultivo.py`) foi removido: quem manda no sidebar é
-  o Design System.
+### Nas páginas
 
-**Regressão coberta por testes:**
+```python
+from components.sidebar import render_page_sidebar_theme_selector
 
-```bash
-python tests/test_tema_sidebar.py     # execução direta
-pytest tests/test_tema_sidebar.py     # via pytest
+render_page_sidebar_theme_selector()  # no-op quando o shell raiz já renderizou o seletor
 ```
 
-Os testes usam `streamlit.testing.v1.AppTest` e cobrem: página que reaplica o
-Design System, aliases corporativos, tema explícito, fluxo entrypoint + página e
-troca de tema com uma página aberta.
+O entrypoint marca `_totale_root_navigation_shell = True`; com isso, as páginas não criam um
+segundo seletor de tema (o que quebraria a chave única do widget).
+
+### Atalho
+
+```python
+from components.sidebar import carregar_layout_corporativo
+
+carregar_layout_corporativo(renderizar_sidebar=True, nome="TOTALE", versao="3.4.0")
+```
 
 ---
 
-## 📝 Notas de Desenvolvimento
+## ✅ Boas práticas e guardas
 
-- Todos os componentes usam `unsafe_allow_html=True` (CSS personalizado necessário)
-- Timezone padrão: `America/Sao_Paulo` (BRT)
-- Paleta corporativa padronizada em constantes
-- Todas as funções têm docstrings completas
-- CSS usa seletores `[data-testid]` para compatibilidade Streamlit
+- **Não** passe `use_container_width` (depreciado): use `width="stretch"` / `width="content"`.
+  Guarda: `tests/test_sem_depreciados.py`.
+- **Não** chame `st.cache_data.clear()` / `st.cache_resource.clear()` globalmente nas páginas;
+  invalide funções específicas. Guarda: `tests/test_refatoracao_arquitetura.py`.
+- Mantenha o tema em `st.session_state["_totale_sidebar_theme"]` — nunca replique a chave em
+  outra constante.
+- Novos estilos de sidebar devem usar os tokens de `_TEMAS` e os placeholders `@@...@@` do CSS,
+  para que os três temas continuem consistentes.
 
----
-
-**Versão:** 1.0.0  
-**Última Atualização:** 01/09/2026  
-**Mantido por:** Equipe TOTALE
+Guarda principal de comportamento: `tests/test_tema_sidebar.py`.
