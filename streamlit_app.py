@@ -3,13 +3,13 @@ streamlit_app.py
 ================
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.4.0 (seletor de tema do sidebar integrado ao Design System TOTALE)
+Versão: 3.4.0 (seletor de tema do sidebar integrado ao módulo components.sidebar)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
-• Tema selecionado persistido entre reruns e sincronizado com components.componentes.
+• Tema selecionado persistido entre reruns e sincronizado com components.sidebar.
 • Marca, status do sistema e informações do ambiente na sidebar.
-• CSS do app limitado ao corpo da página; o Design System controla a sidebar.
+• CSS do app limitado ao corpo da página; components.sidebar controla a sidebar.
 """
 
 from __future__ import annotations
@@ -23,9 +23,9 @@ from typing import Any, ParamSpec, TypeVar
 
 import streamlit as st
 
-from components.componentes import (
+from components.componentes import aplicar_estilo
+from components.sidebar import (
     TemaSidebarType,
-    aplicar_estilo,
     definir_tema_sidebar,
     render_sidebar_brand,
     render_sidebar_divider,
@@ -100,7 +100,10 @@ def handle_exceptions(func: Callable[P, R]) -> Callable[P, R | None]:
     return wrapper
 
 
-def format_datetime(dt: datetime | str | None, format_str: str = "%d/%m/%Y às %H:%M:%S") -> str:
+def format_datetime(
+    dt: datetime | str | None,
+    format_str: str = "%d/%m/%Y às %H:%M:%S",
+) -> str:
     """Formata datetime com retorno garantido em string."""
     if dt is None:
         return "Não disponível"
@@ -114,7 +117,7 @@ def format_datetime(dt: datetime | str | None, format_str: str = "%d/%m/%Y às %
 
 
 def _aplicar_estilo_seguro(tema: Any = "claro") -> None:
-    """Normaliza e aplica o tema, mantendo app.py e Design System sincronizados."""
+    """Persiste o tema da sidebar e aplica o estilo global da página."""
     tema_texto = str(tema or "claro").strip().lower()
     if tema_texto == "azul":
         tema_norm: TemaSidebarType = "azul"
@@ -126,23 +129,19 @@ def _aplicar_estilo_seguro(tema: Any = "claro") -> None:
 
     st.session_state["tema_sidebar"] = tema_norm
     definir_tema_sidebar(tema_norm)
-    try:
-        aplicar_estilo(tema_sidebar=tema_norm)
-    except TypeError:
-        # Compatibilidade com versões antigas do Design System.
-        aplicar_estilo()
+    aplicar_estilo()
 
 
 # ====================================================
 # 🎨 BLOCO 3: GERENCIADOR DE ESTILOS DO CORPO DA PÁGINA
 # ====================================================
 class GerenciadorEstilos:
-    """Gerencia estilos do corpo. A sidebar é controlada por components.py."""
+    """Gerencia os estilos do corpo; a sidebar é controlada por components.sidebar."""
 
     @staticmethod
     def _get_input_styles() -> str:
         return f"""
-        /* INPUTS DO CORPO DA PÁGINA — sidebar controlada pelo Design System */
+        /* INPUTS DO CORPO DA PÁGINA — sidebar controlada pelo módulo próprio */
         [data-testid="stMain"] [data-testid="stSelectbox"] label p,
         [data-testid="stMain"] [data-testid="stMultiSelect"] label p,
         [data-testid="stMain"] [data-testid="stTextInput"] label p {{
@@ -272,14 +271,18 @@ class GerenciadorNavegacao:
             "Menu Principal": [
                 st.Page("pages/home.py", title="Home", icon="🏠", default=True),
                 st.Page("pages/alertas.py", title="Alertas automáticos", icon="⚠️"),
-                st.Page("pages/envio_excel.py", title="Atualização de Dados", icon="🔁"),
+                st.Page(
+                    "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
+                ),
                 st.Page("robo/main.py", title="Robô local", icon="🤖"),
             ],
             "Central de Performance": [
                 st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
                 st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡"),
                 st.Page("pages/consultivo.py", title="Consultivos", icon="📋"),
-                st.Page("pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"),
+                st.Page(
+                    "pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"
+                ),
                 st.Page("pages/indicadores.py", title="Indicadores", icon="⚡"),
             ],
             "Compilado": [
@@ -294,7 +297,9 @@ class GerenciadorNavegacao:
             ],
             "Quebra": [
                 st.Page("pages/quebra_geral.py", title="Geral", icon="📉"),
-                st.Page("pages/quebra_unificada.py", title="Visão Segmentos", icon="📉"),
+                st.Page(
+                    "pages/quebra_unificada.py", title="Visão Segmentos", icon="📉"
+                ),
             ],
             "Utilitários": [
                 st.Page("pages/assinatura.py", title="Assinatura", icon="✉️"),
