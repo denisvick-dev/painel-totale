@@ -121,8 +121,6 @@ class Configuracoes:
     URL_CONS = URL_CONS_DOWNLOAD
     URL_ATIVOS = URL_ATIVOS_CSV
 
-    # Tokens tratados como vazio. Quem ainda lê VAZIOS continua achando o conjunto;
-    # a comparação de verdade usa PADRAO_VAZIO (inclui na e n/a, que o set antigo não tinha).
     VAZIOS = {"-", "nan", "None", "", "NaN", "nat", "NAT", "<NA>", "null", "NULL"}
     PADRAO_VAZIO = r"^(?:-|nan|none|na|n/a|<na>|nat|null)$"
     _RE_VAZIO = re.compile(PADRAO_VAZIO, re.IGNORECASE)
@@ -161,7 +159,11 @@ class StatusFonte:
     erro: str | None = None
 
     def rotulo(self) -> str:
-        quando = self.ultimo_sucesso.strftime("%d/%m às %H:%M") if self.ultimo_sucesso else "nunca"
+        quando = (
+            self.ultimo_sucesso.strftime("%d/%m às %H:%M")
+            if self.ultimo_sucesso
+            else "nunca"
+        )
         if self.ok:
             return f"{self.nome} • {_fmt_int(self.linhas)} linhas • ok em {quando}"
         if self.ultimo_sucesso is None:
@@ -194,9 +196,12 @@ def _intervalo_vencido(
         return False
     if not isinstance(ultima, datetime):
         return True
-    if ultima.tzinfo is None:
-        ultima = ultima.replace(tzinfo=Configuracoes.FUSO)
-    decorrido = (agora - ultima).total_seconds()
+    ref = (
+        ultima
+        if ultima.tzinfo is not None
+        else ultima.replace(tzinfo=Configuracoes.FUSO)
+    )
+    decorrido = (agora - ref).total_seconds()
     return decorrido + Configuracoes.FOLGA_TIMER_SEG >= intervalo_seg
 
 
@@ -212,7 +217,6 @@ class ProcessadorDeDados:
     @classmethod
     def _normalizar_serie(cls, serie: pd.Series) -> pd.Series:
         texto = serie.fillna("").astype(str).str.strip()
-        # pandas-stubs tipa `pat` como str, não como Pattern. O regex já tem ^ e $.
         return texto.where(~texto.str.match(Configuracoes.PADRAO_VAZIO, case=False), "")
 
     @staticmethod
@@ -221,10 +225,7 @@ class ProcessadorDeDados:
         if valor is None or (isinstance(valor, float) and math.isnan(valor)):
             return ""
         s = str(valor).strip().upper()
-        if re.fullmatch(r"\d+\.0+", s):
-            s = s.split(".", 1)[0]
-        elif s.endswith(".0"):
-            s = s[:-2]
+        s = re.sub(r"\.0+$", "", s)
         if re.fullmatch(Configuracoes.PADRAO_VAZIO, s, flags=re.IGNORECASE):
             return ""
         return s
@@ -273,7 +274,7 @@ class ProcessadorDeDados:
         if cls._e_html(conteudo, ""):
             raise ValueError("O remoto devolveu HTML em vez de CSV.")
 
-        amostra = conteudo.split(b"\n", 1)[0][:8000]
+        amostra = conteudo[:16384]
         melhor: pd.DataFrame | None = None
         reserva_1col: pd.DataFrame | None = None
         ultimo_erro: Exception | None = None
@@ -295,8 +296,6 @@ class ProcessadorDeDados:
                     reserva_1col = df
             if melhor is not None:
                 break
-            # Sem delimitador na amostra, 1 coluna é o arquivo — não deixa o
-            # sniffer livre (sep=None) partir "SOZINHO" no "O".
             if reserva_1col is not None and not any(
                 texto.count(s) > 0 for s in cls._DELIMITADORES_CSV
             ):
@@ -309,7 +308,9 @@ class ProcessadorDeDados:
             raise ValueError(
                 f"Nenhum combinado de encoding/separador produziu colunas: {ultimo_erro}"
             )
-        melhor.columns = pd.Index([str(c).strip().lstrip("\ufeff") for c in melhor.columns])
+        melhor.columns = pd.Index(
+            [str(c).strip().lstrip("\ufeff") for c in melhor.columns]
+        )
         return melhor
 
     @classmethod
@@ -333,7 +334,9 @@ class ProcessadorDeDados:
                 erros.append(f"{engine}: {type(e).__name__}: {e}")
                 continue
             if isinstance(bruto, dict):
-                return {str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)}
+                return {
+                    str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)
+                }
             if isinstance(bruto, pd.DataFrame):
                 return {"Prod": bruto}
             erros.append(f"{engine}: retorno inesperado")
@@ -344,14 +347,10 @@ class ProcessadorDeDados:
         )
 
     @classmethod
-    def _separar_internet_tv(cls, internet_bruta: pd.Series) -> tuple[pd.Series, pd.Series]:
-        """Separa TV embutida depois do ponto.
-
-        '500.CLARO TV' vira internet 500 e TV CLARO TV.
-        '300.00' perde o decimal e não vira TV.
-        '1.000 MEGA' permanece inteiro: o trecho depois do ponto começa com
-        dígito e tem letra, então não é nome de TV.
-        """
+    def _separar_internet_tv(
+        cls, internet_bruta: pd.Series
+    ) -> tuple[pd.Series, pd.Series]:
+        """Separa TV embutida depois do ponto."""
         bruto = cls._normalizar_serie(internet_bruta)
         partes = bruto.str.split(".", n=1, expand=True)
         primeira = cls._normalizar_serie(cls._como_serie(partes[0], bruto.index))
@@ -362,7 +361,8 @@ class ProcessadorDeDados:
         tem_letra = segunda.str.contains(r"[A-Za-z]", na=False)
         comeca_digito = segunda.str.match(r"\d", na=False)
         parece_tv = tem_letra & ~comeca_digito
-        preservar = segunda.ne("") & ~segunda.str.fullmatch(r"\d+", na=False) & ~parece_tv
+        decimal_puro = segunda.str.fullmatch(r"\d+", na=False)
+        preservar = segunda.ne("") & ~decimal_puro & ~parece_tv
         internet = primeira.where(~preservar, bruto)
         tv = segunda.where(parece_tv, "")
         return internet, tv
@@ -403,10 +403,17 @@ class ProcessadorDeDados:
         cons = cons.copy()
         if "OBSERVACAO" in cons.columns:
             obs = cons["OBSERVACAO"].fillna("").astype(str)
-            cons["LISTA_PRODUTOS"] = obs.str.findall(r"\b\d{9,12}\b")
-            cons["QTDE_PRODUTOS"] = cons["LISTA_PRODUTOS"].str.len().fillna(0).astype(int)
+            # Extrai listas temporárias para contagem
+            produtos_encontrados = obs.str.findall(r"\b\d{9,12}\b")
+            cons["QTDE_PRODUTOS"] = produtos_encontrados.map(
+                lambda x: len(x) if isinstance(x, (list, tuple)) else 0
+            ).fillna(0).astype(int)
+            # Salva como string delimitada por vírgula (evita list não-hashável no DataFrame)
+            cons["LISTA_PRODUTOS"] = produtos_encontrados.map(
+                lambda x: ", ".join(x) if isinstance(x, (list, tuple)) else ""
+            )
         else:
-            cons["LISTA_PRODUTOS"] = [[] for _ in range(len(cons))]
+            cons["LISTA_PRODUTOS"] = ""
             cons["QTDE_PRODUTOS"] = 0
 
         if "TIPO SERVIÇO" in cons.columns:
@@ -416,15 +423,18 @@ class ProcessadorDeDados:
         qtde_prod = cons["QTDE_PRODUTOS"].fillna(0).astype(int)
 
         tem_tv_bool = tipo_servico.str.contains("TV", case=False, regex=False, na=False)
-        tem_virtua_bool = tipo_servico.str.contains(r"MEGA|GIGA", case=False, regex=True, na=False)
-        # Sem '&', 'TV ... MEGA' ainda é combo. Senão TV e Virtua levam a qtde inteira.
-        is_combinado = tipo_servico.str.contains("&", case=False, regex=False, na=False) | (
-            tem_tv_bool & tem_virtua_bool
+        tem_virtua_bool = tipo_servico.str.contains(
+            r"MEGA|GIGA", case=False, regex=True, na=False
         )
+        is_combinado = tipo_servico.str.contains(
+            "&", case=False, regex=False, na=False
+        ) | (tem_tv_bool & tem_virtua_bool)
         tem_tv = tem_tv_bool.astype(int)
         tem_virtua = tem_virtua_bool.astype(int)
         cons["QTDE_TV"] = (tem_tv * qtde_prod).mask(is_combinado, tem_tv).astype(int)
-        cons["QTDE_VIRTUA"] = (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
+        cons["QTDE_VIRTUA"] = (
+            (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
+        )
         cons["QTDE_MESH"] = (
             (cons["QTDE_PRODUTOS"] - cons["QTDE_TV"] - cons["QTDE_VIRTUA"])
             .clip(lower=0)
@@ -434,10 +444,16 @@ class ProcessadorDeDados:
 
     @classmethod
     def merge_ativos(cls, cons: pd.DataFrame, ativos: pd.DataFrame) -> pd.DataFrame:
-        if ativos.empty or "Login" not in ativos.columns or "LOGIN NETSALES" not in cons.columns:
+        if (
+            ativos.empty
+            or "Login" not in ativos.columns
+            or "LOGIN NETSALES" not in cons.columns
+        ):
             return cons
 
-        cols = [c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns]
+        cols = [
+            c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns
+        ]
         ativos_limpo = ativos.loc[:, cols].dropna(subset=["Login"]).copy()
         ativos_limpo["Login_JOIN"] = ativos_limpo["Login"].map(cls._login_chave)
         ativos_limpo = ativos_limpo.loc[ativos_limpo["Login_JOIN"].ne("")]
@@ -466,14 +482,16 @@ class ProcessadorDeDados:
                     else pd.Series("", index=merged.index, dtype="object")
                 )
                 extra = merged[alt].map(Configuracoes.vazio_texto)
-                # Coluna já existente no consultivo não pode esconder o valor dos ativos.
                 merged[c] = atual.mask(atual.eq(""), extra)
                 merged = merged.drop(columns=[alt])
             if c in merged.columns:
-                merged[c] = merged[c].map(Configuracoes.vazio_texto).replace("", "Não Identificado")
+                merged[c] = (
+                    merged[c]
+                    .map(Configuracoes.vazio_texto)
+                    .replace("", "Não Identificado")
+                )
         return merged
 
-    # Nomes antigos, caso outra página importe estes métodos.
     _sessao = criar_sessao
     _processar_quantidades = processar_quantidades
     _merge_ativos = merge_ativos
@@ -532,12 +550,6 @@ def _baixar_ativos(sess: requests.Session) -> pd.DataFrame:
 def executar_sincronizacao(
     sess: requests.Session | None = None,
 ) -> dict[str, StatusFonte]:
-    """Baixa cada fonte separadamente e grava o que deu certo no session_state.
-
-    Falha de download não apaga a carga anterior. O Consultivo só é marcado
-    ok depois do processamento. Se só os Ativos mudarem, o consultivo bruto
-    guardado é reprocessado para o merge não ficar velho.
-    """
     sess = sess or ProcessadorDeDados.criar_sessao()
     agora = datetime.now(Configuracoes.FUSO)
     st.session_state["ultima_tentativa_sync"] = agora
@@ -564,7 +576,6 @@ def executar_sincronizacao(
             continue
         baixados[nome] = resultado
         if nome == "Consultivo":
-            # ok só depois de tratar/merge; o bruto fica para um retry dos Ativos
             st.session_state["dados_cons_bruto"] = resultado
             continue
         stf.ok = True
@@ -579,7 +590,9 @@ def executar_sincronizacao(
         st.session_state["dados_ativos"] = baixados["Ativos"]
 
     bruto = st.session_state.get("dados_cons_bruto")
-    if isinstance(bruto, pd.DataFrame) and ("Consultivo" in baixados or "Ativos" in baixados):
+    if isinstance(bruto, pd.DataFrame) and (
+        "Consultivo" in baixados or "Ativos" in baixados
+    ):
         stf = _status("Consultivo")
         sucesso_anterior = stf.ultimo_sucesso
         linhas_anteriores = stf.linhas
@@ -674,6 +687,25 @@ def _colunas(
         return list(st.columns(larguras))
 
 
+def _sanitizar_para_analise(df: pd.DataFrame) -> pd.DataFrame:
+    """Garante que colunas com list/dict/set sejam convertidas em string para não travar .duplicated()."""
+    if df.empty:
+        return df
+    df_copia = df.copy()
+    for col in df_copia.columns:
+        if df_copia[col].dtype == "object":
+            amostra = df_copia[col].dropna().head(15)
+            if any(isinstance(v, (list, dict, set, tuple)) for v in amostra):
+                df_copia[col] = df_copia[col].map(
+                    lambda x: (
+                        ", ".join(x)
+                        if isinstance(x, (list, tuple, set))
+                        else str(x) if isinstance(x, dict) else x
+                    )
+                )
+    return df_copia
+
+
 def _frames_carregados() -> dict[str, pd.DataFrame]:
     frames: dict[str, pd.DataFrame] = {}
     for fonte, chave in (
@@ -683,11 +715,15 @@ def _frames_carregados() -> dict[str, pd.DataFrame]:
     ):
         dados = st.session_state.get(chave)
         if isinstance(dados, pd.DataFrame):
-            frames[fonte] = dados
+            frames[fonte] = _sanitizar_para_analise(dados)
         elif isinstance(dados, dict):
-            partes = [frame for frame in dados.values() if isinstance(frame, pd.DataFrame)]
+            partes = [
+                frame for frame in dados.values() if isinstance(frame, pd.DataFrame)
+            ]
             if partes:
-                frames[fonte] = pd.concat(partes, ignore_index=True, sort=False)
+                frames[fonte] = _sanitizar_para_analise(
+                    pd.concat(partes, ignore_index=True, sort=False)
+                )
     return frames
 
 
@@ -711,7 +747,9 @@ def _renderizar_status_fontes() -> None:
                 st.markdown(f"**{stf.nome}**")
                 st.caption(f"{_fmt_int(stf.linhas)} linhas na última sincronização")
                 st.markdown(f"{icones[estado_frescor]} **Frescor:** {frescor}")
-                st.markdown(f"{icones[estado_consistencia]} **Consistência:** {consistencia}")
+                st.markdown(
+                    f"{icones[estado_consistencia]} **Consistência:** {consistencia}"
+                )
                 if stf.erro:
                     st.caption(_erro_curto(stf.erro, 300))
     st.caption(
@@ -721,7 +759,6 @@ def _renderizar_status_fontes() -> None:
 
 
 def _render_sidebar_status() -> None:
-    """Dentro do fragmento, para o status da sidebar acompanhar o auto-refresh."""
     stats = _mapa_status()
     with st.sidebar:
         st.markdown("---")
@@ -761,10 +798,11 @@ def _render_banner() -> None:
 def _deve_sincronizar(intervalo_seg: int, forcado: bool) -> bool:
     if forcado or not st.session_state.get("sync_iniciada", False):
         return True
+    ultima = st.session_state.get("ultima_tentativa_sync")
+    if not isinstance(ultima, datetime):
+        ultima = None
     return _intervalo_vencido(
-        st.session_state.get("ultima_tentativa_sync")
-        if isinstance(st.session_state.get("ultima_tentativa_sync"), datetime)
-        else None,
+        ultima,
         datetime.now(Configuracoes.FUSO),
         intervalo_seg,
     )
@@ -782,7 +820,8 @@ def _detalhes_falha() -> None:
 
 def _painel_dados(intervalo_seg: int) -> None:
     tem_dados_em_sessao = any(
-        st.session_state.get(k) is not None for k in ("dados_prod", "dados_cons", "dados_ativos")
+        st.session_state.get(k) is not None
+        for k in ("dados_prod", "dados_cons", "dados_ativos")
     )
     col_status, col_btn = _colunas([3, 1], "center")
     with col_btn:
@@ -797,9 +836,11 @@ def _painel_dados(intervalo_seg: int) -> None:
         notificar = clicou or not st.session_state.get("sync_iniciada", False)
         try:
             with st.status(
-                "🔄 Baixando e processando dados..."
-                if tem_dados_em_sessao
-                else "🔄 Primeira carga das bases...",
+                (
+                    "🔄 Baixando e processando dados..."
+                    if tem_dados_em_sessao
+                    else "🔄 Primeira carga das bases..."
+                ),
                 expanded=notificar,
             ) as status_box:
                 st.write("Conectando aos servidores do Google Drive...")
@@ -822,7 +863,10 @@ def _painel_dados(intervalo_seg: int) -> None:
                         expanded=False,
                     )
                     if notificar:
-                        st.toast(f"Atualização parcial: {', '.join(falhou)} falhou", icon="⚠️")
+                        st.toast(
+                            f"Atualização parcial: {', '.join(falhou)} falhou",
+                            icon="⚠️",
+                        )
                 else:
                     status_box.update(
                         label="Falha em todas as fontes. Veja os detalhes abaixo.",
@@ -881,10 +925,16 @@ def _painel_dados(intervalo_seg: int) -> None:
     )
 
     k1, k2, k3, k4 = st.columns(4)
-    render_kpi(k1, "Registros Produção", _fmt_int(len(df_prod)), "Base Produção", "azul")
+    render_kpi(
+        k1, "Registros Produção", _fmt_int(len(df_prod)), "Base Produção", "azul"
+    )
     render_kpi(k2, "Base Consultiva", _fmt_int(len(df_cons)), "Processados", "laranja")
-    render_kpi(k3, "Total Equipamentos", _fmt_int(total_equip), "Detectados em OBS", "verde")
-    render_kpi(k4, "Serviços / Venda", f"{media_servicos:.2f}", "Média de penetração", "cinza")
+    render_kpi(
+        k3, "Total Equipamentos", _fmt_int(total_equip), "Detectados em OBS", "verde"
+    )
+    render_kpi(
+        k4, "Serviços / Venda", f"{media_servicos:.2f}", "Média de penetração", "cinza"
+    )
 
     tab_p, tab_c = st.tabs(["📊 Produção (Preview)", "📋 Consultivo Processado"])
     with tab_p:
@@ -892,11 +942,16 @@ def _painel_dados(intervalo_seg: int) -> None:
         if aviso_prod:
             render_insight(aviso_prod, "alerta")
         _preview_e_download(
-            df_prod, "producao", "download_producao", "Aba de Produção vazia ou não encontrada."
+            df_prod,
+            "producao",
+            "download_producao",
+            "Aba de Produção vazia ou não encontrada.",
         )
     with tab_c:
         render_section_header("📋", "Base Consultiva Detalhada", "Processado")
-        _preview_e_download(df_cons, "consultivo", "download_consultivo", "Base consultiva vazia.")
+        _preview_e_download(
+            df_cons, "consultivo", "download_consultivo", "Base consultiva vazia."
+        )
 
 
 def _preview_e_download(df: pd.DataFrame, prefixo: str, key: str, vazio: str) -> None:
@@ -917,9 +972,12 @@ def _proxima_execucao(intervalo_seg: int) -> datetime:
     agora = datetime.now(Configuracoes.FUSO)
     ultima = st.session_state.get("ultima_tentativa_sync")
     if isinstance(ultima, datetime):
-        if ultima.tzinfo is None:
-            ultima = ultima.replace(tzinfo=Configuracoes.FUSO)
-        return ultima + timedelta(seconds=intervalo_seg)
+        ref = (
+            ultima
+            if ultima.tzinfo is not None
+            else ultima.replace(tzinfo=Configuracoes.FUSO)
+        )
+        return ref + timedelta(seconds=intervalo_seg)
     return agora + timedelta(seconds=intervalo_seg)
 
 
@@ -931,7 +989,6 @@ def _intervalo_da_sidebar() -> int:
 
 
 def _painel_fragmento() -> None:
-    # Lê o intervalo do session_state para não depender do closure da lambda.
     _painel_dados(_intervalo_da_sidebar())
 
 
@@ -939,26 +996,20 @@ def _pipeline_robo_local(
     df_local: pd.DataFrame,
     _df_gsheets: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Mantém os contratos de saída usados pelo robô e pelos painéis."""
     df = df_local.copy()
     df.columns = [str(col).strip().upper() for col in df.columns]
-
-    # `dados_totale` é o contrato legado da antiga página do robô; `df_memoria`
-    # alimenta os painéis operacionais. Ambos recebem o mesmo resultado tratado.
     st.session_state["dados_totale"] = df
     st.session_state["df_memoria"] = df
     return df
 
 
 def _pasta_padrao_robo_local() -> str:
-    """Preserva a pasta padrão usada pela página dedicada do robô."""
     pasta = Path(__file__).resolve().parents[1] / "robo" / "dados"
     pasta.mkdir(parents=True, exist_ok=True)
     return str(pasta)
 
 
 def _painel_saida_robo_local() -> None:
-    """Exibe na central os dados produzidos pelo sincronismo local."""
     render_section_header(
         "🤖", "Robô local", "Saída do arquivo mais recente na pasta monitorada"
     )
@@ -1007,8 +1058,6 @@ def _rodar() -> None:
 
     intervalo_seg = _intervalo_da_sidebar()
     if hasattr(st, "fragment"):
-        # Função nomeada: o id do fragmento é estável. A lambda mudava o nome
-        # para <lambda> e misturava o intervalo capturado no closure.
         st.fragment(run_every=intervalo_seg or None)(_painel_fragmento)()
     else:
         render_insight(

@@ -3,10 +3,14 @@ pages/home.py
 =============
 Home — Portal TOTALE de Inteligência Operacional
 
-Versão: 3.4.0 (Integração Total Design System TOTALE v5.4.0)
+Versão: 3.5.0 (Dashboards aprimorados — KPI grid declarativo e autoatualização)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
+• Faixa de KPIs migrada para render_kpi_grid (Dashboard Kit v2), com as
+  microinterações de hover aplicadas globalmente pelo entrypoint.
+• Barra de atualização com toggle de autoatualização do painel
+  (streamlit-autorefresh), sem sobrescrever filtros e widgets da sessão.
 • Hero contextual com contagem de registros, data local e status real da sincronização.
 • KPIs derivados do volume em memória, abas carregadas e saúde das fontes.
 • Diagnóstico por fonte, incluindo falhas, dados preservados e último sucesso.
@@ -34,9 +38,13 @@ from components.componentes import (
     render_hero_totale_1,
     render_hero_totale_2,
     render_insight,
-    render_kpi,
     render_section_header,
     render_spacer,
+)
+from components.dashboard_kit import (
+    SpecKPI,
+    render_kpi_grid,
+    render_toggle_autorefresh,
 )
 from components.metricas_executivas import (
     comparar_periodos,
@@ -53,7 +61,7 @@ logger = logging.getLogger(__name__)
 # 🔧 BLOCO 1: CONFIGURAÇÕES E CONSTANTES
 # ====================================================
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
-VERSAO_SISTEMA = "3.4.0"
+VERSAO_SISTEMA = "3.5.0"
 AMBIENTE_SISTEMA = "Produção"
 MESES_PT_BR = (
     "janeiro",
@@ -433,14 +441,18 @@ def render_boas_vindas() -> None:
 
 
 def render_kpi_strip(info_base: dict[str, Any]) -> None:
-    """Renderiza indicadores derivados da carga e do estado real das fontes."""
+    """Renderiza indicadores derivados da carga e do estado real das fontes.
+
+    A montagem usa ``render_kpi_grid`` do Dashboard Kit: mesmos valores de
+    antes, mas declarativos — e os cartões ganham automaticamente as
+    microinterações do CSS v2 injetado pelo entrypoint.
+    """
     render_section_header(
         titulo="Visão Geral do Sistema",
         subtitulo="Volume da produção carregada e resultado da última tentativa de sincronização",
         icone="insights",
     )
 
-    col1, col2, col3, col4 = st.columns(4)
     status_carga = info_base["status_carga"]
     tema_status = {
         "Atualizada": "verde",
@@ -451,73 +463,77 @@ def render_kpi_strip(info_base: dict[str, Any]) -> None:
         "Aguardando dados": "cinza",
     }.get(status_carga, "cinza")
 
-    with col1:
-        detalhe_status = (
-            f"{info_base['fontes_ok']} de {info_base['fontes_total']} fontes atualizadas"
-            if info_base["fontes_total"]
-            else "Estado das fontes não disponível"
+    detalhe_status = (
+        f"{info_base['fontes_ok']} de {info_base['fontes_total']} fontes atualizadas"
+        if info_base["fontes_total"]
+        else "Estado das fontes não disponível"
+    )
+    registros = formatar_numero_br(info_base["total_linhas"]) if info_base["carregado"] else "—"
+    total_tabelas = info_base["tabelas"]
+    if info_base["fontes_total"]:
+        valor_fontes = f"{info_base['fontes_ok']}/{info_base['fontes_total']}"
+        subtitulo_fontes = "Fontes com atualização bem-sucedida"
+        tema_fontes = (
+            "verde"
+            if info_base["fontes_ok"] == info_base["fontes_total"]
+            else "vermelho"
+            if not info_base["fontes_ok"]
+            else "laranja"
         )
-        render_kpi(
-            col1,
-            label="STATUS DA SINCRONIZAÇÃO",
-            valor=status_carga,
-            sub=detalhe_status,
-            tema=tema_status,
-            icone="sync",
-        )
+    else:
+        valor_fontes = "—"
+        subtitulo_fontes = "Diagnóstico indisponível"
+        tema_fontes = "cinza"
 
-    with col2:
-        registros = formatar_numero_br(info_base["total_linhas"]) if info_base["carregado"] else "—"
-        render_kpi(
-            col2,
-            label="REGISTROS DE PRODUÇÃO",
-            valor=registros,
-            sub=f"Última tentativa: {info_base['ultima_tentativa_curta']}",
-            tema="azul",
-            icone="storage",
-        )
-
-    with col3:
-        total_tabelas = info_base["tabelas"]
-        tabelas = formatar_numero_br(total_tabelas) if total_tabelas else "—"
-        render_kpi(
-            col3,
-            label="ABAS DE PRODUÇÃO",
-            valor=tabelas,
-            sub=(
+    specs: list[SpecKPI] = [
+        {
+            "label": "STATUS DA SINCRONIZAÇÃO",
+            "valor": status_carga,
+            "sub": detalhe_status,
+            "tema": tema_status,
+            "icone": "sync",
+        },
+        {
+            "label": "REGISTROS DE PRODUÇÃO",
+            "valor": registros,
+            "sub": f"Última tentativa: {info_base['ultima_tentativa_curta']}",
+            "tema": "azul",
+            "icone": "storage",
+        },
+        {
+            "label": "ABAS DE PRODUÇÃO",
+            "valor": formatar_numero_br(total_tabelas) if total_tabelas else "—",
+            "sub": (
                 f"{info_base['tabelas_com_dados']} com registros"
                 if total_tabelas
                 else "Nenhuma aba carregada"
             ),
-            tema="gradiente",
-            icone="table_view",
-        )
-
-    with col4:
-        if info_base["fontes_total"]:
-            valor_fontes = f"{info_base['fontes_ok']}/{info_base['fontes_total']}"
-            subtitulo_fontes = "Fontes com atualização bem-sucedida"
-            tema_fontes = (
-                "verde"
-                if info_base["fontes_ok"] == info_base["fontes_total"]
-                else "vermelho"
-                if not info_base["fontes_ok"]
-                else "laranja"
-            )
-        else:
-            valor_fontes = "—"
-            subtitulo_fontes = "Diagnóstico indisponível"
-            tema_fontes = "cinza"
-        render_kpi(
-            col4,
-            label="FONTES ATUALIZADAS",
-            valor=valor_fontes,
-            sub=subtitulo_fontes,
-            tema=tema_fontes,
-            icone="cloud_sync",
-        )
-
+            "tema": "gradiente",
+            "icone": "table_view",
+        },
+        {
+            "label": "FONTES ATUALIZADAS",
+            "valor": valor_fontes,
+            "sub": subtitulo_fontes,
+            "tema": tema_fontes,
+            "icone": "cloud_sync",
+        },
+    ]
+    render_kpi_grid(specs, colunas=4)
     render_spacer(14)
+
+
+def render_toolbar_atualizacao(info_base: dict[str, Any]) -> None:
+    """Barra compacta com última sincronização e autoatualização opcional."""
+    col_info, col_refresh = st.columns([3, 2], gap="medium")
+    with col_info:
+        st.caption(
+            "🕒 Última sincronização: "
+            f"**{info_base['ultima_atualizacao']}** · "
+            "os dados são compartilhados por todos os painéis do portal."
+        )
+    with col_refresh:
+        render_toggle_autorefresh(chave="home", padrao_min=5)
 
 
 def render_fontes_dados(info_base: dict[str, Any]) -> None:
@@ -1035,6 +1051,8 @@ def main() -> None:
 
     render_header(info_base)
     render_boas_vindas()
+    render_toolbar_atualizacao(info_base)
+    render_spacer(6)
     render_kpi_strip(info_base)
     render_fontes_dados(info_base)
     render_status_operacional(info_base)

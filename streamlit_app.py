@@ -3,13 +3,15 @@ streamlit_app.py
 ================
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.4.0 (seletor de tema do sidebar integrado ao módulo components.sidebar)
+Versão: 3.5.0 (camada visual v2 dos dashboards via components.dashboard_kit)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
 • Tema selecionado persistido entre reruns e sincronizado com components.sidebar.
 • Marca, status do sistema e informações do ambiente na sidebar.
 • CSS do app limitado ao corpo da página; components.sidebar controla a sidebar.
+• CSS v2 dos dashboards injetado globalmente: hover nos KPIs, moldura em
+  gráficos Plotly, abas pill, expansores e tabelas com acabamento corporativo.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ except ImportError:  # pragma: no cover - fallback para variações internas do 
     RerunException = StopException = ()  # type: ignore[misc, assignment]
 
 from components.componentes import aplicar_estilo
+from components.dashboard_kit import injetar_css_dashboards
 from components.sidebar import (
     TemaSidebarType,
     definir_tema_sidebar,
@@ -81,7 +84,7 @@ class Cores:
 class ConfiguracoesSistema:
     """Configurações globais do sistema."""
 
-    VERSAO: str = "3.4.0"
+    VERSAO: str = "3.5.0"
     AMBIENTE: str = "Produção"
     FUSO_HORARIO: str = "America/Sao_Paulo"
     ICON_PATH: str = "assets/icons/totale.ico"
@@ -419,6 +422,7 @@ def main() -> None:
     )
     _aplicar_estilo_seguro(tema_ativo)
     GerenciadorEstilos.injetar_css_global()
+    injetar_css_dashboards()
     GerenciadorNavegacao.renderizar_sidebar_corporativa()
 
     st.session_state["_totale_root_navigation_shell"] = True

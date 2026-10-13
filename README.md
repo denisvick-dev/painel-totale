@@ -42,6 +42,14 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
 
+### 🚀 Dashboards Aprimorados (v3.5.0)
+- **Acabamento visual global** (`components/dashboard_kit.py`): hover com elevação nos cards de KPI, moldura de cartão nos gráficos Plotly, abas em estilo pill, expansores/tabelas arredondados e foco acessível — aplicado pelo entrypoint a todos os painéis
+- **Gauge "Projeção × Meta"** com semáforo por faixas e **donut de participação por supervisor** em Metas Operacionais
+- **Home com autoatualização opcional** (toggle a cada 2–15 min) e grade de KPIs declarativa (`render_kpi_grid`)
+- **Fábricas de gráficos TOTALE** prontas para uso: ranking em barras, linha de tendência com média móvel, donut e gauge
+- **Filtros persistentes padronizados** (`render_filtros_dashboard`) e **exportação CSV/Excel formatada** (`render_barra_exportacao`) disponíveis para todas as páginas
+- **Insights automáticos** sobre qualquer série diária (`render_insights_automaticos`): variação D-1, melhor/pior dia, média móvel e concentração
+
 ### 👥 Gestão de Técnicos
 - **Cadastro** de novos técnicos com validação
 - **Edição rápida** de campos individuais
@@ -238,6 +246,7 @@ painel-totale/
 │   └── secrets.example.toml      # Modelo local de configuração (sem credenciais reais)
 ├── components/                   # Componentes compartilhados
 │   ├── componentes.py            # Design System (KPI, gráficos, CSS global)
+│   ├── dashboard_kit.py          # Kit v2 de dashboards: CSS global, gráficos, filtros e exportação
 │   ├── sidebar.py                # Sidebar corporativa: temas, seletor e componentes
 │   ├── criterios.py              # Regras de classificação operacional
 │   ├── metricas_executivas.py    # Métricas e resumos executivos
