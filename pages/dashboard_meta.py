@@ -1,12 +1,19 @@
 """
 dashboard_meta.py
 =================
-Dashboard de Metas Operacionais - TOTALE (v4.6.17)
+Dashboard de Metas Operacionais - TOTALE (v4.7.0)
 
 Leitura do painel:
 1. Faixa executiva: realizado, projeção e se o fechamento cabe na meta.
 2. Abas operacionais: produção, consultivos, agrupamento, monitores e projeção por base.
 3. Central de alertas calculada a partir dos dados.
+
+Mudanças v4.7.0:
+- Gauge semicircular "Projeção × Meta" ao lado da barra de progresso
+  (Dashboard Kit), com semáforo por faixas de atingimento.
+- Donut de participação por supervisor na aba Monitores (Top 8 com O.S.).
+- Acabamento visual v2 aplicado globalmente pelo entrypoint (CSS Dashboard
+  Kit: molduras em gráficos, abas pill, hover nos cards de KPI).
 
 Mudanças v4.6.17:
 - Motor de datas centralizado em datas_dashboard.py: ISO e BR sem inversão.
@@ -75,6 +82,10 @@ try:
         render_progress_bar,
         render_section_header,
         render_table_html,
+    )
+    from components.dashboard_kit import (  # pyright: ignore[reportMissingImports]
+        grafico_donut,
+        grafico_gauge_meta,
     )
     from components.sidebar import (
         aplicar_sidebar_corp,
@@ -155,8 +166,14 @@ except ImportError:
     def _fallback_table(df: pd.DataFrame, **kwargs: Any) -> None:
         st.dataframe(df, width="stretch")
 
+    def _grafico_indisponivel(*args: Any, **kwargs: Any) -> None:
+        """Dashboard Kit ausente: a página segue sem os gráficos extras."""
+        return None
+
     aplicar_estilo = _noop
     aplicar_sidebar_corp = _noop
+    grafico_donut = _grafico_indisponivel
+    grafico_gauge_meta = _grafico_indisponivel
     render_empty_state = _fallback_empty_state
     render_hero_totale_2 = _fallback_hero
     render_insight = _fallback_insight
@@ -191,7 +208,7 @@ except Exception as e:
     logger.warning("Estilização customizada falhou: %s", e)
 render_page_sidebar_theme_selector()
 
-VERSAO = "4.6.17"
+VERSAO = "4.7.0"
 ROTULOS_VAZIOS = {
     "",
     "NAN",
@@ -1124,14 +1141,27 @@ def render_resumo_cards(
         tema="laranja",
         icone="🎯",
     )
-    render_progress_bar(
-        valor=float(realizado),
-        maximo=float(meta) if meta > 0 else 1.0,
-        label=f"Progresso {titulo}",
-        mostrar_valor=True,
-        tema=tema_progresso,
-        altura="medio",
-    )
+    col_prog, col_gauge = st.columns([5, 2], gap="large")
+    with col_prog:
+        render_progress_bar(
+            valor=float(realizado),
+            maximo=float(meta) if meta > 0 else 1.0,
+            label=f"Progresso {titulo}",
+            mostrar_valor=True,
+            tema=tema_progresso,
+            altura="medio",
+        )
+    with col_gauge:
+        if ancora is not None:
+            fig_gauge = grafico_gauge_meta(
+                pct_proj,
+                valor_rotulo=f"Projeção × Meta — {titulo}",
+                altura=210,
+            )
+            if fig_gauge is not None:
+                st.plotly_chart(fig_gauge, width="stretch")
+        else:
+            st.caption("Gauge de projeção indisponível sem datas no recorte.")
     if ancora is None:
         render_insight(
             f"Sem datas válidas no recorte de {titulo.lower()} para calcular a projeção.",
@@ -2121,6 +2151,16 @@ with tab_monitores:
                 (df_mon["OS_Equipe"] / total_os * 100).round(1) if total_os else 0.0
             )
             df_mon = df_mon.sort_values(["OS_Equipe", "Consultivos"], ascending=False)
+            supervisores = df_mon[df_mon["OS_Equipe"] > 0].head(8)
+            if not supervisores.empty:
+                fig_donut = grafico_donut(
+                    supervisores["MONITOR"].tolist(),
+                    supervisores["OS_Equipe"].tolist(),
+                    titulo="Participação por supervisor (O.S. da equipe)",
+                    altura=340,
+                )
+                if fig_donut is not None:
+                    st.plotly_chart(fig_donut, width="stretch")
             render_tabela_segura(
                 df_mon,
                 fmt={
