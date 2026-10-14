@@ -3,6 +3,12 @@ services/google_drive_client.py
 ===============================
 Cliente HTTP resiliente e utilitários unificados para download e leitura de
 arquivos CSV/Excel no Google Drive e Google Sheets.
+
+Desempenho (v3.6.0): a sessão HTTP passou a vir de :mod:`services.cache_dados`
+com **pool de conexões reutilizável** (antes cada chamada abria TCP+TLS novos),
+o parse de CSV usa detecção de separador/encoding por amostra (1 leitura em vez
+de até 10) e :func:`carregar_planilha_gsheets_csv` aceita cache em disco com
+revalidação condicional (``304 Not Modified``) via ``usar_cache=True``.
 """
 
 from __future__ import annotations
@@ -17,8 +23,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import pandas as pd
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from config.settings import (
     TIMEOUT_HTTP_PADRAO,
@@ -35,32 +39,25 @@ _DELIMITADORES_CSV: tuple[str, ...] = (",", ";", "\t", "|")
 
 
 def criar_sessao_http(user_agent: str | None = None) -> requests.Session:
-    """Cria uma sessão HTTP com política de Retry para falhas transitórias (429/5xx)."""
-    sess = requests.Session()
-    sess.headers["User-Agent"] = user_agent or (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-    )
-    try:
-        retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            backoff_factor=1.0,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset({"GET"}),
-            raise_on_status=False,
-        )
-    except TypeError:  # urllib3 < 1.26
-        retry = Retry(
-            total=3,
-            connect=3,
-            read=3,
-            backoff_factor=1.0,
-            status_forcelist=(429, 500, 502, 503, 504),
-        )
-    sess.mount("https://", HTTPAdapter(max_retries=retry))
-    return sess
+    """Cria uma sessão HTTP com retry (429/5xx) e pool de conexões.
+
+    A política de retry e o pool vivem em :mod:`services.cache_dados` para que
+    todos os clientes do portal compartilhem o mesmo comportamento.
+    """
+    from services.cache_dados import criar_sessao_pool
+
+    return criar_sessao_pool(user_agent=user_agent)
+
+
+def sessao_compartilhada() -> requests.Session:
+    """Sessão HTTP **reutilizável** do processo (keep-alive entre reruns).
+
+    Prefira esta a ``criar_sessao_http()`` quando a chamada acontece muitas
+    vezes por sessão (dashboards): evita novo handshake TCP/TLS por download.
+    """
+    from services.cache_dados import sessao_http
+
+    return sessao_http()
 
 
 def urls_download_drive(url: str) -> list[str]:
@@ -215,11 +212,25 @@ def ler_csv_uma_tentativa(conteudo: bytes, sep: str, enc: str) -> pd.DataFrame:
 
 
 def ler_csv_remoto(conteudo: bytes) -> pd.DataFrame:
-    """Decodifica e parseia CSV remoto inferindo encoding e separador."""
+    """Decodifica e parseia CSV remoto inferindo encoding e separador.
+
+    Primeiro tenta o caminho rápido (amostra → 1 leitura); se ele falhar, cai
+    na varredura resiliente de encodings/separadores já conhecida.
+    """
     if not conteudo or not conteudo.strip():
         raise ValueError("O arquivo remoto veio vazio.")
     if e_resposta_html(conteudo, ""):
         raise ValueError("O remoto devolveu HTML em vez de CSV.")
+
+    from services.cache_dados import ler_csv_rapido
+
+    try:
+        df_rapido = ler_csv_rapido(conteudo)
+    except Exception:  # pragma: no cover - depende do conteúdo remoto
+        logger.debug("Leitura rápida de CSV falhou; usando varredura resiliente.", exc_info=True)
+    else:
+        if df_rapido.shape[1] > 1 and not df_rapido.empty:
+            return df_rapido
 
     amostra = conteudo.split(b"\n", 1)[0][:8000]
     melhor: pd.DataFrame | None = None
@@ -273,9 +284,32 @@ def carregar_planilha_gsheets_csv(
     sess: requests.Session | None = None,
     timeout: int = TIMEOUT_HTTP_PADRAO,
     usar_conexao_streamlit: bool = True,
+    usar_cache: bool = False,
+    ttl: int = 300,
+    otimizar: bool = False,
 ) -> pd.DataFrame:
-    """Carrega uma aba do Google Sheets tentando export CSV, GViz CSV e GSheetsConnection."""
+    """Carrega uma aba do Google Sheets tentando export CSV, GViz CSV e GSheetsConnection.
+
+    Args:
+        usar_cache: ativa o cache em disco com revalidação condicional
+            (``304``) de :mod:`services.cache_dados` — recomendado para
+            painéis que recarregam a mesma planilha a cada interação.
+        ttl: validade do cache em segundos (usada com ``usar_cache=True``).
+        otimizar: aplica downcast de tipos no resultado (menos memória).
+    """
     sid = sheet_id or obter_sheet_id_ativos()
+    if usar_cache:
+        from services.cache_dados import ResultadoCarga, carregar_planilha_gsheets
+
+        resultado: ResultadoCarga = carregar_planilha_gsheets(
+            sid, aba, ttl=ttl, timeout=timeout, otimizar=otimizar
+        )
+        if resultado.ok:
+            return resultado.df
+        if not resultado.df.empty:
+            logger.warning("Cache preservado para %s: %s", sid, resultado.erro)
+            return resultado.df
+        logger.warning("Cache de %s indisponível (%s); tentando caminho legado.", sid, resultado.erro)
     cliente = sess or criar_sessao_http()
     urls = [
         url_gsheets_export(sid, fmt="csv", sheet=aba),
@@ -325,5 +359,6 @@ __all__ = [
     "ler_csv_remoto",
     "ler_csv_uma_tentativa",
     "separadores_csv",
+    "sessao_compartilhada",
     "urls_download_drive",
 ]

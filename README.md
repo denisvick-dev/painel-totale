@@ -42,6 +42,19 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
 
+### 🎛️ Design System & Desempenho (v3.6.0)
+
+Versão atual: **3.6.0** — veja [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) para o guia de uso dos componentes.
+
+- **Cartões de KPI avançados** (`components/kpi_cards.py`): variação D-1/W-1 com seta e cor semântica, sparkline SVG inline, barra de progresso contra meta, ícone Material, 6 temas e 3 densidades. `render_metric` é *drop-in replacement* de `st.metric` (nenhuma página usa mais o widget nativo)
+- **Fábrica de gráficos minimalista** (`components/graficos.py`): 24 tipos (`criar_grafico("linha"|"ranking"|"cascata"|"gauge"|…)`) sobre Plotly Express com o tema `totale_min` — sem chrome, grade só no eixo Y, legenda horizontal e menu enxuto. A fábrica nunca levanta exceção: dado inválido vira figura com aviso
+- **Cores oficiais em todos os gráficos**: azul `#012869` e laranja `#F37C04` lideram a paleta de 10 cores, as escalas contínuas e as faixas de gauge/bullet
+- **CSS global dos componentes nativos** (`components/css_global.py`): botões, inputs, selects, abas, tabelas, alertas, upload, progresso e tooltips padronizados — injeção única por sessão (~40 KB a menos por rerun)
+- **Organização de página** (`components/layout_pagina.py`): cabeçalho com contexto, sumário de âncoras, filtros fixos no topo ao rolar, seções, painéis com altura controlada, barra de ações e rodapé — ordem canônica em `ORDEM_PADRAO`
+- **Carga de dados até 3× mais rápida** (`services/cache_dados.py`): requisições condicionais (ETag/`If-Modified-Since` → `304` sem reparse), cache Parquet em disco fora do repositório, downloads paralelos por fonte, sessão HTTP com pool e retry, leitura de CSV com detecção de separador/encoding
+- **Processamento Pandas otimizado**: normalização vetorial de colunas no robô (1,03 s → 0,22 s para 120 mil linhas, ~4,7×) e `otimizar_dtypes` com downcast numérico, texto→número sem perdas e categóricas opcionais (−81% de memória no caso medido)
+- **Diagnóstico de desempenho** (`render_painel_desempenho`): tempos por fonte, origem do dado (rede/cache/`304`), linhas, memória e estado do cache em disco
+
 ### 🚀 Dashboards Aprimorados (v3.5.0)
 - **Acabamento visual global** (`components/dashboard_kit.py`): hover com elevação nos cards de KPI, moldura de cartão nos gráficos Plotly, abas em estilo pill, expansores/tabelas arredondados e foco acessível — aplicado pelo entrypoint a todos os painéis
 - **Gauge "Projeção × Meta"** com semáforo por faixas e **donut de participação por supervisor** em Metas Operacionais
@@ -241,11 +254,16 @@ painel-totale/
 ├── requirements-test.txt         # Dependências mínimas para CI/testes
 ├── .ruff.toml                    # Regras de lint
 ├── README.md
+├── DESIGN_SYSTEM.md              # Guia dos componentes v3.6 (KPI, gráficos, layout, CSS)
 ├── .github/workflows/quality.yml # Lint e testes em push/PR
 ├── .streamlit/
 │   └── secrets.example.toml      # Modelo local de configuração (sem credenciais reais)
 ├── components/                   # Componentes compartilhados
 │   ├── componentes.py            # Design System (KPI, gráficos, CSS global)
+│   ├── kpi_cards.py              # Cartões de KPI avançados (delta, sparkline, progresso)
+│   ├── graficos.py               # Fábrica de 24 gráficos minimalistas + tema totale_min
+│   ├── css_global.py             # CSS global dos componentes nativos do Streamlit
+│   ├── layout_pagina.py          # Primitivas de organização de página (âncoras, filtros fixos)
 │   ├── dashboard_kit.py          # Kit v2 de dashboards: CSS global, gráficos, filtros e exportação
 │   ├── sidebar.py                # Sidebar corporativa: temas, seletor e componentes
 │   ├── criterios.py              # Regras de classificação operacional
@@ -254,7 +272,7 @@ painel-totale/
 │   ├── saude_dados.py            # Frescor e consistência das fontes
 │   └── css_paginas.py            # Estilos reutilizáveis das páginas
 ├── config/                       # IDs, URLs e parâmetros centralizados
-├── services/                     # Clientes externos (Google Drive/Sheets)
+├── services/                     # Clientes externos (Google Drive/Sheets) e camada de cache
 ├── pages/                        # Páginas do aplicativo Streamlit
 ├── robo/                         # Leitura e monitoramento de arquivos locais
 ├── tests/                        # Testes de regressão e guardas estáticas
@@ -294,6 +312,8 @@ Cores oficiais Totale Tecnologia:
 
 ## 📊 Roadmap
 
+- [x] ✅ Design System v3.6: KPIs avançados, fábrica de gráficos, CSS global e layout de página
+- [x] ✅ Camada de desempenho: cache condicional em disco, downloads paralelos e Pandas vetorial
 - [x] ✅ Dashboard Operacional
 - [x] ✅ Gestão de Técnicos completa
 - [x] ✅ Sistema de Auditoria

@@ -42,7 +42,7 @@ c2.metric("Críticos", criticos)
 c3.metric("Altos", altos)
 c4.metric("Médios", medios)
 
-render_section_header("notifications_active", "Fila de alertas")
+render_section_header(titulo="Fila de alertas", icone="notifications_active")
 if not alertas:
     st.success("Nenhum alerta ativo nas fontes verificadas nesta sessão.")
 else:

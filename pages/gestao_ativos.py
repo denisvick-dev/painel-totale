@@ -554,7 +554,7 @@ def _regras_cor_situacao():
 
 
 def view_dashboard(df_raw, usr):
-    render_section_header("Panorama Operacional", icone="")
+    render_section_header(titulo="Panorama Operacional", icone="")
 
     with st.expander("🔎 Filtros Avançados", expanded=False):
         c1, c2, c3, c4 = st.columns(4)
@@ -597,7 +597,10 @@ def view_dashboard(df_raw, usr):
 
     st.divider()
     render_section_header(
-        "Listagem de Ativos", icone="📋", badge=f"{tot} registros", badge_tipo="info"
+        titulo="Listagem de Ativos",
+        icone="📋",
+        badge=f"{tot} registros",
+        badge_tipo="info",
     )
 
     # APLICAÇÃO DO RENDER_TABLE_HTML
@@ -611,7 +614,7 @@ def view_dashboard(df_raw, usr):
 
 
 def view_cadastro(svc, usr):
-    render_section_header("Cadastrar Técnico", icone="")
+    render_section_header(titulo="Cadastrar Técnico", icone="")
     if not usr.pode("escrever"):
         st.warning("⛔ Sem permissão.")
         return
@@ -671,7 +674,7 @@ def view_cadastro(svc, usr):
 
 
 def view_auditoria(repo, usr):
-    render_section_header("Auditoria", icone="")
+    render_section_header(titulo="Auditoria", icone="")
     if not usr.pode("auditoria"):
         st.warning("⛔ Acesso restrito.")
         return

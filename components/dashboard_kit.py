@@ -51,6 +51,12 @@ from components.componentes import (
     render_insight,
     render_kpi,
 )
+from components.kpi_cards import (
+    SpecKPIAvancado,
+    calcular_variacao_pct,
+    render_kpi_row,
+    rotulo_tendencia,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,48 +223,9 @@ def injetar_css_dashboards(*, container: object | None = None) -> None:
 # ====================================================
 
 
-def calcular_variacao_pct(atual: float | None, anterior: float | None) -> float | None:
-    """Variação percentual entre dois valores; ``None`` quando não calculável.
-
-    Retorna a variação em pontos percentuais (ex.: ``12.5`` para +12,5%) e
-    preserva o sinal. Retorna ``None`` se algum lado falta, não é finito ou se
-    o denominador é zero (diferença absoluta sem base não vira percentual).
-    """
-    if atual is None or anterior is None:
-        return None
-    try:
-        atual_f = float(atual)
-        anterior_f = float(anterior)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not (pd.notna(atual_f) and pd.notna(anterior_f)) or anterior_f == 0:
-        return None
-    return (atual_f - anterior_f) / abs(anterior_f) * 100.0
-
-
-def rotulo_tendencia(
-    atual: float | None,
-    anterior: float | None,
-    *,
-    casas: int = 1,
-    inverso: bool = False,
-    tolerancia_pct: float = 0.05,
-) -> tuple[str, TipoTrendType]:
-    """Rótulo pt-BR + direção de tendência prontos para ``render_kpi``.
-
-    ``inverso=True`` inverte a semântica (para métricas em que "menor é
-    melhor", ex.: taxa de quebra). Variações dentro de ``tolerancia_pct``
-    são tratadas como neutras para não sugerir movimento espúrio.
-    """
-    variacao = calcular_variacao_pct(atual, anterior)
-    if variacao is None:
-        return "", "none"
-    rotulo = f"{variacao:+.{casas}f}%".replace(".", ",").replace("-", "−")
-    if abs(variacao) < tolerancia_pct:
-        return rotulo, "neutral"
-    sobe = variacao > 0
-    positivo = not sobe if inverso else sobe
-    return rotulo, ("up" if positivo else "down")
+# A matemática de variação/tendência vive em :mod:`components.kpi_cards`
+# (fonte única do portal). Os nomes continuam reexportados daqui para as
+# páginas que já importam deste kit: aliases diretos, sem lógica duplicada.
 
 
 def resumo_periodo(serie: pd.Series) -> dict[str, float | datetime | None]:
@@ -296,8 +263,13 @@ class SpecKPI(TypedDict):
     colorida: NotRequired[bool]
 
 
+_CHAVES_AVANCADAS: frozenset[str] = frozenset(
+    {"sparkline", "progresso", "meta_rotulo", "ajuda", "tamanho", "rodape", "delta_color"}
+)
+
+
 def render_kpi_grid(
-    specs: Sequence[SpecKPI],
+    specs: Sequence[SpecKPI | SpecKPIAvancado],
     *,
     colunas: int | None = None,
     gap: str = "small",
@@ -306,8 +278,17 @@ def render_kpi_grid(
 
     Reduz o boilerplate de ``st.columns`` + ``render_kpi`` repetidos nas
     páginas e garante espaçamento consistente entre os painéis.
+
+    Quando qualquer especificação traz recursos dos cartões avançados
+    (``sparkline``, ``progresso``, ``ajuda``, ``rodape``, ``meta_rotulo``,
+    ``tamanho`` ou ``delta_color``) a fileira inteira é desenhada por
+    :func:`components.kpi_cards.render_kpi_row`; caso contrário o visual
+    clássico do Design System é preservado.
     """
     if not specs:
+        return
+    if any(_CHAVES_AVANCADAS & set(spec) for spec in specs):
+        render_kpi_row(list(specs), colunas=colunas, gap=gap)
         return
     quantidade = colunas or len(specs)
     grade = st.columns(quantidade, gap=gap)
@@ -957,3 +938,28 @@ def render_toggle_autorefresh(
         logger.info("streamlit-autorefresh indisponível; toggle sem efeito.", exc_info=True)
         st.caption("🔄 Atualização automática indisponível neste ambiente.")
         return False
+
+
+# API pública do kit (mantém os re-exports de :mod:`components.kpi_cards`).
+__all__ = [
+    "SpecKPI",
+    "SpecKPIAvancado",
+    "VERSAO_KIT",
+    "aplicar_tema_figura",
+    "calcular_variacao_pct",
+    "css_dashboards",
+    "gerar_insights",
+    "grafico_barras_ranking",
+    "grafico_donut",
+    "grafico_gauge_meta",
+    "grafico_linha_tendencia",
+    "injetar_css_dashboards",
+    "render_barra_exportacao",
+    "render_filtros_dashboard",
+    "render_insights_automaticos",
+    "render_kpi_grid",
+    "render_kpi_row",
+    "render_toggle_autorefresh",
+    "resumo_periodo",
+    "rotulo_tendencia",
+]

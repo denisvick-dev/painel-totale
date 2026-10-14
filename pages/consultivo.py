@@ -640,7 +640,7 @@ st.divider()
 # ====================================================
 col_tit, col_tog, _ = st.columns([3, 1, 1])
 with col_tit:
-    render_section_header("👷", "Visão Consolidada")
+    render_section_header(titulo="Visão Consolidada", icone="👷")
 with col_tog:
     st.write("")
     detalhar_tec = st.toggle("Detalhar por Técnico")
@@ -718,7 +718,7 @@ with aba1:
             )
 
 with aba2:
-    render_section_header("🚫", "Equipes que ainda não fizeram Consultivos")
+    render_section_header(titulo="Equipes que ainda não fizeram Consultivos", icone="🚫")
     df_zerados = df_exibir[df_exibir["Total Consultivos"] == 0]
 
     if not df_zerados.empty:

@@ -432,6 +432,30 @@ except ValueError:
     _PANDAS_SUPORTA_MIXED = False
 
 
+def detectar_formato_data(textos: pd.Series, *, limite: int = 200, tolerancia: float = 0.98) -> str | None:
+    """Detecta o formato de data predominante em uma amostra de textos.
+
+    Testa os formatos conhecidos em uma amostra curta (até ``limite`` valores)
+    e devolve o primeiro que converte ``tolerancia`` ou mais dela. Usado por
+    :func:`converter_data_br` para fazer **uma** conversão completa da coluna em
+    vez de até nove varreduras — ganho relevante em bases com milhões de células.
+    """
+    if textos is None or len(textos) == 0:
+        return None
+    amostra = textos.dropna().head(max(1, int(limite)))
+    if amostra.empty:
+        return None
+    total = len(amostra)
+    for fmt in _FORMATOS_DATA_BR:
+        try:
+            convertidos = int(pd.to_datetime(amostra, format=fmt, errors="coerce").notna().sum())
+        except (TypeError, ValueError):
+            continue
+        if total and convertidos / total >= tolerancia:
+            return fmt
+    return None
+
+
 def converter_data_br(serie: pd.Series) -> pd.Series:
     """Converte uma coluna para datetime lendo sempre DIA/MÊS/ANO."""
     if serie is None or len(serie) == 0:
@@ -455,6 +479,16 @@ def converter_data_br(serie: pd.Series) -> pd.Series:
     textos = serie.astype(str).str.strip()
     textos = textos.mask(textos.isin(["", "nan", "None", "NaT", "NaN", "-", "NULL"]))
     pendentes = resultado.isna() & textos.notna()
+
+    # Caminho rápido: um único parse com o formato predominante na amostra.
+    formato_provavel = detectar_formato_data(textos[pendentes]) if pendentes.any() else None
+    if formato_provavel:
+        parsed = pd.to_datetime(textos[pendentes], format=formato_provavel, errors="coerce")
+        ok = parsed.notna()
+        if ok.any():
+            idx = parsed.index[ok]
+            resultado.loc[idx] = parsed.loc[idx]
+            pendentes.loc[idx] = False
 
     for fmt in _FORMATOS_DATA_BR:
         if not pendentes.any():
@@ -1099,13 +1133,24 @@ class CSSInjector:
         st.session_state["_totale_css_head_tema"] = tema_efetivo
 
 
+def _injetar_css_componentes_globais() -> None:
+    """CSS global dos componentes nativos (import tardio: evita ciclo de módulos)."""
+    try:
+        from components.css_global import injetar_css_global
+
+        injetar_css_global()
+    except Exception:  # pragma: no cover - proteção de runtime do design system
+        logger.warning("CSS global dos componentes não pôde ser injetado.", exc_info=True)
+
+
 def aplicar_estilo(tema_sidebar: TemaSidebarType | str | None = None) -> None:
-    """Aplica o Design System TOTALE à página."""
+    """Aplica o Design System TOTALE à página (inclui o CSS global v3.6)."""
     tema_efetivo = _obter_tema_sidebar(tema_sidebar)
     PlotlyConfig.configurar()
     FontInjector.injetar_no_head_pai()
     _aplicar_sidebar_corp_mod(tema_efetivo)
     CSSInjector.injetar(tema_efetivo)
+    _injetar_css_componentes_globais()
 
 
 def aplicar_estilo_corp(tema_sidebar: TemaSidebarType | str | None = None) -> None:
@@ -1907,6 +1952,7 @@ __all__ = [
     "aplicar_sidebar_corp",
     "carregar_layout_corporativo",
     "definir_tema_sidebar",
+    "detectar_formato_data",
     "formatar_datetime_exibicao",
     "formatar_numero_br",
     "injetar_css",
