@@ -82,8 +82,8 @@ class Config:
     COL_REGIAO = "REGIÃO"
 
     CORES_STATUS = {
-        "Executada": "#10B981",
-        "Não Executada": "#EF4444",
+        "Executada": "#047857",
+        "Não Executada": "#B91C1C",
         "Pendente": "#F59E0B",
     }
 
@@ -93,10 +93,10 @@ class Config:
 
 
 CORES_REGIAO: dict[str, dict[str, str]] = {
-    "LESTE": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#3B82F6"},
-    "GRU": {"bg": "#D1FAE5", "text": "#065F46", "border": "#10B981"},
-    "ABCDM": {"bg": "#EDE9FE", "text": "#5B21B6", "border": "#8B5CF6"},
-    "OUTRAS": {"bg": "#F1F5F9", "text": "#475569", "border": "#94A3B8"},
+    "LESTE": {"bg": "#EFF6FF", "text": "#1E40AF", "border": "#BFDBFE"},
+    "GRU": {"bg": "#ECFDF5", "text": "#047857", "border": "#A7F3D0"},
+    "ABCDM": {"bg": "#F5F3FF", "text": "#6D28D9", "border": "#DDD6FE"},
+    "OUTRAS": {"bg": "#F8FAFC", "text": "#475569", "border": "#CBD5E1"},
 }
 
 RENOMEAR_COLUNAS: dict[str, str] = {
@@ -731,12 +731,12 @@ def aplicar_estilo_pagina():
         border: 2px solid; margin-bottom: 12px;
         font-family: {Fontes.TEXTO};
     }}
-    .badge-escalados {{ background:#D1FAE5; color:#065F46; border-color:#10B981; }}
+    .badge-escalados {{ background:#ECFDF5; color:#047857; border-color:#047857; }}
     .badge-montados  {{ background:#FEF3C7; color:#92400E; border-color:#F59E0B; }}
 
     /* ── RESULTADO DA BASE ── */
     .resultado-base {{
-        background: linear-gradient(135deg, {Cores.PRIMARIA} 0%, #1E3A5F 100%);
+        background: linear-gradient(135deg, {Cores.PRIMARIA} 0%, #0A48AA 100%);
         padding: 1rem 1.5rem; border-radius: 0.75rem;
         margin-bottom: 1.5rem;
         display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem;
@@ -744,7 +744,7 @@ def aplicar_estilo_pagina():
         font-family: {Fontes.TEXTO};
     }}
     .resultado-base-label {{
-        color: #FFB86B; font-size: 0.8rem; font-weight: 700;
+        color: #FFB870; font-size: 0.8rem; font-weight: 700;
         text-transform: uppercase; letter-spacing: 0.08em;
     }}
     .resultado-base-regiao {{
@@ -816,21 +816,21 @@ def render_card_tecnicos(
         accent = "#10B981"
         icon_bg = "rgba(255,255,255,0.15)"
         icon_emoji = "🟢"
-        fill_ok, fill_nok = "#10B981", "#F59E0B"
+        fill_ok, fill_nok = "#047857", "#F59E0B"
     else:
         head_bg = "linear-gradient(135deg, #78350F 0%, #B45309 55%, #F59E0B 100%)"
         head_fg = "#FFFBEB"
         accent = "#F59E0B"
         icon_bg = "rgba(255,255,255,0.15)"
         icon_emoji = "🟡"
-        fill_ok, fill_nok = "#10B981", "#EF4444"
+        fill_ok, fill_nok = "#047857", "#B91C1C"
 
     meta = Config.META_EXECUTADAS_TECNICO
     pct_meta = min(max(vol["atingimento"], 0.0), 1.5)
     barra_pct = min(pct_meta * 100 / 1.5, 100)
     cor_barra = fill_ok if vol["atingiu_meta"] else fill_nok
     selo = "✅ Meta atingida" if vol["atingiu_meta"] else "⚠️ Abaixo"
-    cor_selo = "#047857" if vol["atingiu_meta"] else "#B45309"
+    cor_selo = "#047857" if vol["atingiu_meta"] else "#92400E"
     gap = vol["gap_meta"]
     gap_txt = f"{'+' if gap >= 0 else ''}{_fmt_br(gap)} vs meta {meta}"
 
@@ -1072,17 +1072,17 @@ def render_dataframe(
 
     if ce in df_d.columns:
         sty = sty.set_properties(
-            **{"background-color": "#FEF9C3", "color": "#854D0E", "font-weight": "700"},
+            **{"background-color": "#FEF9C3", "color": "#92400E", "font-weight": "700"},
             subset=[ce],
         )
     if ct in df_d.columns:
         sty = sty.set_properties(
-            **{"background-color": "#D1FAE5", "color": "#065F46", "font-weight": "700"},
+            **{"background-color": "#ECFDF5", "color": "#047857", "font-weight": "700"},
             subset=[ct],
         )
     if cpr in df_d.columns:
         sty = sty.set_properties(
-            **{"background-color": "#1E293B", "color": "#FFFFFF", "font-weight": "800"},
+            **{"background-color": "#012869", "color": "#FFFFFF", "font-weight": "800"},
             subset=[cpr],
         )
 
@@ -1338,7 +1338,7 @@ def plot_comparativo(vol_esc, vol_mon):
         y="Valor",
         color="Visão",
         barmode="group",
-        color_discrete_map={"Escalados": "#10B981", "Montados": "#F59E0B"},
+        color_discrete_map={"Escalados": "#047857", "Montados": "#F59E0B"},
         text=df_p["Valor"].apply(lambda v: f"{v:.1f}"),
         title="Produtividade por Técnico — Escalados × Montados",
         category_orders={"Métrica": ["O.S./Téc.", "Exec./Téc.", "Projeção/Téc."]},

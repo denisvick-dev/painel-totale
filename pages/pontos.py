@@ -22,6 +22,7 @@ from components.componentes import (
     render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
+from components.graficos import ESCALA_TOTALE
 from components.metricas_executivas import resumo_frequencia
 from components.sidebar import render_page_sidebar_theme_selector
 
@@ -40,7 +41,7 @@ aplicar_css_tabela_corporativa(
     padding="5px 8px",
     altura_linha="1.2",
     fonte_celula_px=11,
-    gradiente_cabecalho="linear-gradient(180deg, #012869 0%, #1E3A8A 100%)",
+    gradiente_cabecalho="linear-gradient(180deg, #012869 0%, #0A48AA 100%)",
     raio_scrollbar="4px",
     cabecalho_extra="border-right: 1px solid rgba(255,255,255,0.12) !important; padding: 6px 8px !important; position: sticky !important; top: 0 !important; z-index: 3 !important; text-align: left !important;",
 )
@@ -50,30 +51,30 @@ st.markdown(
     <style>
     /* --- TABELA CORPORATIVA --- */
     .corp-table td.meta-alta {
-        background: #1E3A8A !important; color: #FFFFFF !important;
+        background: #012869 !important; color: #FFFFFF !important;
         font-weight: 800 !important; text-align: center !important;
-        border-left: 3px solid #0F172A !important;
+        border-left: 3px solid #011838 !important;
         font-size: 11px !important;
     }
     .corp-table td.meta-ok {
-        background: #DCFCE7 !important; color: #166534 !important;
+        background: #ECFDF5 !important; color: #047857 !important;
         font-weight: 700 !important; text-align: center !important;
-        border-left: 3px solid #22C55E !important;
+        border-left: 3px solid #047857 !important;
         font-size: 11px !important;
     }
     .corp-table td.meta-prox {
-        background: #FEF9C3 !important; color: #854D0E !important;
+        background: #FFFBEB !important; color: #92400E !important;
         font-weight: 700 !important; text-align: center !important;
-        border-left: 3px solid #EAB308 !important;
+        border-left: 3px solid #F59E0B !important;
         font-size: 11px !important;
     }
     .corp-table td.meta-baixa {
         font-weight: 700 !important; text-align: center !important;
-        border-left: 3px solid #EF4444 !important;
+        border-left: 3px solid #B91C1C !important;
         font-size: 11px !important;
     }
     .corp-table td.proj {
-        background: #0F172A !important; color: #FFFFFF !important;
+        background: #012869 !important; color: #FFFFFF !important;
         font-weight: 800 !important; text-align: center !important;
         border-left: 3px solid #64748B !important;
         font-size: 11px !important;
@@ -189,9 +190,9 @@ class ComponenteVisual:
             if variacao == "positiva":
                 cor, simbolo = "#22c55e", "▲"
             elif variacao == "negativa":
-                cor, simbolo = "#ef4444", "▼"
+                cor, simbolo = "#DC2626", "▼"
             elif variacao == "share":
-                cor, simbolo = "#38bdf8", "◴"
+                cor, simbolo = "#9DB9E4", "◴"
             else:
                 cor, simbolo = "#94a3b8", "■"
 
@@ -264,10 +265,10 @@ class ComponenteVisual:
     font-family: 'IBM Plex Sans', -apple-system, sans-serif;
     overflow: hidden;
   }}
-  .ticker-wrapper {{
+    .ticker-wrapper {{
     width: 100%;
     overflow: hidden;
-    background: linear-gradient(90deg,#0f172a 0%,#1e293b 50%,#0f172a 100%);
+    background: linear-gradient(90deg,#011838 0%,#012869 50%,#011838 100%);
     padding: 12px 0;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -278,10 +279,10 @@ class ComponenteVisual:
     width: 60px; z-index: 2; pointer-events: none;
   }}
   .ticker-wrapper::before {{
-    left: 0; background: linear-gradient(90deg,#0f172a,transparent);
+    left: 0; background: linear-gradient(90deg,#011838,transparent);
   }}
   .ticker-wrapper::after {{
-    right: 0; background: linear-gradient(90deg,transparent,#0f172a);
+    right: 0; background: linear-gradient(90deg,transparent,#011838);
   }}
   .ticker-content {{
     display: flex; width: max-content;
@@ -337,7 +338,7 @@ class ComponenteVisual:
         medalhas = [
             (c1, 0, "#FEF9C3", "#EAB308", "🥇 1º Lugar"),
             (c2, 1, "#F1F5F9", "#94A3B8", "🥈 2º Lugar"),
-            (c3, 2, "#FFEDD5", "#F97316", "🥉 3º Lugar"),
+            (c3, 2, "#FFEDD5", "#F37C04", "🥉 3º Lugar"),
         ]
         for col, idx, fundo, borda, icone in medalhas:
             with col:
@@ -419,7 +420,7 @@ class ComponenteVisual:
                          text-transform:uppercase;letter-spacing:0.05em;
                          font-weight:600;margin-top:2px;">{modo_txt}</div>
                 </div>
-                <span style="background:#EFF6FF;color:#1D4ED8;
+                <span style="background:#DBEAFE;color:#1E40AF;
                      padding:5px 12px;border-radius:999px;
                      font-size:0.75rem;font-weight:700;">{_escapar_html(badge_txt)}</span>
             </div>
@@ -952,7 +953,7 @@ class Graficos:
             orientation="h",
             text_auto=True,
             color=x,
-            color_continuous_scale="Tealgrn",
+            color_continuous_scale=ESCALA_TOTALE,
         )
         fig.update_traces(texttemplate="%{text:.1f}", textposition="outside", textfont_size=12)
         fig.update_yaxes(automargin=True)
@@ -968,9 +969,9 @@ class Graficos:
             hole=0.6,
             color=names,
             color_discrete_map={
-                "Alta (400+)": "#1E3A8A",
-                "Na Meta (300-399)": "#22C55E",
-                "Abaixo (< 300)": "#EF4444",
+                "Alta (400+)": "#012869",
+                "Na Meta (300-399)": "#047857",
+                "Abaixo (< 300)": "#B91C1C",
             },
         )
         fig.update_layout(
@@ -1246,16 +1247,16 @@ with aba_ranking:
              font-family:{Fontes.TEXTO};">
             <span style="font-weight:700;color:{Cores.TEXTO_3};
                  text-transform:uppercase;letter-spacing:0.05em;">🎨 Legenda:</span>
-            <span style="background:#1E3A8A;color:white;padding:3px 10px;
+            <span style="background:#012869;color:white;padding:3px 10px;
                  border-radius:6px;font-weight:700;">🏆 400+ pts — Alta Performance</span>
-            <span style="background:#DCFCE7;color:#166534;padding:3px 10px;
+            <span style="background:#ECFDF5;color:#047857;padding:3px 10px;
                  border-radius:6px;font-weight:700;">✅ 300-399 — Na Meta</span>
-            <span style="background:#FEF9C3;color:#854D0E;padding:3px 10px;
+            <span style="background:#FFFBEB;color:#92400E;padding:3px 10px;
                  border-radius:6px;font-weight:700;">⚠️ 275-299 — Próximo da Meta</span>
-            <span style="background:#FFFFFF;color:#991B1B;padding:3px 10px;
-                 border-radius:6px;font-weight:700;border-left:3px solid #EF4444;">
+            <span style="background:#FFFFFF;color:#B91C1C;padding:3px 10px;
+                 border-radius:6px;font-weight:700;border-left:3px solid #B91C1C;">
                  ❌ Abaixo de 275</span>
-            <span style="background:#0F172A;color:white;padding:3px 10px;
+            <span style="background:#012869;color:white;padding:3px 10px;
                  border-radius:6px;font-weight:700;">🎯 Projeção</span>
         </div>
         """,
@@ -1305,11 +1306,11 @@ with aba_aderencia:
         def formata_aderencia(val):
             v = _para_float(val, default=0.0)
             if v > 0.75:
-                cor_bg, cor_txt, cor_bd = "#22C55E", "#FFFFFF", "#16A34A"
+                cor_bg, cor_txt, cor_bd = "#047857", "#FFFFFF", "#047857"
             elif v >= 0.65:
-                cor_bg, cor_txt, cor_bd = "#FACC15", "#1F2937", "#EAB308"
+                cor_bg, cor_txt, cor_bd = "#F59E0B", "#1F2937", "#D97706"
             else:
-                cor_bg, cor_txt, cor_bd = "#EF4444", "#FFFFFF", "#DC2626"
+                cor_bg, cor_txt, cor_bd = "#B91C1C", "#FFFFFF", "#991B1B"
 
             pct = f"{v:.1%}".replace(".", ",")
             return f"<div style='background:{cor_bg}; color:{cor_txt}; border:1px solid {cor_bd}; padding:4px 8px; border-radius:6px; font-weight:800; display:inline-block; min-width:60px; text-align:center;'>{pct}</div>"
@@ -1347,11 +1348,11 @@ with aba_aderencia:
                  font-family:{Fontes.TEXTO};">
                 <span style="font-weight:700;color:{Cores.TEXTO_3};
                      text-transform:uppercase;letter-spacing:0.05em;">🎨 Legenda de Aderência:</span>
-                <span style="background:#22C55E;color:white;padding:3px 10px;
+                <span style="background:#047857;color:white;padding:3px 10px;
                      border-radius:6px;font-weight:700;">🟢 > 75% — Alta Aderência</span>
-                <span style="background:#FACC15;color:#1F2937;padding:3px 10px;
+                <span style="background:#F59E0B;color:#1F2937;padding:3px 10px;
                      border-radius:6px;font-weight:700;">🟡 65% - 75% — Atenção</span>
-                <span style="background:#EF4444;color:white;padding:3px 10px;
+                <span style="background:#B91C1C;color:white;padding:3px 10px;
                      border-radius:6px;font-weight:700;">🔴 < 65% — Crítico</span>
             </div>
             """,
@@ -1515,12 +1516,12 @@ with aba_frequencia:
             v = _para_float(val, default=0.0)
             pct = (v / max_dias) * 100 if max_dias > 0 else 0
             grad = (
-                "linear-gradient(90deg, #3B82F6, #1D4ED8)"
+                "linear-gradient(90deg, #012869, #0A48AA)"
                 if pct > 50
                 else "linear-gradient(90deg, #F59E0B, #D97706)"
             )
             if pct <= 25:
-                grad = "linear-gradient(90deg, #EF4444, #B91C1C)"
+                grad = "linear-gradient(90deg, #DC2626, #B91C1C)"
 
             return f"""
             <div style="display:flex; align-items:center; gap:12px;">

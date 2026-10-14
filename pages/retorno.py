@@ -1073,9 +1073,9 @@ secao("Legenda de Supervisores", "identificação visual por monitor")
 
 LEGENDA = [
     ("🔵 EDSON MARCO PINHEIRO", "#DBEAFE", "#1E40AF", "#BFDBFE"),
-    ("🟢 MARCOS ROBERTO DO NASCIMENTO", "#DCFCE7", "#166534", "#BBF7D0"),
-    ("🌸 MAICON APARECIDO FARIA", "#FCE7F3", "#9D174D", "#FBCFE8"),
-    ("⚪ NELSON ALVES OLIVEIRA JUNIOR", "#F3F4F6", "#374151", "#E5E7EB"),
+    ("🟢 MARCOS ROBERTO DO NASCIMENTO", "#ECFDF5", "#047857", "#A7F3D0"),
+    ("🟣 MAICON APARECIDO FARIA", "#F5F3FF", "#6D28D9", "#DDD6FE"),
+    ("⚪ NELSON ALVES OLIVEIRA JUNIOR", "#F8FAFC", "#475569", "#CBD5E1"),
 ]
 for coluna, (rotulo, bg, fg, borda) in zip(st.columns(4), LEGENDA, strict=False):
     with coluna:
@@ -1105,29 +1105,29 @@ color_rules = cast(
             ),
             (
                 lambda val: _pred(val, "marcos roberto do nascimento"),
-                "#166534; background-color: #DCFCE7; border-left: 3px solid #166534",
+                "#047857; background-color: #ECFDF5; border-left: 3px solid #047857",
             ),
             (
                 lambda val: _pred(val, "maicon aparecido faria"),
-                "#9D174D; background-color: #FCE7F3; border-left: 3px solid #9D174D",
+                "#6D28D9; background-color: #F5F3FF; border-left: 3px solid #6D28D9",
             ),
             (
                 lambda val: _pred(val, "nelson alves"),
-                "#374151; background-color: #F3F4F6; border-left: 3px solid #374151",
+                "#475569; background-color: #F8FAFC; border-left: 3px solid #475569",
             ),
             (
                 lambda val: _eh_vazio(val),
-                "#B45309; background-color: #FFFBEB",
+                "#92400E; background-color: #FFFBEB",
             ),
         ],
         "DONO_CÓD_AUX_EQUIPE": [
             (
                 lambda val: _eh_vazio(val),
-                "#991B1B; background-color: #FEF2F2",
+                "#B91C1C; background-color: #FEF2F2",
             ),
             (
                 lambda val: not _eh_vazio(val),
-                "#3730A3; background-color: #EEF2FF; font-family: var(--font-codigo)",
+                "#1E40AF; background-color: #DBEAFE; font-family: var(--font-codigo)",
             ),
         ],
         "DONO_TÉCNICO_NOME": [
@@ -1137,17 +1137,17 @@ color_rules = cast(
             ),
             (
                 lambda val: not _eh_vazio(val),
-                "#15803D; background-color: #F0FDF4",
+                "#047857; background-color: #ECFDF5",
             ),
         ],
         "STATUS_AUDITORIA": [
             (
                 lambda val: str(val) == "Identificado",
-                "#03543F; background-color: #DEF7EC",
+                "#047857; background-color: #ECFDF5",
             ),
             (
                 lambda val: str(val) != "Identificado",
-                "#9B1C1C; background-color: #FDE8E8",
+                "#B91C1C; background-color: #FEF2F2",
             ),
         ],
     },
