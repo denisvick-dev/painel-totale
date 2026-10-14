@@ -1366,7 +1366,7 @@ def render_hero_totale_1(
     )
     _safe_render_html(
         '<div class="totale-hero-1"><div>'
-        f'{b}<h1 class="th-title-lg">{Validadores.html_escape(titulo)}</h1>{s}{m}</div></div>'
+        f'{b}<h1 class="th-title-lg" style="color:#FFFFFF !important; -webkit-text-fill-color:#FFFFFF !important;">{Validadores.html_escape(titulo)}</h1>{s}{m}</div></div>'
     )
 
 
@@ -1409,7 +1409,7 @@ def render_hero_totale_2(
     )
     _safe_render_html(
         '<div class="totale-hero-2"><div>'
-        f'{b}{tag}<h1 class="th-title">{Validadores.html_escape(titulo)}</h1>{s}</div>{card}</div>'
+        f'{b}{tag}<h1 class="th-title" style="color:#FFFFFF !important; -webkit-text-fill-color:#FFFFFF !important;">{Validadores.html_escape(titulo)}</h1>{s}</div>{card}</div>'
     )
 
 
