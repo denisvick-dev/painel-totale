@@ -331,7 +331,7 @@ class _PDFExecutivoBase:
     COR_TEXTO = "#0F172A"
     COR_SUBTEXTO = "#6B7280"
     COR_SUBTITULO = "#BAE6FD"
-    COR_OK = "#059669"
+    COR_OK = "#047857"
     COR_ALERTA = "#D97706"
     COR_CRITICO = "#DC2626"
     COR_LINHA = "#E5E7EB"
@@ -746,29 +746,29 @@ class _PDFExecutivoBase:
 
 
 class PDFExecutivoNovosDomicilios(_PDFExecutivoBase):
-    COR_PRIMARIA = "#0A2F6B"
-    COR_SECUNDARIA = "#1D4ED8"
-    COR_LINHA_ALT = "#EFF6FF"
-    COR_SUBTITULO = "#BFDBFE"
+    COR_PRIMARIA = "#012869"
+    COR_SECUNDARIA = "#4E7FC4"
+    COR_LINHA_ALT = "#F4F7FC"
+    COR_SUBTITULO = "#9DB9E4"
     NOME_SEGMENTO = "Novos Domicílios"
     DESCRICAO = "Adesão e Novas Instalações"
 
 
 class PDFExecutivoMigracao(_PDFExecutivoBase):
-    COR_PRIMARIA = "#0C4A6E"
-    COR_SECUNDARIA = "#0369A1"
-    COR_LINHA_ALT = "#F0F9FF"
-    COR_SUBTITULO = "#BAE6FD"
+    COR_PRIMARIA = "#C2410C"
+    COR_SECUNDARIA = "#F37C04"
+    COR_LINHA_ALT = "#FFF7ED"
+    COR_SUBTITULO = "#FED7AA"
     NOME_SEGMENTO = "Migração"
     DESCRICAO = "Mudança de Pacote + FLAG_GPON = Sim"
 
 
 class PDFExecutivoPME(_PDFExecutivoBase):
-    COR_PRIMARIA = "#4C1D95"
-    COR_SECUNDARIA = "#7C3AED"
-    COR_TEXTO = "#1E1B4B"
-    COR_LINHA_ALT = "#F9FAFB"
-    COR_SUBTITULO = "#DDD6FE"
+    COR_PRIMARIA = "#0A48AA"
+    COR_SECUNDARIA = "#FFB870"
+    COR_TEXTO = "#122033"
+    COR_LINHA_ALT = "#F4F7FC"
+    COR_SUBTITULO = "#9DB9E4"
     NOME_SEGMENTO = "PME"
     DESCRICAO = "Pequenas e Médias Empresas"
     LIMITE_TECNICOS = 10
@@ -885,8 +885,8 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
         "icone": "🏠",
         "subtitulo": "Análise estratégica dedicada à adesão de novos clientes e domicílios",
         "cor_primaria": "#012869",
-        "cor_secundaria": "#14B8A6",
-        "grad_hero": "linear-gradient(135deg, #012869 0%, #0A3D62 35%, #0D9488 70%, #14B8A6 100%)",
+        "cor_secundaria": "#4E7FC4",
+        "grad_hero": "linear-gradient(128deg, #011838 0%, #012869 48%, #123E86 118%)",
         "sombra_hero": "rgba(1,40,105,0.28)",
         "sla_default": SLA_NOVOS_DOMICILIOS_DEFAULT,
         "p_base_default": 20,
@@ -905,10 +905,10 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
     "Migração": {
         "icone": "🔄",
         "subtitulo": "Análise estratégica dedicada às mudanças de pacotes com tecnologia GPON",
-        "cor_primaria": "#6D28D9",
-        "cor_secundaria": "#A78BFA",
-        "grad_hero": "linear-gradient(135deg, #4C1D95 0%, #6D28D9 35%, #7C3AED 60%, #A78BFA 100%)",
-        "sombra_hero": "rgba(124,58,237,0.35)",
+        "cor_primaria": "#F37C04",
+        "cor_secundaria": "#C2410C",
+        "grad_hero": "linear-gradient(128deg, #011838 0%, #012869 52%, #0A48AA 100%)",
+        "sombra_hero": "rgba(1,40,105,0.28)",
         "sla_default": SLA_MIGRACAO_DEFAULT,
         "p_base_default": 25,
         "pdf_class": PDFExecutivoMigracao,
@@ -921,10 +921,10 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
     "PME": {
         "icone": "🏢",
         "subtitulo": "Análise estratégica dedicada às Pequenas e Médias Empresas",
-        "cor_primaria": "#059669",
-        "cor_secundaria": "#3B82F6",
-        "grad_hero": "linear-gradient(135deg, #059669 0%, #10B981 35%, #3B82F6 70%, #60A5FA 100%)",
-        "sombra_hero": "rgba(16,185,129,0.30)",
+        "cor_primaria": "#0A48AA",
+        "cor_secundaria": "#FFB870",
+        "grad_hero": "linear-gradient(128deg, #012869 0%, #0A48AA 52%, #123E86 100%)",
+        "sombra_hero": "rgba(1,40,105,0.28)",
         "sla_default": SLA_PME_DEFAULT,
         "p_base_default": 20,
         "pdf_class": PDFExecutivoPME,
@@ -937,7 +937,7 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
 
 def _injetar_css_dinamico(segmento: str) -> None:
     conf = SEGMENTOS_CONFIG.get(segmento, {})
-    cor_marca = escape(str(conf.get("cor_primaria", "#0F172A")))
+    cor_marca = escape(str(conf.get("cor_primaria", "#012869")))
     st.markdown(
         f"""
 <style>
@@ -950,8 +950,8 @@ html, body, [data-testid="stAppViewContainer"] {{ font-family:Inter,ui-sans-seri
 h1:not(.hero-comparativo__title):not(.th-title):not(.th-title-lg):not(.hero-title),h2,h3 {{ color:var(--ink); letter-spacing:-.025em; }}
 div[data-testid="stElementContainer"]:has(.hero-domicilios),div[data-testid="stElementContainer"]:has(.hero-migracao),div[data-testid="stElementContainer"]:has(.hero-pme),div[data-testid="stElementContainer"]:has(.hero-comparativo) {{ position:relative!important; top:auto!important; z-index:auto!important; }}
 .hero-domicilios,.hero-migracao,.hero-pme,.hero-comparativo {{ border-radius:18px!important; box-shadow:0 8px 24px rgba(15,23,42,.08)!important; margin-bottom:1rem!important; }}
-.hero-comparativo {{ display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.5rem 1.75rem; color:#fff!important; background:linear-gradient(120deg,#0F172A 0%,#123B5D 68%,#0F766E 100%); }}
-.hero-comparativo__eyebrow {{ margin:0 0 .35rem; color:#BAE6FD!important; -webkit-text-fill-color:#BAE6FD!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
+.hero-comparativo {{ display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.5rem 1.75rem; color:#fff!important; background:linear-gradient(120deg,#011838 0%,#012869 55%,#0A48AA 100%); }}
+.hero-comparativo__eyebrow {{ margin:0 0 .35rem; color:#9DB9E4!important; -webkit-text-fill-color:#9DB9E4!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
 .hero-comparativo__title {{ margin:0; color:#fff!important; -webkit-text-fill-color:#fff!important; font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important; font-size:clamp(1.35rem,2.4vw,1.9rem); font-weight:750; }}
 .hero-comparativo__subtitle {{ margin:.45rem 0 0; color:#CBD5E1!important; -webkit-text-fill-color:#CBD5E1!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.9rem; }}
 .hero-comparativo__metric {{ min-width:175px; padding:.9rem 1.1rem; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:rgba(255,255,255,.08); text-align:right; }}
@@ -1050,12 +1050,12 @@ def _render_card_status(segmento: str, m_seg: Any, sla_meta: float) -> None:
     quebra = float(m_seg["quebra_atual"])
     alocado = int(m_seg.get("alocado", 0))
     dentro = quebra <= sla_meta
-    cor_status = "#0F766E" if dentro else "#B91C1C"
+    cor_status = "#047857" if dentro else "#B91C1C"
     cor_fundo = "#ECFDF5" if dentro else "#FEF2F2"
     cor_texto = "#065F46" if dentro else "#991B1B"
     rotulo = "Dentro do SLA" if dentro else "Acima do SLA"
     cor_marca = escape(
-        str(SEGMENTOS_CONFIG.get(segmento, {}).get("cor_primaria", "#0F172A"))
+        str(SEGMENTOS_CONFIG.get(segmento, {}).get("cor_primaria", "#012869"))
     )
     progresso = min(100.0, (quebra / (sla_meta * 2)) * 100) if sla_meta > 0 else 0.0
     pos_meta = 50 if sla_meta > 0 else 0
@@ -1303,7 +1303,7 @@ def _sub_visao_geral(
                 labels=["Executadas", "Não Exec.", "Pendentes"],
                 values=[m_seg["exec"], m_seg["naoexec"], m_seg["pend"]],
                 hole=0.58,
-                marker_colors=["#0F766E", "#B91C1C", "#94A3B8"],
+                marker_colors=["#047857", "#B91C1C", "#94A3B8"],
             )
         )
         fig_pie.update_layout(
@@ -1316,7 +1316,7 @@ def _sub_visao_geral(
             fig_pie, width="stretch", config={"displayModeBar": False}
         )
     with col_gauge:
-        cor_bar = "#B91C1C" if m_seg["quebra_atual"] > sla_meta else "#0F766E"
+        cor_bar = "#B91C1C" if m_seg["quebra_atual"] > sla_meta else "#047857"
         limite_eixo = max(50.0, sla_meta * 100 * 1.6, m_seg["quebra_atual"] * 100 * 1.2)
         fig = go.Figure(
             go.Indicator(
@@ -1325,7 +1325,7 @@ def _sub_visao_geral(
                 delta={
                     "reference": sla_meta * 100,
                     "increasing": {"color": "#B91C1C"},
-                    "decreasing": {"color": "#0F766E"},
+                    "decreasing": {"color": "#047857"},
                     "suffix": "%",
                 },
                 number={"suffix": "%", "font": {"size": 36}},
@@ -1406,7 +1406,7 @@ def _sub_visao_geral(
             if dentro
             else "linear-gradient(135deg,#FFFBEB 0%,#FEF3C7 100%)"
         )
-        border_color = badge_bg = "#0F766E" if dentro else "#D97706"
+        border_color = badge_bg = "#047857" if dentro else "#D97706"
         status_text = "DENTRO DA META SLA" if dentro else "AINDA FORA DA META SLA"
         call = (
             f"Atuar em <b>'{motivo_html}'</b> pode resolver o desvio."
@@ -1438,7 +1438,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
         height=380,
     )
     conf = SEGMENTOS_CONFIG.get(
-        segmento, {"cor_primaria": "#0F172A", "cor_secundaria": "#475569"}
+        segmento, {"cor_primaria": "#012869", "cor_secundaria": "#4E7FC4"}
     )
     fig = go.Figure()
     fig.add_trace(
@@ -1558,7 +1558,7 @@ def _sub_tecnicos(
     if {"TÉCNICO", "Fechamento Base"}.issubset(df_tec.columns):
         df_plot = df_tec.head(10).sort_values("Fechamento Base")
         cores = [
-            "#B91C1C" if v > sla_meta else "#0F766E" for v in df_plot["Fechamento Base"]
+            "#B91C1C" if v > sla_meta else "#047857" for v in df_plot["Fechamento Base"]
         ]
         fig = go.Figure(
             go.Bar(
