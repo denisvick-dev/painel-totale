@@ -844,9 +844,9 @@ _CSS_HEROS = """
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
     border-radius: 14px; padding: 14px 20px; min-width: 168px; text-align: center; position: relative; z-index: 2;
 }
-.hero-migracao { background: linear-gradient(128deg, #3B0764 0%, #5B21B6 58%, #6D28D9 100%); padding: 30px 36px; }
-.hero-pme { background: linear-gradient(128deg, #064E3B 0%, #0F766E 52%, #1D4ED8 140%); padding: 30px 36px; }
-.hero-domicilios { background: linear-gradient(128deg, #011838 0%, #0F3D5E 48%, #0F766E 120%); padding: 30px 36px; }
+.hero-migracao { background: linear-gradient(128deg, #011838 0%, #012869 52%, #0A48AA 100%); padding: 30px 36px; border-left: 4px solid #F37C04; }
+.hero-pme { background: linear-gradient(128deg, #012869 0%, #0A48AA 52%, #123E86 100%); padding: 30px 36px; border-left: 4px solid #FFB870; }
+.hero-domicilios { background: linear-gradient(128deg, #011838 0%, #012869 48%, #123E86 118%); padding: 30px 36px; border-left: 4px solid #4E7FC4; }
 .th-title-lg, .th-title,
 .totale-hero-1 h1.th-title-lg, .totale-hero-2 h1.th-title,
 .hero-migracao h1.th-title-lg, .hero-pme h1.th-title-lg, .hero-domicilios h1.th-title-lg {
@@ -1434,7 +1434,7 @@ def render_hero_migracao(
         if subtitulo
         else ""
     )
-    stats_html = _hero_stats(stats, "#FDBA74")
+    stats_html = _hero_stats(stats, "#FDBA74")  # Laranja claro oficial (SECUNDARIA_LIGHT)
     _safe_render_html(
         '<div class="hero-migracao"><div>'
         f'{badge_html}<h1 class="th-title-lg">{Validadores.html_escape(titulo)}</h1>'
@@ -1508,7 +1508,7 @@ def render_hero_novos_domicilios(
     _safe_render_html(
         '<div class="hero-domicilios"><div>'
         f'{badge_html}<h1 class="th-title-lg">{Validadores.html_escape(titulo)}</h1>'
-        f"{sub_html}{_hero_stats(stats, '#86EFAC')}{meta_html}</div></div>"
+        f"{sub_html}{_hero_stats(stats, '#FDBA74')}{meta_html}</div></div>"
     )
 
 
