@@ -1747,7 +1747,7 @@ def view_analise_detalhada(
         ["Projeções", "Projeção personalizada", "Rankings", "Causas raiz", "Backoffice"]
     )
     with tab1:
-        render_section_header("", "Cenários de Projeção de Fechamento")
+        render_section_header(titulo="Cenários de Projeção de Fechamento")
         render_tabela(
             Motor.tabela_cenarios(df, "MONITOR", p_ot, p_base, p_pess, min_aloc),
             "Projeção por Monitor",
@@ -1756,7 +1756,7 @@ def view_analise_detalhada(
             meta=meta_sla,
         )
     with tab2:
-        render_section_header("", "Projeção Personalizada")
+        render_section_header(titulo="Projeção Personalizada")
         c1, c2 = st.columns(2)
         with c1:
             prob = st.slider("Probabilidade de Conversão (%)", 0, 100, 30, step=5) / 100
@@ -1793,7 +1793,7 @@ def view_analise_detalhada(
                 k4, "Conversão Média", f"{conv_med:.1%}", "Para atingir meta", "azul"
             )
     with tab3:
-        render_section_header("", "Técnicos Mais Críticos")
+        render_section_header(titulo="Técnicos Mais Críticos")
         render_tabela(
             Motor.tecnicos_criticos(df, "TODOS", p_base, min_aloc, 20, p_ot, p_pess),
             "Top 20 Técnicos com Maior Risco",
@@ -1802,7 +1802,7 @@ def view_analise_detalhada(
             meta=meta_sla,
         )
     with tab4:
-        render_section_header("", "Análise de Causa Raiz")
+        render_section_header(titulo="Análise de Causa Raiz")
         col = DF.buscar_coluna(
             df, ("CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA")
         )
@@ -1811,12 +1811,12 @@ def view_analise_detalhada(
         else:
             st.warning("Coluna de Código/Motivo de Baixa não encontrada.")
     with tab5:
-        render_section_header("", "Gestão de Fila (Backoffice)")
+        render_section_header(titulo="Gestão de Fila (Backoffice)")
         render_tabela(Motor.backoffice_fila(df), "Fila Priorizada", "")
 
 
 def view_auditoria(df: pd.DataFrame) -> None:
-    render_section_header("", "Auditoria de Processamento")
+    render_section_header(titulo="Auditoria de Processamento")
     total = len(df)
     importado = int(df.attrs.get("total_importado", total))
     rem_status = int(df.attrs.get("removidos_suspensos_cancelados", 0))

@@ -34,6 +34,7 @@ from components.componentes import (
     render_insight,
     render_kpi,
     render_kpi_sm,
+    render_metric,
     render_section_header,
 )
 from components.sidebar import render_page_sidebar_theme_selector
@@ -1267,7 +1268,7 @@ def main() -> None:
 
     # ── Upload ───────────────────────────────────────
     if st.session_state["df_master"] is None:
-        render_section_header("📁 Importação de Dados")
+        render_section_header(titulo="📁 Importação de Dados")
         arq = st.file_uploader(
             "Selecione a base (Excel/CSV)",
             type=["xlsx", "csv"],
@@ -1388,7 +1389,7 @@ def main() -> None:
     tecnicos = df_master["LOGIN_TECNICO"].nunique()
     monitores_qtd = df_master["Monitor"].nunique()
 
-    render_section_header("📊", "Indicadores Operacionais")
+    render_section_header(titulo="Indicadores Operacionais", icone="📊")
     c1, c2, c3 = st.columns(3)
     render_kpi(c1, "Volume O.S.", f"{soma_os:,}", tema="azul")
     render_kpi(
@@ -1425,11 +1426,11 @@ def main() -> None:
     st.markdown("")
 
     # ── Tabelas Rota / Turnos ────────────────────────
-    render_section_header("🗺️", "Distribuição por Monitor e Turno")
+    render_section_header(titulo="Distribuição por Monitor e Turno", icone="🗺️")
     render_bloco_rota_turno(df_master, st.session_state["total_montados_manual"])
 
     # ── Gráficos Executivos ──────────────────────────
-    render_section_header("", "Visão Executiva")
+    render_section_header(titulo="Visão Executiva")
     g1, g2 = st.columns([1, 1.2])
 
     with g1:
@@ -1602,17 +1603,32 @@ def main() -> None:
             else:
                 render_insight("Coluna CIDADE não encontrada.", tipo="alerta")
 
-        # 5. Resumo
+        # 5. Resumo (cartões de KPI avançados — item 1 do Design System v3.6)
         col_info1, col_info2, col_info3 = st.columns(3)
-        with col_info1:
-            st.metric(" Pontos no Mapa", len(df_pontos) if df_pontos is not None else 0)
-        with col_info2:
-            st.metric("🏙️ Municípios", len(municipios_detectados))
-        with col_info3:
-            st.metric(
-                "📡 Com Coordenadas",
-                f"{len(df_pontos) if df_pontos is not None else 0} / {len(df_master)}",
-            )
+        pontos = len(df_pontos) if df_pontos is not None else 0
+        render_metric(
+            "📍 Pontos no Mapa",
+            pontos,
+            container=col_info1,
+            icone="place",
+            ajuda="Total de pontos georreferenciados plotados no mapa.",
+        )
+        render_metric(
+            "🏙️ Municípios",
+            len(municipios_detectados),
+            container=col_info2,
+            icone="location_city",
+            tema="laranja",
+        )
+        cobertura = (pontos / len(df_master) * 100.0) if len(df_master) else 0.0
+        render_metric(
+            "📡 Com Coordenadas",
+            f"{pontos} / {len(df_master)}",
+            container=col_info3,
+            icone="my_location",
+            progresso=(cobertura, 100.0),
+            meta_rotulo=f"{cobertura:.1f}% de cobertura".replace(".", ","),
+        )
 
     # ============================================================
     # ABA — BASE COMPLETA
@@ -1635,7 +1651,7 @@ def main() -> None:
     # ABA — RESUMO CONTRATOS
     # ============================================================
     with aba_contratos:
-        render_section_header("📄", "Resumo dos Contratos da Rota")
+        render_section_header(titulo="Resumo dos Contratos da Rota", icone="📄")
 
         COLUNAS_CONTRATOS: dict[str, list[str]] = {
             "CONTRATO": ["CONTRATO"],
@@ -1722,7 +1738,10 @@ def main() -> None:
     # ABA — EQUALIZAÇÃO
     # ============================================================
     with aba_equalizacao:
-        render_section_header("⚖️", "Diagnóstico de Equalização por Distribuição de O.S.")
+        render_section_header(
+            titulo="Diagnóstico de Equalização por Distribuição de O.S.",
+            icone="⚖️",
+        )
 
         df_eq_work = df_master[
             ~df_master["Monitor"]

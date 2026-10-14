@@ -3,7 +3,8 @@ streamlit_app.py
 ================
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.5.0 (camada visual v2 dos dashboards via components.dashboard_kit)
+Versão: 3.6.0 (cartões de KPI avançados, fábrica de gráficos minimalista,
+CSS global unificado, camada de performance de dados e organização das páginas)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
@@ -12,6 +13,17 @@ Autor: TOTALE Tecnologia
 • CSS do app limitado ao corpo da página; components.sidebar controla a sidebar.
 • CSS v2 dos dashboards injetado globalmente: hover nos KPIs, moldura em
   gráficos Plotly, abas pill, expansores e tabelas com acabamento corporativo.
+• **v3.6.0** — o CSS dos componentes nativos (botões, entradas, seleção,
+  tabelas, abas, alertas, acessibilidade e impressão) saiu deste arquivo e foi
+  consolidado em ``components/css_global.py``: uma única injeção por sessão,
+  ~40 KB a menos trafegados por rerun e nenhum estilo duplicado. As classes
+  utilitárias legadas (``.card``, ``.status-ok``, ``.status-warning``) foram
+  preservadas lá.
+• Novos módulos disponíveis para as páginas: ``components.kpi_cards``
+  (substituto do ``st.metric``), ``components.graficos`` (fábrica de 24 tipos
+  de gráficos nas cores oficiais), ``components.layout_pagina`` (hierarquia de
+  leitura das páginas) e ``services.cache_dados`` (HTTP reutilizável, cache
+  condicional 304, Parquet em disco e carga paralela).
 """
 
 from __future__ import annotations
@@ -35,6 +47,7 @@ except ImportError:  # pragma: no cover - fallback para variações internas do 
     RerunException = StopException = ()  # type: ignore[misc, assignment]
 
 from components.componentes import aplicar_estilo
+from components.css_global import injetar_css_global as injetar_css_componentes
 from components.dashboard_kit import injetar_css_dashboards
 from components.sidebar import (
     TemaSidebarType,
@@ -84,7 +97,7 @@ class Cores:
 class ConfiguracoesSistema:
     """Configurações globais do sistema."""
 
-    VERSAO: str = "3.5.0"
+    VERSAO: str = "3.6.0"
     AMBIENTE: str = "Produção"
     FUSO_HORARIO: str = "America/Sao_Paulo"
     ICON_PATH: str = "assets/icons/totale.ico"
@@ -156,126 +169,27 @@ def _aplicar_estilo_seguro(tema: Any = "claro") -> None:
 # 🎨 BLOCO 3: GERENCIADOR DE ESTILOS DO CORPO DA PÁGINA
 # ====================================================
 class GerenciadorEstilos:
-    """Gerencia os estilos do corpo; a sidebar é controlada por components.sidebar."""
+    """Fachada dos estilos do corpo da página.
 
-    @staticmethod
-    def _get_input_styles() -> str:
-        return f"""
-        /* INPUTS DO CORPO DA PÁGINA — sidebar controlada pelo módulo próprio */
-        [data-testid="stMain"] [data-testid="stSelectbox"] label p,
-        [data-testid="stMain"] [data-testid="stMultiSelect"] label p,
-        [data-testid="stMain"] [data-testid="stTextInput"] label p {{
-            color: {CORES.PRIMARIA} !important;
-            font-weight: 700 !important;
-            font-size: 13px !important;
-        }}
-        [data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
-        [data-testid="stMain"] [data-testid="stDateInput"] div[data-baseweb="input"] > div {{
-            border: 2px solid {CORES.BORDA_INPUT} !important;
-            border-radius: 10px !important;
-            background-color: #FFFFFF !important;
-            transition: border-color .18s ease, box-shadow .18s ease;
-        }}
-        [data-testid="stMain"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
-        [data-testid="stMain"] [data-testid="stDateInput"] div[data-baseweb="input"] > div:hover {{
-            border-color: {CORES.SECUNDARIA} !important;
-            box-shadow: 0 0 0 3px rgba(243, 124, 4, 0.12);
-        }}
-        [data-testid="stMain"] [data-testid="stDateInput"] svg {{
-            fill: {CORES.SECUNDARIA} !important;
-            color: {CORES.SECUNDARIA} !important;
-        }}
-        """
+    Desde a v3.6.0 o CSS dos componentes nativos vive em
+    :mod:`components.css_global` (injeção única por sessão, no ``<head>``, com
+    fallback em fluxo). Esta classe mantém o nome e o contrato usados pelo
+    entrypoint e pelas páginas, apenas delegando a injeção.
 
-    @staticmethod
-    def _get_card_styles() -> str:
-        return f"""
-        /* CARDS DO CORPO DA PÁGINA */
-        .card {{
-            background-color: {CORES.FUNDO_CARD};
-            padding: 22px 24px;
-            border-radius: 14px;
-            box-shadow: 0 4px 14px rgba(1, 40, 105, 0.06);
-            border: 1px solid {CORES.BORDA_CARD};
-            border-top: 3px solid {CORES.PRIMARIA};
-            transition: transform .2s ease, box-shadow .2s ease;
-        }}
-        .card:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 10px 24px rgba(1, 40, 105, 0.10);
-        }}
-        .status-ok {{
-            background-color: #F0FDF4;
-            border-top: none;
-            border-left: 5px solid {CORES.SUCESSO};
-        }}
-        .status-warning {{
-            background-color: #FFF7ED;
-            border-top: none;
-            border-left: 5px solid {CORES.ALERTA};
-        }}
-        """
+    A sidebar continua sob controle exclusivo de :mod:`components.sidebar`.
+    """
 
-    @staticmethod
-    def _get_layout_styles() -> str:
-        return f"""
-        /* HERO BANNER */
-        .hero-banner {{
-            background:
-                radial-gradient(circle at 88% 20%, rgba(255, 157, 69, 0.35) 0, transparent 30%),
-                linear-gradient(135deg, #011E52 0%, {CORES.PRIMARIA} 45%, {CORES.PRIMARIA_LIGHT} 100%);
-            padding: 34px 40px;
-            border-radius: 18px;
-            color: white;
-            box-shadow: 0 14px 32px rgba(1, 40, 105, 0.24);
-            margin-bottom: 24px;
-            border: 1px solid rgba(255, 157, 69, 0.30);
-            position: relative;
-            overflow: hidden;
-        }}
-        .hero-banner::before {{
-            content: "";
-            position: absolute;
-            left: 0; top: 0;
-            width: 5px; height: 100%;
-            background: linear-gradient(180deg, {CORES.SECUNDARIA_LIGHT}, {CORES.SECUNDARIA});
-        }}
+    @classmethod
+    def css_global(cls) -> str:
+        """Conteúdo completo do CSS global v3.6 (diagnóstico e testes)."""
+        from components.css_global import css_global_completo
 
-        /* FOOTER DA PÁGINA */
-        .footer {{
-            margin-top: 2.5rem;
-            background: linear-gradient(90deg, #011E52 0%, {CORES.PRIMARIA} 55%, {CORES.PRIMARIA_LIGHT} 100%);
-            color: #FFFFFF;
-            padding: 14px 24px;
-            border-radius: 14px;
-            font-size: 12.5px;
-            font-weight: 600;
-            text-align: center;
-            letter-spacing: .2px;
-            box-shadow: 0 10px 24px rgba(1, 40, 105, 0.20);
-            border-top: 3px solid {CORES.SECUNDARIA};
-        }}
-        .footer span.sep {{
-            color: {CORES.SECUNDARIA_LIGHT};
-            margin: 0 8px;
-            font-weight: 900;
-        }}
-        .block-container {{
-            padding-bottom: 3rem;
-        }}
-        """
+        return css_global_completo()
 
     @classmethod
     def injetar_css_global(cls) -> None:
-        """Injeta CSS do corpo da página sem sobrescrever o tema da sidebar."""
-        css_completo = f"""
-        <style>
-        {cls._get_input_styles()}
-        {cls._get_card_styles()}
-        {cls._get_layout_styles()}
-        </style>
-        """
-        st.markdown(css_completo, unsafe_allow_html=True)
+        """Injeta o CSS global do corpo da página (idempotente por sessão)."""
+        injetar_css_componentes()
 
 
 # ====================================================
@@ -420,9 +334,15 @@ def main() -> None:
         or st.session_state.get("_totale_sidebar_theme")
         or st.session_state.get("tema_sidebar", "laranja")
     )
+    # Camadas de estilo: Design System (aplicar_estilo) → CSS v2 dos dashboards
+    # → CSS global v3.6 dos componentes nativos. Cada camada é injetada uma
+    # única vez por sessão (a v3.6 fica no <head>, sobrevive aos reruns) e os
+    # poucos seletores em comum usam a mesma paleta oficial — a ordem apenas
+    # desempata detalhes cosméticos. A chamada final garante cobertura mesmo
+    # quando a página ativa não executa aplicar_estilo().
     _aplicar_estilo_seguro(tema_ativo)
-    GerenciadorEstilos.injetar_css_global()
     injetar_css_dashboards()
+    GerenciadorEstilos.injetar_css_global()
     GerenciadorNavegacao.renderizar_sidebar_corporativa()
 
     st.session_state["_totale_root_navigation_shell"] = True

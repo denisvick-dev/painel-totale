@@ -14,6 +14,7 @@ from components.componentes import (
     render_empty_state,
     render_insight,
     render_kpi,
+    render_metric,
     render_metric_card,
     render_progress_bar,
     render_section_header,
@@ -2016,7 +2017,14 @@ def renderizar_visao_tecnicos(resultados: dict[str, dict[str, Any]]) -> None:
                         colorida=True,
                     )
                 else:
-                    st.metric(label=f"{icon_c} {nome_c}", value="—", delta="Sem OS")
+                    render_metric(
+                        f"{icon_c} {nome_c}",
+                        "—",
+                        delta="Sem OS",
+                        container=cols_kpi[idx_c],
+                        tema="cinza",
+                        ajuda="Nenhuma OS neste recorte para o indicador.",
+                    )
 
         st.markdown("---")
         st.markdown("#### 📝 Ocorrências e Plano de Ação")

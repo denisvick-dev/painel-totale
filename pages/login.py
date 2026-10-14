@@ -5,6 +5,7 @@ import sqlite3
 
 import streamlit as st
 
+from components.kpi_cards import render_metric
 from components.sidebar import render_page_sidebar_theme_selector
 
 render_page_sidebar_theme_selector()
@@ -185,7 +186,13 @@ def pagina_principal():
     st.title(f"📊 Dashboard de {st.session_state.usuario.capitalize()}")
     st.write("Você está autenticado de forma segura!")
 
-    st.metric(label="Vendas Mensais", value="R$ 45.200", delta="+12%")
+    render_metric(
+        "Vendas Mensais",
+        "R$ 45.200",
+        delta="+12%",
+        icone="payments",
+        ajuda="Faturamento do mês corrente (demonstração).",
+    )
 
     if st.button("Sair / Logout"):
         st.session_state.logado = False

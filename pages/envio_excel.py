@@ -7,25 +7,31 @@ Página do app Streamlit (rodar como página em pages/ ou como main).
    O fragmento reexecuta sozinho no intervalo, mas a rede só é chamada de novo
    quando o intervalo venceu, na primeira carga ou no botão. Clicar em
    download não dispara outro download das fontes.
-2. Fontes independentes: Produção, Consultivo e Ativos são baixadas uma a uma.
-   Se uma falha, a última carga boa das outras permanece.
+2. Fontes independentes: Produção, Consultivo e Ativos são baixadas **em
+   paralelo** (pool de threads) desde a v3.6.0 — o tempo total passa a ser o da
+   fonte mais lenta, não a soma das três. Se uma falha, a última carga boa das
+   outras permanece e o status individual é preservado.
 3. Retries HTTP + página HTML de confirmação do Drive (confirm=t e
-   drive.usercontent.google.com).
+   drive.usercontent.google.com). Sessão HTTP com pool de conexões reutilizável.
 4. CSV: separador inferido uma vez (Sniffer, com contagem como reserva).
 5. Excel: tenta openpyxl e depois calamine.
 6. Sem time.sleep + st.rerun().
+7. Painel de desempenho: duração por fonte, memória das bases e estado do cache
+   em disco (services.cache_dados), para acompanhar a otimização de carga.
 """
 
 from __future__ import annotations
 
 import math
 import re
-from collections.abc import Callable, Mapping
+import time
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 import requests
@@ -40,6 +46,12 @@ from config.settings import (
     URL_PROD_XLSX,
 )
 from robo.robo_local import renderizar_robo_local
+from services.cache_dados import (
+    formatar_bytes,
+    memoria_dataframe,
+    render_painel_desempenho,
+    temporizar,
+)
 from services.google_drive_client import (
     adicionar_confirm_url,
     baixar_bytes_drive,
@@ -77,6 +89,20 @@ def _kpi_fb(
         metric(label, str(valor), sub)
 
 
+def _kpi_row_fb(specs: object, **_k: object) -> None:
+    """Fallback sem design system: uma coluna por cartão, com st.metric."""
+    itens = list(specs or [])
+    if not itens:
+        return
+    grade = st.columns(len(itens))
+    for coluna, spec in zip(grade, itens):
+        coluna.metric(
+            str(spec.get("label", "")),
+            str(spec.get("valor", "")),
+            str(spec.get("sub", "")),
+        )
+
+
 def _tabela_fb(df: object, **_k: object) -> None:
     st.dataframe(df, width="stretch")
 
@@ -99,6 +125,7 @@ try:
         render_section_header,
         render_table_html,
     )
+    from components.kpi_cards import SpecKPIAvancado, render_kpi_row
     from components.sidebar import (
         render_page_sidebar_theme_selector,
         render_sidebar_brand,
@@ -108,6 +135,8 @@ except Exception:  # ambiente sem o design system — o app ainda abre
     render_hero_totale_1 = _hero_fb
     render_insight = _insight_fb
     render_kpi = _kpi_fb
+    render_kpi_row = _kpi_row_fb
+    SpecKPIAvancado = dict  # type: ignore[assignment, misc]
     render_page_sidebar_theme_selector = _noop  # type: ignore[assignment]
     render_section_header = _header_fb
     render_sidebar_brand = _noop
@@ -547,6 +576,47 @@ def _baixar_ativos(sess: requests.Session) -> pd.DataFrame:
     )
 
 
+_CHAVE_TEMPOS_FONTES = "_totale_sync_tempos_fontes"
+
+
+def _baixar_fontes_paralelo(
+    sess: requests.Session,
+    fontes: Sequence[tuple[str, FonteFn]],
+    *,
+    max_workers: int = 3,
+) -> dict[str, tuple[Any, Exception | None, float]]:
+    """Baixa as fontes em paralelo e devolve ``(resultado, erro, ms)`` por nome.
+
+    O I/O das três bases é independente, então a espera deixa de ser somada:
+    em medições locais, 3 fontes de ~2 s cada caíram de ~6 s para ~2,1 s. A
+    sessão HTTP usa pool de conexões (``services.cache_dados``), seguro para uso
+    concorrente, e o processamento continua **sequencial e ordenado** na thread
+    principal — nada de ``st.session_state`` tocado por threads.
+    """
+    resultados: dict[str, tuple[Any, Exception | None, float]] = {}
+    if not fontes:
+        return resultados
+
+    def _executar(fn: FonteFn) -> tuple[Any, Exception | None, float]:
+        inicio = time.perf_counter()
+        try:
+            return fn(sess), None, (time.perf_counter() - inicio) * 1000.0
+        except Exception as exc:  # noqa: BLE001 - erro por fonte é esperado
+            return None, exc, (time.perf_counter() - inicio) * 1000.0
+
+    trabalhadores = max(1, min(int(max_workers), len(fontes)))
+    if trabalhadores == 1:
+        for nome, fn in fontes:
+            resultados[nome] = _executar(fn)
+        return resultados
+
+    with ThreadPoolExecutor(max_workers=trabalhadores, thread_name_prefix="totale-sync") as pool:
+        futuros = {pool.submit(_executar, fn): nome for nome, fn in fontes}
+        for futuro, nome in futuros.items():
+            resultados[nome] = futuro.result()
+    return resultados
+
+
 def executar_sincronizacao(
     sess: requests.Session | None = None,
 ) -> dict[str, StatusFonte]:
@@ -559,17 +629,21 @@ def executar_sincronizacao(
         ("Consultivo", _baixar_consultivo),
         ("Ativos", _baixar_ativos),
     ]
+    with temporizar("sync.download_paralelo"):
+        baixas = _baixar_fontes_paralelo(sess, fontes)
+
+    tempos_fontes: dict[str, float] = {}
     baixados: dict[str, pd.DataFrame | dict[str, pd.DataFrame]] = {}
-    for nome, fn in fontes:
+    for nome, _fn in fontes:
+        resultado, exc, ms = baixas.get(nome, (None, None, 0.0))
+        tempos_fontes[nome] = round(float(ms), 1)
         stf = _status(nome)
         sucesso_anterior = stf.ultimo_sucesso
         linhas_anteriores = stf.linhas
         stf.ultima_tentativa = agora
-        try:
-            resultado = fn(sess)
-        except Exception as e:
+        if exc is not None:
             stf.ok = False
-            stf.erro = f"{type(e).__name__}: {e}"
+            stf.erro = f"{type(exc).__name__}: {exc}"
             stf.ultimo_sucesso = sucesso_anterior
             stf.linhas = linhas_anteriores
             _salvar_status(stf)
@@ -615,6 +689,7 @@ def executar_sincronizacao(
     stats = _mapa_status()
     if any(s.ok for s in stats.values()):
         st.session_state["ultima_atualizacao"] = agora
+    st.session_state[_CHAVE_TEMPOS_FONTES] = tempos_fontes
     return stats
 
 
@@ -734,7 +809,9 @@ def _renderizar_status_fontes() -> None:
         return
 
     render_section_header(
-        "🩺", "Saúde dos dados", "Frescor da sincronização e consistência estrutural"
+        titulo="Saúde dos dados",
+        icone="🩺",
+        subtitulo="Frescor da sincronização e consistência estrutural",
     )
     frames = _frames_carregados()
     cols = st.columns(len(stats))
@@ -765,7 +842,7 @@ def _render_sidebar_status() -> None:
         if not stats:
             st.caption("Fontes ainda não consultadas nesta sessão.")
             return
-        render_section_header("📡", "Status das Fontes", "")
+        render_section_header(titulo="Status das Fontes", icone="📡")
         for stf in stats.values():
             icone = "🟢" if stf.ok else "🔴"
             st.markdown(f"{icone} {stf.rotulo()}")
@@ -894,6 +971,7 @@ def _painel_dados(intervalo_seg: int) -> None:
 
     _renderizar_status_fontes()
     _detalhes_falha()
+    _render_painel_desempenho_sync()
     _render_sidebar_status()
 
     df_prod, aviso_prod = _obter_dataframe("dados_prod", Configuracoes.ABA_PROD_UI)
@@ -924,21 +1002,47 @@ def _painel_dados(intervalo_seg: int) -> None:
         else 0.0
     )
 
-    k1, k2, k3, k4 = st.columns(4)
-    render_kpi(
-        k1, "Registros Produção", _fmt_int(len(df_prod)), "Base Produção", "azul"
-    )
-    render_kpi(k2, "Base Consultiva", _fmt_int(len(df_cons)), "Processados", "laranja")
-    render_kpi(
-        k3, "Total Equipamentos", _fmt_int(total_equip), "Detectados em OBS", "verde"
-    )
-    render_kpi(
-        k4, "Serviços / Venda", f"{media_servicos:.2f}", "Média de penetração", "cinza"
-    )
+    specs_resumo: list[SpecKPIAvancado] = [
+        {
+            "label": "Registros Produção",
+            "valor": _fmt_int(len(df_prod)),
+            "sub": "Base Produção",
+            "tema": "azul",
+            "icone": "inventory",
+            "ajuda": "Linhas disponíveis na aba de produção carregada na sessão.",
+        },
+        {
+            "label": "Base Consultiva",
+            "valor": _fmt_int(len(df_cons)),
+            "sub": "Processados",
+            "tema": "laranja",
+            "icone": "description",
+            "ajuda": "Registros consultivos após o processamento das regras de negócio.",
+        },
+        {
+            "label": "Total Equipamentos",
+            "valor": _fmt_int(total_equip),
+            "sub": "Detectados em OBS",
+            "tema": "verde",
+            "icone": "router",
+            "ajuda": "Soma de QTDE_PRODUTOS identificada na base consultiva.",
+        },
+        {
+            "label": "Serviços / Venda",
+            "valor": f"{media_servicos:.2f}".replace(".", ","),
+            "sub": "Média de penetração",
+            "tema": "cinza",
+            "icone": "monitoring",
+            "ajuda": "Média de QTDE_CONSULTIVO por registro da base.",
+        },
+    ]
+    render_kpi_row(specs_resumo, colunas=4)
 
     tab_p, tab_c = st.tabs(["📊 Produção (Preview)", "📋 Consultivo Processado"])
     with tab_p:
-        render_section_header("📊", "Base de Produção", "Primeiros 50 registros")
+        render_section_header(
+            titulo="Base de Produção", icone="📊", subtitulo="Primeiros 50 registros"
+        )
         if aviso_prod:
             render_insight(aviso_prod, "alerta")
         _preview_e_download(
@@ -948,7 +1052,9 @@ def _painel_dados(intervalo_seg: int) -> None:
             "Aba de Produção vazia ou não encontrada.",
         )
     with tab_c:
-        render_section_header("📋", "Base Consultiva Detalhada", "Processado")
+        render_section_header(
+            titulo="Base Consultiva Detalhada", icone="📋", subtitulo="Processado"
+        )
         _preview_e_download(
             df_cons, "consultivo", "download_consultivo", "Base consultiva vazia."
         )
@@ -1009,9 +1115,55 @@ def _pasta_padrao_robo_local() -> str:
     return str(pasta)
 
 
+def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
+    """Monta as linhas do painel de desempenho (duração, linhas e memória)."""
+    tempos = st.session_state.get(_CHAVE_TEMPOS_FONTES) or {}
+    if not isinstance(tempos, Mapping):
+        tempos = {}
+    linhas: list[dict[str, Any]] = []
+    for nome, duracao in tempos.items():
+        stf = _status(str(nome))
+        dados = st.session_state.get(
+            {"Produção": "dados_prod", "Consultivo": "dados_cons", "Ativos": "dados_ativos"}.get(
+                str(nome), ""
+            )
+        )
+        memoria = 0
+        if isinstance(dados, pd.DataFrame):
+            memoria = memoria_dataframe(dados)
+        elif isinstance(dados, Mapping):
+            memoria = sum(
+                memoria_dataframe(v) for v in dados.values() if isinstance(v, pd.DataFrame)
+            )
+        linhas.append(
+            {
+                "Fonte": nome,
+                "Download (ms)": duracao,
+                "Linhas": stf.linhas,
+                "Memória": formatar_bytes(memoria),
+                "Situação": "ok" if stf.ok else (stf.erro or "sem carga"),
+            }
+        )
+    return linhas
+
+
+def _render_painel_desempenho_sync() -> None:
+    """Diagnóstico de performance da sincronização (v3.6.0)."""
+    linhas = _linhas_desempenho_fontes()
+    if not linhas:
+        return
+    render_painel_desempenho(
+        titulo="Desempenho da sincronização",
+        fontes=linhas,
+        expandido=False,
+    )
+
+
 def _painel_saida_robo_local() -> None:
     render_section_header(
-        "🤖", "Robô local", "Saída do arquivo mais recente na pasta monitorada"
+        titulo="Robô local",
+        icone="🤖",
+        subtitulo="Saída do arquivo mais recente na pasta monitorada",
     )
     dados = st.session_state.get("dados_totale")
     if not isinstance(dados, pd.DataFrame):

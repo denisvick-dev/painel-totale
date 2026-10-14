@@ -2,7 +2,24 @@
 components/__init__.py
 ======================
 Pacote de componentes reutilizáveis do portal TOTALE.
+
+Módulos do Design System v3.6.0 (carregados sob demanda via ``__getattr__``
+para não importar Streamlit/Plotly em quem usa apenas :mod:`components.criterios`):
+
+=================================  ==========================================================
+Módulo                             Responsabilidade
+=================================  ==========================================================
+``componentes``                    Design System base (cores, fontes, KPI, heróis, tabelas)
+``kpi_cards``                      Cartões de KPI avançados — substituto do ``st.metric``
+``graficos``                       Fábrica minimalista de 24 tipos de gráfico (Plotly Express)
+``css_global``                     CSS global dos componentes nativos (uma injeção por sessão)
+``layout_pagina``                  Hierarquia de leitura das páginas (seções, filtros, rodapé)
+``dashboard_kit``                  Kit de dashboards (CSS v2, filtros, insights, exportação)
+``sidebar``                        Sidebar corporativa e temas
+=================================  ==========================================================
 """
+
+from typing import TYPE_CHECKING, Any
 
 # Use import relativo (com o ponto) para evitar conflitos de pacote
 from .criterios import (
@@ -38,7 +55,45 @@ from .criterios import (
     render_painel_criterios,
 )
 
+#: Submódulos do Design System expostos como atributos do pacote (lazy).
+_MODULOS_DESIGN_SYSTEM = (
+    "componentes",
+    "css_global",
+    "dashboard_kit",
+    "graficos",
+    "kpi_cards",
+    "layout_pagina",
+    "sidebar",
+)
+
+if TYPE_CHECKING:  # apenas para ferramentas estáticas; não importa em runtime
+    from . import (  # noqa: F401
+        componentes,
+        css_global,
+        dashboard_kit,
+        graficos,
+        kpi_cards,
+        layout_pagina,
+        sidebar,
+    )
+
+
+def __getattr__(nome: str) -> Any:
+    """Importa os módulos de UI sob demanda (PEP 562)."""
+    if nome in _MODULOS_DESIGN_SYSTEM:
+        from importlib import import_module
+
+        return import_module(f"{__name__}.{nome}")
+    raise AttributeError(f"module {__name__!r} has no attribute {nome!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals().keys(), *_MODULOS_DESIGN_SYSTEM])
+
+
 __all__ = [
+    # Módulos do Design System (lazy)
+    *_MODULOS_DESIGN_SYSTEM,
     # Constantes
     "VAZIOS_GERAIS",
     "VAZIOS_CONTRATO",

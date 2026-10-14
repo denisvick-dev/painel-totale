@@ -528,7 +528,7 @@ class Componentes:
 
     @staticmethod
     def grafico_tendencia(df_tend: pd.DataFrame) -> None:
-        render_section_header("📈", "Evolução Diária de O.S.")
+        render_section_header(titulo="Evolução Diária de O.S.", icone="📈")
 
         if df_tend.empty:
             render_insight("Sem dados de **Data Agendamento** para tendência.", "info")
@@ -554,7 +554,7 @@ class Componentes:
 
     @staticmethod
     def visao_supervisor(df_sup: pd.DataFrame) -> None:
-        render_section_header("👨‍💼", "Visão por Supervisor")
+        render_section_header(titulo="Visão por Supervisor", icone="👨‍💼")
 
         if df_sup.empty:
             render_insight("Sem dados de Supervisor.", "info")
@@ -582,7 +582,7 @@ class Componentes:
 
     @staticmethod
     def visao_projeto(df_proj: pd.DataFrame) -> None:
-        render_section_header("💼", "Visão por Projeto")
+        render_section_header(titulo="Visão por Projeto", icone="💼")
 
         if df_proj.empty:
             render_insight("Sem dados de Projeto.", "info")
@@ -629,7 +629,7 @@ class Componentes:
 
     @staticmethod
     def performance_tecnicos(df_tec: pd.DataFrame) -> None:
-        render_section_header("👷", "Performance de Técnicos")
+        render_section_header(titulo="Performance de Técnicos", icone="👷")
 
         if df_tec.empty:
             render_insight("Sem dados de Técnicos para exibir.", "info")

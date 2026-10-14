@@ -468,9 +468,9 @@ with col2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 render_section_header(
-    "Guia de Instalação",
-    "Como aplicar a imagem nos principais clientes de e-mail.",
-    "📚",
+    titulo="Guia de Instalação",
+    icone="📚",
+    subtitulo="Como aplicar a imagem nos principais clientes de e-mail.",
     badge_tipo="default",
 )
 

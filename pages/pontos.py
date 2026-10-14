@@ -1172,14 +1172,14 @@ aba_ranking, aba_executivo, aba_aderencia, aba_evolucao, aba_frequencia = st.tab
 
 # ── ABA 1 ──────────────────────────────────────────
 with aba_ranking:
-    render_section_header("🥇", "Pódio Corporativo — Top 3 Equipes")
+    render_section_header(titulo="Pódio Corporativo — Top 3 Equipes", icone="🥇")
     ComponenteVisual.gerar_podio(ranking)
 
     st.write("")
 
     col_t, col_tg = st.columns([3, 1])
     with col_t:
-        render_section_header("📊", "Ranking Geral · Metas & Projeção")
+        render_section_header(titulo="Ranking Geral · Metas & Projeção", icone="📊")
     with col_tg:
         st.write("")
         por_dia = st.toggle("📅 **Modo Meta Diária**", key="tg_meta_dia")
@@ -1242,7 +1242,7 @@ with aba_ranking:
 
 # ── ABA 2 ──────────────────────────────────────────
 with aba_executivo:
-    render_section_header("👔", "Performance de Gestão")
+    render_section_header(titulo="Performance de Gestão", icone="👔")
 
     if ranking.empty:
         render_insight(
@@ -1274,7 +1274,7 @@ with aba_executivo:
 
 # ── ABA 3 (Aderência Custom HTML) ────────────────────────────────────────
 with aba_aderencia:
-    render_section_header("🎯", "Aderência de Equipes (Projeção ≥ 300 pts)")
+    render_section_header(titulo="Aderência de Equipes (Projeção ≥ 300 pts)", icone="🎯")
 
     if ranking.empty:
         render_insight("Sem dados disponíveis para calcular a aderência.", tipo="info")
@@ -1339,7 +1339,7 @@ with aba_aderencia:
 # ── ABA 4 ──────────────────────────────────────────
 with aba_evolucao:
     col_data = Utilitarios.encontrar_coluna_data(df)
-    render_section_header("📈", "Curva de Tendência Diária")
+    render_section_header(titulo="Curva de Tendência Diária", icone="📈")
 
     if col_data and not ranking.empty:
         top5 = ranking.head(5)["Nome Equipe"].dropna().astype(str).tolist()
@@ -1378,11 +1378,7 @@ with aba_evolucao:
 
 # ── ABA 5 (Frequência Custom HTML) ──────────────────────────────────────────
 with aba_frequencia:
-    render_section_header(
-        "🗓️",
-        "Frequência de produção",
-        "Dias com registros de produção por equipe no recorte selecionado",
-    )
+    render_section_header(titulo="Frequência de produção", icone="🗓️")
     col_data_frequencia = Utilitarios.encontrar_coluna_data(df)
     frequencia = resumo_frequencia(df, data_col=col_data_frequencia)
 
