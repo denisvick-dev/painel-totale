@@ -76,11 +76,23 @@ def test_frequencia_conta_dias_observados_sem_inferir_faltas() -> None:
         {
             "Data": ["01/10/2026", "01/10/2026", "03/10/2026"],
             "Nome Equipe": ["A", "A", "A"],
+            "Supervisor": ["Sup 1", pd.NA, "Sup 1"],
+            "Projeto": ["Fibra", "Fibra", pd.NA],
         }
     )
 
     resumo = resumo_frequencia(df)
 
+    assert list(resumo.columns) == [
+        "Equipe",
+        "Supervisor",
+        "Projeto",
+        "Dias com produção",
+        "Registros",
+        "Última atividade",
+    ]
+    assert resumo.loc[0, "Supervisor"] == "Sup 1"
+    assert resumo.loc[0, "Projeto"] == "Fibra"
     assert resumo.loc[0, "Dias com produção"] == 2
     assert resumo.loc[0, "Registros"] == 3
 

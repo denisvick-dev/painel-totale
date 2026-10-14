@@ -705,16 +705,18 @@ def main() -> None:
         badge_tipo="info",
     )
 
-    if "dados_prod" not in st.session_state:
+    dados_prod = st.session_state.get("dados_prod")
+    if dados_prod is None:
         render_insight("Carregue os dados na página principal primeiro.", "alerta")
         st.stop()
 
-    dados_prod = st.session_state.get("dados_prod", {})
-    if not isinstance(dados_prod, dict) or "Prod" not in dados_prod:
+    if isinstance(dados_prod, pd.DataFrame):
+        df_raw = dados_prod.copy()
+    elif isinstance(dados_prod, dict) and "Prod" in dados_prod:
+        df_raw = dados_prod["Prod"].copy()
+    else:
         render_insight("Aba **Prod** não encontrada na base de dados.", "critico")
         st.stop()
-
-    df_raw = dados_prod["Prod"].copy()
     if not isinstance(df_raw, pd.DataFrame) or df_raw.empty:
         render_insight("Base de Produção vazia.", "alerta")
         st.stop()

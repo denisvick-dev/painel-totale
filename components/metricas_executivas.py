@@ -167,40 +167,82 @@ def serie_quebra_diaria(df: pd.DataFrame) -> pd.Series:
     return resultado.sort_index()
 
 
+def _limpar_texto_dimensao(serie: pd.Series) -> pd.Series:
+    """Normaliza coluna textual, convertendo vazios e placeholders em NA."""
+    texto = serie.astype("string").str.strip()
+    invalido = texto.isna() | texto.str.lower().isin(
+        {"", "nan", "none", "null", "<na>", "nat", "n/a", "na"}
+    )
+    return texto.mask(invalido, pd.NA)
+
+
 def resumo_frequencia(
     df: pd.DataFrame,
     *,
     data_col: str | None = None,
     equipe_col: str | None = None,
+    supervisor_col: str | None = None,
+    projeto_col: str | None = None,
 ) -> pd.DataFrame:
-    """Resume somente dias com produção observada; não infere ausências."""
+    """Resume somente dias com produção observada por Equipe, Supervisor e Projeto."""
+    colunas_saida = [
+        "Equipe",
+        "Supervisor",
+        "Projeto",
+        "Dias com produção",
+        "Registros",
+        "Última atividade",
+    ]
     if df.empty:
-        return pd.DataFrame(
-            columns=["Equipe", "Dias com produção", "Registros", "Última atividade"]
-        )
+        return pd.DataFrame(columns=colunas_saida)
     coluna_data = data_col or encontrar_coluna(df, COLUNAS_DATA)
     coluna_equipe = equipe_col or encontrar_coluna(
         df, ("Nome Equipe", "Equipe", "Técnico", "Tecnico")
     )
     if not coluna_data or not coluna_equipe:
-        return pd.DataFrame(
-            columns=["Equipe", "Dias com produção", "Registros", "Última atividade"]
-        )
+        return pd.DataFrame(columns=colunas_saida)
+
+    coluna_supervisor = supervisor_col or encontrar_coluna(
+        df, ("Supervisor", "Monitor", "Gestor", "Lider", "Líder")
+    )
+    coluna_projeto = projeto_col or encontrar_coluna(
+        df, ("Projeto", "Contrato", "Campanha", "Operacao", "Operação", "Segmento")
+    )
+
+    supervisor_serie = (
+        _limpar_texto_dimensao(df[coluna_supervisor])
+        if coluna_supervisor and coluna_supervisor in df.columns
+        else pd.Series(pd.NA, index=df.index, dtype="string")
+    )
+    projeto_serie = (
+        _limpar_texto_dimensao(df[coluna_projeto])
+        if coluna_projeto and coluna_projeto in df.columns
+        else pd.Series(pd.NA, index=df.index, dtype="string")
+    )
 
     dados = pd.DataFrame(
         {
-            "Equipe": df[coluna_equipe].astype("string").str.strip(),
+            "Equipe": _limpar_texto_dimensao(df[coluna_equipe]),
+            "Supervisor": supervisor_serie,
+            "Projeto": projeto_serie,
             "Data": pd.to_datetime(df[coluna_data], errors="coerce", dayfirst=True).dt.normalize(),
         }
     ).dropna(subset=["Equipe", "Data"])
-    dados = dados.loc[dados["Equipe"].ne("")]
     if dados.empty:
-        return pd.DataFrame(
-            columns=["Equipe", "Dias com produção", "Registros", "Última atividade"]
-        )
+        return pd.DataFrame(columns=colunas_saida)
+
+    if dados["Supervisor"].notna().any():
+        mapa_sup = dados.dropna(subset=["Supervisor"]).groupby("Equipe")["Supervisor"].first()
+        dados["Supervisor"] = dados["Supervisor"].fillna(dados["Equipe"].map(mapa_sup))
+    dados["Supervisor"] = dados["Supervisor"].fillna("Não informado")
+
+    if dados["Projeto"].notna().any():
+        mapa_proj = dados.dropna(subset=["Projeto"]).groupby("Equipe")["Projeto"].first()
+        dados["Projeto"] = dados["Projeto"].fillna(dados["Equipe"].map(mapa_proj))
+    dados["Projeto"] = dados["Projeto"].fillna("Não informado")
 
     resumo = (
-        dados.groupby("Equipe", as_index=False)
+        dados.groupby(["Equipe", "Supervisor", "Projeto"], as_index=False, dropna=False)
         .agg(
             **{
                 "Dias com produção": ("Data", "nunique"),
@@ -209,10 +251,10 @@ def resumo_frequencia(
             }
         )
         .sort_values(
-            ["Dias com produção", "Registros", "Equipe"],
-            ascending=[False, False, True],
+            ["Dias com produção", "Registros", "Equipe", "Supervisor", "Projeto"],
+            ascending=[False, False, True, True, True],
         )
         .reset_index(drop=True)
     )
     resumo["Última atividade"] = pd.to_datetime(resumo["Última atividade"]).dt.date
-    return resumo
+    return resumo[colunas_saida]

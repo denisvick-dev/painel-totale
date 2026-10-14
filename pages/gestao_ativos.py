@@ -799,7 +799,9 @@ def main():
     aplicar_estilo()  # <--- APLICA O CSS DO COMPONENTES.PY
     render_page_sidebar_theme_selector()
     _init()
-    if not st.session_state.autenticado:
+    if not st.session_state.autenticado or not isinstance(
+        st.session_state.get("usuario"), Usuario
+    ):
         tela_login()
     else:
         tela_principal()

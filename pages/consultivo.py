@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 from typing import Any
 
@@ -17,6 +18,8 @@ from components.componentes import (
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
 from components.sidebar import render_page_sidebar_theme_selector
+
+logger = logging.getLogger(__name__)
 
 # ====================================================
 # BLOCO 1: CONFIGURAÇÕES E INICIALIZAÇÃO
@@ -362,11 +365,18 @@ render_hero_totale_2(
 
 st.divider()
 
-if "dados_cons" not in st.session_state or "Consultivo" not in st.session_state["dados_cons"]:
+dados_cons_raw = st.session_state.get("dados_cons")
+if isinstance(dados_cons_raw, pd.DataFrame):
+    df = dados_cons_raw.copy()
+elif isinstance(dados_cons_raw, dict) and isinstance(dados_cons_raw.get("Consultivo"), pd.DataFrame):
+    df = dados_cons_raw["Consultivo"].copy()
+else:
     render_insight("Carregue os dados na aba principal primeiro.", "alerta")
     st.stop()
 
-df = st.session_state["dados_cons"]["Consultivo"].copy()
+if df.empty:
+    render_insight("Carregue os dados na aba principal primeiro.", "alerta")
+    st.stop()
 
 # Tratamento Numérico
 mapa = {
@@ -377,20 +387,28 @@ mapa = {
     "QTDE_VIRTUA": "Qtde. Virtua",
 }
 for k, v in mapa.items():
-    df[v] = pd.to_numeric(df.get(k, 0), errors="coerce").fillna(0).astype(int)
+    serie_num = df[k] if k in df.columns else pd.Series(0, index=df.index)
+    df[v] = pd.to_numeric(serie_num, errors="coerce").fillna(0).astype(int)
 
 if "DATA" in df.columns:
     df["DATA"] = pd.to_datetime(df["DATA"], errors="coerce", dayfirst=True)
 
+if "LOGIN NETSALES" not in df.columns:
+    df["LOGIN NETSALES"] = pd.NA
+df["LOGIN NETSALES"] = df["LOGIN NETSALES"].astype("string").str.strip()
+
 # Merge com GSheets (Hierarquia)
 try:
     df_ativos = carregar_hierarquia()
-    df["LOGIN NETSALES"] = df.get("LOGIN NETSALES", "").astype(str).str.strip()
     df = df.drop(columns=["Monitor", "Base"], errors="ignore")
     # Outer merge
     df = pd.merge(df, df_ativos, left_on="LOGIN NETSALES", right_on="Login", how="outer")
 except Exception as e:
-    st.error(f"Erro ao carregar hierarquia: {e}")
+    logger.warning("Hierarquia remota indisponível em consultivo: %s", e)
+
+for col_aux in ("Login", "Técnico", "Monitor", "Base"):
+    if col_aux not in df.columns:
+        df[col_aux] = pd.NA
 
 df["LOGIN NETSALES"] = df["LOGIN NETSALES"].fillna(df["Login"]).fillna("SEM LOGIN")
 
