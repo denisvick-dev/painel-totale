@@ -53,9 +53,17 @@ from components.criterios import classificar_tipo_servico, render_debug_criterio
 
 # ── Importação Inteligente e Resiliente de quebra.py ──────────────────
 try:
-    from pages.quebra_geral import Config, DataLoader, Motor, Utils, _cache_matriz
+    from pages.quebra_geral import (
+        Config,
+        DataLoader,
+        Motor,
+        Utils,
+        _aplicar_etl_robo_global,
+        _cache_matriz,
+    )
 except ImportError:
     DataLoader = None  # type: ignore[assignment]
+    _aplicar_etl_robo_global = None  # type: ignore[assignment]
     _cache_matriz = None  # type: ignore[assignment]
     try:
         import quebra  # type: ignore
@@ -1861,10 +1869,34 @@ def _sub_comparativo(
             pass
 
 
+def _processar_saida_robo_global() -> None:
+    """Reutiliza o ETL comum de Quebra quando esta página é a primeira aberta."""
+    if DataLoader is None or not callable(_aplicar_etl_robo_global):
+        return
+    if not str(st.session_state.get("origem_dados", "")).startswith("Robô Local"):
+        return
+
+    bruto = st.session_state.get("df_memoria_raw")
+    if not isinstance(bruto, pd.DataFrame) or bruto.empty:
+        return
+
+    ativos = st.session_state.get("df_gs_manual")
+    if not isinstance(ativos, pd.DataFrame) or ativos.empty:
+        try:
+            ativos = DataLoader.buscar_gsheets()
+        except Exception:
+            ativos = pd.DataFrame()
+    if not isinstance(ativos, pd.DataFrame):
+        ativos = pd.DataFrame()
+
+    _aplicar_etl_robo_global(ativos)
+
+
 # =====================================================================
 # FLUXO PRINCIPAL
 # =====================================================================
 def main() -> None:
+    _processar_saida_robo_global()
     if st.session_state.get("df_memoria") is None:
         render_insight(
             "Nenhuma base carregada. Volte à página 'Dashboard Geral' e envie os dados do Excel.",
