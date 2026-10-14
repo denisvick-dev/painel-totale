@@ -52,6 +52,7 @@ Versão atual: **3.6.0** — veja [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) para o 
 - **CSS global dos componentes nativos** (`components/css_global.py`): botões, inputs, selects, abas, tabelas, alertas, upload, progresso e tooltips padronizados — injeção única por sessão (~40 KB a menos por rerun)
 - **Organização de página** (`components/layout_pagina.py`): cabeçalho com contexto, sumário de âncoras, filtros fixos no topo ao rolar, seções, painéis com altura controlada, barra de ações e rodapé — ordem canônica em `ORDEM_PADRAO`
 - **Carga de dados até 3× mais rápida** (`services/cache_dados.py`): requisições condicionais (ETag/`If-Modified-Since` → `304` sem reparse), cache Parquet em disco fora do repositório, downloads paralelos por fonte, sessão HTTP com pool e retry, leitura de CSV com detecção de separador/encoding
+- **Robô local unificado**: um único monitor na sidebar global acompanha a pasta configurada em todas as páginas; a leitura bruta é compartilhada e cada painel aplica seu ETL específico sem duplicar o monitor
 - **Processamento Pandas otimizado**: normalização vetorial de colunas no robô (1,03 s → 0,22 s para 120 mil linhas, ~4,7×) e `otimizar_dtypes` com downcast numérico, texto→número sem perdas e categóricas opcionais (−81% de memória no caso medido)
 - **Diagnóstico de desempenho** (`render_painel_desempenho`): tempos por fonte, origem do dado (rede/cache/`304`), linhas, memória e estado do cache em disco
 

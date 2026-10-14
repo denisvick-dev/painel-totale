@@ -126,24 +126,6 @@ def _carregar_componentes() -> ComponentesVisuais:
 COMPONENTES: Final[ComponentesVisuais] = _carregar_componentes()
 
 
-def _carregar_robo() -> tuple[Callable[..., Any] | None, str]:
-    try:
-        module = importlib.import_module("robo.robo_local")
-        funcao = getattr(module, "renderizar_robo_local", None) or getattr(
-            module, "render_robo_local", None
-        )
-        if callable(funcao):
-            return funcao, f"OK ({getattr(module, '__file__', '?')})"
-        return None, "Função de renderização não encontrada."
-    except Exception as erro:
-        logger.debug("Robô local não pôde ser importado.", exc_info=True)
-        return None, f"{type(erro).__name__}: {erro}"
-
-
-_ROBO_FN, _ROBO_ERRO = _carregar_robo()
-ROBO_DISPONIVEL: bool = _ROBO_FN is not None
-
-
 from config.settings import (
     SHEET_ABA_ATIVOS as _DEFAULT_WORKSHEET_ATIVOS,
 )
@@ -1074,7 +1056,9 @@ class DataLoader:
 
     @staticmethod
     def callback_robo_etl(df_raw: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
-        caminho = st.session_state.get("robo_candidato_path", "")
+        caminho = st.session_state.get(
+            "robo_ultimo_processado_path", st.session_state.get("robo_candidato_path", "")
+        )
         nome = Path(str(caminho)).name if caminho else "Arquivo_Robo"
         df_proc = DataLoader.preparar_base(df_raw, df_gs, filename=nome)
         st.session_state.update(
@@ -1473,16 +1457,6 @@ def render_kpi_sm(
         f"""<div class="kpi-mini" style="--kpi-bg:{e["fundo"]};--kpi-text:{e["texto"]};--kpi-border:{e["borda"]};--kpi-label:{e["titulo"]}"><div class="kpi-mini__label">{html_safe(label)}</div><div class="kpi-mini__value">{html_safe(value)}</div><div class="kpi-mini__sub">{html_safe(sub)}</div></div>""",
         unsafe_allow_html=True,
     )
-
-
-def renderizar_robo_local(*args: Any, **kw: Any) -> None:
-    if _ROBO_FN is None:
-        st.sidebar.warning("Robô offline. Utilize upload manual.")
-        return
-    try:
-        _ROBO_FN(*args, **kw)
-    except Exception as erro:
-        st.sidebar.error(f"Erro no robô: {erro}")
 
 
 _CSS_GLOBAL: Final[str] = """
@@ -1899,12 +1873,30 @@ _CHAVES_SESSAO: Final[tuple[str, ...]] = (
     "_robo_nome_arquivo",
     "_robo_dados_disponiveis",
     "robo_hora_sucesso",
+    "_quebra_robo_processado_sig",
+)
+_CHAVES_ROBO: Final[tuple[str, ...]] = (
+    "robo_processado_sig",
+    "robo_candidato_sig",
+    "robo_candidato_stable",
+    "robo_ultimo_processado_path",
+    "robo_ultimo_processado_mtime",
+    "robo_arquivos_processados",
+    "robo_bases_carregadas",
+    "robo_base_detectada",
+    "robo_motores",
+    "robo_duplicatas_removidas",
+    "_robo_aguardando_lock",
 )
 _CHAVES_ATIVOS: Final[tuple[str, ...]] = ("df_gs_manual", "arquivo_ativos_processado")
 
 
 def limpar_sessao(incluir_ativos: bool = True) -> None:
-    for k in list(_CHAVES_SESSAO) + (list(_CHAVES_ATIVOS) if incluir_ativos else []):
+    for k in (
+        list(_CHAVES_SESSAO)
+        + list(_CHAVES_ROBO)
+        + (list(_CHAVES_ATIVOS) if incluir_ativos else [])
+    ):
         st.session_state.pop(k, None)
     st.session_state["upload_nonce"] = int(st.session_state.get("upload_nonce", 0)) + 1
 
@@ -1964,26 +1956,29 @@ def _sidebar_filtros() -> tuple[float, float, float, float]:
     return p_ot, p_base, p_pess, min_aloc
 
 
-def _sidebar_robo(df_ativos: pd.DataFrame) -> None:
-    st.sidebar.markdown("---")
-    if not (ROBO_DISPONIVEL and _ROBO_FN):
-        st.sidebar.info("Robô offline. Utilize o upload manual.")
+def _aplicar_etl_robo_global(df_ativos: pd.DataFrame) -> None:
+    """Aplica o ETL da página sobre a saída bruta do robô global, uma vez por arquivo."""
+    origem = str(st.session_state.get("origem_dados", ""))
+    if not origem.startswith("Robô Local"):
         return
-    try:
-        _ROBO_FN(
-            etl_fn=lambda df_raw, df_gs_arg=None, **_: DataLoader.callback_robo_etl(
-                df_raw, df_gs_arg if df_gs_arg is not None else df_ativos
-            ),
-            gsheets_fn=lambda: df_ativos,
-            pasta_padrao=st.session_state.get(
-                "robo_pasta_alvo", str(Path.home() / "Downloads")
-            ),
-            ciclos_estabilidade=1,
-            mostrar_toggle=True,
-            mostrar_config=True,
+
+    df_raw = df_sessao("df_memoria_raw")
+    if df_raw is None or df_raw.empty:
+        df_raw = df_sessao("df_memoria")
+    if df_raw is None or df_raw.empty:
+        return
+
+    assinatura = st.session_state.get("robo_processado_sig")
+    if assinatura is None:
+        assinatura = (
+            st.session_state.get("robo_ultimo_processado_path"),
+            st.session_state.get("robo_ultimo_processado_mtime"),
         )
-    except Exception as erro:
-        st.sidebar.error(f"Erro ao inicializar robô: {erro}")
+    if st.session_state.get("_quebra_robo_processado_sig") == assinatura:
+        return
+
+    DataLoader.callback_robo_etl(df_raw, df_ativos)
+    st.session_state["_quebra_robo_processado_sig"] = assinatura
 
 
 def _processar_upload(upload: Any, df_ativos: pd.DataFrame) -> None:
@@ -2059,7 +2054,7 @@ def main() -> None:
         st.sidebar.warning(
             "Lista de ativos indisponível. Utilize o upload manual nas configurações."
         )
-    _sidebar_robo(df_ativos)
+    _aplicar_etl_robo_global(df_ativos)
     df_atual = df_sessao("df_memoria")
     dados_prontos = df_atual is not None and not df_atual.empty
     if render_bloco_importacao(dados_prontos):

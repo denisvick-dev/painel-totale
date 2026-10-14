@@ -4,7 +4,8 @@
 
 O módulo `components/sidebar.py` concentra o CSS dos temas, o seletor de tema persistente e os
 componentes corporativos da sidebar do portal. Ele substitui o CSS que antes ficava acoplado ao
-`streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas.
+`streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas. O robô local também é
+renderizado uma única vez pelo shell global do app, para monitorar a mesma pasta em todas as páginas.
 
 O Design System (`components/componentes.py`) reexporta os principais símbolos deste módulo, então
 as páginas podem importar tanto de `components.sidebar` quanto de `components.componentes`.
@@ -125,7 +126,9 @@ render_page_sidebar_theme_selector()  # no-op quando o shell raiz já renderizou
 ```
 
 O entrypoint marca `_totale_root_navigation_shell = True`; com isso, as páginas não criam um
-segundo seletor de tema (o que quebraria a chave única do widget).
+segundo seletor de tema (o que quebraria a chave única do widget). O mesmo shell renderiza o
+`renderizar_robo_local()` compartilhado; páginas não devem criar outra instância. O DataFrame bruto
+fica em `st.session_state["df_memoria_raw"]` e cada página aplica seu próprio ETL sobre essa fonte.
 
 ### Atalho
 

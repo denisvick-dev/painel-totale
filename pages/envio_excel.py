@@ -44,7 +44,6 @@ from config.settings import (
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
 )
-from robo.robo_local import obter_pasta_robo_padrao, renderizar_robo_local
 from services.cache_dados import (
     formatar_bytes,
     memoria_dataframe,
@@ -1108,10 +1107,6 @@ def _pipeline_robo_local(
     return df
 
 
-def _pasta_padrao_robo_local() -> str:
-    return obter_pasta_robo_padrao()
-
-
 def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
     """Monta as linhas do painel de desempenho (duração, linhas e memória)."""
     tempos = st.session_state.get(_CHAVE_TEMPOS_FONTES) or {}
@@ -1162,12 +1157,20 @@ def _painel_saida_robo_local() -> None:
         icone="🤖",
         subtitulo="Saída do arquivo mais recente na pasta monitorada",
     )
-    dados = st.session_state.get("dados_totale")
+    fonte = str(st.session_state.get("origem_dados", ""))
+    if not fonte.casefold().startswith("robô"):
+        st.info("Aguardando a detecção e o processamento de um arquivo local.")
+        return
+
+    dados = st.session_state.get("df_memoria_raw")
+    if not isinstance(dados, pd.DataFrame):
+        dados = st.session_state.get("df_memoria")
+    if not isinstance(dados, pd.DataFrame):
+        dados = st.session_state.get("dados_totale")
     if not isinstance(dados, pd.DataFrame):
         st.info("Aguardando a detecção e o processamento de um arquivo local.")
         return
 
-    fonte = st.session_state.get("origem_dados", "Robô Local")
     st.success(f"Dados carregados via {fonte}")
     st.dataframe(dados.head(), width="stretch")
 
@@ -1216,11 +1219,6 @@ def _rodar() -> None:
         )
         _painel_dados(intervalo_seg)
 
-    st.sidebar.markdown("---")
-    renderizar_robo_local(
-        etl_fn=_pipeline_robo_local,
-        pasta_padrao=_pasta_padrao_robo_local(),
-    )
     _painel_saida_robo_local()
 
 

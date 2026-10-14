@@ -55,14 +55,35 @@ def test_robo_local_delega_para_robo_engine() -> None:
     assert robo_local.ArquivoBloqueadoError is robo_engine.ArquivoBloqueadoError
 
 
-def test_robo_local_unificado_na_atualizacao_de_dados() -> None:
-    """A página dedicada sai da navegação; o sincronismo local fica na central."""
+def test_robo_local_unificado_no_shell_global() -> None:
+    """Uma única sidebar global monitora arquivos para todas as páginas."""
     codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
-    codigo_atualizacao = (RAIZ / "pages" / "envio_excel.py").read_text(encoding="utf-8")
+    arvore_app = ast.parse(codigo_app)
+    chamadas_robo = [
+        no
+        for no in ast.walk(arvore_app)
+        if isinstance(no, ast.Call)
+        and isinstance(no.func, ast.Name)
+        and no.func.id == "renderizar_robo_local"
+    ]
 
     assert not (RAIZ / "robo" / "main.py").exists()
     assert 'st.Page("robo/main.py"' not in codigo_app
-    assert "renderizar_robo_local(" in codigo_atualizacao
+    assert len(chamadas_robo) == 1
+    for pagina in (
+        "envio_excel.py",
+        "volumetria.py",
+        "quebra_geral.py",
+        "quebra_unificada.py",
+    ):
+        codigo_pagina = (RAIZ / "pages" / pagina).read_text(encoding="utf-8")
+        assert "renderizar_robo_local(" not in codigo_pagina
+    assert "_aplicar_etl_robo_global" in (
+        RAIZ / "pages" / "quebra_unificada.py"
+    ).read_text(encoding="utf-8")
+    assert "df_memoria_raw" in (RAIZ / "robo" / "robo_local.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_saida_robo_preserva_os_dois_contratos_de_sessao(monkeypatch) -> None:

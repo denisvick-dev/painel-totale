@@ -252,6 +252,12 @@ def _executar_verificacao_robo(
         else:
             st.session_state.pop("robo_erro", None)
 
+        # Guarda sempre a leitura canônica antes de qualquer transformação de
+        # página. Quando há ETL no próprio ciclo, usa uma cópia para que uma
+        # transformação in-place não altere a fonte bruta compartilhada.
+        st.session_state["df_memoria_raw"] = (
+            resultado.df.copy(deep=True) if callable(etl_fn) else resultado.df
+        )
         df_gs = _obter_gsheets(gsheets_fn)
         if callable(etl_fn):
             transformado = etl_fn(resultado.df, df_gs)

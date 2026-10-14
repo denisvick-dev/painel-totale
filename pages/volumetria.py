@@ -50,11 +50,6 @@ from components.layout_pagina import (
 )
 from components.sidebar import render_page_sidebar_theme_selector
 
-# ==========================================================
-# ROBÔ DE MONITORAMENTO AUTOMÁTICO
-# ==========================================================
-from robo.robo_local import renderizar_robo_local
-
 logger = logging.getLogger(__name__)
 
 # ==========================================================
@@ -1388,36 +1383,6 @@ def plot_comparativo(vol_esc, vol_mon):
 # MAIN
 # ==========================================================
 def main():
-    # ── Injeção de JS/CSS para Ocultar Legendas Indesejadas do Robô Instantaneamente ──
-    st.markdown(
-        """
-        <style>
-        /* Oculta mensagens de caption padrão na sidebar */
-        div[data-testid="stSidebar"] div[data-testid="stCaptionContainer"] {
-            display: none !important;
-        }
-        </style>
-        <script>
-        const observer = new MutationObserver((mutations) => {
-            document.querySelectorAll('span, p, div, caption, code').forEach(el => {
-                if (
-                    el.textContent.includes('Robô importou') || 
-                    el.textContent.includes('🔌 Robô:') ||
-                    el.textContent.includes('só que mantendo que importe')
-                ) {
-                    el.style.display = 'none';
-                    el.style.height = '0px';
-                    el.style.padding = '0px';
-                    el.style.margin = '0px';
-                }
-            });
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-        </script>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # Estilos: primeiro o global (componentes), depois o específico da página
     aplicar_estilo_corp()
     aplicar_estilo_pagina()
@@ -1432,18 +1397,7 @@ def main():
     if "base_data" not in st.session_state:
         st.session_state.base_data = None
 
-    # ── SIDEBAR COM ROBÔ INTEGRADO ──────────────────────────────────────────
     with st.sidebar:
-        # ★ ROBÔ DE MONITORAMENTO AUTOMÁTICO ★
-        # A injeção de CSS acima garante que as captions geradas aqui dentro sejam limpas da tela.
-        renderizar_robo_local(
-            etl_fn=None,
-            pasta_padrao=None,
-            colunas_esperadas=None,
-        )
-
-        st.divider()
-
         st.header("⚙️ Configurações")
         if st.button("🔄 Reiniciar Painel", width="stretch"):
             st.session_state.base_data = None
@@ -1503,12 +1457,26 @@ def main():
             badge_tipo="info",
         )
 
-        # Verifica se o robô já carregou dados
-        df_robo = st.session_state.get("df_memoria")
+        # Cada página aplica seu próprio ETL sobre a mesma saída bruta do robô.
+        df_robo = st.session_state.get("df_memoria_raw")
+        if not isinstance(df_robo, pd.DataFrame) or df_robo.empty:
+            df_robo = st.session_state.get("df_memoria")
 
-        if df_robo is not None and not df_robo.empty:
-            st.success("✅ **Dados carregados automaticamente pelo robô!**")
-            if st.button("🚀 Processar Dados do Robô", width="stretch", type="primary"):
+        if isinstance(df_robo, pd.DataFrame) and not df_robo.empty:
+            origem_robo = str(st.session_state.get("origem_dados", ""))
+            origem_robo = origem_robo.casefold().startswith("robô")
+            mensagem = (
+                "✅ **Dados carregados automaticamente pelo robô!**"
+                if origem_robo
+                else "✅ **Base compartilhada disponível na sessão.**"
+            )
+            rotulo_botao = (
+                "🚀 Processar Dados do Robô"
+                if origem_robo
+                else "🚀 Processar Base Compartilhada"
+            )
+            st.success(mensagem)
+            if st.button(rotulo_botao, width="stretch", type="primary"):
                 try:
                     with st.spinner("Processando base..."):
                         st.session_state.base_data = DataLoader.preparar_base(
