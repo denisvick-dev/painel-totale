@@ -939,16 +939,16 @@ html, body, [data-testid="stAppViewContainer"] {{ font-family:Inter,ui-sans-seri
 [data-testid="stMainBlockContainer"] {{ max-width:1440px; padding-top:1.5rem; padding-bottom:3rem; }}
 [data-testid="stSidebar"] {{ background:#fff; border-right:1px solid var(--line); }}
 [data-testid="stSidebar"] > div {{ padding-top:1.25rem; }}
-h1,h2,h3 {{ color:var(--ink); letter-spacing:-.025em; }}
+h1:not(.hero-comparativo__title):not(.th-title):not(.th-title-lg):not(.hero-title),h2,h3 {{ color:var(--ink); letter-spacing:-.025em; }}
 div[data-testid="stElementContainer"]:has(.hero-domicilios),div[data-testid="stElementContainer"]:has(.hero-migracao),div[data-testid="stElementContainer"]:has(.hero-pme),div[data-testid="stElementContainer"]:has(.hero-comparativo) {{ position:relative!important; top:auto!important; z-index:auto!important; }}
 .hero-domicilios,.hero-migracao,.hero-pme,.hero-comparativo {{ border-radius:18px!important; box-shadow:0 8px 24px rgba(15,23,42,.08)!important; margin-bottom:1rem!important; }}
-.hero-comparativo {{ display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.5rem 1.75rem; color:#fff; background:linear-gradient(120deg,#0F172A 0%,#123B5D 68%,#0F766E 100%); }}
-.hero-comparativo__eyebrow {{ margin:0 0 .35rem; color:#BAE6FD; font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
-.hero-comparativo__title {{ margin:0; color:#fff; font-size:clamp(1.35rem,2.4vw,1.9rem); font-weight:750; }}
-.hero-comparativo__subtitle {{ margin:.45rem 0 0; color:#CBD5E1; font-size:.9rem; }}
+.hero-comparativo {{ display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.5rem 1.75rem; color:#fff!important; background:linear-gradient(120deg,#0F172A 0%,#123B5D 68%,#0F766E 100%); }}
+.hero-comparativo__eyebrow {{ margin:0 0 .35rem; color:#BAE6FD!important; -webkit-text-fill-color:#BAE6FD!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
+.hero-comparativo__title {{ margin:0; color:#fff!important; -webkit-text-fill-color:#fff!important; font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important; font-size:clamp(1.35rem,2.4vw,1.9rem); font-weight:750; }}
+.hero-comparativo__subtitle {{ margin:.45rem 0 0; color:#CBD5E1!important; -webkit-text-fill-color:#CBD5E1!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.9rem; }}
 .hero-comparativo__metric {{ min-width:175px; padding:.9rem 1.1rem; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:rgba(255,255,255,.08); text-align:right; }}
-.hero-comparativo__metric-label {{ display:block; color:#CBD5E1; font-size:.72rem; font-weight:600; text-transform:uppercase; }}
-.hero-comparativo__metric-value {{ display:block; margin-top:.25rem; color:#fff; font-size:1.7rem; font-weight:750; }}
+.hero-comparativo__metric-label {{ display:block; color:#CBD5E1!important; -webkit-text-fill-color:#CBD5E1!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.72rem; font-weight:600; text-transform:uppercase; }}
+.hero-comparativo__metric-value {{ display:block; margin-top:.25rem; color:#fff!important; -webkit-text-fill-color:#fff!important; font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important; font-size:1.7rem; font-weight:750; }}
 .resultado-base {{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.85rem; margin:.75rem 0 1.25rem; padding:.9rem 1.1rem; border:1px solid var(--line); border-radius:14px; background:var(--surface); box-shadow:0 2px 8px rgba(15,23,42,.035); }}
 .resultado-base-label {{ color:var(--muted); font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
 .resultado-base-badges {{ display:flex; flex-wrap:wrap; gap:.45rem; }}

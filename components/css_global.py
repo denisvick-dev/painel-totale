@@ -320,9 +320,43 @@ def css_containers() -> str:
         opacity: 0.9;
     }}
     /* Títulos e texto */
-    {_MAIN} h1, {_MAIN} h2, {_MAIN} h3 {{
+    {_MAIN} h1:not(.hero-title):not(.th-title):not(.th-title-lg):not(.hero-comparativo__title),
+    {_MAIN} h2:not(.hero-title):not(.th-title):not(.th-title-lg):not(.hero-comparativo__title),
+    {_MAIN} h3:not(.hero-title):not(.th-title):not(.th-title-lg):not(.hero-comparativo__title) {{
         color: var(--totale-azul);
         letter-spacing: -0.03em;
+    }}
+    {_MAIN} .hero-corp h1,
+    {_MAIN} .totale-hero-1 h1,
+    {_MAIN} .totale-hero-2 h1,
+    {_MAIN} .hero-migracao h1,
+    {_MAIN} .hero-pme h1,
+    {_MAIN} .hero-domicilios h1,
+    {_MAIN} .hero-card h1,
+    {_MAIN} .hero-comparativo h1,
+    {_MAIN} .hero-title,
+    {_MAIN} .th-title,
+    {_MAIN} .th-title-lg,
+    {_MAIN} .hero-comparativo__title {{
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        font-family: var(--font-titulo, 'Oscine', 'Manrope', 'Segoe UI', Arial, sans-serif) !important;
+        letter-spacing: -0.03em;
+    }}
+    {_MAIN} .hero-subtitle,
+    {_MAIN} .th-sub,
+    {_MAIN} .th-sub-muted,
+    {_MAIN} .hero-sub,
+    {_MAIN} .hero-comparativo__sub {{
+        color: rgba(255, 255, 255, 0.88) !important;
+        -webkit-text-fill-color: rgba(255, 255, 255, 0.88) !important;
+        font-family: var(--font-texto, 'Inter', 'Segoe UI', sans-serif) !important;
+    }}
+    {_MAIN} .th-card-value,
+    {_MAIN} .th-stat-value,
+    {_MAIN} .hero-side-metric strong,
+    {_MAIN} .hero-comparativo__metric-value {{
+        font-family: var(--font-titulo, 'Oscine', 'Manrope', 'Segoe UI', Arial, sans-serif) !important;
     }}
     {_MAIN} [data-testid="stCaptionContainer"],
     {_MAIN} [data-testid="stCaption"] {{

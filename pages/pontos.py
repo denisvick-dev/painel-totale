@@ -307,7 +307,11 @@ class ComponenteVisual:
 </body>
 </html>
 """
-        components.html(html, height=60, scrolling=False)
+        fn_iframe = getattr(st, "iframe", None)
+        if callable(fn_iframe):
+            fn_iframe(html, height=60)
+        else:
+            components.html(html, height=60, scrolling=False)
 
     @staticmethod
     def gerar_podio(ranking_df: pd.DataFrame) -> None:
@@ -1000,12 +1004,30 @@ render_hero_totale_2(
     badge_tipo="info",
 )
 
-if "dados_prod" not in st.session_state:
+dados_prod_raw = st.session_state.get("dados_prod")
+if dados_prod_raw is None or (
+    isinstance(dados_prod_raw, dict) and not dados_prod_raw
+) or (isinstance(dados_prod_raw, pd.DataFrame) and dados_prod_raw.empty):
     render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
     st.stop()
 
-prod = st.session_state["dados_prod"]["Prod"].copy()
-gpon = st.session_state["dados_prod"]["Gpon"].copy()
+if isinstance(dados_prod_raw, pd.DataFrame):
+    prod = dados_prod_raw.copy()
+    gpon = pd.DataFrame()
+elif isinstance(dados_prod_raw, dict):
+    prod_df = dados_prod_raw.get("Prod")
+    gpon_df = dados_prod_raw.get("Gpon")
+    prod = prod_df.copy() if isinstance(prod_df, pd.DataFrame) else pd.DataFrame()
+    gpon = gpon_df.copy() if isinstance(gpon_df, pd.DataFrame) else pd.DataFrame()
+    if prod.empty and gpon.empty:
+        frames_disp = [v.copy() for v in dados_prod_raw.values() if isinstance(v, pd.DataFrame)]
+        if not frames_disp:
+            render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
+            st.stop()
+        prod = pd.concat(frames_disp, ignore_index=True)
+else:
+    render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
+    st.stop()
 
 for _nome, _frame in (("Prod", prod), ("Gpon", gpon)):
     if "Pontos" not in _frame.columns:
@@ -1378,35 +1400,115 @@ with aba_evolucao:
 
 # ── ABA 5 (Frequência Custom HTML) ──────────────────────────────────────────
 with aba_frequencia:
-    render_section_header(titulo="Frequência de produção", icone="🗓️")
+    render_section_header(
+        titulo="Frequência de produção",
+        subtitulo="Dias ativos em campo por Equipe, Supervisor e Projeto",
+        icone="🗓️",
+    )
     col_data_frequencia = Utilitarios.encontrar_coluna_data(df)
-    frequencia = resumo_frequencia(df, data_col=col_data_frequencia)
+    frequencia_base = resumo_frequencia(
+        df,
+        data_col=col_data_frequencia,
+        supervisor_col="Supervisor" if "Supervisor" in df.columns else None,
+        projeto_col="Projeto" if "Projeto" in df.columns else None,
+    )
 
-    if frequencia.empty:
+    if frequencia_base.empty:
         render_insight(
             "Não há equipe e data válidas para calcular frequência de produção.",
             tipo="info",
         )
     else:
-        c_eq, c_dias, c_periodo = st.columns(3)
-        max_dias = int(frequencia["Dias com produção"].max()) if not frequencia.empty else 1
-
-        c_eq.metric(
-            "Equipes com produção",
-            f"{frequencia['Equipe'].nunique():,}".replace(",", "."),
+        col_f_sup, col_f_proj, col_f_busca = st.columns([1.2, 1.2, 1.6])
+        opcoes_sup_freq = sorted(
+            [s for s in frequencia_base["Supervisor"].dropna().unique().tolist() if str(s).strip()]
         )
-        c_dias.metric("Maior frequência observada", f"{max_dias} dias")
+        opcoes_proj_freq = sorted(
+            [p for p in frequencia_base["Projeto"].dropna().unique().tolist() if str(p).strip()]
+        )
+        with col_f_sup:
+            sup_freq_sel = st.multiselect(
+                "Filtrar Supervisor",
+                options=opcoes_sup_freq,
+                default=[],
+                placeholder="Todos os supervisores",
+                key="freq_filtro_supervisor",
+            )
+        with col_f_proj:
+            proj_freq_sel = st.multiselect(
+                "Filtrar Projeto",
+                options=opcoes_proj_freq,
+                default=[],
+                placeholder="Todos os projetos",
+                key="freq_filtro_projeto",
+            )
+        with col_f_busca:
+            busca_freq_eq = st.text_input(
+                "Buscar Equipe",
+                value="",
+                placeholder="Digite o nome ou código da equipe...",
+                key="freq_filtro_equipe",
+            )
+
+        frequencia = frequencia_base.copy()
+        if sup_freq_sel:
+            frequencia = frequencia[frequencia["Supervisor"].isin(sup_freq_sel)]
+        if proj_freq_sel:
+            frequencia = frequencia[frequencia["Projeto"].isin(proj_freq_sel)]
+        if busca_freq_eq.strip():
+            termo_eq = busca_freq_eq.strip().lower()
+            frequencia = frequencia[
+                frequencia["Equipe"].astype(str).str.lower().str.contains(termo_eq, na=False)
+            ]
+
+        c_eq, c_sup_proj, c_dias, c_periodo = st.columns(4)
+        max_dias = int(frequencia["Dias com produção"].max()) if not frequencia.empty else 1
+        media_dias = float(frequencia["Dias com produção"].mean()) if not frequencia.empty else 0.0
+        qtd_sup_freq = int(frequencia["Supervisor"].nunique()) if not frequencia.empty else 0
+        qtd_proj_freq = int(frequencia["Projeto"].nunique()) if not frequencia.empty else 0
 
         data_min = pd.to_datetime(df[col_data_frequencia], errors="coerce").min()
         data_max = pd.to_datetime(df[col_data_frequencia], errors="coerce").max()
-        c_periodo.metric(
-            "Período dos registros",
-            (
-                f"{data_min:%d/%m}–{data_max:%d/%m}"
-                if pd.notna(data_min) and pd.notna(data_max)
-                else "Indisponível"
-            ),
+        periodo_str = (
+            f"{data_min:%d/%m}–{data_max:%d/%m}"
+            if pd.notna(data_min) and pd.notna(data_max)
+            else "Indisponível"
         )
+
+        render_kpi(
+            c_eq,
+            "Equipes com produção",
+            f"{frequencia['Equipe'].nunique():,}".replace(",", "."),
+            f"Média: {media_dias:.1f} dias ativos",
+            "azul",
+            "👷",
+        )
+        render_kpi(
+            c_sup_proj,
+            "Supervisores · Projetos",
+            f"{qtd_sup_freq} · {qtd_proj_freq}",
+            "Cobertura ativa no recorte",
+            "roxo",
+            "🧭",
+        )
+        render_kpi(
+            c_dias,
+            "Maior frequência observada",
+            f"{max_dias} dias",
+            f"{int(frequencia['Registros'].sum()):,} registros".replace(",", "."),
+            "verde",
+            "📅",
+        )
+        render_kpi(
+            c_periodo,
+            "Período dos registros",
+            periodo_str,
+            "Datas com produção lançada",
+            "laranja",
+            "🗓️",
+        )
+
+        st.markdown("<div style='height: 12px'></div>", unsafe_allow_html=True)
 
         # Formatação Visual da Barra de Progresso de Frequência
         def formata_dias(val):
@@ -1429,14 +1531,99 @@ with aba_frequencia:
             </div>
             """
 
+        def formata_data_freq(val):
+            if pd.isna(val):
+                return "-"
+            try:
+                return pd.to_datetime(val).strftime("%d/%m/%Y")
+            except Exception:
+                return _escapar_html(val)
+
         fmt_freq = {
             "Equipe": lambda v: (
-                f"<span style='font-weight:600; color:#0F172A;'>{_escapar_html(v)}</span>"
+                f"<span style='font-weight:700; color:#0F172A;'>{_escapar_html(v)}</span>"
+            ),
+            "Supervisor": lambda v: (
+                f"<span style='font-weight:600; color:#012869;'>{_escapar_html(v)}</span>"
+            ),
+            "Projeto": lambda v: (
+                f"<span style='display:inline-block; padding:2px 8px; border-radius:999px; "
+                f"background:#EFF6FF; color:#1E40AF; font-weight:700; font-size:10px;'>"
+                f"{_escapar_html(v)}</span>"
             ),
             "Dias com produção": formata_dias,
+            "Registros": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
+            "Última atividade": formata_data_freq,
         }
 
-        ComponenteVisual.render_tabela_html_custom(frequencia, fmt_freq, height=500)
+        ComponenteVisual.render_tabela_html_custom(frequencia, fmt_freq, height=480)
+
+        if not frequencia.empty:
+            st.markdown("<div style='height: 14px'></div>", unsafe_allow_html=True)
+            col_res_sup, col_res_proj = st.columns(2, gap="medium")
+            with col_res_sup:
+                render_section_header(
+                    titulo="Frequência por Supervisor",
+                    subtitulo="Média de dias trabalhados e volume por supervisor",
+                    icone="👔",
+                )
+                freq_por_sup = (
+                    frequencia.groupby("Supervisor", as_index=False)
+                    .agg(
+                        Equipes=("Equipe", "nunique"),
+                        **{
+                            "Média de Dias": ("Dias com produção", "mean"),
+                            "Máx. Dias": ("Dias com produção", "max"),
+                            "Registros": ("Registros", "sum"),
+                        },
+                    )
+                    .sort_values(["Média de Dias", "Registros"], ascending=[False, False])
+                    .reset_index(drop=True)
+                )
+                fmt_sup_freq = {
+                    "Supervisor": lambda v: (
+                        f"<span style='font-weight:700; color:#012869;'>{_escapar_html(v)}</span>"
+                    ),
+                    "Equipes": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
+                    "Média de Dias": lambda v: f"{_para_float(v):.1f} dias".replace(".", ","),
+                    "Máx. Dias": lambda v: f"{int(_para_float(v))} dias",
+                    "Registros": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
+                }
+                ComponenteVisual.render_tabela_html_custom(
+                    freq_por_sup, fmt_sup_freq, height=280
+                )
+
+            with col_res_proj:
+                render_section_header(
+                    titulo="Frequência por Projeto",
+                    subtitulo="Média de dias trabalhados e volume por projeto",
+                    icone="🏗️",
+                )
+                freq_por_proj = (
+                    frequencia.groupby("Projeto", as_index=False)
+                    .agg(
+                        Equipes=("Equipe", "nunique"),
+                        **{
+                            "Média de Dias": ("Dias com produção", "mean"),
+                            "Máx. Dias": ("Dias com produção", "max"),
+                            "Registros": ("Registros", "sum"),
+                        },
+                    )
+                    .sort_values(["Média de Dias", "Registros"], ascending=[False, False])
+                    .reset_index(drop=True)
+                )
+                fmt_proj_freq = {
+                    "Projeto": lambda v: (
+                        f"<span style='font-weight:700; color:#0F172A;'>{_escapar_html(v)}</span>"
+                    ),
+                    "Equipes": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
+                    "Média de Dias": lambda v: f"{_para_float(v):.1f} dias".replace(".", ","),
+                    "Máx. Dias": lambda v: f"{int(_para_float(v))} dias",
+                    "Registros": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
+                }
+                ComponenteVisual.render_tabela_html_custom(
+                    freq_por_proj, fmt_proj_freq, height=280
+                )
 
     st.caption(
         "Este indicador conta apenas datas com produção registrada. Não identifica faltas: "

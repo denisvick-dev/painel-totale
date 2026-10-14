@@ -42,6 +42,12 @@ from components.componentes import (
 from components.componentes import (
     render_kpi as render_kpi_corp,
 )
+from components.layout_pagina import (
+    render_chips,
+    render_rodape_pagina,
+    render_sumario,
+    secao,
+)
 from components.sidebar import render_page_sidebar_theme_selector
 
 # ==========================================================
@@ -1169,7 +1175,7 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     render_section_header(
         titulo="Detalhamento por Técnico",
         subtitulo="Comparativo entre técnicos escalados na base e o total fixo digitado.",
-        icone="‍🔧",
+        icone="🧑‍🔧",
         badge="Detalhamento",
         badge_tipo="info",
     )
@@ -1181,11 +1187,13 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     nm = total_montados_fixo
     dif = max(0, nm - ne)
 
-    a1, a2 = st.tabs([" Escalados — Base Importada", " Montados — Valor Fixo"])
+    a1, a2 = st.tabs(
+        ["🟢 Escalados — Base Importada", "🟡 Montados — Valor Fixo"]
+    )
 
     with a1:
         st.markdown(
-            '<div class="visao-badge badge-escalados"> Visão 1 · Escalados · Fonte: Base Importada</div>'
+            '<div class="visao-badge badge-escalados">🟢 Visão 1 · Escalados · Fonte: Base Importada</div>'
             '<p style="font-size:0.85rem;color:#475569;margin:0 0 12px;">'
             "Técnicos com ao menos <strong>1 O.S. alocada</strong> na base importada.</p>",
             unsafe_allow_html=True,
@@ -1490,7 +1498,7 @@ def main():
         render_section_header(
             titulo="Importação de Dados",
             subtitulo="Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.",
-            icone="",
+            icone="📥",
             badge="Excel, CSV ou Auto",
             badge_tipo="info",
         )
@@ -1533,13 +1541,14 @@ def main():
                 except Exception as exc:
                     render_insight(f"Não foi possível processar o arquivo: {exc}", "critico")
                     st.exception(exc)
+        render_rodape_pagina(versao="3.6.0", ambiente="Produção")
         return
 
     df_full = st.session_state.base_data
 
     # ─ FILTROS ──────────────────────────────────────────
     with st.sidebar:
-        st.header(" Filtros")
+        st.header("🔍 Filtros")
         mons = sorted(df_full[Config.COL_MONITOR].dropna().astype(str).unique())
         sel_m = st.multiselect("Monitor", mons, default=mons)
         regs = sorted(df_full[Config.COL_REGIAO].dropna().astype(str).unique())
@@ -1562,294 +1571,290 @@ def main():
     ]
     if df.empty:
         render_insight("Nenhum dado selecionado com os filtros atuais.", "alerta")
+        render_rodape_pagina(versao="3.6.0", ambiente="Produção")
         return
 
-    # ── RESULTADO DA BASE ────────────────────────────────
-    render_resultado_base(sorted(df[Config.COL_REGIAO].unique()), len(df))
-
-    # ── KPIs DE VOLUME (Standard - 4 grandes) ────────────
-    render_section_header(
-        titulo="Indicadores gerais",
-        subtitulo="Visão consolidada da produção do dia com projeção final estimada.",
-        icone="📈",
-        badge="Consolidado",
-        badge_tipo="info",
-    )
-    kpis = calcular_kpis(df)
-
-    c1, c2, c3, c4 = st.columns(4)
-    render_kpi_corp(
-        c1,
-        "Total Alocado",
-        f"{kpis['total']:,}",
-        f"{kpis['pendentes']:,} pendentes",
-        "azul",
-    )
-    render_kpi_corp(
-        c2,
-        "Executadas",
-        f"{kpis['executadas']:,}",
-        f"Taxa: {kpis['taxa']:.1%}",
-        "verde",
-    )
-    render_kpi_corp(c3, "Projeção Final", f"{kpis['projecao']:,}", "Baseado na taxa atual", "cinza")
-    render_kpi_corp(c4, "Meta", f"{Config.META_EXECUCAO:.0%}", "Referência corporativa", "laranja")
-
-    # KPIs secundários compactos
-    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
-    s1, s2, s3 = st.columns(3)
-    render_kpi_sm(
-        s1,
-        "Não Executadas",
-        f"{kpis['nao_executadas']:,}",
-        f"Quebra: {kpis['quebra']:.1%}",
-        "vermelho",
-    )
-    render_kpi_sm(s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul")
-    render_kpi_sm(
-        s3,
-        "Pendentes",
-        f"{kpis['pendentes']:,}",
-        f"{kpis['pendentes'] / kpis['total']:.1%} do total" if kpis["total"] else "0%",
-        "cinza",
-    )
-
-    # ==========================================================
-    # ★ CARDS DE TÉCNICOS ★
-    # ==========================================================
     n_escalados = int(df.loc[df[Config.COL_TOTAL] >= 1, Config.COL_TECNICO].nunique())
     n_montados = int(total_montados_fixo)
+    regioes_ativas = sorted(df[Config.COL_REGIAO].unique())
 
+    # ── RESULTADO DA BASE E SUMÁRIO ──────────────────────
+    render_resultado_base(regioes_ativas, len(df))
+    render_chips(
+        [
+            ("Regiões Ativas", ", ".join(regioes_ativas) if regioes_ativas else "—"),
+            ("Monitores", str(df[Config.COL_MONITOR].nunique())),
+            ("Técnicos Escalados", str(n_escalados)),
+            ("Técnicos Montados (Fixo)", str(n_montados)),
+            (
+                "Meta Corporativa",
+                f"{Config.META_EXECUCAO:.0%} exec. · {Config.META_EXECUTADAS_TECNICO} O.S./téc.",
+            ),
+        ]
+    )
+    render_sumario(
+        [
+            "Indicadores Gerais",
+            "Escalados × Montados",
+            "Panorama Visual",
+            "Análises Detalhadas",
+        ],
+        titulo="Nesta página",
+    )
+
+    kpis = calcular_kpis(df)
     vol_esc = calcular_volumetria_por_tecnico(kpis, n_escalados)
     vol_mon = calcular_volumetria_por_tecnico(kpis, n_montados)
 
-    render_section_header(
-        titulo="Nº de Técnicos — Escalados × Montados",
-        subtitulo="Comparativo entre os técnicos da base importada e o total montado do dia.",
-        icone="👷",
+    # ── SEÇÃO 1: INDICADORES GERAIS ─────────────────────
+    with secao(
+        "Indicadores Gerais",
+        icone="insights",
+        subtitulo="Visão consolidada da produção do dia com projeção final estimada.",
+        badge="Consolidado",
+        badge_tipo="info",
+    ):
+        c1, c2, c3, c4 = st.columns(4)
+        render_kpi_corp(
+            c1,
+            "Total Alocado",
+            f"{kpis['total']:,}",
+            f"{kpis['pendentes']:,} pendentes",
+            "azul",
+        )
+        render_kpi_corp(
+            c2,
+            "Executadas",
+            f"{kpis['executadas']:,}",
+            f"Taxa: {kpis['taxa']:.1%}",
+            "verde",
+        )
+        render_kpi_corp(
+            c3,
+            "Projeção Final",
+            f"{kpis['projecao']:,}",
+            "Baseado na taxa atual",
+            "cinza",
+        )
+        render_kpi_corp(
+            c4,
+            "Meta",
+            f"{Config.META_EXECUCAO:.0%}",
+            "Referência corporativa",
+            "laranja",
+        )
+
+        st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+        s1, s2, s3 = st.columns(3)
+        render_kpi_sm(
+            s1,
+            "Não Executadas",
+            f"{kpis['nao_executadas']:,}",
+            f"Quebra: {kpis['quebra']:.1%}",
+            "vermelho",
+        )
+        render_kpi_sm(
+            s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul"
+        )
+        render_kpi_sm(
+            s3,
+            "Pendentes",
+            f"{kpis['pendentes']:,}",
+            f"{kpis['pendentes'] / kpis['total']:.1%} do total"
+            if kpis["total"]
+            else "0%",
+            "cinza",
+        )
+
+    # ── SEÇÃO 2: ESCALADOS × MONTADOS (CONSOLIDADO) ─────
+    with secao(
+        "Escalados × Montados",
+        icone="groups",
+        subtitulo="Comparativo de força de trabalho e produtividade média entre técnicos da base importada e escala fixa.",
         badge="Comparativo",
         badge_tipo="alerta",
-    )
+    ):
+        p1, p2 = st.columns(2)
+        render_card_tecnicos(
+            p1,
+            titulo="Técnicos Escalados",
+            tag="Painel 1 · Importação",
+            fonte="Base importada (técnicos com ≥ 1 O.S.)",
+            n_tecnicos=n_escalados,
+            vol=vol_esc,
+            kpis=kpis,
+            variante="escalados",
+        )
+        render_card_tecnicos(
+            p2,
+            titulo="Técnicos Montados",
+            tag="Painel 2 · Valor Fixo",
+            fonte="Número digitado no painel lateral",
+            n_tecnicos=n_montados,
+            vol=vol_mon,
+            kpis=kpis,
+            variante="montados",
+        )
 
-    p1, p2 = st.columns(2)
-    render_card_tecnicos(
-        p1,
-        titulo="Técnicos Escalados",
-        tag="Painel 1 · Importação",
-        fonte="Base importada (técnicos com ≥ 1 O.S.)",
-        n_tecnicos=n_escalados,
-        vol=vol_esc,
-        kpis=kpis,
-        variante="escalados",
-    )
-    render_card_tecnicos(
-        p2,
-        titulo="Técnicos Montados",
-        tag="Painel 2 · Valor Fixo",
-        fonte="Número digitado no painel lateral",
-        n_tecnicos=n_montados,
-        vol=vol_mon,
-        kpis=kpis,
-        variante="montados",
-    )
+        render_faixa_diferenca(n_escalados, n_montados, vol_esc, vol_mon)
 
-    render_faixa_diferenca(n_escalados, n_montados, vol_esc, vol_mon)
-
-    # ==========================================================
-    # ★ MÉDIAS POR TÉCNICO ★
-    # ==========================================================
-    render_section_header(
-        titulo="Médias por Técnico — Escalados × Montados",
-        subtitulo="Produtividade média em cada visão. Verde = Escalados; Amarelo = Montados.",
-        icone="",
-        badge="Produtividade",
-        badge_tipo="sucesso",
-    )
-
-    m1, m2, m3, m4 = st.columns(4)
-    render_kpi_sm(
-        m1,
-        "OS / Escalado",
-        _fmt_br(vol_esc["os_tec"]),
-        f"{n_escalados:,} escalados",
-        "verde",
-    )
-    render_kpi_sm(
-        m2,
-        "OS / Montado",
-        _fmt_br(vol_mon["os_tec"]),
-        f"{n_montados:,} montados",
-        "laranja",
-    )
-    render_kpi_sm(
-        m3,
-        "Exec / Escalado",
-        _fmt_br(vol_esc["exe_tec"]),
-        f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}",
-        "verde",
-    )
-    render_kpi_sm(
-        m4,
-        "Exec / Montado",
-        _fmt_br(vol_mon["exe_tec"]),
-        f"Meta: {_fmt_br(Config.META_EXECUTADAS_TECNICO)}",
-        "laranja",
-    )
-
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-    m5, m6, m7, m8 = st.columns(4)
-    render_kpi_sm(
-        m5,
-        "Pend / Escalado",
-        _fmt_br(vol_esc["pen_tec"]),
-        "Média de pendências",
-        "azul",
-    )
-    render_kpi_sm(
-        m6,
-        "Pend / Montado",
-        _fmt_br(vol_mon["pen_tec"]),
-        "Média de pendências",
-        "cinza",
-    )
-    render_kpi_sm(
-        m7,
-        "Proj / Escalado",
-        _fmt_br(vol_esc["proj_tec"]),
-        "Projeção média final",
-        "azul",
-    )
-    render_kpi_sm(
-        m8,
-        "Proj / Montado",
-        _fmt_br(vol_mon["proj_tec"]),
-        "Projeção média final",
-        "cinza",
-    )
-
-    # Tabela comparativa
-    medias = pd.DataFrame(
-        {
-            "Indicador": [
-                "Técnicos",
-                "OS / Técnico",
-                "Executadas / Técnico",
-                "Não Executadas / Técnico",
-                "Pendentes / Técnico",
-                "Baixadas / Técnico",
-                "Projeção / Técnico",
-                "Atingimento da Meta (Exec.)",
-                "Projeção × Meta",
-            ],
-            "Escalados": [
-                n_escalados,
-                vol_esc["os_tec"],
-                vol_esc["exe_tec"],
-                vol_esc["nex_tec"],
-                vol_esc["pen_tec"],
-                vol_esc["bai_tec"],
-                vol_esc["proj_tec"],
-                vol_esc["atingimento"],
-                vol_esc["projecao_atingimento"],
-            ],
-            "Montados": [
-                n_montados,
-                vol_mon["os_tec"],
-                vol_mon["exe_tec"],
-                vol_mon["nex_tec"],
-                vol_mon["pen_tec"],
-                vol_mon["bai_tec"],
-                vol_mon["proj_tec"],
-                vol_mon["atingimento"],
-                vol_mon["projecao_atingimento"],
-            ],
-        }
-    )
-    medias["Diferença (Montados - Escalados)"] = medias["Montados"] - medias["Escalados"]
-
-    # Sanitiza a tabela de médias contra erros do PyArrow antes de aplicar formatação
-    st.dataframe(
-        Utils.sanitizar_para_pyarrow(medias).style.format(
+        medias = pd.DataFrame(
             {
-                "Escalados": lambda x: (
-                    f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ),
-                "Montados": lambda x: (
-                    f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ),
-                "Diferença (Montados - Escalados)": lambda x: (
-                    f"{x:+,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ),
+                "Indicador": [
+                    "Técnicos",
+                    "OS / Técnico",
+                    "Executadas / Técnico",
+                    "Não Executadas / Técnico",
+                    "Pendentes / Técnico",
+                    "Baixadas / Técnico",
+                    "Projeção / Técnico",
+                    "Atingimento da Meta (Exec.)",
+                    "Projeção × Meta",
+                ],
+                "Escalados": [
+                    n_escalados,
+                    vol_esc["os_tec"],
+                    vol_esc["exe_tec"],
+                    vol_esc["nex_tec"],
+                    vol_esc["pen_tec"],
+                    vol_esc["bai_tec"],
+                    vol_esc["proj_tec"],
+                    vol_esc["atingimento"],
+                    vol_esc["projecao_atingimento"],
+                ],
+                "Montados": [
+                    n_montados,
+                    vol_mon["os_tec"],
+                    vol_mon["exe_tec"],
+                    vol_mon["nex_tec"],
+                    vol_mon["pen_tec"],
+                    vol_mon["bai_tec"],
+                    vol_mon["proj_tec"],
+                    vol_mon["atingimento"],
+                    vol_mon["projecao_atingimento"],
+                ],
             }
-        ),
-        width="stretch",
-        hide_index=True,
-    )
+        )
+        medias["Diferença (Montados - Escalados)"] = (
+            medias["Montados"] - medias["Escalados"]
+        )
 
-    st.plotly_chart(plot_comparativo(vol_esc, vol_mon), width="stretch")
+        col_comp_chart, col_comp_tab = st.columns([3, 2], gap="large")
+        with col_comp_chart:
+            st.plotly_chart(plot_comparativo(vol_esc, vol_mon), width="stretch")
+        with col_comp_tab:
+            st.markdown("##### 📋 Síntese Comparativa de Médias")
+            st.dataframe(
+                Utils.sanitizar_para_pyarrow(medias).style.format(
+                    {
+                        "Escalados": lambda x: (
+                            f"{x:,.1f}"
+                            .replace(",", "X")
+                            .replace(".", ",")
+                            .replace("X", ".")
+                        ),
+                        "Montados": lambda x: (
+                            f"{x:,.1f}"
+                            .replace(",", "X")
+                            .replace(".", ",")
+                            .replace("X", ".")
+                        ),
+                        "Diferença (Montados - Escalados)": lambda x: (
+                            f"{x:+,.1f}"
+                            .replace(",", "X")
+                            .replace(".", ",")
+                            .replace("X", ".")
+                        ),
+                    }
+                ),
+                width="stretch",
+                hide_index=True,
+                height=365,
+            )
 
-    # ── GRÁFICOS GERAIS ─────────────────────────────────
-    render_section_header(
-        titulo="Visão Geral",
-        subtitulo="Distribuição de status e ranking dos monitores por taxa de execução.",
-        icone="📈",
+    # ── SEÇÃO 3: PANORAMA VISUAL ────────────────────────
+    with secao(
+        "Panorama Visual",
+        icone="bar_chart",
+        subtitulo="Distribuição de status das O.S. e ranking dos monitores por taxa de execução.",
         badge="Panorama",
         badge_tipo="info",
-    )
-    g1, g2 = st.columns([1, 2])
-    g1.plotly_chart(plot_status_pie(df), width="stretch")
-    g2.plotly_chart(plot_ranking_monitor(df), width="stretch")
+    ):
+        g1, g2 = st.columns([1, 2], gap="large")
+        g1.plotly_chart(plot_status_pie(df), width="stretch")
+        g2.plotly_chart(plot_ranking_monitor(df), width="stretch")
 
-    # ── ABAS PRINCIPAIS ─────────────────────────────────
-    render_section_header(
-        titulo="Análises Detalhadas",
-        subtitulo="Explore os dados agrupados por equipe, técnico ou monitor individualmente.",
-        icone="",
+    # ── SEÇÃO 4: ANÁLISES DETALHADAS ────────────────────
+    with secao(
+        "Análises Detalhadas",
+        icone="table_chart",
+        subtitulo="Explore os dados agrupados por equipe, técnico, monitor individual ou consulte a base filtrada.",
         badge="Detalhamento",
         badge_tipo="alerta",
-    )
-
-    t1, t2, t3, t4 = st.tabs(["👥 Equipes", "🧑‍🔧 Técnicos", "🔍 Detalhe Monitor", " Base"])
-
-    with t1:
-        te = calcular_volumetria(df, [Config.COL_REGIAO, Config.COL_MONITOR])
-        render_dataframe(
-            te,
-            titulo="Volumetria por Equipe",
-            icone="👥",
-            color_col="Taxa Execução",
-            color_meta=Config.META_EXECUCAO,
+    ):
+        t1, t2, t3, t4 = st.tabs(
+            [
+                "👥 Equipes",
+                "🧑‍🔧 Técnicos (Escalados × Montados)",
+                "🔍 Detalhe por Monitor",
+                "📋 Base Consolidada",
+            ]
         )
-        st.download_button(" Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx")
 
-    with t2:
-        renderizar_volumetria_tecnicos(df, total_montados_fixo)
+        with t1:
+            te = calcular_volumetria(df, [Config.COL_REGIAO, Config.COL_MONITOR])
+            render_dataframe(
+                te,
+                titulo="Volumetria por Equipe",
+                icone="👥",
+                color_col="Taxa Execução",
+                color_meta=Config.META_EXECUCAO,
+            )
+            st.download_button(
+                "📥 Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx"
+            )
 
-    with t3:
-        md = st.selectbox("Monitor", sel_m, key="monitor_detalhe")
-        tt = calcular_volumetria(df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO])
-        tt = tt.sort_values(
-            ["Executada", "Taxa Execução", "Total Alocado"],
-            ascending=[False, False, False],
-        ).reset_index(drop=True)
-        render_dataframe(
-            tt,
-            titulo=f"Técnicos — {md}",
-            icone="🧑‍",
-            color_col="Taxa Execução",
-            color_meta=Config.META_EXECUCAO,
-            height=500,
-        )
-        st.download_button("📥 Baixar Técnicos", gerar_excel(tt, "Tecnicos"), f"tecnicos_{md}.xlsx")
+        with t2:
+            renderizar_volumetria_tecnicos(df, total_montados_fixo)
 
-    with t4:
-        render_dataframe(
-            df.head(500),
-            titulo="Base de Dados (prévia — 500 linhas)",
-            icone="",
-            badge=f"{len(df)} total",
-            height=600,
-        )
+        with t3:
+            md = st.selectbox("Monitor", sel_m, key="monitor_detalhe")
+            tt = calcular_volumetria(
+                df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO]
+            )
+            tt = tt.sort_values(
+                ["Executada", "Taxa Execução", "Total Alocado"],
+                ascending=[False, False, False],
+            ).reset_index(drop=True)
+            render_dataframe(
+                tt,
+                titulo=f"Técnicos — {md}",
+                icone="🧑‍🔧",
+                color_col="Taxa Execução",
+                color_meta=Config.META_EXECUCAO,
+                height=500,
+            )
+            st.download_button(
+                "📥 Baixar Técnicos",
+                gerar_excel(tt, "Tecnicos"),
+                f"tecnicos_{md}.xlsx",
+            )
+
+        with t4:
+            render_dataframe(
+                df.head(500),
+                titulo="Base de Dados (prévia — 500 linhas)",
+                icone="📋",
+                badge=f"{len(df)} total",
+                height=600,
+            )
+            st.download_button(
+                "📥 Baixar Base Filtrada",
+                gerar_excel(df, "Base_Volumetria"),
+                "base_volumetria.xlsx",
+            )
+
+    render_rodape_pagina(versao="3.6.0", ambiente="Produção")
 
 
 if __name__ == "__main__":

@@ -9,17 +9,12 @@ Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
 • Página reorganizada na hierarquia de leitura ``ORDEM_PADRAO``
-  (cabeçalho → sumário → filtros → KPIs → gráficos → detalhamento →
-  exportação → rodapé), usando os primitivos de ``components.layout_pagina``.
+  (cabeçalho → sumário → filtros → KPIs → detalhamento → rodapé),
+  usando os primitivos de ``components.layout_pagina``.
 • Sumário com âncoras navegáveis: cada bloco vive em ``secao()`` com id estável.
 • Barra de atualização fixa (sticky) no topo, sem perder o contexto ao rolar.
 • ``st.metric`` substituído pelos cartões de KPI avançados
-  (``components.kpi_cards``) com sparkline, barra de progresso e ajuda.
-• Cockpit executivo com gráficos da fábrica minimalista
-  (``components.graficos``) nas cores oficiais #012869 e #F37C04.
-• Séries do cockpit calculadas **uma única vez** e reutilizadas pelos cartões e
-  pelos gráficos (antes cada bloco recalculava a agregação diária).
-• Exportação direta do consolidado de produção e painel de desempenho da carga.
+  (``components.kpi_cards``) com barra de progresso e ajuda.
 • Rodapé padronizado do portal (marca, ambiente, horário e versão).
 • Datas em português sem depender do locale configurado no servidor.
 """
@@ -36,9 +31,9 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
-from components.alertas_automaticos import avaliar_alertas
 from components.componentes import (
     Cores,
+    aplicar_estilo,
     formatar_numero_br,
     render_hero_totale_1,
     render_hero_totale_2,
@@ -46,26 +41,15 @@ from components.componentes import (
     render_spacer,
 )
 from components.dashboard_kit import render_toggle_autorefresh
-from components.graficos import criar_grafico, render_graficos_em_abas
-from components.kpi_cards import SpecKPIAvancado, render_kpi_row, render_metric
+from components.kpi_cards import SpecKPIAvancado, render_kpi_row
 from components.layout_pagina import (
     barra_filtros,
-    painel,
-    render_barra_acoes,
-    render_divisor,
     render_rodape_pagina,
     render_sumario,
     secao,
 )
-from components.metricas_executivas import (
-    comparar_periodos,
-    encontrar_coluna,
-    serie_atingimento_meta,
-    serie_diaria,
-    serie_quebra_diaria,
-)
 from components.sidebar import render_page_sidebar_theme_selector
-from services.cache_dados import render_painel_desempenho, temporizar
+from services.cache_dados import temporizar
 
 logger = logging.getLogger(__name__)
 
@@ -533,12 +517,9 @@ def render_kpi_strip(info_base: dict[str, Any]) -> None:
 
 SECOES_PAGINA: tuple[tuple[str, str, str], ...] = (
     ("Visão geral do sistema", "insights", "Volume carregado e resultado da última sincronização"),
-    ("Cockpit executivo", "monitoring", "Metas, volumetria e quebra com tendência D-1 e W-1"),
     ("Saúde das fontes de dados", "database", "Resultado por fonte e cargas preservadas"),
-    ("Alertas automáticos", "notifications_active", "Falhas, qualidade dos dados e estado do robô"),
     ("Módulos de gestão e operação", "hub", "Frentes táticas e estratégicas da TOTALE"),
     ("Atalhos rápidos", "bolt", "Ferramentas e relatórios de rotina"),
-    ("Exportação e desempenho", "download", "Consolidado da produção e tempos de carga"),
 )
 
 
@@ -651,256 +632,6 @@ def render_status_operacional(info_base: dict[str, Any]) -> None:
         )
 
     render_spacer(12)
-
-
-def _formatar_valor_serie(valor: float | None, unidade: str) -> str:
-    if valor is None:
-        return "Sem histórico"
-    if unidade == "%":
-        return f"{valor:.1f}%".replace(".", ",")
-    return formatar_numero_br(valor)
-
-
-def _delta_serie(valor: float | None, referencia: float | None) -> str | None:
-    if valor is None or referencia is None:
-        return None
-    diferenca = valor - referencia
-    if referencia:
-        variacao = (diferenca / abs(referencia)) * 100.0
-        return f"{variacao:+.1f}%".replace(".", ",")
-    return f"{diferenca:+.1f}".replace(".", ",")
-
-
-def _render_comparativo(
-    coluna: Any,
-    titulo: str,
-    serie: pd.Series,
-    unidade: str,
-    descricao: str,
-    *,
-    menor_melhor: bool = False,
-) -> None:
-    """Cartão de KPI avançado com sparkline no lugar do ``st.metric`` padrão."""
-    comparacao = comparar_periodos(serie)
-    atual = comparacao["atual"]
-    delta = _delta_serie(atual, comparacao["d1"])
-    delta_color = "inverse" if menor_melhor else "normal"
-    data_ref = comparacao["data"]
-    rodape = (
-        f"D-1 {_formatar_valor_serie(comparacao['d1'], unidade)} · "
-        f"W-1 {_formatar_valor_serie(comparacao['w1'], unidade)}"
-    )
-    render_metric(
-        titulo,
-        _formatar_valor_serie(atual, unidade),
-        delta=delta,
-        delta_color=delta_color,
-        help=descricao,
-        container=coluna,
-        sparkline=serie.tail(21).to_numpy() if not serie.empty else None,
-        rodape=rodape,
-        sub=(
-            f"Data mais recente: {data_ref.strftime('%d/%m/%Y')}"
-            if data_ref is not None and not pd.isna(data_ref)
-            else "Sem histórico de datas"
-        ),
-        tema="laranja" if menor_melhor else "azul",
-        icone="trending_down" if menor_melhor else "trending_up",
-    )
-
-
-def _series_cockpit() -> dict[str, pd.Series]:
-    """Calcula as três séries diárias do cockpit **uma única vez**.
-
-    Antes, cada bloco (cartões e gráficos) agregava as fontes de novo. O
-    resultado é reutilizado pelos KPIs, pelos gráficos e pela exportação —
-    menos CPU por rerun e números consistentes entre os blocos.
-    """
-    dados_prod = st.session_state.get("dados_prod")
-    frames_prod: list[pd.DataFrame] = []
-    if isinstance(dados_prod, pd.DataFrame):
-        frames_prod.append(dados_prod)
-    elif isinstance(dados_prod, dict):
-        frames_prod.extend(
-            frame for frame in dados_prod.values() if isinstance(frame, pd.DataFrame)
-        )
-    producao = (
-        pd.concat(frames_prod, ignore_index=True, sort=False) if frames_prod else pd.DataFrame()
-    )
-    df_robo = st.session_state.get("df_memoria")
-    operacional = df_robo if isinstance(df_robo, pd.DataFrame) else pd.DataFrame()
-
-    coluna_data_operacional = encontrar_coluna(
-        operacional,
-        (
-            "DATA",
-            "DATA OS",
-            "DATA BAIXA",
-            "DATA EXECUÇÃO",
-            "DATA AGENDAMENTO",
-        ),
-    )
-    coluna_volume = encontrar_coluna(operacional, ("TOTAL DE TAREFAS", "QUANTIDADE", "QTD OS"))
-    fonte_volume = operacional
-    if coluna_data_operacional is None:
-        fonte_volume = producao
-        coluna_volume = encontrar_coluna(producao, ("TOTAL DE TAREFAS", "QTD OS"))
-    serie_volume = serie_diaria(fonte_volume, valor_col=coluna_volume)
-    if coluna_volume is None:
-        serie_volume = serie_diaria(fonte_volume)
-
-    return {
-        "Equipes na meta mensal (≥ 300 pts)": serie_atingimento_meta(producao),
-        "Volumetria diária": serie_volume,
-        "Quebra diária": serie_quebra_diaria(operacional),
-    }
-
-
-_UNIDADES_COCKPIT: dict[str, str] = {
-    "Equipes na meta mensal (≥ 300 pts)": "%",
-    "Volumetria diária": "registros",
-    "Quebra diária": "%",
-}
-_DESCRICAO_COCKPIT: dict[str, str] = {
-    "Equipes na meta mensal (≥ 300 pts)": (
-        "Percentual de equipes que atingiram 300 pontos acumulados no mês; "
-        "comparação indisponível se a data correspondente não existir."
-    ),
-    "Volumetria diária": (
-        "Soma de tarefas quando a fonte informa quantidade; caso contrário, "
-        "conta registros datados."
-    ),
-    "Quebra diária": (
-        "Não execuções divididas pelas ordens executadas ou não executadas; "
-        "pendências não entram no denominador."
-    ),
-}
-_LINKS_COCKPIT: dict[str, tuple[str, str]] = {
-    "Equipes na meta mensal (≥ 300 pts)": ("pages/pontos.py", "📈"),
-    "Volumetria diária": ("pages/volumetria.py", "📊"),
-    "Quebra diária": ("pages/quebra_unificada.py", "📉"),
-}
-
-
-def _figuras_cockpit(series: Mapping[str, pd.Series]) -> dict[str, Any]:
-    """Monta as figuras da fábrica minimalista para as séries do cockpit."""
-    figuras: dict[str, Any] = {}
-    for titulo, serie in series.items():
-        if serie is None or serie.empty:
-            figuras[titulo] = criar_grafico(
-                "linha",
-                pd.DataFrame(columns=["Data", "Valor"]),
-                "Data",
-                "Valor",
-                titulo=f"{titulo} — sem histórico",
-            )
-            continue
-        quadro = pd.DataFrame(
-            {"Data": serie.index, "Valor": pd.to_numeric(serie, errors="coerce").to_numpy()}
-        ).dropna(subset=["Valor"])
-        if quadro.empty:
-            figuras[titulo] = criar_grafico(
-                "linha",
-                pd.DataFrame(columns=["Data", "Valor"]),
-                "Data",
-                "Valor",
-                titulo=f"{titulo} — sem histórico",
-            )
-            continue
-        tipo = "area" if titulo == "Volumetria diária" else "linha"
-        figuras[titulo] = criar_grafico(
-            tipo,
-            quadro,
-            "Data",
-            "Valor",
-            titulo=titulo,
-            altura=330,
-            cor="#F37C04" if titulo == "Quebra diária" else "#012869",
-            rotulos={"Data": "Data", "Valor": _UNIDADES_COCKPIT.get(titulo, "")},
-        )
-    return figuras
-
-
-def render_cockpit_executivo(series: Mapping[str, pd.Series] | None = None) -> None:
-    """Consolida metas, volumetria e quebra sem inventar comparações ausentes.
-
-    Estrutura (hierarquia de leitura): cartões de KPI com sparkline → gráficos
-    interativos em abas → atalhos para o detalhamento de cada frente.
-    """
-    series = dict(series) if series is not None else _series_cockpit()
-
-    col_meta, col_volume, col_quebra = st.columns(3, gap="small")
-    for coluna, titulo in zip(
-        (col_meta, col_volume, col_quebra),
-        (
-            "Equipes na meta mensal (≥ 300 pts)",
-            "Volumetria diária",
-            "Quebra diária",
-        ),
-    ):
-        _render_comparativo(
-            coluna,
-            titulo,
-            series.get(titulo, pd.Series(dtype="float64")),
-            _UNIDADES_COCKPIT[titulo],
-            _DESCRICAO_COCKPIT[titulo],
-            menor_melhor=(titulo == "Quebra diária"),
-        )
-
-    render_divisor("Evolução diária")
-    render_graficos_em_abas(
-        _figuras_cockpit(series),
-        chave="home_cockpit",
-        altura=340,
-    )
-    st.caption(
-        "As comparações usam a última data disponível, o dia imediatamente anterior (D-1) "
-        "e a mesma data da semana anterior (W-1). Datas sem registros são exibidas como “Sem histórico”."
-    )
-
-    links = st.columns(3, gap="small")
-    for coluna, (titulo, (destino, icone)) in zip(links, _LINKS_COCKPIT.items()):
-        with coluna:
-            try:
-                st.page_link(destino, label=f"Detalhar {titulo.lower()}", icon=icone, width="stretch")
-            except Exception:
-                logger.debug("page_link indisponível para %s", destino, exc_info=True)
-    render_spacer(14)
-
-
-def contar_alertas() -> list[Any]:
-    """Lista de alertas ativos da sessão (usada pelo badge da seção)."""
-    try:
-        return list(avaliar_alertas(dict(st.session_state)))
-    except Exception:  # pragma: no cover - proteção de runtime
-        logger.debug("Falha ao avaliar alertas automáticos.", exc_info=True)
-        return []
-
-
-def render_resumo_alertas(alertas: list[Any] | None = None) -> None:
-    """Mostra os três alertas mais relevantes e o atalho para a central."""
-    if alertas is None:
-        alertas = contar_alertas()
-    if not alertas:
-        st.success("Nenhum alerta ativo nas fontes verificadas nesta sessão.")
-    else:
-        painel_alertas = painel("Prioridades", icone="priority_high")
-        with painel_alertas:
-            for alerta in alertas[:3]:
-                st.markdown(f"**{alerta.severidade} · {alerta.titulo}**")
-                st.caption(f"{alerta.origem}: {alerta.detalhe}")
-            if len(alertas) > 3:
-                st.caption(f"E mais {len(alertas) - 3} alerta(s).")
-    try:
-        st.page_link(
-            "pages/alertas.py",
-            label="Abrir central de alertas",
-            icon="⚠️",
-            width="stretch",
-        )
-    except Exception:
-        logger.debug("page_link indisponível para pages/alertas.py", exc_info=True)
-    render_spacer(14)
 
 
 def render_modulos_principais() -> None:
@@ -1080,56 +811,6 @@ def render_atalhos_rapidos() -> None:
     render_spacer(8)
 
 
-def render_exportacao(series: Mapping[str, pd.Series]) -> None:
-    """Exportação do consolidado de produção e das séries do cockpit."""
-    linhas: list[pd.DataFrame] = []
-    for titulo, serie in series.items():
-        if serie is None or serie.empty:
-            continue
-        linhas.append(
-            pd.DataFrame(
-                {
-                    "Data": pd.to_datetime(serie.index, errors="coerce"),
-                    "Indicador": titulo,
-                    "Valor": pd.to_numeric(serie, errors="coerce"),
-                }
-            )
-        )
-    consolidado = pd.concat(linhas, ignore_index=True) if linhas else pd.DataFrame()
-    if consolidado.empty:
-        st.info("Sem séries consolidadas para exportar nesta sessão.")
-        return
-
-    acoes = render_barra_acoes("Exportar consolidado", icone="download")
-    acoes.download_button(
-        "📥 CSV do cockpit",
-        data=consolidado.to_csv(index=False).encode("utf-8-sig"),
-        file_name=f"cockpit_totale_{_agora().strftime('%Y%m%d')}.csv",
-        mime="text/csv",
-        help="Data, indicador e valor das séries exibidas no cockpit executivo.",
-    )
-    acoes.download_button(
-        "📊 Excel do cockpit",
-        data=_excel_bytes(consolidado),
-        file_name=f"cockpit_totale_{_agora().strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-def _excel_bytes(consolidado: pd.DataFrame) -> bytes:
-    """Gera o XLSX em memória sem dependência de disco."""
-    import io
-
-    buffer = io.BytesIO()
-    try:
-        with pd.ExcelWriter(buffer, engine="openpyxl") as escritor:
-            consolidado.to_excel(escritor, index=False, sheet_name="Cockpit")
-    except Exception:  # pragma: no cover - openpyxl indisponível
-        logger.debug("Exportação XLSX indisponível; usando CSV.", exc_info=True)
-        return consolidado.to_csv(index=False).encode("utf-8-sig")
-    return buffer.getvalue()
-
-
 def render_footer() -> None:
     """Rodapé corporativo padronizado do portal (``components.layout_pagina``)."""
     versao = st.session_state.get("versao_sistema", VERSAO_SISTEMA)
@@ -1144,11 +825,10 @@ def main() -> None:
     """Ponto de entrada da página Home.
 
     A ordem dos blocos segue ``components.layout_pagina.ORDEM_PADRAO``:
-    contexto → sumário → filtros → KPIs → gráficos → detalhamento →
-    exportação → rodapé. Cada bloco vive em ``secao()`` (âncora navegável), as
-    séries do cockpit são calculadas uma única vez e reutilizadas por cartões,
-    gráficos e exportação.
+    contexto → sumário → filtros → KPIs → detalhamento → rodapé.
+    Cada bloco vive em ``secao()`` (âncora navegável).
     """
+    aplicar_estilo()
     _injetar_css_home()
     render_page_sidebar_theme_selector()
 
@@ -1175,18 +855,7 @@ def main() -> None:
     ):
         render_kpi_strip(info_base)
 
-    # 5) Gráficos principais --------------------------------------------------
-    with temporizar("home.series_cockpit"):
-        series = _series_cockpit()
-    with secao(
-        "Cockpit executivo",
-        icone="monitoring",
-        subtitulo="Tendências baseadas nas datas registradas nas fontes · D-1 e W-1",
-        badge=f"{len(series)} indicadores",
-    ):
-        render_cockpit_executivo(series)
-
-    # 6) Detalhamento ---------------------------------------------------------
+    # 5) Detalhamento ---------------------------------------------------------
     with secao(
         "Saúde das fontes de dados",
         icone="database",
@@ -1197,16 +866,6 @@ def main() -> None:
     ):
         render_fontes_dados(info_base)
         render_status_operacional(info_base)
-
-    with temporizar("home.alertas"):
-        alertas = contar_alertas()
-    with secao(
-        "Alertas automáticos",
-        icone="notifications_active",
-        subtitulo="Falhas de sincronização, qualidade dos dados e estado do robô",
-        badge=f"{len(alertas)} ativo(s)",
-    ):
-        render_resumo_alertas(alertas)
 
     with secao(
         "Módulos de gestão e operação",
@@ -1223,16 +882,7 @@ def main() -> None:
     ):
         render_atalhos_rapidos()
 
-    # 7) Exportação e desempenho ---------------------------------------------
-    with secao(
-        "Exportação e desempenho",
-        icone="download",
-        subtitulo="Consolidado do cockpit e tempos medidos da carga de dados",
-    ):
-        render_exportacao(series)
-        render_painel_desempenho()
-
-    # 8) Rodapé ---------------------------------------------------------------
+    # 6) Rodapé ---------------------------------------------------------------
     render_footer()
 
 

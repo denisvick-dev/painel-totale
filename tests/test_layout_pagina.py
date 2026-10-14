@@ -332,13 +332,18 @@ def test_pagina_referencia_usa_as_primitivas_de_layout() -> None:
         "render_sumario(",  # sumário com âncoras
         "barra_filtros(",  # filtros fixos no topo
         "secao(",  # seções com âncora
-        "painel(",  # painéis com altura controlada
-        "render_barra_acoes(",  # exportação
         "render_rodape_pagina(",  # rodapé com versão/ambiente
         "render_kpi_row(",  # cartões de KPI avançados
         "render_hero_totale_",  # cabeçalho do Design System
     ):
         assert primitiva in codigo, primitiva
+
+    for removido in (
+        "Cockpit executivo",
+        "Alertas automáticos",
+        "Exportação e desempenho",
+    ):
+        assert removido not in codigo, removido
 
     # As seções publicadas na página alimentam o sumário (âncoras não-mortas).
     arvore = ast.parse(codigo)
@@ -351,5 +356,5 @@ def test_pagina_referencia_usa_as_primitivas_de_layout() -> None:
         ),
         None,
     )
-    assert isinstance(secoes, ast.Tuple) and len(secoes.elts) == 7
+    assert isinstance(secoes, ast.Tuple) and len(secoes.elts) == 4
     assert "render_sumario([titulo for titulo, _, _ in SECOES_PAGINA]" in codigo

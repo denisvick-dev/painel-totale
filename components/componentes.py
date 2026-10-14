@@ -12,6 +12,7 @@ heróis, indicadores, tabelas, notificações e utilitários de renderização.
 
 from __future__ import annotations
 
+import base64
 import html as html_lib
 import io
 import json
@@ -22,6 +23,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal, Protocol, TypeAlias, runtime_checkable
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -185,9 +187,34 @@ class TipoHero(str, Enum):
 
 
 class Fontes:
-    TITULO = "'Manrope', 'Segoe UI', Arial, sans-serif"
+    TITULO = "'Oscine', 'Manrope', 'Segoe UI', Arial, sans-serif"
     TEXTO = "'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
     CODIGO = "'JetBrains Mono', Consolas, 'Courier New', monospace"
+
+
+@lru_cache(maxsize=1)
+def _css_font_face_oscine() -> str:
+    """Gera regras @font-face para a família corporativa Oscine (fonts/)."""
+    pasta_fontes = Path(__file__).resolve().parents[1] / "fonts"
+    regras: list[str] = []
+    for arquivo, peso in (("Oscine-Regular.ttf", "400 600"), ("Oscine-Bold.ttf", "700 800")):
+        caminho = pasta_fontes / arquivo
+        if not caminho.is_file():
+            continue
+        try:
+            b64 = base64.b64encode(caminho.read_bytes()).decode("ascii")
+            regras.append(
+                "@font-face {"
+                "font-family: 'Oscine';"
+                f"src: url('data:font/ttf;base64,{b64}') format('truetype');"
+                f"font-weight: {peso};"
+                "font-style: normal;"
+                "font-display: swap;"
+                "}"
+            )
+        except OSError:
+            logger.debug("Não foi possível ler a fonte %s", caminho, exc_info=True)
+    return "\n".join(regras)
 
 
 class GoogleFonts:
@@ -221,6 +248,9 @@ class Cores:
     ROXO_CLARO = "#A78BFA"
     VERDE_PME = "#0F766E"
     AZUL_PME = "#1D4ED8"
+
+
+COR_LARANJA_SUAVE = Cores.LARANJA_SUAVE
 
 
 class ConfigCores:
@@ -705,13 +735,17 @@ _CSS_VARS_ROOT = f"""
 
 _CSS_RESET_GLOBAL = """
 html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"],
-p, label, div, li, a, button, input, select, textarea {
+p, label, div:not([class*="icon"]):not([data-baseweb="icon"]),
+li, a, button, input, select, textarea {
     font-family: var(--font-texto) !important;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
-h1, h2, h3, h4, h5, h6, .hero-title, .section-title, .kpi-value, .metric-value,
-[data-testid="stMetricValue"] {
+h1, h2, h3, h4, h5, h6,
+.hero-title, .th-title, .th-title-lg, .th-card-value, .th-stat-value,
+.hero-comparativo__title, .hero-comparativo__metric-value, .hero-side-metric strong,
+.totale-cabecalho__titulo, .section-title, .kpi-value, .kpi-value-premium,
+.metric-value, [data-testid="stMetricValue"] {
     font-family: var(--font-titulo) !important;
     font-weight: 750;
     letter-spacing: -0.03em;
@@ -739,7 +773,7 @@ footer[data-testid="stFooter"] { display: none !important; }
 
 _CSS_HEROS = """
 .hero-corp, .totale-hero-1, .totale-hero-2, .hero-migracao, .hero-pme, .hero-domicilios {
-    position: relative; overflow: hidden; isolation: isolate; color: #fff;
+    position: relative; overflow: hidden; isolation: isolate; color: #FFFFFF !important;
     border-radius: 18px; margin-bottom: 22px;
     box-shadow: 0 16px 36px rgba(1,24,56,0.18);
 }
@@ -762,13 +796,38 @@ _CSS_HEROS = """
     background: linear-gradient(125deg, #011838 0%, #012869 46%, #0A3F96 100%);
     padding: 32px 40px; border: 1px solid rgba(255,255,255,0.08);
 }
-.hero-title { font-size: clamp(26px, 3vw, 36px); font-weight: 800; color: #fff; margin: 0 0 8px; line-height: 1.08; position: relative; z-index: 2; }
-.hero-subtitle { font-size: 15px; color: rgba(255,255,255,0.78); margin: 0; line-height: 1.55; position: relative; z-index: 2; max-width: 68ch; }
+.hero-title,
+.hero-corp h1.hero-title {
+    font-family: var(--font-titulo) !important;
+    font-size: clamp(26px, 3vw, 36px) !important;
+    font-weight: 800 !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    margin: 0 0 8px !important;
+    line-height: 1.08 !important;
+    letter-spacing: -0.03em !important;
+    position: relative;
+    z-index: 2;
+}
+.hero-subtitle,
+.hero-corp p.hero-subtitle {
+    font-family: var(--font-texto) !important;
+    font-size: 15px !important;
+    color: rgba(255,255,255,0.88) !important;
+    -webkit-text-fill-color: rgba(255,255,255,0.88) !important;
+    margin: 0 !important;
+    line-height: 1.55 !important;
+    position: relative;
+    z-index: 2;
+    max-width: 68ch;
+}
 .hero-badge, .th-badge {
     display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);
-    color: #fff; font-size: 10px; font-weight: 750; letter-spacing: 0.12em;
-    text-transform: uppercase; padding: 5px 11px; border-radius: 999px; position: relative; z-index: 2;
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22);
+    color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;
+    font-family: var(--font-texto) !important;
+    font-size: 10px !important; font-weight: 750 !important; letter-spacing: 0.12em !important;
+    text-transform: uppercase !important; padding: 5px 11px; border-radius: 999px; position: relative; z-index: 2;
 }
 .hero-content, .totale-hero-1 > div, .hero-migracao > div, .hero-pme > div, .hero-domicilios > div { position: relative; z-index: 2; }
 .totale-hero-1 {
@@ -788,15 +847,74 @@ _CSS_HEROS = """
 .hero-migracao { background: linear-gradient(128deg, #3B0764 0%, #5B21B6 58%, #6D28D9 100%); padding: 30px 36px; }
 .hero-pme { background: linear-gradient(128deg, #064E3B 0%, #0F766E 52%, #1D4ED8 140%); padding: 30px 36px; }
 .hero-domicilios { background: linear-gradient(128deg, #011838 0%, #0F3D5E 48%, #0F766E 120%); padding: 30px 36px; }
-.th-title-lg, .th-title { color: #fff; margin: 12px 0 8px; line-height: 1.08; letter-spacing: -0.03em; position: relative; z-index: 2; }
-.th-title-lg { font-size: clamp(24px, 2.6vw, 34px); font-weight: 800; }
-.th-title { font-size: clamp(22px, 2.2vw, 30px); font-weight: 800; }
-.th-sub, .th-sub-muted { font-size: 14.5px; color: rgba(255,255,255,0.78); margin: 0; line-height: 1.55; position: relative; z-index: 2; }
-.th-meta, .th-tag { font-size: 12px; color: rgba(255,255,255,0.62); position: relative; z-index: 2; }
+.th-title-lg, .th-title,
+.totale-hero-1 h1.th-title-lg, .totale-hero-2 h1.th-title,
+.hero-migracao h1.th-title-lg, .hero-pme h1.th-title-lg, .hero-domicilios h1.th-title-lg {
+    font-family: var(--font-titulo) !important;
+    color: #FFFFFF !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    margin: 12px 0 8px !important;
+    line-height: 1.08 !important;
+    letter-spacing: -0.03em !important;
+    position: relative;
+    z-index: 2;
+}
+.th-title-lg { font-size: clamp(24px, 2.6vw, 34px) !important; font-weight: 800 !important; }
+.th-title { font-size: clamp(22px, 2.2vw, 30px) !important; font-weight: 800 !important; }
+.th-sub, .th-sub-muted,
+.totale-hero-1 p.th-sub-muted, .totale-hero-2 p.th-sub,
+.hero-migracao p.th-sub, .hero-pme p.th-sub, .hero-domicilios p.th-sub {
+    font-family: var(--font-texto) !important;
+    font-size: 14.5px !important;
+    color: rgba(255,255,255,0.86) !important;
+    -webkit-text-fill-color: rgba(255,255,255,0.86) !important;
+    margin: 0 !important;
+    line-height: 1.55 !important;
+    position: relative;
+    z-index: 2;
+}
+.th-meta, .th-tag {
+    font-family: var(--font-texto) !important;
+    font-size: 12px !important;
+    color: rgba(255,255,255,0.72) !important;
+    -webkit-text-fill-color: rgba(255,255,255,0.72) !important;
+    position: relative;
+    z-index: 2;
+}
 .th-tag { margin-left: 8px; }
-.th-card-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.68); margin-bottom: 4px; }
-.th-card-value { font-size: 28px; font-weight: 800; color: #FDBA74; line-height: 1; letter-spacing: -0.03em; }
-.totale-badge-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.th-card-label {
+    font-family: var(--font-texto) !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    color: rgba(255,255,255,0.75) !important;
+    -webkit-text-fill-color: rgba(255,255,255,0.75) !important;
+    margin-bottom: 4px;
+}
+.th-card-value {
+    font-family: var(--font-titulo) !important;
+    font-size: 28px !important;
+    font-weight: 800 !important;
+    color: #FDBA74 !important;
+    -webkit-text-fill-color: #FDBA74 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.03em !important;
+}
+.th-stat-value {
+    font-family: var(--font-titulo) !important;
+    font-size: 18px !important;
+    font-weight: 800 !important;
+    display: block;
+    letter-spacing: -0.03em !important;
+}
+.totale-badge-pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px;
+    border-radius: 999px; font-size: 11px !important; font-weight: 700 !important;
+    font-family: var(--font-texto) !important;
+    color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;
+    letter-spacing: 0.04em; text-transform: uppercase;
+}
 """
 
 _CSS_CARDS = """
@@ -1044,6 +1162,7 @@ class FontInjector:
         if st.session_state.get("_totale_fonts_head_injected", False):
             return
         urls_js = ", ".join(f'"{u}"' for u in GoogleFonts.URLS)
+        oscine_css = json.dumps(_css_font_face_oscine()).replace("<", "\\u003c")
         _injetar_js(
             f"""
             <script>
@@ -1067,6 +1186,13 @@ class FontInjector:
                     link.rel = 'stylesheet'; link.href = href;
                     head.appendChild(link);
                 }});
+                const oscineCss = {oscine_css};
+                if (oscineCss && !parentDoc.getElementById('totale-font-oscine')) {{
+                    const stOsc = parentDoc.createElement('style');
+                    stOsc.id = 'totale-font-oscine';
+                    stOsc.textContent = oscineCss;
+                    head.appendChild(stOsc);
+                }}
             }})();
             </script>
             """,
@@ -1165,9 +1291,32 @@ def aplicar_sidebar_corp(tema: TemaSidebarType | str | None = None) -> None:
     st.session_state["_totale_css_head_tema"] = tema_efetivo
 
 
+def _icone_hero(icone: str) -> str:
+    """Renderiza ícone de hero suportando emojis e ligaturas Material Symbols."""
+    texto = _texto_icone_seguro(icone)
+    if not texto:
+        return ""
+    return (
+        '<span class="totale-icon-glyph" aria-hidden="true" '
+        'style="color:#FFFFFF !important;-webkit-text-fill-color:#FFFFFF !important;font-size:14px !important;">'
+        f"{Validadores.html_escape(texto)}</span>"
+    )
+
+
+def _garantir_css_heros() -> None:
+    """Garante que fontes e CSS de heros estejam injetados antes de renderizar um hero."""
+    if not st.session_state.get("_totale_css_head_injected", False):
+        try:
+            FontInjector.injetar_no_head_pai()
+            CSSInjector.injetar()
+        except Exception:
+            logger.debug("Injeção automática de CSS de hero falhou.", exc_info=True)
+
+
 def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
     if not titulo:
         raise ValueError("render_hero: 'titulo' não pode ser vazio.")
+    _garantir_css_heros()
     badge_html = (
         f'<span class="hero-badge">{Validadores.html_escape(badge)}</span>'
         if badge
@@ -1191,13 +1340,18 @@ def render_hero_totale_1(
     badge: str = "TOTALE ANALYTICS",
     icone: str = "⚡",
     meta_info: str = "",
+    **kwargs: Any,
 ) -> None:
     if not titulo:
         raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
+    _garantir_css_heros()
+    badge_efetivo = str(kwargs.get("pill_texto") or kwargs.get("badge_texto") or badge or "").strip()
+    icone_efetivo = str(kwargs.get("pill_icone") or icone or "").strip()
+    icone_html = _icone_hero(icone_efetivo)
     b = (
         '<div class="totale-badge-pill" style="background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.18);">'
-        f"<span>{Validadores.html_escape(icone)}</span> {Validadores.html_escape(badge)}</div>"
-        if badge
+        f"{icone_html} {Validadores.html_escape(badge_efetivo)}</div>"
+        if badge_efetivo
         else ""
     )
     s = (
@@ -1227,9 +1381,12 @@ def render_hero_totale_2(
 ) -> None:
     if not titulo:
         raise ValueError("render_hero_totale_2: 'titulo' não pode ser vazio.")
-    badge_texto = kwargs.get("badge_texto", badge)
+    _garantir_css_heros()
+    badge_texto = str(kwargs.get("badge_texto", badge) or "").strip()
+    icone_kw = str(kwargs.get("icone", "") or "").strip()
+    icone_html = f"{_icone_hero(icone_kw)} " if icone_kw else ""
     b = (
-        f'<span class="th-badge">{Validadores.html_escape(badge_texto)}</span>'
+        f'<span class="th-badge">{icone_html}{Validadores.html_escape(badge_texto)}</span>'
         if badge_texto
         else ""
     )
@@ -1265,9 +1422,10 @@ def render_hero_migracao(
 ) -> None:
     if not titulo:
         raise ValueError("render_hero_migracao: 'titulo' não pode ser vazio.")
+    _garantir_css_heros()
     badge_html = (
         '<div class="hero-badge">'
-        f"<span>{Validadores.html_escape(icone)}</span> {Validadores.html_escape(badge)}</div>"
+        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
         if badge
         else ""
     )
@@ -1293,9 +1451,10 @@ def render_hero_pme(
 ) -> None:
     if not titulo:
         raise ValueError("render_hero_pme: 'titulo' não pode ser vazio.")
+    _garantir_css_heros()
     badge_html = (
         '<div class="hero-badge">'
-        f"<span>{Validadores.html_escape(icone)}</span> {Validadores.html_escape(badge)}</div>"
+        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
         if badge
         else ""
     )
@@ -1329,9 +1488,10 @@ def render_hero_novos_domicilios(
 ) -> None:
     if not titulo:
         raise ValueError("render_hero_novos_domicilios: 'titulo' não pode ser vazio.")
+    _garantir_css_heros()
     badge_html = (
         '<div class="hero-badge">'
-        f"<span>{Validadores.html_escape(icone)}</span> {Validadores.html_escape(badge)}</div>"
+        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
         if badge
         else ""
     )
@@ -1360,7 +1520,7 @@ def _hero_stats(stats: Sequence[dict[str, str]] | None, cor_valor: str) -> str:
         cards.append(
             '<div style="background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.16);'
             'border-radius:12px;padding:12px 14px;text-align:left;">'
-            f'<strong style="font-size:18px;font-weight:800;color:{cor_valor};display:block;letter-spacing:-0.03em;">'
+            f'<strong class="th-stat-value" style="color:{cor_valor} !important;">'
             f"{Validadores.html_escape(item.get('valor', ''))}</strong>"
             f'<span style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.72);">'
             f"{Validadores.html_escape(item.get('label', ''))}</span></div>"
@@ -1917,7 +2077,15 @@ def render_skeleton(
     _safe_render_html(f'<div style="margin:12px 0;">{"".join(rows)}</div>')
 
 
+def render_metric(*args: Any, **kwargs: Any) -> None:
+    """Delega para ``components.kpi_cards.render_metric`` (drop-in replacement de ``st.metric``)."""
+    from components.kpi_cards import render_metric as _render_metric_kpi
+
+    _render_metric_kpi(*args, **kwargs)
+
+
 __all__ = [
+    "COR_LARANJA_SUAVE",
     "CSSInjector",
     "ConfigCores",
     "Cores",
@@ -1971,6 +2139,7 @@ __all__ = [
     "render_insight",
     "render_kpi",
     "render_kpi_sm",
+    "render_metric",
     "render_metric_card",
     "render_notification",
     "render_page_sidebar_theme_selector",

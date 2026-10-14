@@ -87,6 +87,12 @@ try:
         grafico_donut,
         grafico_gauge_meta,
     )
+    from components.layout_pagina import (
+        render_chips,
+        render_rodape_pagina,
+        render_sumario,
+        secao,
+    )
     from components.sidebar import (
         aplicar_sidebar_corp,
         render_page_sidebar_theme_selector,
@@ -1108,55 +1114,83 @@ def render_resumo_cards(
         if metas
         else ("Meta Atingida" if projetado >= meta else "Abaixo da meta")
     )
-    c1, c2, c3 = st.columns(3, gap="large")
-    render_kpi(
-        c1,
-        label=label_realizado,
-        valor=_fmt_int(realizado),
-        sub=(
-            f"{pct_real:.1f}% da meta mensal"
-            if ancora is not None
-            else "Sem dados no recorte"
-        ),
-        tema="azul",
-        icone="✅",
-    )
-    render_kpi(
-        c2,
-        label=label_projetado,
-        valor=_fmt_int(projetado) if ancora is not None else "—",
-        sub=(
-            f"{status} • {pct_proj:.1f}% da meta"
-            if ancora is not None
-            else "Projeção indisponível: sem dados"
-        ),
-        tema=tema_proj if ancora is not None else "cinza",
-        icone="📈",
-    )
-    render_kpi(
-        c3,
-        label=label_meta,
-        valor=_fmt_int(meta),
-        sub="Meta mensal estabelecida",
-        tema="laranja",
-        icone="🎯",
-    )
-    col_prog, col_gauge = st.columns([5, 2], gap="large")
-    with col_prog:
+    col_kpis, col_gauge = st.columns([5, 2], gap="large")
+    with col_kpis:
+        c1, c2, c3 = st.columns(3, gap="medium")
+        render_kpi(
+            c1,
+            label=label_realizado,
+            valor=_fmt_int(realizado),
+            sub=(
+                f"{pct_real:.1f}% da meta mensal"
+                if ancora is not None
+                else "Sem dados no recorte"
+            ),
+            tema="azul",
+            icone="✅",
+        )
+        render_kpi(
+            c2,
+            label=label_projetado,
+            valor=_fmt_int(projetado) if ancora is not None else "—",
+            sub=(
+                f"{status} • {pct_proj:.1f}% da meta"
+                if ancora is not None
+                else "Projeção indisponível: sem dados"
+            ),
+            tema=tema_proj if ancora is not None else "cinza",
+            icone="📈",
+        )
+        render_kpi(
+            c3,
+            label=label_meta,
+            valor=_fmt_int(meta),
+            sub="Meta mensal estabelecida",
+            tema="laranja",
+            icone="🎯",
+        )
         render_progress_bar(
             valor=float(realizado),
             maximo=float(meta) if meta > 0 else 1.0,
-            label=f"Progresso {titulo}",
+            label=f"Progresso Realizado × Meta ({titulo})",
             mostrar_valor=True,
             tema=tema_progresso,
             altura="medio",
         )
+        if ancora is not None and dias_restantes > 0:
+            cols = st.columns(3 if tecnico_dia is not None else 2, gap="medium")
+            gap = _to_float_safe(faltantes)
+            render_kpi(
+                cols[0],
+                label="EXCEDENTE" if gap <= 0 else label_faltantes,
+                valor=_fmt_int(abs(gap)),
+                sub="Realizado já cobre a meta" if gap <= 0 else "Meta − Realizado",
+                tema="verde" if gap <= 0 else "vermelho",
+                icone="✅" if gap <= 0 else "⚠️",
+            )
+            render_kpi(
+                cols[1],
+                label="MÉDIA DIÁRIA NECESSÁRIA",
+                valor=_fmt_dec(max(media_diaria, 0.0)),
+                sub=f"{dias_restantes} dias úteis restantes (seg–sáb)",
+                tema="roxo",
+                icone="📅",
+            )
+            if tecnico_dia is not None:
+                render_kpi(
+                    cols[2],
+                    label="MÉDIA POR TÉCNICO / DIA",
+                    valor=_fmt_dec(max(tecnico_dia, 0.0)),
+                    sub="Distribuição pelo número informado",
+                    tema="cinza",
+                    icone="👨‍🔧",
+                )
     with col_gauge:
         if ancora is not None:
             fig_gauge = grafico_gauge_meta(
                 pct_proj,
                 valor_rotulo=f"Projeção × Meta — {titulo}",
-                altura=210,
+                altura=250,
             )
             if fig_gauge is not None:
                 st.plotly_chart(fig_gauge, width="stretch")
@@ -1173,33 +1207,6 @@ def render_resumo_cards(
             f"Período de dias úteis encerrado para {titulo.lower()}.", tipo="info"
         )
         return
-    cols = st.columns(3 if tecnico_dia is not None else 2, gap="large")
-    gap = _to_float_safe(faltantes)
-    render_kpi(
-        cols[0],
-        label="EXCEDENTE" if gap <= 0 else label_faltantes,
-        valor=_fmt_int(abs(gap)),
-        sub="Realizado já cobre a meta" if gap <= 0 else "Meta − Realizado",
-        tema="verde" if gap <= 0 else "vermelho",
-        icone="✅" if gap <= 0 else "⚠️",
-    )
-    render_kpi(
-        cols[1],
-        label="MÉDIA DIÁRIA NECESSÁRIA",
-        valor=_fmt_dec(max(media_diaria, 0.0)),
-        sub=f"{dias_restantes} dias úteis restantes (seg–sáb)",
-        tema="roxo",
-        icone="📅",
-    )
-    if tecnico_dia is not None:
-        render_kpi(
-            cols[2],
-            label="MÉDIA POR TÉCNICO / DIA",
-            valor=_fmt_dec(max(tecnico_dia, 0.0)),
-            sub="Distribuição pelo número informado",
-            tema="cinza",
-            icone="👨‍🔧",
-        )
 
 
 def coletar_alertas(
@@ -1555,46 +1562,80 @@ _periodo_multimes = (_filtro_datas_safe[0].year, _filtro_datas_safe[0].month) !=
 
 render_hero_totale_2(
     titulo="Painel Consolidado de Metas",
-    subtitulo="O que já foi feito, o que a projeção fecha e onde a meta não cabe",
+    subtitulo="O que já foi feito, o que a projeção fecha e onde a meta exige ação imediata",
     badge_texto=f"Período: {_data_inicio_str} até {_data_fim_str}",
 )
-st.caption(
-    "Dias úteis: segunda a sábado, sem domingo e sem as datas do calendário operacional configurado. "
-    f"Projeção de O.S. ancorada em {formatar_data_br(ancora_os)} "
-    f"({dias_trab_os} decorridos / {dias_tot_os} no mês, {dias_rest_os} restantes). "
-    f"Consultivos ancorados em {formatar_data_br(ancora_cons)} "
-    f"({dias_trab_c} decorridos / {dias_tot_c} no mês, {dias_rest_c} restantes). "
-    "Faltantes = Meta − Realizado."
+render_chips(
+    [
+        ("Período", f"{_data_inicio_str} a {_data_fim_str}"),
+        (
+            "Âncora O.S.",
+            f"{formatar_data_br(ancora_os)} · {dias_trab_os}/{dias_tot_os} d.u. ({dias_rest_os} rest.)",
+        ),
+        (
+            "Âncora Consultivos",
+            f"{formatar_data_br(ancora_cons)} · {dias_trab_c}/{dias_tot_c} d.u. ({dias_rest_c} rest.)",
+        ),
+        ("Regra", "Seg–Sáb · Faltantes = Meta − Realizado"),
+    ]
 )
+render_sumario(
+    [
+        "Resumo Executivo",
+        "Cenários de Fechamento",
+        "Análise Detalhada por Frente",
+    ],
+    titulo="Nesta página",
+)
+
+_avisos_operacionais: list[tuple[str, TipoInsightType]] = []
 for err in (erro_prod, erro_cons):
     if err:
-        render_insight(f"Atenção na carga de dados: {err}", tipo="alerta")
+        _avisos_operacionais.append((f"Atenção na carga de dados: {err}", "alerta"))
 if len(df_cons) > 0 and len(df_cons_f) == 0:
-    render_insight(
-        f"⚠️ Consultivos: {_fmt_int(len(df_cons))} linhas carregadas, mas os filtros atuais eliminaram todas.",
-        tipo="alerta",
+    _avisos_operacionais.append(
+        (
+            f"⚠️ Consultivos: {_fmt_int(len(df_cons))} linhas carregadas, mas os filtros atuais eliminaram todas.",
+            "alerta",
+        )
     )
 elif len(df_cons) == 0 and not erro_cons:
-    render_insight(
-        "⚠️ Consultivos: nenhuma linha carregada. Verifique o Google Drive.",
-        tipo="critico",
+    _avisos_operacionais.append(
+        (
+            "⚠️ Consultivos: nenhuma linha carregada. Verifique o Google Drive.",
+            "critico",
+        )
     )
 # Não altera a regra comercial sem autorização; sinaliza a limitação do fator mensal.
 if _periodo_multimes:
-    render_insight(
-        "O período inclui mais de um mês. As metas e o fator de projeção são mensais; a projeção deste recorte não representa um fechamento mensal válido.",
-        tipo="alerta",
+    _avisos_operacionais.append(
+        (
+            "O período inclui mais de um mês. As metas e o fator de projeção são mensais; a projeção deste recorte não representa um fechamento mensal válido.",
+            "alerta",
+        )
     )
 elif _filtro_datas_safe[0].day != 1:
-    render_insight(
-        "O recorte não começa no dia 1. O fator de projeção original usa dias decorridos desde o início do mês; interprete a projeção com cautela.",
-        tipo="alerta",
+    _avisos_operacionais.append(
+        (
+            "O recorte não começa no dia 1. O fator de projeção original usa dias decorridos desde o início do mês; interprete a projeção com cautela.",
+            "alerta",
+        )
     )
 if ancora_os and ancora_cons and ancora_os != ancora_cons:
-    render_insight(
-        f"Fontes com datas de atualização diferentes: O.S. {formatar_data_br(ancora_os)}; consultivos {formatar_data_br(ancora_cons)}. Cada projeção mantém sua própria âncora.",
-        tipo="info",
+    _avisos_operacionais.append(
+        (
+            f"Fontes com datas de atualização diferentes: O.S. {formatar_data_br(ancora_os)}; consultivos {formatar_data_br(ancora_cons)}. Cada projeção mantém sua própria âncora.",
+            "info",
+        )
     )
+if _avisos_operacionais:
+    _tem_critico = any(t == "critico" for _, t in _avisos_operacionais)
+    with st.expander(
+        f"📌 Avisos operacionais do recorte ({len(_avisos_operacionais)})",
+        expanded=_tem_critico,
+    ):
+        for _msg_aviso, _tipo_aviso in _avisos_operacionais:
+            render_insight(_msg_aviso, tipo=_tipo_aviso)
 
 real_prod = len(df_prod_f)
 proj_prod = int(real_prod * fator_global_os)
@@ -1610,53 +1651,68 @@ cons_faltantes_geral = meta_cons - real_cons
 cons_media_diaria_geral = (
     max(cons_faltantes_geral, 0) / dias_rest_c if dias_rest_c > 0 else 0
 )
-k_os, k_cons, k_ritmo = st.columns(3, gap="large")
-render_kpi(
-    k_os,
-    label="O.S. NO RECORTE",
-    valor=_fmt_int(real_prod),
-    sub=(
-        f"Projeção {_fmt_int(proj_prod)} • meta {_fmt_int(meta_prod)}"
-        if ancora_os
-        else "Sem dados para projetar"
-    ),
-    tema=(
-        tema_kpi_de_valor(proj_prod, METAS_PRODUCAO_OS_GERAL) if ancora_os else "cinza"
-    ),
-    icone="📊",
-)
-render_kpi(
-    k_cons,
-    label="CONSULTIVOS NO RECORTE",
-    valor=_fmt_int(real_cons),
-    sub=(
-        f"Projeção {_fmt_int(proj_cons)} • meta {_fmt_int(meta_cons)}"
-        if ancora_cons
-        else "Sem dados para projetar"
-    ),
-    tema=(
-        tema_kpi_de_valor(proj_cons, METAS_CONSULTIVO_GERAL) if ancora_cons else "cinza"
-    ),
-    icone="💼",
-)
-render_kpi(
-    k_ritmo,
-    label="RITMO PARA FECHAR A META",
-    valor=_fmt_dec(os_media_diaria_geral) if ancora_os else "—",
-    sub=f"O.S./dia útil • consultivos {_fmt_dec(cons_media_diaria_geral) if ancora_cons else '—'}/dia",
-    tema="roxo",
-    icone="📅",
-)
+pct_real_os_geral = calcular_atingimento_float(real_prod, meta_prod)
+pct_proj_os_geral = calcular_atingimento_float(proj_prod, meta_prod)
+pct_real_cons_geral = calcular_atingimento_float(real_cons, meta_cons)
+pct_proj_cons_geral = calcular_atingimento_float(proj_cons, meta_cons)
+
+with secao(
+    "Resumo Executivo",
+    icone="insights",
+    subtitulo="Consolidado geral de O.S. e Consultivos frente à meta mensal e ritmo diário necessário.",
+):
+    k_os_real, k_os_proj, k_cons_real, k_cons_proj = st.columns(4, gap="medium")
+    render_kpi(
+        k_os_real,
+        label="O.S. REALIZADAS",
+        valor=_fmt_int(real_prod),
+        sub=f"{pct_real_os_geral:.1f}% da meta ({_fmt_int(meta_prod)})",
+        tema="azul",
+        icone="📊",
+    )
+    render_kpi(
+        k_os_proj,
+        label="O.S. PROJETADAS",
+        valor=_fmt_int(proj_prod) if ancora_os else "—",
+        sub=(
+            f"{pct_proj_os_geral:.1f}% da meta • Ritmo: {_fmt_dec(os_media_diaria_geral)}/d.u."
+            if ancora_os
+            else "Sem dados para projetar"
+        ),
+        tema=(
+            tema_kpi_de_valor(proj_prod, METAS_PRODUCAO_OS_GERAL)
+            if ancora_os
+            else "cinza"
+        ),
+        icone="📈",
+    )
+    render_kpi(
+        k_cons_real,
+        label="CONSULTIVOS REALIZADOS",
+        valor=_fmt_int(real_cons),
+        sub=f"{pct_real_cons_geral:.1f}% da meta ({_fmt_int(meta_cons)})",
+        tema="laranja",
+        icone="💼",
+    )
+    render_kpi(
+        k_cons_proj,
+        label="CONSULTIVOS PROJETADOS",
+        valor=_fmt_int(proj_cons) if ancora_cons else "—",
+        sub=(
+            f"{pct_proj_cons_geral:.1f}% da meta • Ritmo: {_fmt_dec(cons_media_diaria_geral)}/d.u."
+            if ancora_cons
+            else "Sem dados para projetar"
+        ),
+        tema=(
+            tema_kpi_de_valor(proj_cons, METAS_CONSULTIVO_GERAL)
+            if ancora_cons
+            else "cinza"
+        ),
+        icone="🎯",
+    )
+
 cenarios_os = calcular_cenarios(real_prod, fator_global_os)
 cenarios_cons = calcular_cenarios(real_cons, fator_global_cons)
-render_section_header(
-    titulo="Cenários de fechamento",
-    icone="🔮",
-    subtitulo="Compare o fechamento estimado com a meta mensal em três ritmos de produção.",
-)
-st.caption(
-    "Conservador e otimista variam em 15% o volume projetado ainda não realizado."
-)
 
 
 def _status_cenario(valor: int, metas: dict[str, int]) -> str:
@@ -1754,7 +1810,12 @@ _cenario_styler = (
         ]
     )
 )
-st.dataframe(_cenario_styler, hide_index=True, width="stretch", height=185)
+with secao(
+    "Cenários de Fechamento",
+    icone="analytics",
+    subtitulo="Simulação de fechamento em três ritmos de produção (±15% sobre o saldo projetado ainda não realizado).",
+):
+    st.dataframe(_cenario_styler, hide_index=True, width="stretch", height=160)
 
 
 def processar_resumo_agrupado(
@@ -1858,27 +1919,32 @@ if not df_cons_para_resumo.empty:
 df_resumo_agrupado = processar_resumo_agrupado(
     df_prod_para_resumo, df_cons_para_resumo, fator_global_os, fator_global_cons
 )
-(
-    tab_prod,
-    tab_cons,
-    tab_bases,
-    tab_monitores,
-    tab_alertas,
-    tab_abcdm,
-    tab_leste,
-    tab_guarulhos,
-) = st.tabs(
-    [
-        "📊 Produção",
-        "💼 Consultivos",
-        "🗂️ Visão Agrupada",
-        "👔 Monitores",
-        "🚨 Alertas",
-        "📈 Projeção ABCDM",
-        "📈 Projeção LESTE",
-        "📈 Projeção GUARULHOS",
-    ]
-)
+with secao(
+    "Análise Detalhada por Frente",
+    icone="hub",
+    subtitulo="Navegue pelas abas para detalhar Produção, Consultivos, Visão por Projeto, Supervisores, Projeções por Base e Alertas.",
+):
+    (
+        tab_prod,
+        tab_cons,
+        tab_bases,
+        tab_monitores,
+        tab_alertas,
+        tab_abcdm,
+        tab_leste,
+        tab_guarulhos,
+    ) = st.tabs(
+        [
+            "📊 Produção",
+            "💼 Consultivos",
+            "🗂️ Visão Agrupada",
+            "👔 Monitores",
+            "🚨 Alertas",
+            "📈 Projeção ABCDM",
+            "📈 Projeção LESTE",
+            "📈 Projeção GUARULHOS",
+        ]
+    )
 
 
 def render_diagnostico_zerado(
@@ -1958,38 +2024,99 @@ with tab_cons:
         render_diagnostico_zerado(df_cons, df_cons_raw, erro_cons, "Consultivos")
 with tab_bases:
     render_section_header(
-        titulo="Visão Agrupada",
+        titulo="Visão Agrupada por Projeto",
         icone="🗂️",
-        subtitulo="Produção por projeto e consultivos por projeto (_PROJETO_NORM), do pior fechamento projetado para o melhor",
+        subtitulo="Produção por projeto e consultivos por projeto (_PROJETO_NORM), ordenados do maior risco para o melhor fechamento",
     )
-    st.caption(
-        f"Meta de O.S. por agrupamento: {_fmt_int(METAS_PRODUCAO_OS_BASE['meta_base'])}. "
-        f"Meta de consultivos: {_fmt_int(METAS_CONSULTIVO_BASE['meta_base'])}. "
-        "Faltantes = Meta − Realizado, nunca a projeção."
+    render_chips(
+        [
+            (
+                "Meta O.S. / Base",
+                _fmt_int(METAS_PRODUCAO_OS_BASE["meta_base"]),
+            ),
+            (
+                "Meta Consultivos / Base",
+                _fmt_int(METAS_CONSULTIVO_BASE["meta_base"]),
+            ),
+            ("Fórmula Faltantes", "Meta − Realizado"),
+        ]
     )
     if not df_resumo_agrupado.empty:
-        cols = [
-            "Agrupamento",
-            "OS_Volume",
-            "O.S. Projetadas",
-            "O.S. Conservadora",
-            "O.S. Otimista",
-            "O.S. Faltantes",
-            "% Meta O.S. (Proj)",
-            "Status O.S.",
-            "Cons_Volume",
-            "Consultivos Projetados",
-            "Consultivos Conservadora",
-            "Consultivos Otimista",
-            "Cons. Faltantes",
-            "% Meta Cons. (Proj)",
-            "Status Consultivos",
-            "Tecnicos_Ativos",
-        ]
-        df_display = df_resumo_agrupado[cols].rename(
+        visao_tabela = st.radio(
+            "Modo de visualização da tabela agrupada",
+            options=[
+                "📋 Resumo Executivo (O.S. + Consultivos)",
+                "📊 Foco em Produção (O.S. & Cenários)",
+                "💼 Foco em Consultivos (Volume & Cenários)",
+                "🔎 Tabela Completa (16 colunas)",
+            ],
+            horizontal=True,
+            key="radio_visao_agrupada_meta",
+        )
+        df_base_renomeada = df_resumo_agrupado.rename(
             columns={"OS_Volume": "O.S. Real", "Cons_Volume": "Cons. Real"}
         )
-        colunas_num = [
+        if visao_tabela.startswith("📋"):
+            cols_visao = [
+                "Agrupamento",
+                "Tecnicos_Ativos",
+                "O.S. Real",
+                "O.S. Projetadas",
+                "O.S. Faltantes",
+                "% Meta O.S. (Proj)",
+                "Status O.S.",
+                "Cons. Real",
+                "Consultivos Projetados",
+                "Cons. Faltantes",
+                "% Meta Cons. (Proj)",
+                "Status Consultivos",
+            ]
+        elif visao_tabela.startswith("📊"):
+            cols_visao = [
+                "Agrupamento",
+                "Tecnicos_Ativos",
+                "O.S. Real",
+                "O.S. Projetadas",
+                "O.S. Conservadora",
+                "O.S. Otimista",
+                "O.S. Faltantes",
+                "% Meta O.S. (Proj)",
+                "Status O.S.",
+            ]
+        elif visao_tabela.startswith("💼"):
+            cols_visao = [
+                "Agrupamento",
+                "Tecnicos_Ativos",
+                "Cons. Real",
+                "Consultivos Projetados",
+                "Consultivos Conservadora",
+                "Consultivos Otimista",
+                "Cons. Faltantes",
+                "% Meta Cons. (Proj)",
+                "Status Consultivos",
+            ]
+        else:
+            cols_visao = [
+                "Agrupamento",
+                "O.S. Real",
+                "O.S. Projetadas",
+                "O.S. Conservadora",
+                "O.S. Otimista",
+                "O.S. Faltantes",
+                "% Meta O.S. (Proj)",
+                "Status O.S.",
+                "Cons. Real",
+                "Consultivos Projetados",
+                "Consultivos Conservadora",
+                "Consultivos Otimista",
+                "Cons. Faltantes",
+                "% Meta Cons. (Proj)",
+                "Status Consultivos",
+                "Tecnicos_Ativos",
+            ]
+        cols_visao = [c for c in cols_visao if c in df_base_renomeada.columns]
+        df_display = df_base_renomeada[cols_visao]
+        todas_num = [
             "O.S. Real",
             "O.S. Projetadas",
             "O.S. Conservadora",
@@ -2002,14 +2129,18 @@ with tab_bases:
             "Cons. Faltantes",
             "Tecnicos_Ativos",
         ]
+        colunas_num = [c for c in todas_num if c in df_display.columns]
         fmt = {c: "{:,.0f}" for c in colunas_num}
-        fmt.update({"% Meta O.S. (Proj)": "{:.1f}%", "% Meta Cons. (Proj)": "{:.1f}%"})
+        for pct_col in ("% Meta O.S. (Proj)", "% Meta Cons. (Proj)"):
+            if pct_col in df_display.columns:
+                fmt[pct_col] = "{:.1f}%"
         color_rules = {
             c: {
                 str(v): "sucesso" if float(v) >= 100 else "alerta"
                 for v in df_display[c].dropna().unique()
             }
             for c in ("% Meta O.S. (Proj)", "% Meta Cons. (Proj)")
+            if c in df_display.columns
         }
         render_tabela_segura(
             df_display, fmt=fmt, colunas_num=colunas_num, color_rules=color_rules
@@ -2024,7 +2155,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
         render_section_header(
             titulo=f"Projeção de Desempenho — {base_nome}",
             icone="📈",
-            subtitulo="Ritmo necessário para a meta. Faltantes = Meta − Realizado.",
+            subtitulo="Simule a força de trabalho ativa e acompanhe o ritmo necessário para fechar O.S. e Consultivos.",
         )
         if df_resumo_agrupado.empty:
             render_empty_state(tipo="dados", titulo="Sem dados para projeção")
@@ -2050,15 +2181,10 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
             return
         meta_os = float(METAS_PRODUCAO_OS_BASE["meta_base"])
         meta_cons_base = float(METAS_CONSULTIVO_BASE["meta_base"])
-        render_section_header(
-            titulo="Parâmetros da Operação",
-            icone="⚙️",
-            subtitulo="Ajuste manual da força de trabalho.",
-        )
         c1, c2 = st.columns([1, 2], gap="large")
         with c1:
             tecnicos_ativos = st.number_input(
-                "Número de técnicos ativos",
+                "Técnicos ativos para simulação de ritmo",
                 min_value=1,
                 max_value=1000,
                 value=min(tecnicos_base, 1000),
@@ -2066,53 +2192,65 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
                 key=f"tecnicos_{base_nome}",
             )
         with c2:
-            render_insight(
-                f"{base_nome}: {tecnicos_base} técnicos no resumo. Projeção ancorada em {formatar_data_br(ancora_os)}.",
-                tipo="info",
+            render_chips(
+                [
+                    ("Base", base_nome),
+                    ("Técnicos Identificados", f"{tecnicos_base} ativos"),
+                    ("Âncora O.S.", formatar_data_br(ancora_os)),
+                    ("Âncora Consultivos", formatar_data_br(ancora_cons)),
+                ]
             )
-        st.divider()
         os_faltantes = meta_os - os_real
         os_media_diaria = max(os_faltantes, 0) / dias_rest_os if dias_rest_os > 0 else 0
-        render_resumo_cards(
-            titulo="Produção (O.S.)",
-            icone="📊",
-            realizado=os_real,
-            projetado=os_projetado,
-            meta=meta_os,
-            faltantes=os_faltantes,
-            media_diaria=os_media_diaria,
-            dias_restantes=dias_rest_os,
-            tema_progresso="azul",
-            label_realizado="O.S. REALIZADAS",
-            label_projetado="O.S. PROJETADAS",
-            label_meta="META DE O.S.",
-            label_faltantes="O.S. FALTANTES",
-            metas=METAS_PRODUCAO_OS_BASE,
-            tecnico_dia=os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0,
-            ancora=ancora_os if os_real > 0 else None,
-        )
-        st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
         cons_faltantes = meta_cons_base - cons_real
         cons_media_diaria = (
             max(cons_faltantes, 0) / dias_rest_c if dias_rest_c > 0 else 0
         )
-        render_resumo_cards(
-            titulo="Consultivos",
-            icone="💼",
-            realizado=cons_real,
-            projetado=cons_projetado,
-            meta=meta_cons_base,
-            faltantes=cons_faltantes,
-            media_diaria=cons_media_diaria,
-            dias_restantes=dias_rest_c,
-            tema_progresso="laranja",
-            label_realizado="CONSULTIVOS REALIZADOS",
-            label_projetado="CONSULTIVOS PROJETADOS",
-            label_meta="META DE CONSULTIVOS",
-            label_faltantes="CONSULTIVOS FALTANTES",
-            metas=METAS_CONSULTIVO_BASE,
-            ancora=ancora_cons if cons_real > 0 else None,
+        sub_os, sub_cons = st.tabs(
+            [
+                f"📊 Produção O.S. ({_fmt_int(os_real)} / {_fmt_int(meta_os)})",
+                f"💼 Consultivos ({_fmt_int(cons_real)} / {_fmt_int(meta_cons_base)})",
+            ]
         )
+        with sub_os:
+            render_resumo_cards(
+                titulo=f"Produção (O.S.) — {base_nome}",
+                icone="📊",
+                realizado=os_real,
+                projetado=os_projetado,
+                meta=meta_os,
+                faltantes=os_faltantes,
+                media_diaria=os_media_diaria,
+                dias_restantes=dias_rest_os,
+                tema_progresso="azul",
+                label_realizado="O.S. REALIZADAS",
+                label_projetado="O.S. PROJETADAS",
+                label_meta="META DE O.S.",
+                label_faltantes="O.S. FALTANTES",
+                metas=METAS_PRODUCAO_OS_BASE,
+                tecnico_dia=(
+                    os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0
+                ),
+                ancora=ancora_os if os_real > 0 else None,
+            )
+        with sub_cons:
+            render_resumo_cards(
+                titulo=f"Consultivos — {base_nome}",
+                icone="💼",
+                realizado=cons_real,
+                projetado=cons_projetado,
+                meta=meta_cons_base,
+                faltantes=cons_faltantes,
+                media_diaria=cons_media_diaria,
+                dias_restantes=dias_rest_c,
+                tema_progresso="laranja",
+                label_realizado="CONSULTIVOS REALIZADOS",
+                label_projetado="CONSULTIVOS PROJETADOS",
+                label_meta="META DE CONSULTIVOS",
+                label_faltantes="CONSULTIVOS FALTANTES",
+                metas=METAS_CONSULTIVO_BASE,
+                ancora=ancora_cons if cons_real > 0 else None,
+            )
 
 
 render_aba_projecao_base(tab_abcdm, "NET-ABCDM")
@@ -2122,7 +2260,7 @@ with tab_monitores:
     render_section_header(
         titulo="Desempenho por Supervisor",
         icone="👔",
-        subtitulo="Volume de O.S. e consultivos no mesmo recorte",
+        subtitulo="Participação no volume de O.S. e consultivos no mesmo recorte filtrado",
     )
     if df_prod_f.empty and df_cons_f.empty:
         render_empty_state(tipo="dados", titulo="Sem dados de supervisores")
@@ -2152,29 +2290,36 @@ with tab_monitores:
             )
             df_mon = df_mon.sort_values(["OS_Equipe", "Consultivos"], ascending=False)
             supervisores = df_mon[df_mon["OS_Equipe"] > 0].head(8)
-            if not supervisores.empty:
-                fig_donut = grafico_donut(
-                    supervisores["MONITOR"].tolist(),
-                    supervisores["OS_Equipe"].tolist(),
-                    titulo="Participação por supervisor (O.S. da equipe)",
-                    altura=340,
+            col_grafico_mon, col_tabela_mon = st.columns([2, 3], gap="large")
+            with col_grafico_mon:
+                if not supervisores.empty:
+                    fig_donut = grafico_donut(
+                        supervisores["MONITOR"].tolist(),
+                        supervisores["OS_Equipe"].tolist(),
+                        titulo="Top Supervisores (O.S. da equipe)",
+                        altura=340,
+                    )
+                    if fig_donut is not None:
+                        st.plotly_chart(fig_donut, width="stretch")
+                else:
+                    render_empty_state(
+                        tipo="dados", titulo="Sem volume de O.S. por supervisor"
+                    )
+            with col_tabela_mon:
+                render_tabela_segura(
+                    df_mon,
+                    fmt={
+                        "OS_Equipe": "{:,.0f}",
+                        "Consultivos": "{:,.0f}",
+                        "Participação O.S. (%)": "{:.1f}%",
+                    },
                 )
-                if fig_donut is not None:
-                    st.plotly_chart(fig_donut, width="stretch")
-            render_tabela_segura(
-                df_mon,
-                fmt={
-                    "OS_Equipe": "{:,.0f}",
-                    "Consultivos": "{:,.0f}",
-                    "Participação O.S. (%)": "{:.1f}%",
-                },
-            )
-            render_botao_exportacao(df_mon, "Resumo_Supervisores")
+                render_botao_exportacao(df_mon, "Resumo_Supervisores")
 with tab_alertas:
     render_section_header(
-        titulo="Central de Alertas",
+        titulo="Central de Alertas da Meta",
         icone="🚨",
-        subtitulo="O que impede o fechamento da meta neste recorte",
+        subtitulo="Desvios críticos e pontos de atenção que impactam o fechamento da meta neste recorte",
         badge="Monitoramento",
         badge_tipo="erro",
     )
@@ -2188,16 +2333,35 @@ with tab_alertas:
         hoje_tz,
     )
     if not alertas:
-        render_insight("Nenhum desvio relevante.", tipo="ok")
+        render_insight("Nenhum desvio relevante identificado no recorte.", tipo="ok")
     else:
-        criticos = sum(1 for _, tipo in alertas if tipo == "critico")
-        render_insight(
-            f"{len(alertas)} pontos de atenção, {criticos} críticos.",
-            tipo="critico" if criticos else "alerta",
+        alertas_criticos = [msg for msg, t in alertas if t == "critico"]
+        alertas_atencao = [(msg, t) for msg, t in alertas if t != "critico"]
+        render_chips(
+            [
+                ("Total de Alertas", str(len(alertas))),
+                ("Críticos", str(len(alertas_criticos))),
+                ("Avisos / Atenção", str(len(alertas_atencao))),
+            ]
         )
-        for mensagem, tipo in alertas[:12]:
-            render_insight(mensagem, tipo=tipo)
-        if len(alertas) > 12:
+        col_crit, col_aviso = st.columns(2, gap="large")
+        with col_crit:
+            st.markdown("#### 🔴 Desvios Críticos")
+            if alertas_criticos:
+                for mensagem in alertas_criticos[:8]:
+                    render_insight(mensagem, tipo="critico")
+            else:
+                render_insight("Nenhum alerta crítico no momento.", tipo="ok")
+        with col_aviso:
+            st.markdown("#### 🟠 Pontos de Atenção")
+            if alertas_atencao:
+                for mensagem, tipo in alertas_atencao[:8]:
+                    render_insight(mensagem, tipo=tipo)
+            else:
+                render_insight("Nenhum aviso adicional.", tipo="ok")
+        if len(alertas) > 16:
             st.caption(
-                f"Mais {len(alertas) - 12} alertas omitidos para não poluir a leitura."
+                f"Mais {len(alertas) - 16} alertas omitidos para preservar a legibilidade."
             )
+
+render_rodape_pagina(versao=VERSAO, ambiente="Produção")

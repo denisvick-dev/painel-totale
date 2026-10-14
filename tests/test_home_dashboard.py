@@ -164,3 +164,34 @@ def test_home_renderiza_estado_das_fontes_sem_excecao() -> None:
     assert len(app.success) == 1
     assert len(app.warning) == 1
     assert len(app.error) == 1
+
+
+def test_home_nao_exibe_cockpit_alertas_ou_exportacao_e_alertas_removido() -> None:
+    """Garante a remoção de Cockpit executivo, Alertas automáticos, Exportação e pages/alertas.py."""
+    titulos_secoes = [titulo for titulo, _, _ in home.SECOES_PAGINA]
+    assert "Cockpit executivo" not in titulos_secoes
+    assert "Alertas automáticos" not in titulos_secoes
+    assert "Exportação e desempenho" not in titulos_secoes
+    assert not (RAIZ / "pages" / "alertas.py").exists()
+    codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
+    assert "pages/alertas.py" not in codigo_app
+
+
+def test_fontes_heros_incluem_oscine_local_e_protecao_de_contraste() -> None:
+    """Verifica que as fontes dos heros carregam Oscine/Manrope e protegem cor/família."""
+    from components.componentes import (
+        _CSS_HEROS,
+        _CSS_RESET_GLOBAL,
+        Fontes,
+        _css_font_face_oscine,
+        _icone_hero,
+    )
+
+    assert "'Oscine'" in Fontes.TITULO
+    css_oscine = _css_font_face_oscine()
+    assert "@font-face" in css_oscine
+    assert "'Oscine'" in css_oscine
+    assert "var(--font-titulo)" in _CSS_HEROS
+    assert ".hero-title" in _CSS_RESET_GLOBAL
+    assert "totale-icon-glyph" in _icone_hero("dashboard")
+

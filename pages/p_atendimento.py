@@ -60,11 +60,14 @@ def _injetar_css_local() -> None:
     <style>
     /* Tipografia e Fundo */
     html, body, [class*="css"], .stApp {
-        font-family: 'Inter', -apple-system, sans-serif !important;
+        font-family: var(--font-texto, 'Inter', -apple-system, sans-serif) !important;
         background-color: #F8FAFC;
     }
-    h1, h2, h3, h4 {
-        font-family: 'Inter', sans-serif !important;
+    h1:not(.th-title-lg):not(.th-title):not(.hero-title),
+    h2:not(.th-title-lg):not(.th-title):not(.hero-title),
+    h3:not(.th-title-lg):not(.th-title):not(.hero-title),
+    h4 {
+        font-family: var(--font-titulo, 'Oscine', 'Manrope', 'Inter', sans-serif) !important;
         letter-spacing: -0.02em;
     }
     .main .block-container {

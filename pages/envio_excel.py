@@ -30,7 +30,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
@@ -45,7 +44,7 @@ from config.settings import (
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
 )
-from robo.robo_local import renderizar_robo_local
+from robo.robo_local import obter_pasta_robo_padrao, renderizar_robo_local
 from services.cache_dados import (
     formatar_bytes,
     memoria_dataframe,
@@ -1110,9 +1109,7 @@ def _pipeline_robo_local(
 
 
 def _pasta_padrao_robo_local() -> str:
-    pasta = Path(__file__).resolve().parents[1] / "robo" / "dados"
-    pasta.mkdir(parents=True, exist_ok=True)
-    return str(pasta)
+    return obter_pasta_robo_padrao()
 
 
 def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
