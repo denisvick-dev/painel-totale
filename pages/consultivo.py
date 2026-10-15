@@ -1,12 +1,10 @@
 import logging
-from io import BytesIO
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 
 from components.componentes import (
     Fontes,
@@ -14,10 +12,13 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import CHAVE_CONSULTIVO, exigir_base, resumir_carga
+from services.hierarquia import hierarquia_da_sessao
 
 logger = logging.getLogger(__name__)
 
@@ -104,11 +105,7 @@ st.markdown(
 )
 
 
-from config.settings import URL_ATIVOS_EDIT
-
-
 class Configuracoes:
-    url_ativos = URL_ATIVOS_EDIT
     meta_diaria_consultivos = 7
 
 
@@ -149,12 +146,9 @@ class Calculos:
 # ====================================================
 # BLOCO 2: PREPARAÇÃO DE DADOS
 # ====================================================
-@st.cache_data(ttl=300)
-def carregar_hierarquia() -> pd.DataFrame:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(spreadsheet=Configuracoes.url_ativos, ttl=0)
-    df.columns = df.columns.str.strip()
-    return df[["Login", "Técnico", "Monitor", "Base"]].drop_duplicates(subset=["Login"])
+#: Nomes históricos das colunas da lista de ativos nesta página. A leitura e a
+#: normalização vivem em ``services.hierarquia`` (fonte única do portal).
+COLUNAS_HIERARQUIA_LEGADAS = {"LOGIN": "Login", "TÉCNICO": "Técnico", "MONITOR": "Monitor", "BASE": "Base"}
 
 
 def preparar_ranking(
@@ -356,27 +350,40 @@ def render_tabela_cons(
 # ====================================================
 # BLOCO 3: CARREGAMENTO PRINCIPAL E TRATAMENTO
 # ====================================================
-render_hero_totale_2(
-    titulo="📋 Painel de Consultivos e Produtos",
-    subtitulo="Análise de mix de produtos, consultivos realizados e oportunidades comerciais",
-    badge_texto="Atualização em tempo real",
-    badge_tipo="info",
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Indicadores",
+    "Projeção Fim do Mês",
+    "Visão Consolidada",
+    "Desempenho e Matriz",
+    "Equipes sem Consultivos",
+    "Exportação",
 )
 
-st.divider()
 
-dados_cons_raw = st.session_state.get("dados_cons")
-if isinstance(dados_cons_raw, pd.DataFrame):
-    df = dados_cons_raw.copy()
-elif isinstance(dados_cons_raw, dict) and isinstance(dados_cons_raw.get("Consultivo"), pd.DataFrame):
-    df = dados_cons_raw["Consultivo"].copy()
-else:
-    render_insight("Carregue os dados na aba principal primeiro.", "alerta")
-    st.stop()
+def render_hero_consultivo() -> None:
+    """Herói oficial da página."""
+    render_hero_totale_2(
+        titulo="📋 Painel de Consultivos e Produtos",
+        subtitulo=(
+            "Análise de mix de produtos, consultivos realizados e oportunidades comerciais"
+        ),
+        badge_texto="Atualização em tempo real",
+    )
 
-if df.empty:
-    render_insight("Carregue os dados na aba principal primeiro.", "alerta")
-    st.stop()
+
+# 1) Cabeçalho e contexto — padrão do portal (hero + chips + sumário).
+abrir_dashboard(
+    "Painel de Consultivos e Produtos",
+    secoes=SECOES_PAGINA,
+    hero=render_hero_consultivo,
+    resumo=resumir_carga(st.session_state.get(CHAVE_CONSULTIVO)),
+    origem=str(st.session_state.get("origem_dados") or ""),
+)
+
+# A guarda de entrada é a do portal: aceita DataFrame ou dict com a aba
+# "Consultivo", avisa no padrão oficial e interrompe a página sem dados.
+df = exigir_base(CHAVE_CONSULTIVO, abas=["Consultivo"], pagina="Consultivos")
 
 # Tratamento Numérico
 mapa = {
@@ -399,7 +406,7 @@ df["LOGIN NETSALES"] = df["LOGIN NETSALES"].astype("string").str.strip()
 
 # Merge com GSheets (Hierarquia)
 try:
-    df_ativos = carregar_hierarquia()
+    df_ativos = hierarquia_da_sessao().rename(columns=COLUNAS_HIERARQUIA_LEGADAS)
     df = df.drop(columns=["Monitor", "Base"], errors="ignore")
     # Outer merge
     df = pd.merge(df, df_ativos, left_on="LOGIN NETSALES", right_on="Login", how="outer")
@@ -594,6 +601,13 @@ eficiencia = (eq_produtivas / eq_total) if eq_total > 0 else 0
 
 fator_proj, falt_dias = Calculos.fator_projecao(df)
 
+cabecalho_secao(
+    "Indicadores",
+    icone="monitoring",
+    subtitulo="Equipes, produtividade e mix de produtos do recorte filtrado.",
+    badge=f"{len(df):,} registros".replace(",", "."),
+)
+
 # Linha 1 de KPIs
 c1, c2, c3, c4 = st.columns(4)
 render_kpi(c1, "Total Equipes", f"{eq_total:,.0f}".replace(",", "."), tema="azul")
@@ -608,7 +622,9 @@ render_kpi(c4, "Eficiência (Conversão)", f"{eficiencia:.2%}", tema="cinza")
 
 st.divider()
 
-st.markdown("#### 📊 Resultado Realizado (Até o momento)")
+cabecalho_secao(
+    "Resultado Realizado", icone="fact_check", subtitulo="Acumulado até o momento.", ancora=False
+)
 c5, c6, c7, c8, c9 = st.columns(5)
 render_kpi(
     c5,
@@ -631,9 +647,10 @@ render_kpi(c9, "Total Virtua", f"{f_vir:,.0f}".replace(",", "."), tema="cinza")
 st.divider()
 
 if falt_dias > 0:
-    st.markdown(
-        f"#### 🔮 Projeção Fim do Mês <span style='font-size:14px; color:#64748B;'> (Faltam {falt_dias} dias úteis)</span>",
-        unsafe_allow_html=True,
+    cabecalho_secao(
+        "Projeção Fim do Mês",
+        icone="trending_up",
+        subtitulo=f"Faltam {falt_dias} dias úteis para o fechamento.",
     )
     p1, p2, _ = st.columns([1, 1, 3])
     render_kpi(
@@ -656,9 +673,14 @@ st.divider()
 # ====================================================
 # BLOCO 6: TABELAS E GRÁFICOS
 # ====================================================
+cabecalho_secao(
+    "Visão Consolidada",
+    icone="engineering",
+    subtitulo="Ranking por monitor (ou por técnico, no modo detalhado).",
+)
 col_tit, col_tog, _ = st.columns([3, 1, 1])
 with col_tit:
-    render_section_header(titulo="Visão Consolidada", icone="👷")
+    st.write("")
 with col_tog:
     st.write("")
     detalhar_tec = st.toggle("Detalhar por Técnico")
@@ -707,6 +729,7 @@ st.markdown(
 aba1, aba2 = st.tabs(["📈 Desempenho e Matriz", "🚫 Equipes sem Consultivos"])
 
 with aba1:
+    cabecalho_secao("Desempenho e Matriz", icone="insights")
     g1, g2 = st.columns(2)
     with g1:
         if not df_exibir.empty:
@@ -736,7 +759,11 @@ with aba1:
             )
 
 with aba2:
-    render_section_header(titulo="Equipes que ainda não fizeram Consultivos", icone="🚫")
+    cabecalho_secao(
+        "Equipes sem Consultivos",
+        icone="block",
+        subtitulo="Equipes que ainda não fizeram consultivos no período.",
+    )
     df_zerados = df_exibir[df_exibir["Total Consultivos"] == 0]
 
     if not df_zerados.empty:
@@ -747,28 +774,13 @@ with aba2:
             "ok",
         )
 
-# ── EXPORTAÇÃO ──
-st.divider()
-st.subheader("📥 Exportar Dados (Inclui Projeções)")
-c_exp1, c_exp2 = st.columns([1, 4])
-tipo_exp = c_exp1.selectbox("Formato:", ["Excel", "CSV"], label_visibility="collapsed")
+# ── Exportação e rodapé (padrão do portal) ──
+secao_exportacao(
+    df_exibir,
+    nome_arquivo="relatorio_consultivos",
+    chave="consultivo",
+    titulo="Exportação",
+    subtitulo="Ranking exibido, incluindo as colunas de projeção.",
+)
 
-if tipo_exp == "CSV":
-    c_exp2.download_button(
-        "Baixar Arquivo CSV",
-        df_exibir.to_csv(index=False, encoding="utf-8-sig", decimal=","),
-        "relatorio_consultivos.csv",
-        "text/csv",
-        width="stretch",
-    )
-else:
-    out = BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as w:
-        df_exibir.to_excel(w, index=False)
-    c_exp2.download_button(
-        "Baixar Planilha Excel",
-        out.getvalue(),
-        "relatorio_consultivos.xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        width="stretch",
-    )
+fechar_dashboard()

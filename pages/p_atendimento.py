@@ -15,27 +15,54 @@ Funcionalidades:
 
 Uso:
     streamlit run p_atendimento.py
+
+A página segue o padrão do portal (``components.dashboards`` +
+``components.layout_pagina``) e consome a camada compartilhada de serviços
+(``services.planilhas``/``hierarquia``/``texto``/``dados_sessao``).
 """
 
 from __future__ import annotations
 
 import logging
-import unicodedata
 from datetime import datetime, time
-from io import BytesIO
 from typing import Any
 
 import pandas as pd
 import streamlit as st
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
 
 from components.componentes import aplicar_estilo as aplicar_estilo_ds
+from components.componentes import render_hero, render_insight, render_kpi
+from components.css_paginas import aplicar_css_cartao_upload
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
 from config.settings import obter_sheet_id_ativos
-from services.google_drive_client import carregar_planilha_gsheets_csv
+from services.dados_sessao import CHAVE_MEMORIA, obter_dataframe
+from services.hierarquia import hierarquia_da_sessao
+from services.planilhas import gerar_excel as gerar_excel_servico
+from services.planilhas import ler_bytes
+from services.texto import formatar_inteiro
+from services.texto import normalizar_texto as normalizar_texto_servico
 
 logger = logging.getLogger(__name__)
+
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Panorama Geral",
+    "Ranking de Técnicos — Primeiro Horário de Saída",
+    "Ranking de Monitores — Média de Primeiro Atendimento",
+    "Contratos Pendentes para Rota",
+    "Exportação",
+)
+
+#: A hierarquia compartilhada usa colunas canônicas em caixa alta; o merge desta
+#: página espera o case histórico.
+COLUNAS_HIERARQUIA_LEGADAS: dict[str, str] = {
+    "LOGIN": "Login",
+    "TÉCNICO": "Técnico",
+    "MONITOR": "Monitor",
+    "BASE": "Base",
+}
 
 # ═══════════════════════════════════════════════════════
 # CONFIGURAÇÃO
@@ -51,211 +78,7 @@ st.set_page_config(
 # ═══════════════════════════════════════════════════════
 # CSS CORPORATIVO
 # ═══════════════════════════════════════════════════════
-def _injetar_css_local() -> None:
-    st.markdown(
-        """
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <style>
-    /* Tipografia e Fundo */
-    html, body, [class*="css"], .stApp {
-        font-family: var(--font-texto, 'Inter', -apple-system, sans-serif) !important;
-        background-color: #F8FAFC;
-    }
-    h1:not(.th-title-lg):not(.th-title):not(.hero-title),
-    h2:not(.th-title-lg):not(.th-title):not(.hero-title),
-    h3:not(.th-title-lg):not(.th-title):not(.hero-title),
-    h4 {
-        font-family: var(--font-titulo, 'Oscine', 'Manrope', 'Inter', sans-serif) !important;
-        letter-spacing: -0.02em;
-    }
-    .main .block-container {
-        padding-top: 1.5rem;
-        max-width: 1400px;
-    }
-
-    /* Sidebar Clean */
-    [data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E2E8F0;
-    }
-    [data-testid="stSidebar"] h3 {
-        color: #0F172A !important;
-        font-size: 14px !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    /* ═════════ HERO TOTALE (Azul e Laranja) ═════════ */
-    .hero-corp {
-        background: linear-gradient(135deg, #012869 0%, #173b7d 50%, #F37C04 100%);
-        padding: 32px 40px;
-        border-radius: 8px;
-        color: white;
-        margin-bottom: 24px;
-        border: none;
-        box-shadow: 0 4px 15px rgba(1, 40, 105, 0.15);
-    }
-    .hero-title {
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0;
-        color: #FFFFFF !important;
-        letter-spacing: -0.02em;
-    }
-    .hero-subtitle {
-        font-size: 14px;
-        color: #F8FAFC;
-        opacity: 0.9;
-        margin: 8px 0 0 0;
-        font-weight: 400;
-    }
-    .hero-badge {
-        display: inline-block;
-        background: rgba(255, 255, 255, 0.15);
-        padding: 4px 12px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        margin-top: 16px;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: #FFFFFF;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-    }
-
-    /* ═════════ KPI CARDS MINIMALISTAS ═════════ */
-    .kpi-card {
-        background: #FFFFFF;
-        border-radius: 8px;
-        padding: 20px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-        height: 100%;
-        position: relative;
-    }
-    .kpi-label {
-        font-size: 12px;
-        font-weight: 600;
-        color: #64748B;
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-        margin-bottom: 8px;
-    }
-    .kpi-value {
-        font-size: 28px;
-        font-weight: 700;
-        color: #0F172A;
-        line-height: 1;
-        font-variant-numeric: tabular-nums;
-    }
-    .kpi-sub {
-        font-size: 12px;
-        color: #94A3B8;
-        margin-top: 8px;
-        font-weight: 500;
-    }
-    .kpi-icon {
-        position: absolute;
-        top: 20px;
-        right: 20px;
-        font-size: 20px;
-        opacity: 0.8;
-    }
-
-    /* ═════════ UPLOAD ZONE ═════════ */
-    .upload-card {
-        background: #FFFFFF;
-        border: 1px dashed #CBD5E1;
-        border-radius: 8px;
-        padding: 32px;
-        text-align: center;
-        margin-bottom: 16px;
-        transition: all 0.2s;
-    }
-    .upload-icon {
-        font-size: 32px;
-        color: #0F172A;
-        margin-bottom: 12px;
-    }
-    .upload-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: #0F172A;
-        margin-bottom: 4px;
-    }
-    .upload-subtitle {
-        font-size: 13px;
-        color: #64748B;
-    }
-
-    /* ═════════ CABEÇALHOS DE SEÇÃO ═════════ */
-    .section-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin: 40px 0 16px 0;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #E2E8F0;
-    }
-    .section-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: #0F172A;
-        margin: 0;
-    }
-    .section-badge {
-        background: #F1F5F9;
-        color: #475569;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-
-    /* ═════════ DIAGNÓSTICO E INSIGHTS ═════════ */
-    .diag-card {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 16px 20px;
-    }
-    .diag-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 0;
-        border-bottom: 1px dashed #E2E8F0;
-        font-size: 13px;
-    }
-    .diag-item:last-child { border-bottom: none; }
-    .diag-label { color: #475569; font-weight: 500; }
-    .diag-value { font-weight: 600; color: #0F172A; }
-    
-    /* Alertas B2B */
-    .insight-info { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E3A8A; padding: 12px 16px; border-radius: 6px; font-size: 13px; }
-    .insight-alerta { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; padding: 12px 16px; border-radius: 6px; font-size: 13px; }
-    .insight-critico { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; padding: 12px 16px; border-radius: 6px; font-size: 13px; }
-
-    /* Barra Inferior (Resultado) */
-    .resultado-base {
-        background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        padding: 12px 16px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        font-size: 13px;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-
+# ═══════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════
 # CONSTANTES
 # ═══════════════════════════════════════════════════════
@@ -273,85 +96,50 @@ CONTRATO_VALORES_VAZIOS = {
 
 
 # ═══════════════════════════════════════════════════════
-# COMPONENTES
 # ═══════════════════════════════════════════════════════
-def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
-    subtitulo_html = f'<p class="hero-subtitle">{subtitulo}</p>' if subtitulo else ""
-    badge_html = f'<span class="hero-badge">{badge}</span>' if badge else ""
-    st.markdown(
-        f'<div class="hero-corp">'
-        f'<h1 class="hero-title">{titulo}</h1>'
-        f"{subtitulo_html}{badge_html}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+# COMPONENTES (adaptadores finos do Design System)
+# ═══════════════════════════════════════════════════════
+#: Cores usadas nos KPIs desta página → temas do Design System.
+TEMAS_POR_COR: dict[str, str] = {
+    "#012869": "azul",
+    "#0284C7": "azul",
+    "#059669": "verde",
+    "#F37C04": "laranja",
+    "#7C3AED": "roxo",
+    "#475569": "cinza",
+    "#B91C1C": "vermelho",
+}
 
 
-def render_kpi(
-    col,
+def _kpi(
+    col: Any,
     label: str,
     valor: str,
     sub: str = "",
     cor: str = "#012869",
     icone: str = "",
 ) -> None:
-    icone_html = f'<div class="kpi-icon">{icone}</div>' if icone else ""
-    col.markdown(
-        f'<div class="kpi-card" style="border-left-color:{cor};">'
-        f"{icone_html}"
-        f'<div class="kpi-label">{label}</div>'
-        f'<div class="kpi-value" style="color:{cor};">{valor}</div>'
-        f'<div class="kpi-sub">{sub}</div>'
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    """KPI da página → :func:`components.componentes.render_kpi`.
 
-
-def render_sidebar_kpi(label: str, valor: str, cor: str = "#012869") -> None:
-    st.sidebar.markdown(
-        f'<div class="sidebar-kpi" style="border-left-color:{cor};">'
-        f'<div class="sidebar-kpi-label">{label}</div>'
-        f'<div class="sidebar-kpi-value" style="color:{cor};">{valor}</div>'
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_section(icon: str, titulo: str, badge: str = "") -> None:
-    badge_html = f'<span class="section-badge">{badge}</span>' if badge else ""
-    st.markdown(
-        f'<div class="section-header">'
-        f'<span style="font-size:24px;">{icon}</span>'
-        f'<h2 class="section-title">{titulo}</h2>'
-        f"{badge_html}</div>",
-        unsafe_allow_html=True,
-    )
-
-
-def render_insight(msg: str, tipo: str = "info") -> None:
-    st.markdown(f'<div class="insight-{tipo}">{msg}</div>', unsafe_allow_html=True)
-
-
-def render_upload_card() -> str:
-    return (
-        '<div class="upload-card">'
-        '<div class="upload-icon">📊</div>'
-        '<div class="upload-title">Faça upload da base de OSs</div>'
-        '<div class="upload-subtitle">'
-        "Formatos aceitos: <b>Excel (.xlsx, .xls)</b> ou <b>CSV</b> · "
-        "A base será enriquecida com dados do <b>Google Sheets</b> (Técnico + Monitor + Base)"
-        "</div>"
-        "</div>"
+    O Design System pinta o cartão pelo *tema* (não por hex avulso): o mapa acima
+    traduz as cores históricas desta página para os temas equivalentes.
+    """
+    render_kpi(
+        col,
+        label,
+        valor,
+        sub=sub,
+        tema=TEMAS_POR_COR.get(str(cor).upper(), "azul"),
+        icone=icone,
     )
 
 
 # ═══════════════════════════════════════════════════════
 # UTILITÁRIOS
 # ═══════════════════════════════════════════════════════
-def normalizar_texto(texto: str) -> str:
-    t = str(texto).strip().upper()
-    t = unicodedata.normalize("NFKD", t).encode("ASCII", "ignore").decode()
-    return t
+#: Normalização de texto delegada a :func:`services.texto.normalizar_texto`
+#: (maiúscula, sem acentos e sem espaços sobrando — fonte única do portal).
+normalizar_texto = normalizar_texto_servico
 
 
 def buscar_coluna(df: pd.DataFrame, palavras_chave: list[str]) -> str | None:
@@ -376,43 +164,13 @@ def buscar_coluna_exata(df: pd.DataFrame, nome: str) -> str | None:
     return None
 
 
-def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-    """Exporta DataFrame para Excel com formatação corporativa e safe para NaN/float."""
-    output = BytesIO()
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=aba[:31])
-        ws = writer.sheets[aba[:31]]
-
-        header_fill = PatternFill("solid", fgColor="012869")
-        header_font = Font(color="FFFFFF", bold=True, size=11)
-
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-
-        for i, col in enumerate(df.columns, 1):
-            try:
-                if df[col].empty:
-                    max_len_dados = 0
-                else:
-                    serie_str = df[col].fillna("").astype(str)
-                    tamanhos = serie_str.str.len()
-                    max_len_dados = int(tamanhos.max()) if len(tamanhos) > 0 else 0
-
-                max_len = max(max_len_dados, len(str(col)))
-                largura = min(max(max_len + 2, 12), 40)
-
-                ws.column_dimensions[get_column_letter(i)].width = largura
-
-            except Exception:
-                ws.column_dimensions[get_column_letter(i)].width = 20
-
-    return output.getvalue()
+#: Exportação delegada a :func:`services.planilhas.gerar_excel` (cabeçalho
+#: corporativo, larguras seguras para NaN e linha congelada).
+gerar_excel_padrao = gerar_excel_servico
 
 
-def fmt_int(v: int) -> str:
-    return f"{v:,}".replace(",", ".")
+#: Formatação de inteiros delegada a :func:`services.texto.formatar_inteiro`.
+fmt_int = formatar_inteiro
 
 
 def fmt_hora(t: time) -> str:
@@ -443,40 +201,28 @@ def fmt_hora(t: time) -> str:
 # ═══════════════════════════════════════════════════════
 @st.cache_data(ttl=600, show_spinner="🔗 Conectando com Google Sheets...")
 def carregar_lista_ativos() -> pd.DataFrame:
+    """Lista de ativos (Login | Técnico | Monitor | Base) via camada compartilhada.
+
+    Antes a página abria o Sheets por conta própria e reimplementava a limpeza do
+    login; hoje delega a :func:`services.hierarquia.hierarquia_da_sessao`, que já
+    normaliza colunas, remove o ``.0`` do Excel e degrada graciosamente sem rede
+    (devolve DataFrame vazio). O cache continua aqui para o botão *Reiniciar*
+    conseguir limpar a leitura desta página.
     """
-    Lê a aba de técnicos do Google Sheets com fallbacks para evitar HTTP 400.
-    Retorna DataFrame com colunas: Login | Técnico | Monitor | Base
-    """
-    sheet_id = obter_sheet_id_ativos()
-    df = carregar_planilha_gsheets_csv(sheet_id=sheet_id, usar_conexao_streamlit=True)
-
-    if df is None or df.empty:
+    hierarquia = hierarquia_da_sessao(obter_sheet_id_ativos(), ttl=600)
+    if hierarquia.empty:
         return pd.DataFrame()
-
-    try:
-        df.columns = df.columns.astype(str).str.strip()
-
-        cols_esperadas = ["Login", "Técnico", "Monitor", "Base"]
-        cols_encontradas = [c for c in cols_esperadas if c in df.columns]
-
-        if "Login" not in cols_encontradas:
-            st.warning("⚠️ A coluna 'Login' não foi encontrada no Google Sheets.")
-            return pd.DataFrame()
-
-        df = df[cols_encontradas].copy()
-
-        df["Login"] = (
-            df["Login"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip().str.upper()
-        )
-
-        df = df.drop_duplicates(subset=["Login"], keep="last")
-        df = df[df["Login"].str.strip() != ""].reset_index(drop=True)
-
-        return df
-
-    except Exception as e:
-        st.warning(f"⚠️ Erro ao processar Google Sheets: {e}")
+    saida = hierarquia.rename(columns=COLUNAS_HIERARQUIA_LEGADAS)
+    colunas = [c for c in ("Login", "Técnico", "Monitor", "Base") if c in saida.columns]
+    if "Login" not in colunas:
+        st.warning("⚠️ A coluna 'Login' não foi encontrada no Google Sheets.")
         return pd.DataFrame()
+    saida = saida[colunas].copy()
+    saida["Login"] = (
+        saida["Login"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip().str.upper()
+    )
+    saida = saida.drop_duplicates(subset=[["Login"]], keep="last")
+    return saida[saida["Login"] != ""].reset_index(drop=True)
 
 
 def aplicar_merge_ativos(
@@ -529,31 +275,17 @@ def aplicar_merge_ativos(
 # ═══════════════════════════════════════════════════════
 @st.cache_data(show_spinner="🚗 Processando arquivo...")
 def carregar_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-    bio = BytesIO(file_bytes)
+    """Leitura do upload delegada a :func:`services.planilhas.ler_bytes`.
 
-    if filename.lower().endswith((".xlsx", ".xls")):
-        return pd.read_excel(bio, engine="openpyxl", dtype=str)
-
-    for sep in [";", ",", "\t", "|"]:
-        for enc in ["utf-8-sig", "latin-1", "cp1252"]:
-            try:
-                bio.seek(0)
-                df = pd.read_csv(
-                    bio,
-                    sep=sep,
-                    encoding=enc,
-                    dtype=str,
-                    on_bad_lines="skip",
-                    low_memory=False,
-                )
-                if len(df.columns) > 1:
-                    return df
-            except Exception:
-                continue
-
-    raise ValueError("Não foi possível ler o arquivo. Verifique o formato.")
+    Mantém o cache por conteúdo e o contrato da página (tudo como texto), sem
+    repetir a detecção de separador/encoding que o serviço já faz.
+    """
+    return ler_bytes(file_bytes, filename, dtype=str)
 
 
+# ═══════════════════════════════════════════════════════
+# CLASSIFICAÇÃO
+# ═══════════════════════════════════════════════════════
 def classificar_pendentes(df: pd.DataFrame, col_status: str) -> pd.Series:
     if col_status not in df.columns:
         return pd.Series([True] * len(df), index=df.index)
@@ -837,12 +569,21 @@ def main() -> None:
     # operável quando executada isoladamente.
     aplicar_estilo_ds()
     render_page_sidebar_theme_selector()
-    _injetar_css_local()
+    aplicar_css_cartao_upload()
 
-    render_hero(
-        titulo="Painel de Primeiro Atendimento",
-        subtitulo="Gestão Operacional de Ordens de Serviço · Merge automático via Google Sheets",
-        badge="SISTEMA TOTALE",
+    abrir_dashboard(
+        "Painel de Primeiro Atendimento",
+        secoes=SECOES_PAGINA,
+        hero=render_hero,
+        hero_kwargs={
+            "titulo": "Painel de Primeiro Atendimento",
+            "subtitulo": (
+                "Gestão Operacional de Ordens de Serviço · "
+                "Merge automático via Google Sheets"
+            ),
+            "badge": "SISTEMA TOTALE",
+        },
+        chips={"Fontes": "Upload + lista de ativos"},
     )
 
     with st.sidebar:
@@ -858,7 +599,10 @@ def main() -> None:
     # ─────────────────────────────────────────────────
     # UPLOAD
     # ─────────────────────────────────────────────────
-    st.markdown(render_upload_card(), unsafe_allow_html=True)
+    st.markdown(
+        "**Como funciona:** envie um Excel (.xlsx, .xls) ou CSV com as O.S. — a base é "
+        "enriquecida com a lista de ativos do Google Sheets (Técnico + Monitor + Base)."
+    )
 
     arq = st.file_uploader(
         "Selecione o arquivo",
@@ -923,11 +667,11 @@ def main() -> None:
     try:
         df_raw = carregar_arquivo(arq.getvalue(), arq.name)
     except Exception as e:
-        render_insight(f"❌ <b>Erro ao ler arquivo:</b> <code>{e}</code>", tipo="critico")
+        render_insight(f"**Erro ao ler arquivo:** `{e}`", tipo="critico")
         return
 
     if df_raw.empty:
-        render_insight("⚠️ <b>Arquivo vazio</b>.", tipo="alerta")
+        render_insight("**Arquivo vazio.**", tipo="alerta")
         return
 
     # Detecção de colunas
@@ -958,6 +702,9 @@ def main() -> None:
     # Merge com Google Sheets
     df_ativos = carregar_lista_ativos()
     df, diag_merge = aplicar_merge_ativos(df, df_ativos, col_login)
+    # A base limpa fica na chave compartilhada: outras páginas e o resumo da
+    # barra lateral leem dela (services.dados_sessao), sem recalcular.
+    st.session_state[CHAVE_MEMORIA] = df
 
     col_tecnico = (
         "Técnico"
@@ -971,9 +718,12 @@ def main() -> None:
         st.divider()
         st.markdown("### 📊 Base Carregada")
         st.caption(f"📄 **Arquivo:** `{arq.name}`")
+        base_limpa = obter_dataframe(CHAVE_MEMORIA)
+        registros = len(base_limpa) if isinstance(base_limpa, pd.DataFrame) else len(df)
+        st.caption(f"🔢 **Registros:** {fmt_int(registros)} após limpeza e merge")
 
     if df.empty:
-        render_insight("⚠️ Após limpeza, não restou nenhum registro válido.", tipo="critico")
+        render_insight("Após a limpeza, não restou nenhum registro válido.", tipo="critico")
         return
 
     if col_status:
@@ -990,11 +740,11 @@ def main() -> None:
     executados = total - pendentes
     pct_pend = (pendentes / total * 100) if total > 0 else 0
 
-    render_section("📈", "Panorama Geral", "KPIs")
+    cabecalho_secao("Panorama Geral", icone="monitoring", subtitulo="KPIs")
 
     c1, c2, c3, c4 = st.columns(4)
-    render_kpi(c1, "Base Válida", fmt_int(total), sub="após limpeza", cor="#059669", icone="🚗")
-    render_kpi(
+    _kpi(c1, "Base Válida", fmt_int(total), sub="após limpeza", cor="#059669", icone="🚗")
+    _kpi(
         c2,
         "Pendentes",
         fmt_int(pendentes),
@@ -1002,7 +752,7 @@ def main() -> None:
         cor="#F37C04",
         icone="⏳",
     )
-    render_kpi(
+    _kpi(
         c3,
         "Executadas/Fechadas",
         fmt_int(executados),
@@ -1013,7 +763,7 @@ def main() -> None:
 
     if col_monitor and col_monitor in df.columns:
         monitores_qtd = df[col_monitor].dropna().nunique()
-        render_kpi(
+        _kpi(
             c4,
             "Monitores",
             str(monitores_qtd),
@@ -1023,7 +773,7 @@ def main() -> None:
         )
     elif col_base_final:
         regioes = df[col_base_final].dropna().nunique()
-        render_kpi(
+        _kpi(
             c4,
             "Regiões/Bases",
             str(regioes),
@@ -1032,7 +782,7 @@ def main() -> None:
             icone="🌎",
         )
     else:
-        render_kpi(
+        _kpi(
             c4,
             "Colunas",
             str(len(df.columns)),
@@ -1052,10 +802,14 @@ def main() -> None:
         col_inicio=col_inicio,
     )
 
-    render_section(
-        "🏆",
+    cabecalho_secao(
         "Ranking de Técnicos — Primeiro Horário de Saída",
-        (f"{len(df_primeiro_horario)} técnicos" if not df_primeiro_horario.empty else "sem dados"),
+        icone="emoji_events",
+        badge=(
+            f"{len(df_primeiro_horario)} técnicos"
+            if not df_primeiro_horario.empty
+            else "sem dados"
+        ),
     )
 
     if df_primeiro_horario.empty:
@@ -1085,7 +839,7 @@ def main() -> None:
         primeiro = df_primeiro_horario.iloc[0]
         ultimo = df_primeiro_horario.iloc[-1]
 
-        render_kpi(
+        _kpi(
             kh1,
             "Primeiro Início (Técnico)",
             primeiro["Hora Início"],
@@ -1093,7 +847,7 @@ def main() -> None:
             cor="#0284C7",
             icone="⏱️",
         )
-        render_kpi(
+        _kpi(
             kh2,
             "Último Início (Técnico)",
             ultimo["Hora Início"],
@@ -1101,7 +855,7 @@ def main() -> None:
             cor="#475569",
             icone="📉",
         )
-        render_kpi(
+        _kpi(
             kh3,
             "Volume em Rota",
             str(tec_iniciaram),
@@ -1156,7 +910,7 @@ def main() -> None:
         with col_dl1:
             st.download_button(
                 "📥 **Baixar Excel**",
-                data=gerar_excel(df_exibir_tec, "Ranking_Tecnicos"),
+                data=gerar_excel_padrao(df_exibir_tec, "Ranking_Tecnicos"),
                 file_name=f"ranking_tecnicos_{timestamp}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 width="stretch",
@@ -1178,10 +932,10 @@ def main() -> None:
         # ─────────────────────────────────────────────────
         df_ranking_monitores = calcular_ranking_monitores(df_primeiro_horario)
 
-        render_section(
-            "👔",
+        cabecalho_secao(
             "Ranking de Monitores — Média de Primeiro Atendimento",
-            (
+            icone="badge",
+            badge=(
                 f"{len(df_ranking_monitores)} monitores"
                 if not df_ranking_monitores.empty
                 else "sem dados"
@@ -1197,7 +951,7 @@ def main() -> None:
             km1, km2, km3 = st.columns(3)
             monitor_madrugador = df_ranking_monitores.iloc[0]
 
-            render_kpi(
+            _kpi(
                 km1,
                 "Melhor SLA (Monitor)",
                 monitor_madrugador["Média do Primeiro Atend."],
@@ -1205,7 +959,7 @@ def main() -> None:
                 cor="#0284C7",
                 icone="👤",
             )
-            render_kpi(
+            _kpi(
                 km2,
                 "Cobertura",
                 f"{len(df_ranking_monitores)} monitores",
@@ -1213,7 +967,7 @@ def main() -> None:
                 cor="#475569",
                 icone="📊",
             )
-            render_kpi(
+            _kpi(
                 km3,
                 "Atividades Processadas",
                 fmt_int(int(df_ranking_monitores["Total Atividades"].sum())),
@@ -1264,7 +1018,7 @@ def main() -> None:
             with col_dm1:
                 st.download_button(
                     "📥 **Baixar Excel**",
-                    data=gerar_excel(df_exibir_mon, "Ranking_Monitores"),
+                    data=gerar_excel_padrao(df_exibir_mon, "Ranking_Monitores"),
                     file_name=f"ranking_monitores_{timestamp}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     width="stretch",
@@ -1284,7 +1038,12 @@ def main() -> None:
     # ─────────────────────────────────────────────────
     # FILTROS + TABELA DE PENDENTES
     # ─────────────────────────────────────────────────
-    render_section("🚗", "Contratos Pendentes para Rota", f"{fmt_int(pendentes)} pendentes")
+    cabecalho_secao(
+        "Contratos Pendentes para Rota",
+        icone="local_shipping",
+        subtitulo=f"{fmt_int(pendentes)} pendentes",
+        ancora=False,
+    )
 
     df_filtrado = df_pend.copy()
 
@@ -1359,7 +1118,7 @@ def main() -> None:
     )
 
     if df_filtrado.empty:
-        render_insight("🔍 Nenhum registro encontrado com os filtros.", tipo="alerta")
+        render_insight("Nenhum registro encontrado com os filtros.", tipo="alerta")
         return
 
     # Tabela
@@ -1383,47 +1142,22 @@ def main() -> None:
     with st.spinner("Montando tabela de pendentes..."):
         st.dataframe(df_exibir, width="stretch", hide_index=True, height=500)
 
-    # Exportação
-    render_section("📥", "Exportar Lista para Rota")
-
-    col_exp1, col_exp2, col_info = st.columns([1, 1, 2])
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-
-    with col_exp1:
-        st.download_button(
-            "🚗 **Baixar Excel**",
-            data=gerar_excel(df_exibir, "Pendentes_Rota"),
-            file_name=f"rota_pendentes_{timestamp}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
-            type="primary",
-        )
-
-    with col_exp2:
-        csv = df_exibir.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
-        st.download_button(
-            "📄 **Baixar CSV**",
-            data=csv,
-            file_name=f"rota_pendentes_{timestamp}.csv",
-            mime="text/csv",
-            width="stretch",
-        )
-
-    with col_info:
-        st.caption(
-            f"📅 **{datetime.now().strftime('%d/%m/%Y às %H:%M')}** · "
-            f"🚗 **{fmt_int(len(df_exibir))}** registros para rota"
-        )
-
-    # Rodapé
-    st.markdown(
-        '<div style="text-align:center;color:#94A3B8;font-size:11px;'
-        'padding:24px 0 8px 0;margin-top:32px;border-top:1px solid #F1F5F9;">'
-        '🚗 <b style="color:#012869;">Primeiro Atendimento</b> · '
-        "Ferramenta operacional TOTALE"
-        "</div>",
-        unsafe_allow_html=True,
+    # Exportação — bloco padrão do portal (Excel + CSV na última seção ancorada)
+    st.caption(
+        f"📅 **{datetime.now().strftime('%d/%m/%Y às %H:%M')}** · "
+        f"🚗 **{fmt_int(len(df_exibir))}** registros para rota"
     )
+    secao_exportacao(
+        df_exibir,
+        nome_arquivo="rota_pendentes",
+        chave="p_atendimento_pendentes",
+        titulo="Exportação",
+        subtitulo="Lista de contratos pendentes já na ordem oficial de rota.",
+        rotulo_secao="Exportar lista para rota",
+    )
+
+    # Rodapé no padrão do portal
+    fechar_dashboard(texto="Primeiro Atendimento · Ferramenta operacional TOTALE")
 
 
 if __name__ == "__main__":

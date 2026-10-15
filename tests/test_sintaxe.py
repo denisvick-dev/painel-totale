@@ -18,13 +18,19 @@ Execução:
 
 from __future__ import annotations
 
-import ast
 import re
 import sys
 import tomllib
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
+
+# O CI executa este arquivo direto (`python tests/test_sintaxe.py`), sem o
+# rootdir no `sys.path` que o pytest adiciona automaticamente. Como dois guardas
+# importam `config.navegacao`/`config.settings`, a raiz precisa estar no caminho
+# nos dois modos de execução.
+if str(RAIZ) not in sys.path:
+    sys.path.insert(0, str(RAIZ))
 
 # Diretórios ignorados: `old/` guarda scripts legados que não fazem parte do app.
 IGNORADOS = {"old", "__pycache__", ".venv", ".git", "build", "dist"}
@@ -65,40 +71,39 @@ def test_sem_marcadores_de_conflito() -> None:
 
 
 def test_paginas_navegacao_existem() -> None:
-    """Toda página registrada no shell deve apontar para um arquivo existente."""
-    caminho_app = RAIZ / "streamlit_app.py"
-    arvore = ast.parse(caminho_app.read_text(encoding="utf-8"))
-    paginas = [
-        chamada.args[0].value
-        for chamada in ast.walk(arvore)
-        if isinstance(chamada, ast.Call)
-        and isinstance(chamada.func, ast.Attribute)
-        and isinstance(chamada.func.value, ast.Name)
-        and chamada.func.value.id == "st"
-        and chamada.func.attr == "Page"
-        and chamada.args
-        and isinstance(chamada.args[0], ast.Constant)
-        and isinstance(chamada.args[0].value, str)
-    ]
+    """Toda página do mapa de navegação deve apontar para um arquivo existente.
 
-    assert paginas, "Nenhuma página foi registrada em streamlit_app.py."
-    faltantes = [pagina for pagina in paginas if not (RAIZ / pagina).is_file()]
+    Desde a v3.7.0 o menu é dado (``config/navegacao.py``), não código no
+    entrypoint: o teste lê ``PAGINAS`` e confere cada ``caminho``.
+    """
+    from config.navegacao import PAGINAS
+
+    assert PAGINAS, "Nenhuma página foi registrada em config/navegacao.py."
+    faltantes = [p.caminho for p in PAGINAS if not (RAIZ / p.caminho).is_file()]
     assert not faltantes, "Páginas registradas inexistentes: " + ", ".join(faltantes)
+
+    padrao = [p for p in PAGINAS if p.padrao]
+    assert len(padrao) == 1, f"O menu precisa de exatamente uma página default: {padrao}"
+
+    codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
+    assert "mapa_de_navegacao" in codigo_app, (
+        "O entrypoint deve montar o menu a partir de config.navegacao."
+    )
 
 
 def test_icone_do_app_existe() -> None:
-    """O ícone da configuração precisa corresponder a um asset versionado."""
-    arvore = ast.parse((RAIZ / "streamlit_app.py").read_text(encoding="utf-8"))
-    caminho_icone: str | None = None
-    for no in ast.walk(arvore):
-        if not isinstance(no, ast.AnnAssign) or not isinstance(no.target, ast.Name):
-            continue
-        if no.target.id == "ICON_PATH" and isinstance(no.value, ast.Constant):
-            caminho_icone = no.value.value
-            break
+    """O ícone do portal precisa ser um asset versionado (fonte única em config)."""
+    from config.settings import ICON_PATH_PORTAL
 
-    assert caminho_icone, "ConfiguracoesSistema precisa declarar ICON_PATH."
-    assert (RAIZ / caminho_icone).is_file(), f"O ícone configurado não existe: {caminho_icone}"
+    assert ICON_PATH_PORTAL, "config.settings precisa declarar ICON_PATH_PORTAL."
+    assert (RAIZ / ICON_PATH_PORTAL).is_file(), (
+        f"O ícone configurado não existe: {ICON_PATH_PORTAL}"
+    )
+
+    codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
+    assert "ICON_PATH_PORTAL" in codigo_app, (
+        "O entrypoint deve ler o ícone de config.settings (sem caminho hardcode)."
+    )
 
 
 def test_exemplo_de_secrets_e_seguro_e_valido() -> None:

@@ -19,12 +19,15 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
 from components.graficos import ESCALA_TOTALE
+from components.layout_pagina import cabecalho_secao, secao
 from components.metricas_executivas import resumo_frequencia
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import exigir_base, resumir_carga
+from services.texto import escapar_html
 
 st.set_page_config(
     page_title="Central de Performance",
@@ -106,14 +109,8 @@ st.markdown(
 # ====================================================
 # BLOCO 1: HELPERS GLOBAIS
 # ====================================================
-def _escapar_html(valor: Any) -> str:
-    return (
-        str(valor)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+#: Escape de HTML compartilhado (``services.texto``) — sem cópia local.
+_escapar_html = escapar_html
 
 
 def _eh_nulo(valor: Any) -> bool:
@@ -996,46 +993,16 @@ class Graficos:
 
 
 # ====================================================
-# BLOCO 6: HERO + DADOS
+# BLOCO 6: ABERTURA PADRÃO + BASE DA SESSÃO
 # ====================================================
-render_hero_totale_2(
-    titulo="📈 Central de Performance | Produção por Técnico",
-    subtitulo="Acompanhamento individual de execução, produtividade e performance em campo",
-    badge_texto="Acompanhamento em tempo real da produção de técnicos e equipes",
-    badge_tipo="info",
-)
-
-dados_prod_raw = st.session_state.get("dados_prod")
-if dados_prod_raw is None or (
-    isinstance(dados_prod_raw, dict) and not dados_prod_raw
-) or (isinstance(dados_prod_raw, pd.DataFrame) and dados_prod_raw.empty):
-    render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
-    st.stop()
-
-if isinstance(dados_prod_raw, pd.DataFrame):
-    prod = dados_prod_raw.copy()
-    gpon = pd.DataFrame()
-elif isinstance(dados_prod_raw, dict):
-    prod_df = dados_prod_raw.get("Prod")
-    gpon_df = dados_prod_raw.get("Gpon")
-    prod = prod_df.copy() if isinstance(prod_df, pd.DataFrame) else pd.DataFrame()
-    gpon = gpon_df.copy() if isinstance(gpon_df, pd.DataFrame) else pd.DataFrame()
-    if prod.empty and gpon.empty:
-        frames_disp = [v.copy() for v in dados_prod_raw.values() if isinstance(v, pd.DataFrame)]
-        if not frames_disp:
-            render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
-            st.stop()
-        prod = pd.concat(frames_disp, ignore_index=True)
-else:
-    render_insight("Carregue os dados na página principal primeiro.", tipo="alerta")
-    st.stop()
-
-for _nome, _frame in (("Prod", prod), ("Gpon", gpon)):
-    if "Pontos" not in _frame.columns:
-        _frame["Pontos"] = 0.0
-    _frame["Pontos"] = _serie_numerica(_frame["Pontos"])
-
-df = pd.concat([prod, gpon], ignore_index=True)
+# A guarda de entrada é a do portal (``services.dados_sessao``): aceita
+# DataFrame, dict de abas (Prod/Gpon) ou a lista legada, avisa no padrão oficial
+# e interrompe a página quando não há carga — antes cada página reimplementava
+# esse bloco de trinta linhas.
+df = exigir_base(pagina="Produção Mensal")
+if "Pontos" not in df.columns:
+    df["Pontos"] = 0.0
+df["Pontos"] = _serie_numerica(df["Pontos"])
 df = Utilitarios.normalizar_coluna_data(df)
 
 colunas_ausentes = [
@@ -1057,7 +1024,43 @@ TOTAL_GERAL_OS = len(df)
 TOTAL_GERAL_EQUIPES = df["Nome Equipe"].nunique() if "Nome Equipe" in df.columns else 0
 MEDIA_GERAL_PONTOS = TOTAL_GERAL_PONTOS / TOTAL_GERAL_EQUIPES if TOTAL_GERAL_EQUIPES > 0 else 0.0
 
-st.divider()
+#: Seções ancoradas do sumário (mesmos títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Indicadores",
+    "Ranking & Metas",
+    "Visão Executiva",
+    "Aderência (Projeção)",
+    "Evolução Temporal",
+    "Frequência",
+    "Exportação",
+)
+
+
+def render_hero_producao(registros: int | None = None) -> None:
+    """Herói oficial da página (destaque = O.S. do recorte carregado)."""
+    render_hero_totale_2(
+        titulo="📈 Central de Performance | Produção por Técnico",
+        subtitulo=(
+            "Acompanhamento individual de execução, produtividade e performance em campo"
+        ),
+        badge_texto="Acompanhamento em tempo real da produção de técnicos e equipes",
+        valor_destaque=(
+            Utilitarios.formatar_numero(registros) if registros is not None else "—"
+        ),
+        label_destaque="O.S. NO RECORTE",
+    )
+
+
+# 1) Cabeçalho e contexto — padrão do portal: hero + chips + sumário com âncoras.
+abrir_dashboard(
+    "Central de Performance | Produção por Técnico",
+    secoes=SECOES_PAGINA,
+    hero=render_hero_producao,
+    hero_kwargs={"registros": TOTAL_GERAL_OS},
+    resumo=resumir_carga(st.session_state.get("dados_prod")),
+    origem=str(st.session_state.get("origem_dados") or ""),
+)
+
 
 # ====================================================
 # BLOCO 7: FILTROS
@@ -1099,77 +1102,83 @@ if df.empty:
 
 
 # ====================================================
-# BLOCO 8: CÁLCULOS + KPIs
+# BLOCO 8: CÁLCULOS + KPIs — SEÇÃO ANCORADA "INDICADORES"
 # ====================================================
-dias_brutos, dias_seguros, ultima_atualizacao, dias_passados = Utilitarios.calcular_dias_uteis(df)
+with secao(
+    "Indicadores",
+    icone="monitoring",
+    subtitulo="Recorte atual comparado ao total carregado da base.",
+    badge=f"{TOTAL_GERAL_OS} O.S. na base",
+):
+    dias_brutos, dias_seguros, ultima_atualizacao, dias_passados = Utilitarios.calcular_dias_uteis(df)
 
-total_equipes_filtro = df["Nome Equipe"].nunique() if "Nome Equipe" in df.columns else 0
-total_os_filtro = len(df)
-total_pontos_filtro = float(df["Pontos"].sum()) if "Pontos" in df.columns else 0.0
-media_pontos_filtro = (
-    total_pontos_filtro / total_equipes_filtro if total_equipes_filtro > 0 else 0.0
-)
+    total_equipes_filtro = df["Nome Equipe"].nunique() if "Nome Equipe" in df.columns else 0
+    total_os_filtro = len(df)
+    total_pontos_filtro = float(df["Pontos"].sum()) if "Pontos" in df.columns else 0.0
+    media_pontos_filtro = (
+        total_pontos_filtro / total_equipes_filtro if total_equipes_filtro > 0 else 0.0
+    )
 
-var_pontos = Utilitarios.calcular_share(total_pontos_filtro, TOTAL_GERAL_PONTOS)
-var_os = Utilitarios.calcular_share(total_os_filtro, TOTAL_GERAL_OS)
-var_equipes = Utilitarios.calcular_share(total_equipes_filtro, TOTAL_GERAL_EQUIPES)
-var_media = Utilitarios.calcular_variacao(media_pontos_filtro, MEDIA_GERAL_PONTOS)
+    var_pontos = Utilitarios.calcular_share(total_pontos_filtro, TOTAL_GERAL_PONTOS)
+    var_os = Utilitarios.calcular_share(total_os_filtro, TOTAL_GERAL_OS)
+    var_equipes = Utilitarios.calcular_share(total_equipes_filtro, TOTAL_GERAL_EQUIPES)
+    var_media = Utilitarios.calcular_variacao(media_pontos_filtro, MEDIA_GERAL_PONTOS)
 
-ComponenteVisual.exibir_ticker(
-    [
-        {
-            "label": "Pontos",
-            "valor": Utilitarios.formatar_numero(total_pontos_filtro),
-            "variacao": var_pontos[0],
-            "delta": var_pontos[1],
-        },
-        {
-            "label": "O.S.",
-            "valor": Utilitarios.formatar_numero(total_os_filtro),
-            "variacao": var_os[0],
-            "delta": var_os[1],
-        },
-        {
-            "label": "Equipes",
-            "valor": str(total_equipes_filtro),
-            "variacao": var_equipes[0],
-            "delta": var_equipes[1],
-        },
-        {
-            "label": "Média/Equipe",
-            "valor": Utilitarios.formatar_numero(media_pontos_filtro),
-            "variacao": var_media[0],
-            "delta": var_media[1],
-        },
-    ]
-)
+    ComponenteVisual.exibir_ticker(
+        [
+            {
+                "label": "Pontos",
+                "valor": Utilitarios.formatar_numero(total_pontos_filtro),
+                "variacao": var_pontos[0],
+                "delta": var_pontos[1],
+            },
+            {
+                "label": "O.S.",
+                "valor": Utilitarios.formatar_numero(total_os_filtro),
+                "variacao": var_os[0],
+                "delta": var_os[1],
+            },
+            {
+                "label": "Equipes",
+                "valor": str(total_equipes_filtro),
+                "variacao": var_equipes[0],
+                "delta": var_equipes[1],
+            },
+            {
+                "label": "Média/Equipe",
+                "valor": Utilitarios.formatar_numero(media_pontos_filtro),
+                "variacao": var_media[0],
+                "delta": var_media[1],
+            },
+        ]
+    )
 
-ComponenteVisual.gerar_insight_ia(media_pontos_filtro, dias_brutos)
+    ComponenteVisual.gerar_insight_ia(media_pontos_filtro, dias_brutos)
 
-c1, c2, c3, c4 = st.columns(4)
-render_kpi(
-    c1,
-    "Total Pontos · Geral",
-    Utilitarios.formatar_numero(TOTAL_GERAL_PONTOS),
-    tema="cinza",
-)
-render_kpi(
-    c2,
-    "Total Pontos · Filtro",
-    Utilitarios.formatar_numero(total_pontos_filtro),
-    sub=var_pontos[1],
-    tema="azul",
-)
-render_kpi(c3, "Equipes · Filtro", str(total_equipes_filtro), sub=var_equipes[1], tema="verde")
-render_kpi(
-    c4,
-    "Total O.S. · Filtro",
-    Utilitarios.formatar_numero(total_os_filtro),
-    sub=var_os[1],
-    tema="laranja",
-)
+    c1, c2, c3, c4 = st.columns(4)
+    render_kpi(
+        c1,
+        "Total Pontos · Geral",
+        Utilitarios.formatar_numero(TOTAL_GERAL_PONTOS),
+        tema="cinza",
+    )
+    render_kpi(
+        c2,
+        "Total Pontos · Filtro",
+        Utilitarios.formatar_numero(total_pontos_filtro),
+        sub=var_pontos[1],
+        tema="azul",
+    )
+    render_kpi(c3, "Equipes · Filtro", str(total_equipes_filtro), sub=var_equipes[1], tema="verde")
+    render_kpi(
+        c4,
+        "Total O.S. · Filtro",
+        Utilitarios.formatar_numero(total_os_filtro),
+        sub=var_os[1],
+        tema="laranja",
+    )
 
-st.divider()
+    st.divider()
 
 
 # ====================================================
@@ -1195,14 +1204,15 @@ aba_ranking, aba_executivo, aba_aderencia, aba_evolucao, aba_frequencia = st.tab
 
 # ── ABA 1 ──────────────────────────────────────────
 with aba_ranking:
-    render_section_header(titulo="Pódio Corporativo — Top 3 Equipes", icone="🥇")
+    cabecalho_secao("Ranking & Metas", icone="emoji_events", subtitulo="Pódio, metas e projeção por equipe.")
+    cabecalho_secao("", ancora=False)
     ComponenteVisual.gerar_podio(ranking)
 
     st.write("")
 
     col_t, col_tg = st.columns([3, 1])
     with col_t:
-        render_section_header(titulo="Ranking Geral · Metas & Projeção", icone="📊")
+        cabecalho_secao("", ancora=False)
     with col_tg:
         st.write("")
         por_dia = st.toggle("📅 **Modo Meta Diária**", key="tg_meta_dia")
@@ -1265,8 +1275,8 @@ with aba_ranking:
 
 # ── ABA 2 ──────────────────────────────────────────
 with aba_executivo:
-    render_section_header(titulo="Performance de Gestão", icone="👔")
-
+    cabecalho_secao("Visão Executiva", icone="business_center", subtitulo="Saúde da operação e ranking de supervisores.")
+    cabecalho_secao("", ancora=False)
     if ranking.empty:
         render_insight(
             "Sem equipes para analisar neste recorte de filtro. "
@@ -1297,8 +1307,8 @@ with aba_executivo:
 
 # ── ABA 3 (Aderência Custom HTML) ────────────────────────────────────────
 with aba_aderencia:
-    render_section_header(titulo="Aderência de Equipes (Projeção ≥ 300 pts)", icone="🎯")
-
+    cabecalho_secao("Aderência (Projeção)", icone="track_changes", subtitulo="Equipes com projeção acima da meta de 300 pontos.")
+    cabecalho_secao("", ancora=False)
     if ranking.empty:
         render_insight("Sem dados disponíveis para calcular a aderência.", tipo="info")
     else:
@@ -1361,9 +1371,9 @@ with aba_aderencia:
 
 # ── ABA 4 ──────────────────────────────────────────
 with aba_evolucao:
+    cabecalho_secao("Evolução Temporal", icone="trending_up", subtitulo="Curva de tendência diária das equipes.")
     col_data = Utilitarios.encontrar_coluna_data(df)
-    render_section_header(titulo="Curva de Tendência Diária", icone="📈")
-
+    cabecalho_secao("", ancora=False)
     if col_data and not ranking.empty:
         top5 = ranking.head(5)["Nome Equipe"].dropna().astype(str).tolist()
         df_ev = df[df["Nome Equipe"].astype(str).isin(top5)].copy()
@@ -1401,11 +1411,8 @@ with aba_evolucao:
 
 # ── ABA 5 (Frequência Custom HTML) ──────────────────────────────────────────
 with aba_frequencia:
-    render_section_header(
-        titulo="Frequência de produção",
-        subtitulo="Dias ativos em campo por Equipe, Supervisor e Projeto",
-        icone="🗓️",
-    )
+    cabecalho_secao("Frequência", icone="calendar_month", subtitulo="Dias ativos em campo por equipe, supervisor e projeto.")
+    cabecalho_secao("", ancora=False)
     col_data_frequencia = Utilitarios.encontrar_coluna_data(df)
     frequencia_base = resumo_frequencia(
         df,
@@ -1468,8 +1475,14 @@ with aba_frequencia:
         qtd_sup_freq = int(frequencia["Supervisor"].nunique()) if not frequencia.empty else 0
         qtd_proj_freq = int(frequencia["Projeto"].nunique()) if not frequencia.empty else 0
 
-        data_min = pd.to_datetime(df[col_data_frequencia], errors="coerce").min()
-        data_max = pd.to_datetime(df[col_data_frequencia], errors="coerce").max()
+        # Base sem coluna de data reconhecida: o período fica "Indisponível"
+        # em vez de derrubar a página com KeyError (regressão coberta em
+        # tests/test_organizacao_dashboards.py::test_dashboards_rodam_sem_dados).
+        if col_data_frequencia and col_data_frequencia in df.columns:
+            serie_datas = pd.to_datetime(df[col_data_frequencia], errors="coerce")
+            data_min, data_max = serie_datas.min(), serie_datas.max()
+        else:
+            data_min = data_max = pd.NaT
         periodo_str = (
             f"{data_min:%d/%m}–{data_max:%d/%m}"
             if pd.notna(data_min) and pd.notna(data_max)
@@ -1563,11 +1576,7 @@ with aba_frequencia:
             st.markdown("<div style='height: 14px'></div>", unsafe_allow_html=True)
             col_res_sup, col_res_proj = st.columns(2, gap="medium")
             with col_res_sup:
-                render_section_header(
-                    titulo="Frequência por Supervisor",
-                    subtitulo="Média de dias trabalhados e volume por supervisor",
-                    icone="👔",
-                )
+                cabecalho_secao("", ancora=False)
                 freq_por_sup = (
                     frequencia.groupby("Supervisor", as_index=False)
                     .agg(
@@ -1595,11 +1604,7 @@ with aba_frequencia:
                 )
 
             with col_res_proj:
-                render_section_header(
-                    titulo="Frequência por Projeto",
-                    subtitulo="Média de dias trabalhados e volume por projeto",
-                    icone="🏗️",
-                )
+                cabecalho_secao("", ancora=False)
                 freq_por_proj = (
                     frequencia.groupby("Projeto", as_index=False)
                     .agg(
@@ -1631,7 +1636,15 @@ with aba_frequencia:
         "para isso é necessária uma escala ou fonte explícita de presença."
     )
 
-# ── Rodapé ──────────────────────────────────────────
+# ── Exportação e rodapé ─────────────────────────────
+secao_exportacao(
+    df_exibir if isinstance(df_exibir, pd.DataFrame) and not df_exibir.empty else df,
+    nome_arquivo="producao_mensal",
+    chave="pontos",
+    titulo="Exportação",
+    subtitulo="Recorte exibido no ranking (CSV utf-8-sig + Excel corporativo).",
+)
+
 _regra_dias = "seg a sáb" if Utilitarios.SABADO_CONTA else "seg a sex"
 st.sidebar.divider()
 st.sidebar.caption(
@@ -1640,3 +1653,5 @@ st.sidebar.caption(
     f"📅 **Dias úteis ({_regra_dias}):** "
     f"{dias_passados} decorrido(s) · {dias_brutos} restante(s)"
 )
+
+fechar_dashboard()

@@ -17,21 +17,25 @@ from components.componentes import (
     render_metric,
     render_metric_card,
     render_progress_bar,
-    render_section_header,
     render_table_html,
 )
+from components.dashboards import abrir_dashboard, fechar_dashboard
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import (
     render_page_sidebar_theme_selector,
-    render_sidebar_brand,
     render_sidebar_divider,
-    render_sidebar_footer_info,
-    render_sidebar_status,
 )
-from config.settings import DRIVE_ID_INDICADORES, SHEET_ID_ATIVOS
+from config.settings import (
+    DRIVE_ID_INDICADORES,
+    SHEET_ID_ATIVOS,
+    VERSAO_PORTAL,
+    obter_versao_portal,
+)
 from services.google_drive_client import (
     carregar_excel_drive,
     carregar_planilha_gsheets_csv,
 )
+from services.texto import formatar_inteiro
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +53,8 @@ render_page_sidebar_theme_selector()
 
 MergeHowType = Literal["left", "right", "outer", "inner", "cross"]
 
-VERSAO = "4.9.2"
+#: Versão da página; a do portal vem de ``config.settings`` (fonte única).
+VERSAO = obter_versao_portal()
 DATA_SISTEMA_STR = datetime.now().strftime("%d/%m/%Y às %H:%M")
 SEM_VINCULO = "(Sem vínculo)"
 MARGEM_CRITICA = 5.0
@@ -326,11 +331,8 @@ def fmt_pp(valor: float | None) -> str:
     return f"{valor:+.1f}".replace(".", ",") + " p.p."
 
 
-def fmt_int(valor: Any) -> str:
-    try:
-        return f"{int(valor):,}".replace(",", ".")
-    except (TypeError, ValueError):
-        return "0"
+#: Formatação de inteiros pt-BR compartilhada (``services.texto``) — sem cópia local.
+fmt_int = formatar_inteiro
 
 
 def parse_data_texto(texto: Any) -> pd.Timestamp | None:
@@ -1322,13 +1324,14 @@ def renderizar_visao_executiva_geral(resultados: dict[str, dict[str, Any]]) -> N
     data_final = maior_texto_data(datas_fonte, DATA_SISTEMA_STR)
     atraso = atraso_em_dias(data_final)
 
-    render_section_header(
-        titulo="Visão Executiva Consolidada",
+    cabecalho_secao(
+        "Visão Executiva Consolidada",
         subtitulo=(
             f"Seis indicadores, uma leitura: o que está fora da meta, onde e se a fonte está em dia. "
             f"🕒 Data final da base: {data_final}"
         ),
         icone="🎯",
+        ancora=False,
     )
     st.caption(
         "O detalhe operacional — técnico, monitor e exceção — fica na aba de cada indicador."
@@ -1664,10 +1667,11 @@ def renderizar_visao_executiva_geral(resultados: dict[str, dict[str, Any]]) -> N
 
 # --- VISÃO COMPLETA POR TÉCNICO ---
 def renderizar_visao_tecnicos(resultados: dict[str, dict[str, Any]]) -> None:
-    render_section_header(
-        titulo="Painel Integrado e Drill-Down do Técnico",
+    cabecalho_secao(
+        "Painel Integrado e Drill-Down do Técnico",
         subtitulo="Visão detalhada do comportamento de cada profissional da operação técnica.",
         icone="👷",
+        ancora=False,
     )
 
     # 1. Agrupar dados globais para listar profissionais ativos nos filtros
@@ -2067,13 +2071,14 @@ def renderizar_painel_executivo_aba(df_indicador: pd.DataFrame | None, nome_kpi:
         " (data final da base)" if remover_acentos_e_padronizar(nome_kpi) == "tec1" else ""
     )
 
-    render_section_header(
-        titulo=f"Painel Executivo — {nome_amigavel}",
+    cabecalho_secao(
+        f"Painel Executivo — {nome_amigavel}",
         subtitulo=(
             f"{GLOSSARIO.get(nome_kpi, nome_amigavel)} • "
             f"🕒 Atualizado até: {data_final}{complemento}"
         ),
         icone=icone,
+        ancora=False,
     )
 
     if df_indicador is None or df_indicador.empty:
@@ -2413,19 +2418,10 @@ data_min_global_str = menor_texto_data(datas_inicio, "—")
 pct_vinculo = ((vinculo_total - vinculo_sem) / vinculo_total * 100.0) if vinculo_total else 0.0
 atraso_global = atraso_em_dias(data_max_global_str)
 
+# A marca, o status do sistema e o rodapé da barra lateral pertencem ao shell
+# global (``streamlit_app.py``): aqui ficam só os controles desta página.
 with st.sidebar:
-    render_sidebar_brand(
-        nome="TOTALE Analytics",
-        subtitulo="Painel de Qualidade e Indicadores",
-        versao=f"v{VERSAO}",
-        icone="⚡",
-    )
-    render_sidebar_status(
-        status="Sincronizado",
-        label="Integração de Dados",
-        ultima_atualizacao=data_max_global_str,
-        tipo="ok",
-    )
+    render_sidebar_divider(estilo="gradiente", label="Integração de Dados")
     st.caption(f"Cobertura da fonte: {data_min_global_str} a {data_max_global_str}")
     if atraso_global is not None and atraso_global >= 2:
         st.caption(f"Fonte {atraso_global} dias atrás da data de hoje.")
@@ -2453,9 +2449,26 @@ with st.sidebar:
             st.markdown(f"**{NOMES_AMIGAVEIS[aba_name_side]}**")
             st.caption(GLOSSARIO[aba_name_side])
 
-    render_sidebar_footer_info(empresa="TOTALE Tecnologia", versao=VERSAO)
-
+# 1) Cabeçalho e contexto — padrão do portal (hero + chips + sumário).
 abas_erro: list[str] = [aba for aba, info in resultados.items() if info.get("df") is None]
+
+abrir_dashboard(
+    "Painel de Qualidade e Indicadores Técnicos",
+    subtitulo=(
+        "Seis indicadores operacionais cruzados com a lista de ativos, com "
+        "leitura consolidada e drill-down por técnico."
+    ),
+    badge=f"PAINEL v{VERSAO}",
+    icone="⚡",
+    secoes=["Visão Consolidada", "Visão por Técnico", "Painéis por Indicador"],
+    chips={
+        "Cobertura": f"{data_min_global_str} a {data_max_global_str}",
+        "Vínculo de logins": f"{pct_vinculo:.1f}%",
+        "Abas com erro": len(abas_erro) if abas_erro else "",
+    },
+    atualizado_em=data_max_global_str,
+)
+
 if abas_erro:
     for aba_err in abas_erro:
         render_insight(
@@ -2486,6 +2499,11 @@ nomes_tabs: list[str] = [
     f"{NOMES_ICONES.get(chave, '📋')} {NOMES_AMIGAVEIS.get(chave, chave)}"
     for chave, _ in abas_exibicao
 ]
+cabecalho_secao(
+    "Painéis por Indicador",
+    icone="dashboard",
+    subtitulo="Consolidado, drill-down por técnico e a aba de cada indicador.",
+)
 tabs = st.tabs(nomes_tabs)
 
 with tabs[0]:
@@ -2497,3 +2515,6 @@ with tabs[1]:
 for idx, (chave_kpi, df_kpi) in enumerate(abas_exibicao):
     with tabs[idx + 2]:  # Deslocado em +2 para respeitar a nova aba gerencial de Técnicos
         renderizar_painel_executivo_aba(df_kpi, chave_kpi)
+
+# ── Rodapé padrão do portal ──
+fechar_dashboard(versao=f"{VERSAO_PORTAL} · painel {VERSAO}")

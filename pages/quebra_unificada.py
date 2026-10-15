@@ -4,7 +4,7 @@ quebra_unificada.py
 Análise de Quebra por Segmento (Novos Domicílios / Migração / PME + Comparativo)
 Inclui aba dedicada para contratos com MOTIVO DE BAIXA = SEM REGISTRO.
 
-Version: 2.2.5 (Integração Total com Data Pipeline v5.4.0)
+Version: 2.3.0 (esqueleto padrão do portal + camada compartilhada de componentes/serviços)
 Author: TOTALE Tecnologia
 """
 
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import unicodedata
 from datetime import datetime
 from html import escape
 from io import BytesIO
@@ -40,16 +39,34 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from components.componentes import aplicar_estilo as _aplicar_estilo_global
 from components.componentes import (
+    render_hero,
     render_hero_migracao,
     render_hero_novos_domicilios,
     render_hero_pme,
     render_insight,
     render_kpi,
     render_kpi_sm,
-    render_section_header,
     render_table_html,
 )
 from components.criterios import classificar_tipo_servico, render_debug_criterios
+
+# ── Camada compartilhada do portal (esqueleto padrão + serviços) ─────────────
+from components.css_paginas import aplicar_css_cartao_segmento
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
+from services.dados_sessao import CHAVE_MEMORIA, obter_dataframe
+from services.texto import formatar_inteiro, sem_acento
+
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``/``secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Visão geral",
+    "Causa raiz",
+    "Técnicos",
+    "Plano de ação",
+    "Pendentes",
+    "Sem registro",
+    "Exportação",
+)
 
 # ── Importação Inteligente e Resiliente de quebra.py ──────────────────
 try:
@@ -228,25 +245,15 @@ COLS_TECNICOS_PDF: list[str] = [
 # =====================================================================
 # HELPERS DE TRATAMENTO DE DADOS
 # =====================================================================
-def _fmt_int(v: Any) -> str:
-    try:
-        if v is None or (isinstance(v, float) and np.isnan(v)):
-            return "0"
-        return f"{int(float(v)):,}".replace(",", ".")
-    except Exception:
-        return "0"
+#: Formatação de inteiros delegada a :func:`services.texto.formatar_inteiro`
+#: (fonte única do portal; antes cada página tinha a sua cópia).
+fmt_int_br = formatar_inteiro
+_fmt_int = formatar_inteiro
 
 
 def _norm_txt(s: Any) -> str:
-    return (
-        unicodedata.normalize("NFKD", str(s))
-        .encode("ascii", errors="ignore")
-        .decode("ascii")
-        .upper()
-        .strip()
-        .replace("_", " ")
-        .replace(".", "")
-    )
+    """Chave de comparação de colunas: sem acento, maiúscula, sem ``_`` nem ``.``."""
+    return sem_acento(str(s)).upper().strip().replace("_", " ").replace(".", "")
 
 
 def _resolver_col_baixa(df: pd.DataFrame) -> str | None:
@@ -935,115 +942,34 @@ SEGMENTOS_CONFIG: dict[str, Any] = {
 }
 
 
-def _injetar_css_dinamico(segmento: str) -> None:
-    conf = SEGMENTOS_CONFIG.get(segmento, {})
-    cor_marca = escape(str(conf.get("cor_primaria", "#012869")))
-    st.markdown(
-        f"""
-<style>
-:root {{ --page-bg:#F4F7FB; --surface:#FFFFFF; --surface-soft:#F8FAFC; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --brand:{cor_marca}; --radius:16px; }}
-html, body, [data-testid="stAppViewContainer"] {{ font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); }}
-[data-testid="stAppViewContainer"] {{ background:var(--page-bg); }}
-[data-testid="stMainBlockContainer"] {{ max-width:1440px; padding-top:1.5rem; padding-bottom:3rem; }}
-[data-testid="stSidebar"] {{ background:#fff; border-right:1px solid var(--line); }}
-[data-testid="stSidebar"] > div {{ padding-top:1.25rem; }}
-h1:not(.hero-comparativo__title):not(.th-title):not(.th-title-lg):not(.hero-title),h2,h3 {{ color:var(--ink); letter-spacing:-.025em; }}
-div[data-testid="stElementContainer"]:has(.hero-domicilios),div[data-testid="stElementContainer"]:has(.hero-migracao),div[data-testid="stElementContainer"]:has(.hero-pme),div[data-testid="stElementContainer"]:has(.hero-comparativo) {{ position:relative!important; top:auto!important; z-index:auto!important; }}
-.hero-domicilios,.hero-migracao,.hero-pme,.hero-comparativo {{ border-radius:18px!important; box-shadow:0 8px 24px rgba(15,23,42,.08)!important; margin-bottom:1rem!important; }}
-.hero-comparativo {{ display:flex; align-items:center; justify-content:space-between; gap:1.5rem; padding:1.5rem 1.75rem; color:#fff!important; background:linear-gradient(120deg,#011838 0%,#012869 55%,#0A48AA 100%); }}
-.hero-comparativo__eyebrow {{ margin:0 0 .35rem; color:#9DB9E4!important; -webkit-text-fill-color:#9DB9E4!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.7rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
-.hero-comparativo__title {{ margin:0; color:#fff!important; -webkit-text-fill-color:#fff!important; font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important; font-size:clamp(1.35rem,2.4vw,1.9rem); font-weight:750; }}
-.hero-comparativo__subtitle {{ margin:.45rem 0 0; color:#CBD5E1!important; -webkit-text-fill-color:#CBD5E1!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.9rem; }}
-.hero-comparativo__metric {{ min-width:175px; padding:.9rem 1.1rem; border:1px solid rgba(255,255,255,.18); border-radius:14px; background:rgba(255,255,255,.08); text-align:right; }}
-.hero-comparativo__metric-label {{ display:block; color:#CBD5E1!important; -webkit-text-fill-color:#CBD5E1!important; font-family:var(--font-texto,'Inter',sans-serif)!important; font-size:.72rem; font-weight:600; text-transform:uppercase; }}
-.hero-comparativo__metric-value {{ display:block; margin-top:.25rem; color:#fff!important; -webkit-text-fill-color:#fff!important; font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important; font-size:1.7rem; font-weight:750; }}
-.resultado-base {{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.85rem; margin:.75rem 0 1.25rem; padding:.9rem 1.1rem; border:1px solid var(--line); border-radius:14px; background:var(--surface); box-shadow:0 2px 8px rgba(15,23,42,.035); }}
-.resultado-base-label {{ color:var(--muted); font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
-.resultado-base-badges {{ display:flex; flex-wrap:wrap; gap:.45rem; }}
-.resultado-base-regiao {{ display:inline-flex; align-items:center; padding:.32rem .7rem; border:1px solid; border-radius:999px; font-size:.75rem; font-weight:700; }}
-.resultado-base-count {{ margin-left:auto; color:var(--ink); font-size:.82rem; font-weight:700; }}
-.status-card {{ margin:1rem 0 1.25rem; padding:1.25rem 1.4rem; border:1px solid var(--line); border-top:3px solid var(--status); border-radius:var(--radius); background:var(--surface); box-shadow:0 4px 16px rgba(15,23,42,.045); }}
-.status-card__header {{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.75rem; }}
-.status-card__eyebrow {{ margin:0; color:var(--muted); font-size:.68rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }}
-.status-card__title {{ margin-top:.2rem; color:var(--ink); font-size:1.05rem; font-weight:750; }}
-.status-pill {{ padding:.38rem .75rem; border:1px solid; border-radius:999px; font-size:.7rem; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }}
-.status-card__metrics {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; margin-top:1.1rem; }}
-.status-metric {{ padding:.8rem .9rem; border:1px solid var(--line); border-radius:12px; background:var(--surface-soft); }}
-.status-metric__label {{ display:block; color:var(--muted); font-size:.7rem; font-weight:600; }}
-.status-metric__value {{ display:block; margin-top:.25rem; color:var(--ink); font-size:1.25rem; font-weight:750; }}
-.status-card__bar-labels {{ display:flex; justify-content:space-between; margin:1rem 0 .4rem; color:var(--muted); font-size:.68rem; font-weight:600; }}
-.status-track {{ position:relative; height:8px; overflow:visible; border-radius:999px; background:#E2E8F0; }}
-.status-fill {{ height:100%; border-radius:999px; background:var(--status); }}
-.status-target {{ position:absolute; top:-3px; width:2px; height:14px; background:#334155; transform:translateX(-50%); }}
-.status-card__foot {{ margin-top:.5rem; color:var(--muted); font-size:.68rem; }}
-.alert-chip {{ display:inline-flex; align-items:center; gap:6px; margin:4px 6px 4px 0; padding:6px 11px; border-radius:999px; font-size:.74rem; font-weight:650; }}
-.stTabs [data-baseweb="tab-list"] {{ gap:.35rem; padding:.35rem; border:1px solid var(--line); border-radius:12px; background:#fff; }}
-.stTabs [data-baseweb="tab"] {{ height:2.55rem; padding:0 1rem; border-radius:9px; color:#475569; font-size:.82rem; font-weight:650; }}
-.stTabs [aria-selected="true"] {{ background:#EFF6FF; color:#1D4ED8; }}
-.stButton > button,.stDownloadButton > button {{ min-height:2.6rem; border-radius:10px; font-weight:650; }}
-div[data-testid="stDataFrame"] {{ overflow:hidden; border:1px solid var(--line); border-radius:12px; }}
-@media (max-width:760px) {{ .hero-comparativo {{ align-items:flex-start; flex-direction:column; }} .hero-comparativo__metric {{ width:100%; text-align:left; }} .status-card__metrics {{ grid-template-columns:1fr; }} }}
-</style>
-""",
-        unsafe_allow_html=True,
-    )
+def render_hero_segmento(segmento: str, regioes: list[str], total: int) -> None:
+    """Herói da página: o do Design System para cada carteira (ou o corporativo).
 
-
-def _html_resultado_base(regioes: list[str], total: int) -> str:
-    cores = {
-        "LESTE": {"bg": "#EFF6FF", "text": "#1E40AF", "border": "#BFDBFE"},
-        "GRU": {"bg": "#ECFDF5", "text": "#047857", "border": "#A7F3D0"},
-        "ABCDM": {"bg": "#F5F3FF", "text": "#6D28D9", "border": "#DDD6FE"},
-        "OUTRAS": {"bg": "#F8FAFC", "text": "#475569", "border": "#CBD5E1"},
-    }
-    badges: list[str] = []
-    for regiao in sorted(set(regioes)):
-        nome = str(regiao).strip().upper()
-        if not nome or nome in {"NAN", "NONE"}:
-            continue
-        cor = cores.get(nome, cores["OUTRAS"])
-        badges.append(
-            f'<span class="resultado-base-regiao" style="background:{cor["bg"]};color:{cor["text"]};border-color:{cor["border"]};">{escape(nome)}</span>'
+    Substitui ``_render_hero_comparativo``/``_html_resultado_base`` — HTML e CSS
+    próprios que duplicavam o cabeçalho padrão. As bases analisadas viram legenda,
+    com as regiões já usadas pelos chips de contexto.
+    """
+    conf = SEGMENTOS_CONFIG.get(str(segmento), {})
+    hero_fn = conf.get("hero_fn")
+    if hero_fn is None:
+        render_hero(
+            "Quebra por Segmento",
+            "Visão consolidada de Novos Domicílios, Migração e PME.",
+            badge="RELATÓRIO OPERACIONAL",
         )
-    if not badges:
-        cor = cores["OUTRAS"]
-        badges.append(
-            f'<span class="resultado-base-regiao" style="background:{cor["bg"]};color:{cor["text"]};border-color:{cor["border"]};">OUTRAS</span>'
+    else:
+        hero_fn(
+            titulo=f"{segmento} — Quebra de Agenda",
+            subtitulo=str(conf.get("subtitulo", "")),
+            **conf.get("hero_kwargs", {}),
         )
-    return f'<div class="resultado-base"><span class="resultado-base-label">Bases analisadas</span><div class="resultado-base-badges">{"".join(badges)}</div><span class="resultado-base-count">{_fmt_int(total)} registros</span></div>'
-
-
-def _render_hero_comparativo(total: int) -> None:
-    st.markdown(
-        f"""
-<div class="hero-comparativo">
-  <div>
-    <p class="hero-comparativo__eyebrow">Relatório operacional</p>
-    <h1 class="hero-comparativo__title">Quebra por Segmento</h1>
-    <p class="hero-comparativo__subtitle">Visão consolidada de Novos Domicílios, Migração e PME.</p>
-  </div>
-  <div class="hero-comparativo__metric">
-    <span class="hero-comparativo__metric-label">Registros analisados</span>
-    <span class="hero-comparativo__metric-value">{_fmt_int(total)}</span>
-  </div>
-</div>
-""",
-        unsafe_allow_html=True,
+    nomes = sorted(
+        {str(regiao).strip().upper() for regiao in regioes if str(regiao).strip()}
     )
-
-
-def _render_topo_fixo(segmento: str, regioes: list[str], total: int) -> None:
-    if segmento == "Todos os Segmentos":
-        _render_hero_comparativo(total)
-        st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
-        return
-    conf = SEGMENTOS_CONFIG[segmento]
-    conf["hero_fn"](
-        titulo=f"{segmento} — Quebra de Agenda",
-        subtitulo=conf["subtitulo"],
-        **conf.get("hero_kwargs", {}),
-    )
-    st.markdown(_html_resultado_base(regioes, total), unsafe_allow_html=True)
+    if total > 0 and nomes:
+        st.caption(
+            f"Bases analisadas: {', '.join(nomes)} · {fmt_int_br(total)} registros"
+        )
 
 
 def _render_card_status(segmento: str, m_seg: Any, sla_meta: float) -> None:
@@ -1262,7 +1188,13 @@ def _token_parece_icone(token: str) -> bool:
     )
 
 
-def render_section(titulo: str) -> None:
+def _render_subsecao(titulo: str) -> None:
+    """Cabeçalho de subseção — delega a :func:`components.layout_pagina.cabecalho_secao`.
+
+    Mantém o contrato local (emoji opcional no início do título) e não ancora:
+    são subtítulos dentro das abas, e o sumário usa as âncoras de
+    ``SECOES_PAGINA``.
+    """
     texto = str(titulo or "").strip()
     if not texto:
         return
@@ -1270,7 +1202,7 @@ def render_section(titulo: str) -> None:
     icone_final, titulo_final = "", texto
     if len(partes) == 2 and _token_parece_icone(partes[0]):
         icone_final, titulo_final = partes[0], partes[1]
-    render_section_header(titulo=titulo_final, icone=icone_final)
+    cabecalho_secao(titulo_final, icone=icone_final, ancora=False)
 
 
 def _sub_visao_geral(
@@ -1282,7 +1214,7 @@ def _sub_visao_geral(
     p_pess: float,
     sla_meta: float,
 ) -> None:
-    render_section(f"📊 Resumo Operacional — {segmento}")
+    _render_subsecao(f"📊 Resumo Operacional — {segmento}")
     tema_q: TemaKPIType = "vermelho" if m_seg["quebra_atual"] > sla_meta else "verde"
     c1, c2, c3, c4, c5 = st.columns(5)
     render_kpi(c1, "Alocado", _fmt_int(m_seg["alocado"]), tema="azul")
@@ -1348,7 +1280,7 @@ def _sub_visao_geral(
         )
         fig.update_layout(height=280, margin=dict(t=40, b=10, l=20, r=20))
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-    render_section("📈 Projeções de Fechamento")
+    _render_subsecao("📈 Projeções de Fechamento")
     cen = {
         n: _obter_resumo_segmento(df_seg, p)
         for n, p in [("Otimista", p_ot), ("Base", p_base), ("Pessimista", p_pess)]
@@ -1367,7 +1299,7 @@ def _sub_visao_geral(
                 sub=f"NE proj.: {_fmt_int(cd['naoexec_proj'])}",
                 tema=cor_p,
             )
-    render_section("Folga de SLA")
+    _render_subsecao("Folga de SLA")
     folga = _obter_folga_sla(df_seg, sla_meta)
     f1, f2, f3 = st.columns(3)
     cor_f: TemaKPIType = (
@@ -1398,7 +1330,7 @@ def _sub_visao_geral(
     )
     sim = _calcular_quebra_expurgada(df_seg, m_seg, segmento)
     if sim:
-        render_section("Simulação de Expurgo do Maior Ofensor")
+        _render_subsecao("Simulação de Expurgo do Maior Ofensor")
         motivo_html = escape(sim["motivo"])
         dentro = sim["quebra_expurgada"] <= sla_meta
         bg_grad = (
@@ -1420,7 +1352,7 @@ def _sub_visao_geral(
 
 
 def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"Causa Raiz — {segmento}")
+    _render_subsecao(f"Causa Raiz — {segmento}")
     col_baixa = _resolver_col_baixa(df_seg)
     if not col_baixa:
         render_insight("Coluna de motivo de baixa não identificada.", tipo="alerta")
@@ -1501,7 +1433,7 @@ def _sub_causa_raiz(segmento: str, df_seg: pd.DataFrame) -> None:
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     if _COL_REGIAO in df_seg.columns and col_baixa:
         try:
-            render_section("Quebra por Região")
+            _render_subsecao("Quebra por Região")
             reg_rows = []
             for reg, grp in df_seg.groupby(_COL_REGIAO):
                 val = _obter_resumo_segmento(grp, 0.2)["quebra_atual"]
@@ -1532,7 +1464,7 @@ def _sub_tecnicos(
     top_n: int,
     sla_meta: float,
 ) -> None:
-    render_section(f"Técnicos com Maior Quebra — {segmento}")
+    _render_subsecao(f"Técnicos com Maior Quebra — {segmento}")
     df_tec = Motor.tecnicos_criticos(
         df_seg, segmento, p_base, min_aloc, top_n, p_ot=p_ot, p_pess=p_pess
     )
@@ -1587,14 +1519,14 @@ def _sub_tecnicos(
 def _sub_plano_acao(
     segmento: str, df_seg: pd.DataFrame, p_base: float, sla_meta: float
 ) -> None:
-    render_section(f"Plano de Ação — {segmento}")
+    _render_subsecao(f"Plano de Ação — {segmento}")
     folga = _obter_folga_sla(df_seg, sla_meta)
     cen = _obter_resumo_segmento(df_seg, p_base)
     excesso = max(0.0, folga["naoexec"] - folga["limite_ne_total"])
     pend_exec = folga["precisa_executar_pendente"]
     col_d, col_a = st.columns([1, 1.5])
     with col_d:
-        render_section("Diagnóstico")
+        _render_subsecao("Diagnóstico")
         render_kpi_sm(
             col_d,
             "Excesso de NE",
@@ -1635,7 +1567,7 @@ def _sub_plano_acao(
         )
     acoes.extend(SEGMENTOS_CONFIG.get(segmento, {"acoes": []})["acoes"])
     with col_a:
-        render_section("Ações Recomendadas")
+        _render_subsecao("Ações Recomendadas")
         for pri, ac, tp in acoes:
             render_insight(f"**{pri}** — {ac}", tipo=cast(TipoInsightType, tp))
     df_plano = pd.DataFrame(
@@ -1651,7 +1583,7 @@ def _sub_plano_acao(
 
 
 def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"Contratos Pendentes — {segmento}")
+    _render_subsecao(f"Contratos Pendentes — {segmento}")
     df_pend = _build_df_pendentes(df_seg)
     total = len(df_pend)
 
@@ -1712,7 +1644,7 @@ def _sub_pendentes(segmento: str, df_seg: pd.DataFrame) -> None:
 
 
 def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
-    render_section(f"Motivo de Baixa: Sem Registro — {segmento}")
+    _render_subsecao(f"Motivo de Baixa: Sem Registro — {segmento}")
     col_baixa = _resolver_col_baixa(df_seg)
     if not col_baixa:
         render_insight("Coluna de baixa não encontrada.", tipo="alerta")
@@ -1776,7 +1708,7 @@ def _sub_sem_registro(segmento: str, df_seg: pd.DataFrame) -> None:
 def _sub_comparativo(
     df_full: pd.DataFrame, sla_meta: float, p_base: float, p_ot: float, p_pess: float
 ) -> None:
-    render_section("Comparativo entre Segmentos")
+    _render_subsecao("Comparativo entre Segmentos")
     if "TIPO_SERVICO" not in df_full.columns:
         render_insight("Sem coluna TIPO_SERVICO no arquivo atual.", tipo="alerta")
         return
@@ -1844,7 +1776,7 @@ def _sub_comparativo(
         height=260,
     )
     if _COL_REGIAO in df_full.columns:
-        render_section("Quebra por Região e Segmento")
+        _render_subsecao("Quebra por Região e Segmento")
         try:
             heat_rows = []
             for (tipo_ser, reg), grp in df_full.groupby(["TIPO_SERVICO", _COL_REGIAO]):
@@ -1897,13 +1829,15 @@ def _processar_saida_robo_global() -> None:
 # =====================================================================
 def main() -> None:
     _processar_saida_robo_global()
-    if st.session_state.get("df_memoria") is None:
+    df_original = obter_dataframe(CHAVE_MEMORIA)
+    if not isinstance(df_original, pd.DataFrame) or df_original.empty:
         render_insight(
             "Nenhuma base carregada. Volte à página 'Dashboard Geral' e envie os dados do Excel.",
             tipo="alerta",
+            titulo="Sem base carregada",
         )
+        fechar_dashboard()
         return
-    df_original = st.session_state["df_memoria"]
     df_full = _preparar_base(df_original.copy())
     df_full.attrs = dict(getattr(df_original, "attrs", {}))
 
@@ -1998,7 +1932,6 @@ def main() -> None:
             tipo="alerta",
         )
         return
-    _injetar_css_dinamico(str(segmento))
     regioes = (
         [
             str(r).strip().upper()
@@ -2008,7 +1941,26 @@ def main() -> None:
         if _COL_REGIAO in df.columns
         else ["OUTRAS"]
     )
-    _render_topo_fixo(str(segmento), regioes, len(df))
+
+    # 1) Cabeçalho e contexto — padrão do portal (hero do segmento + chips + sumário)
+    conf_hero = SEGMENTOS_CONFIG.get(str(segmento), {})
+    aplicar_css_cartao_segmento(str(conf_hero.get("cor_primaria", "#012869")))
+    abrir_dashboard(
+        "Quebra por Segmento",
+        secoes=SECOES_PAGINA,
+        hero=render_hero_segmento,
+        hero_kwargs={
+            "segmento": str(segmento),
+            "regioes": regioes,
+            "total": len(df),
+        },
+        chips={
+            "Segmento": str(segmento),
+            "Regiões": len(regioes),
+        },
+        origem=str(st.session_state.get("origem_dados", "Base carregada")),
+        registros=len(df),
+    )
 
     if segmento == "Todos os Segmentos":
         df_seg = df.copy()
@@ -2045,6 +1997,11 @@ def main() -> None:
                     width="stretch",
                 )
         st.divider()
+        cabecalho_secao(
+            "Visões do consolidado",
+            icone="hub",
+            subtitulo="Comparativo entre Novos Domicílios, Migração e PME.",
+        )
         t1, t2, t3, t4, t5 = st.tabs(
             ["Comparativo", "Causas de quebra", "Técnicos", "Pendentes", "Sem registro"]
         )
@@ -2070,6 +2027,16 @@ def main() -> None:
             _sub_pendentes("Todos os Segmentos", df_seg)
         with t5:
             _sub_sem_registro("Todos os Segmentos", df_seg)
+
+        # Exportação e rodapé no padrão do portal (última seção ancorada).
+        secao_exportacao(
+            df_seg,
+            nome_arquivo="quebra_todos_segmentos",
+            chave="quebra_unificada_todos",
+            titulo="Exportação",
+            subtitulo="Consolidado de todos os segmentos com as projeções aplicadas.",
+        )
+        fechar_dashboard()
         return
 
     df_seg = (
@@ -2120,6 +2087,11 @@ def main() -> None:
             tipo="info",
         )
     st.divider()
+    cabecalho_secao(
+        "Visões do segmento",
+        icone="monitoring",
+        subtitulo=f"Carteira {segmento} — do resumo operacional ao plano de ação.",
+    )
     sub1, sub2, sub3, sub4, sub5, sub6 = st.tabs(
         [
             "Visão geral",
@@ -2144,6 +2116,19 @@ def main() -> None:
         _sub_pendentes(str(segmento), df_seg)
     with sub6:
         _sub_sem_registro(str(segmento), df_seg)
+
+    # Exportação e rodapé no padrão do portal (última seção ancorada).
+    secao_exportacao(
+        df_seg,
+        nome_arquivo=f"quebra_segmento_{_slug(str(segmento))}",
+        chave=f"quebra_unificada_{_slug(str(segmento))}",
+        titulo="Exportação",
+        subtitulo=(
+            f"Recorte do segmento {segmento} já com as colunas de classificação "
+            "e projeção aplicadas."
+        ),
+    )
+    fechar_dashboard()
 
 
 if __name__ == "__main__":

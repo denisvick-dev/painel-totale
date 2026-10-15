@@ -9,6 +9,7 @@ dtypes, memoização e o painel de diagnóstico. Nada aqui toca a internet: o HT
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -21,6 +22,8 @@ import requests
 from streamlit.testing.v1 import AppTest
 
 RAIZ = Path(__file__).resolve().parents[1]
+#: Diretórios que nunca fazem parte da árvore versionada (fallback sem Git).
+IGNORADOS_PARQUET = {".venv", ".git", "__pycache__", "node_modules", "old"}
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
@@ -746,14 +749,36 @@ def test_paginas_nao_invalidam_cache_global() -> None:
 
 
 def test_cache_em_disco_nao_entra_no_repositorio() -> None:
-    """Nenhum artefato de runtime pode aparecer na árvore versionada."""
-    proibidos = list((RAIZ).rglob("*.parquet"))
+    """Nenhum artefato de runtime pode aparecer na árvore versionada.
+
+    O olhar é sobre o que o Git rastreia (``git ls-files``), não sobre tudo que
+    existe no diretório de trabalho: um ambiente local com ``.venv/`` carrega
+    ``.parquet`` de fixtures de bibliotecas (pyarrow, altair) que nunca entram no
+    repositório e faziam o guarda falhar fora do CI.
+    """
     permitidos = {".streamlit_cache/geo_sp_2022.parquet"}
+    try:
+        rastreados = subprocess.run(
+            ["git", "ls-files", "*.parquet"],
+            cwd=RAIZ,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        rastreados = [
+            str(caminho.relative_to(RAIZ))
+            for caminho in RAIZ.rglob("*.parquet")
+            if not any(
+                parte in IGNORADOS_PARQUET for parte in caminho.relative_to(RAIZ).parts
+            )
+        ]
 
     suspeitos = [
-        str(p.relative_to(RAIZ))
-        for p in proibidos
-        if str(p.relative_to(RAIZ)) not in permitidos and "totale_painel_cache" not in str(p)
+        arquivo
+        for arquivo in rastreados
+        if arquivo not in permitidos and "totale_painel_cache" not in arquivo
     ]
     assert not suspeitos, f"parquet fora do cache permitido: {suspeitos}"
     assert not os.environ.get(c.VARIAVEL_DIRETORIO_CACHE, "").startswith(str(RAIZ))

@@ -3,8 +3,8 @@ streamlit_app.py
 ================
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.6.0 (cartões de KPI avançados, fábrica de gráficos minimalista,
-CSS global unificado, camada de performance de dados e organização das páginas)
+Versão: 3.7.0 (navegação declarativa, dashboards padronizados na hierarquia de
+leitura e camada de serviços compartilhada entre as páginas)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
@@ -19,6 +19,18 @@ Autor: TOTALE Tecnologia
   ~40 KB a menos trafegados por rerun e nenhum estilo duplicado. As classes
   utilitárias legadas (``.card``, ``.status-ok``, ``.status-warning``) foram
   preservadas lá.
+• **v3.7.0** — o mapa do portal saiu do entrypoint: ``config/navegacao.py``
+  declara páginas, grupos, ícones e descrições, e ``st.navigation`` apenas
+  consome esse dado. A página ``Visão Geral`` (índice navegável dos painéis) e
+  os testes de cobertura do menu lêem a mesma fonte. A versão e o ambiente
+  publicados vieram para ``config.settings`` (``VERSAO_PORTAL`` /
+  ``AMBIENTE_PORTAL``), então rodapé das páginas e o ``Sobre`` não divergem.
+• **v3.7.0** — as onze páginas principais passaram a abrir e fechar no mesmo
+  padrão (``components.dashboards``: hero → chips de contexto → sumário → seções
+  → exportação → rodapé) e a compartilhar a camada de serviços
+  (``services.dados_sessao``, ``services.hierarquia``, ``services.planilhas`` e
+  ``services.texto``) em vez de reimplementar leitura de base, lista de ativos,
+  exportação e normalização de colunas.
 • Novos módulos disponíveis para as páginas: ``components.kpi_cards``
   (substituto do ``st.metric``), ``components.graficos`` (fábrica de 24 tipos
   de gráficos nas cores oficiais), ``components.layout_pagina`` (hierarquia de
@@ -60,6 +72,7 @@ from components.sidebar import (
     render_sidebar_status,
     render_sidebar_theme_selector,
 )
+from config.settings import AMBIENTE_PORTAL, ICON_PATH_PORTAL, VERSAO_PORTAL
 from robo.robo_local import renderizar_robo_local
 
 # Configuração de logging
@@ -96,12 +109,12 @@ class Cores:
 
 @dataclass(frozen=True)
 class ConfiguracoesSistema:
-    """Configurações globais do sistema."""
+    """Configurações globais do sistema (valores vindos de ``config.settings``)."""
 
-    VERSAO: str = "3.6.0"
-    AMBIENTE: str = "Produção"
+    VERSAO: str = VERSAO_PORTAL
+    AMBIENTE: str = AMBIENTE_PORTAL
     FUSO_HORARIO: str = "America/Sao_Paulo"
-    ICON_PATH: str = "assets/icons/totale.ico"
+    ICON_PATH: str = ICON_PATH_PORTAL
 
 
 CORES = Cores()
@@ -201,43 +214,10 @@ class GerenciadorNavegacao:
 
     @staticmethod
     def _definir_paginas() -> dict[str, list[st.Page]]:
-        """Define as páginas do sistema."""
-        return {
-            "Menu Principal": [
-                st.Page("pages/home.py", title="Home", icon="🏠", default=True),
-                st.Page(
-                    "pages/envio_excel.py", title="Atualização de Dados", icon="🔁"
-                ),
-            ],
-            "Central de Performance": [
-                st.Page("pages/pontos.py", title="Produção Mensal", icon="📈"),
-                st.Page("pages/qtde_os.py", title="Quantidade de O.S.", icon="⚡"),
-                st.Page("pages/consultivo.py", title="Consultivos", icon="📋"),
-                st.Page(
-                    "pages/dashboard_meta.py", title="Metas Operacionais", icon="🎯"
-                ),
-                st.Page("pages/indicadores.py", title="Indicadores", icon="⚡"),
-            ],
-            "Compilado": [
-                st.Page("pages/gestao_ativos.py", title="Gestão de Ativos", icon="👷"),
-            ],
-            "Disparos Diários": [
-                st.Page("pages/rota_inicial.py", title="Rota Inicial", icon="🗺️"),
-                st.Page("pages/rota_geral.py", title="Rota Geral", icon="🗺️"),
-                st.Page("pages/volumetria.py", title="Volumetria", icon="📊"),
-                st.Page("pages/retorno.py", title="Retornos", icon="🔍"),
-                st.Page("pages/p_atendimento.py", title="1º Atendimento", icon="🚙"),
-            ],
-            "Quebra": [
-                st.Page("pages/quebra_geral.py", title="Geral", icon="📉"),
-                st.Page(
-                    "pages/quebra_unificada.py", title="Visão Segmentos", icon="📉"
-                ),
-            ],
-            "Utilitários": [
-                st.Page("pages/assinatura.py", title="Assinatura", icon="✉️"),
-            ],
-        }
+        """Monta o menu a partir de :mod:`config.navegacao` (fonte única)."""
+        from config.navegacao import mapa_de_navegacao
+
+        return mapa_de_navegacao()
 
     @staticmethod
     def renderizar_sidebar_corporativa() -> None:

@@ -157,7 +157,83 @@ Detalhes que evitam bugs:
 
 ---
 
-## 5. Desempenho de dados — `services/cache_dados.py`
+## 5. Esqueleto dos dashboards — `components/dashboards.py`
+
+Camada fina sobre `layout_pagina` que garante que **todo painel abra, organize e
+feche do mesmo jeito**. É o padrão exigido pelo guarda
+`tests/test_organizacao_dashboards.py` para as páginas de
+`DASHBOARDS_PADRONIZADOS` (`config/navegacao.py`).
+
+```python
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao, secao
+
+SECOES_PAGINA = ("Filtros", "Indicadores", "Detalhamento", "Exportação")
+
+abrir_dashboard(
+    "Volumetria | TOTALE",
+    secoes=SECOES_PAGINA,              # gera o sumário de âncoras
+    chips={"Período": "01/10 a 15/10", "Registros": len(df)},
+    registros=len(df),
+    hero=render_hero_totale_1,         # opcional; sem hero usa o cabeçalho padrão
+)
+
+cabecalho_secao("Indicadores", icone="insights", subtitulo="Recorte atual")
+with secao("Detalhamento", icone="table"):
+    st.dataframe(df, width="stretch")
+
+secao_exportacao(                      # Excel + CSV com nome/carimbo padronizados
+    df, nome_arquivo="volumetria", chave="volumetria",
+    rotulo_secao="Baixar resultado",
+)
+fechar_dashboard()                     # rodapé com versão e ambiente
+```
+
+Detalhes:
+
+- `abrir_dashboard` aceita `chips` como `dict` ou sequência de pares e devolve os
+  chips exibidos (útil em testes e diagnósticos).
+- `cabecalho_secao(..., ancora=False)` para seções internas de abas/expansores,
+  que não entram no sumário.
+- `secao_exportacao` usa `services.planilhas` (aba, autofiltro, larguras e nome
+  com carimbo de data) — nunca monte o `download_button` à mão.
+- Caminhos de saída antecipada (`return`, página sem base) devem chamar
+  `fechar_dashboard()` para o rodapé não sumir.
+
+---
+
+## 6. Camada de dados compartilhada — `services/`
+
+Sem UI: só leitura, normalização e exportação. Regra de ouro — **página não
+reimplementa helper que já existe aqui** (o guarda lista os nomes proibidos).
+
+| Módulo | O que oferece |
+|--------|---------------|
+| `services/texto.py` | `normalizar_texto`, `sem_acento`, `limpar_nome_coluna`, `normalizar_login`, `buscar_coluna`, `formatar_numero/_pt_br/_inteiro/_percentual` |
+| `services/planilhas.py` | `ler_upload`, `ler_bytes`, `gerar_excel`, `gerar_excel_multiabas`, `gerar_csv`, `botao_download_planilha/_csv`, `nome_com_carimbo` |
+| `services/hierarquia.py` | `hierarquia_da_sessao()` → colunas canônicas `LOGIN`/`TÉCNICO`/`MONITOR`/`BASE`, com cache e degradação graciosa offline |
+| `services/dados_sessao.py` | chaves `CHAVE_PRODUCAO`/`CHAVE_CONSULTIVO`/`CHAVE_MEMORIA`/`CHAVE_ATUALIZACAO`, `obter_dataframe`, `obter_base`, `exigir_base`, `resumir_carga`, `concatenar_abas` |
+| `services/google_drive_client.py` | `carregar_planilha_gsheets_csv`, `baixar_arquivo_drive`, `criar_sessao_http` |
+
+```python
+from services.dados_sessao import CHAVE_MEMORIA, exigir_base, obter_dataframe
+from services.planilhas import gerar_excel, ler_bytes
+from services.texto import formatar_inteiro, normalizar_texto
+
+df = exigir_base(CHAVE_MEMORIA, titulo="Volumetria")   # ou obter_dataframe(...)
+planilha = gerar_excel(df, aba="Base", autofiltro=True)
+```
+
+Quando a página precisa de um detalhe que o serviço não cobre (outra opção de
+`to_excel`, por exemplo), use `functools.partial` em vez de reescrever a função:
+
+```python
+gerar_excel = partial(gerar_excel_padrao, autofiltro=True)
+```
+
+---
+
+## 7. Desempenho de dados — `services/cache_dados.py`
 
 ```python
 from services.cache_dados import (
@@ -204,17 +280,22 @@ Regras:
 
 ---
 
-## 6. Checklist para nova página
+## 8. Checklist para nova página
 
-1. `render_cabecalho_pagina` + `render_sumario` (ou o hero do Design System).
+1. `abrir_dashboard(...)` com `secoes` (ou `render_cabecalho_pagina` +
+   `render_sumario` quando a página não é um dashboard padronizado).
 2. `barra_filtros` para o recorte (fixa no topo).
 3. `render_kpi_row` para os números — nunca `st.metric`.
 4. `criar_grafico`/`render_grafico` para os gráficos — nunca `px.*` direto.
-5. `secao`/`painel` para agrupar; `render_barra_acoes` para exportação.
-6. `render_rodape_pagina` com versão e ambiente.
-7. `carregar_com_cache`/`carregar_varias` para dados externos + `render_painel_desempenho`.
-8. `ruff check .` e `pytest -q tests/` verdes antes do push.
+5. `secao`/`cabecalho_secao`/`painel` para agrupar, na ordem `ORDEM_PADRAO`.
+6. `secao_exportacao` para a saída de dados (ou `render_barra_acoes` em ações mistas).
+7. `fechar_dashboard()` com versão e ambiente — inclusive nas saídas antecipadas.
+8. Dados por `services/` (`exigir_base`, `ler_bytes`, `hierarquia_da_sessao`) e
+   `carregar_varias`/`render_painel_desempenho` para fontes externas.
+9. Página nova entra em `config/navegacao.py` (grupo, ícone e ordem da sidebar).
+10. `ruff check .` e `pytest -q tests/` verdes antes do push.
 
 Testes que protegem este contrato: `test_kpi_cards.py`, `test_graficos.py`,
 `test_css_global.py`, `test_layout_pagina.py`, `test_cache_dados.py`,
-`test_dashboard_kit.py`, `test_sem_depreciados.py`, `test_higiene_repositorio.py`.
+`test_dashboard_kit.py`, `test_sem_depreciados.py`, `test_higiene_repositorio.py`,
+`test_organizacao_dashboards.py` e `test_dashboards_compartilhados.py`.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from io import BytesIO
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -21,10 +21,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from folium import Element
 from folium.plugins import MarkerCluster
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
 from streamlit_folium import st_folium
-from streamlit_gsheets import GSheetsConnection
 
 # ── Componentes corporativos ─────────────────────────────────────────────────
 from components.componentes import (
@@ -35,11 +32,38 @@ from components.componentes import (
     render_kpi,
     render_kpi_sm,
     render_metric,
-    render_section_header,
 )
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import CHAVE_MEMORIA, obter_dataframe
+from services.hierarquia import hierarquia_da_sessao
+from services.planilhas import gerar_excel as gerar_excel_padrao
+from services.planilhas import ler_bytes
 
 logger = logging.getLogger(__name__)
+
+#: Chave da base processada desta página na sessão.
+CHAVE_MASTER = "df_master"
+
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Importação de Dados",
+    "Indicadores Operacionais",
+    "Distribuição por Monitor e Turno",
+    "Visão Executiva",
+    "Resumo dos Contratos da Rota",
+    "Exportação",
+)
+
+#: A hierarquia compartilhada usa colunas canônicas em caixa alta; esta página
+#: espera o case histórico.
+COLUNAS_HIERARQUIA_LEGADAS: dict[str, str] = {
+    "LOGIN": "Login",
+    "TÉCNICO": "Técnico",
+    "MONITOR": "Monitor",
+    "BASE": "Base",
+}
 
 # Pasta de cache local
 CACHE_DIR = Path(".streamlit_cache")
@@ -534,56 +558,48 @@ def render_dataframe_local(
     st.dataframe(styler, width="stretch", hide_index=True, height="auto")
 
 
-def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-    out = BytesIO()
-    with pd.ExcelWriter(out, engine="openpyxl") as w:
-        df.to_excel(w, index=False, sheet_name=aba[:31])
-        ws = w.sheets[aba[:31]]
-        hf = PatternFill("solid", fgColor="0F172A")
-        for cell in ws[1]:
-            cell.fill = hf
-            cell.font = Font(color="FFFFFF", bold=True)
-        for i in range(1, len(df.columns) + 1):
-            ws.column_dimensions[get_column_letter(i)].width = 20
-    return out.getvalue()
+#: Exportação delegada a :func:`services.planilhas.gerar_excel` (cabeçalho
+#: corporativo, larguras seguras para NaN e linha congelada).
+gerar_excel = partial(gerar_excel_padrao, autofiltro=True)
 
 
 # ====================================================
 # 5. CARREGAMENTO DE DADOS
 # ====================================================
 @st.cache_data(ttl=600, show_spinner=False)
-def buscar_google_sheets() -> pd.DataFrame:
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(
-            spreadsheet=URL_GSHEETS,
-            usecols=["Login", "Técnico", "Monitor", "Base"],
-        )
-        df = df.dropna(subset=["Login"])
-        df["Login"] = (
-            df["Login"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip().str.upper()
-        )
-        return df
-    except Exception:
-        logger.warning(
-            "Google Sheets indisponível; ações ficam sem dados cadastrais.", exc_info=True
-        )
-        return pd.DataFrame(columns=["Login", "Técnico", "Monitor", "Base"])
+def _buscar_google_sheets() -> pd.DataFrame:
+    """Lista de ativos (Login | Técnico | Monitor | Base) da camada compartilhada.
+
+    Antes a página abria a própria ``GSheetsConnection``; hoje consome
+    :func:`services.hierarquia.hierarquia_da_sessao` — uma leitura por sessão,
+    colunas canônicas, login sem o ``.0`` do Excel e degradação graciosa quando
+    o Sheets está fora do ar (devolve o DataFrame vazio com as quatro colunas).
+    """
+    hierarquia = hierarquia_da_sessao(ttl=600)
+    colunas = ["Login", "Técnico", "Monitor", "Base"]
+    if hierarquia.empty:
+        return pd.DataFrame(columns=colunas)
+    saida = hierarquia.rename(columns=COLUNAS_HIERARQUIA_LEGADAS)
+    presentes = [c for c in colunas if c in saida.columns]
+    if "Login" not in presentes:
+        return pd.DataFrame(columns=colunas)
+    saida = saida[presentes].dropna(subset=["Login"]).copy()
+    saida["Login"] = (
+        saida["Login"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip().str.upper()
+    )
+    return saida
 
 
 @st.cache_data(show_spinner=False)
-def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-    bio = BytesIO(file_bytes)
+def _ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
+    """Leitura do upload delegada a :func:`services.planilhas.ler_bytes`.
+
+    Mantém o cache por conteúdo, tudo como texto e o aviso de erro na tela.
+    """
     try:
-        if filename.lower().endswith(".csv"):
-            try:
-                return pd.read_csv(bio, sep=None, engine="python", encoding="utf-8-sig", dtype=str)
-            except UnicodeDecodeError:
-                bio.seek(0)
-                return pd.read_csv(bio, sep=None, engine="python", encoding="latin1", dtype=str)
-        return pd.read_excel(bio, engine="openpyxl", dtype=str)
-    except Exception as e:
-        st.error(f"Erro ao ler arquivo: {e}")
+        return ler_bytes(file_bytes, filename, dtype=str)
+    except Exception as erro:  # noqa: BLE001 - a página segue sem base
+        st.error(f"Erro ao ler arquivo: {erro}")
         return pd.DataFrame()
 
 
@@ -670,7 +686,9 @@ def processar_base(df_bruto: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFr
     df["Check_ND"] = tipo.str.contains("ADESAO", na=False)
     df["Check_Migracao"] = (tipo.str.strip() == "24 - MUDANCA DE PACOTE") & df["Check_GPON"]
     df["Check_PME"] = df["Check_ND"] & hab.str.contains("PME", na=False)
-    df["Check_Streaming"] = hab.str.contains("TV VAS(1/100)", na=False)
+    # `regex=False`: o texto tem parênteses literais (com regex o pandas emite
+    # UserWarning de grupo de captura e o resultado seria o mesmo).
+    df["Check_Streaming"] = hab.str.contains("TV VAS(1/100)", na=False, regex=False)
     df["Check_Ponto_Ultra"] = hab.str.contains("NETLAR", na=False)
     df["Check_4K"] = prod.str.contains("4K", na=False)
     df["Check_Soundbox"] = prod.str.contains("SOUND", na=False)
@@ -1247,10 +1265,8 @@ def main() -> None:
     render_page_sidebar_theme_selector()
     _injetar_css_local()
 
-    render_hero(
-        titulo="🗺️ Gestão de Rota Inicial",
-        subtitulo="Visão operacional de rotas, serviços premium e distribuição de equipes",
-    )
+    # O herói corporativo entra via abrir_dashboard (no fluxo com dados e no de
+    # importação), junto dos chips de contexto e do sumário de âncoras.
 
     # ── Sidebar — configurações ──────────────────────
     with st.sidebar:
@@ -1268,7 +1284,19 @@ def main() -> None:
 
     # ── Upload ───────────────────────────────────────
     if st.session_state["df_master"] is None:
-        render_section_header(titulo="📁 Importação de Dados")
+        abrir_dashboard(
+            "Gestão de Rota Inicial",
+            secoes=SECOES_PAGINA,
+            hero=render_hero,
+            hero_kwargs={
+                "titulo": "🗺️ Gestão de Rota Inicial",
+                "subtitulo": (
+                    "Visão operacional de rotas, serviços premium e distribuição de equipes"
+                ),
+            },
+            chips={"Fonte": "Upload + lista de ativos"},
+        )
+        cabecalho_secao("Importação de Dados", icone="folder_open")
         arq = st.file_uploader(
             "Selecione a base (Excel/CSV)",
             type=["xlsx", "csv"],
@@ -1276,8 +1304,8 @@ def main() -> None:
         )
         if arq:
             with st.spinner("Processando..."):
-                raw = ler_arquivo(arq.getvalue(), arq.name)
-                gs = buscar_google_sheets()
+                raw = _ler_arquivo(arq.getvalue(), arq.name)
+                gs = _buscar_google_sheets()
                 df_proc = processar_base(raw, gs)
                 st.session_state["df_master"] = df_proc
 
@@ -1288,9 +1316,15 @@ def main() -> None:
                     icon="⚠️",
                 )
             st.rerun()
+        fechar_dashboard()
         return
 
-    df_master = st.session_state["df_master"].copy()
+    # A base processada fica na chave da página; se ela não existir, a base
+    # compartilhada da sessão (camada única de dados) serve de ponto de partida.
+    df_master = obter_dataframe(CHAVE_MASTER)
+    if not isinstance(df_master, pd.DataFrame) or df_master.empty:
+        df_master = obter_dataframe(CHAVE_MEMORIA)
+    df_master = df_master.copy()
 
     # ── Sidebar — equipe + filtros ───────────────────
     with st.sidebar:
@@ -1378,10 +1412,26 @@ def main() -> None:
     # ── Guard ────────────────────────────────────────
     if df_master.empty:
         render_insight("Nenhum dado para os filtros selecionados.", tipo="alerta")
+        fechar_dashboard()
         return
 
-    # ── Resultado da base ────────────────────────────
+    # ── Resultado da base + contexto padrão do portal ──
     regioes = sorted(df_master["REGIÃO"].unique()) if "REGIÃO" in df_master.columns else []
+    abrir_dashboard(
+        "Gestão de Rota Inicial",
+        secoes=SECOES_PAGINA,
+        hero=render_hero,
+        hero_kwargs={
+            "titulo": "🗺️ Gestão de Rota Inicial",
+            "subtitulo": (
+                "Visão operacional de rotas, serviços premium e distribuição de equipes"
+            ),
+        },
+        chips={
+            "Regiões": ", ".join(str(r) for r in regioes) if regioes else "—",
+        },
+        registros=len(df_master),
+    )
     render_resultado_base(regioes, len(df_master))
 
     # ── KPIs Principais ────────────────────────────
@@ -1389,7 +1439,7 @@ def main() -> None:
     tecnicos = df_master["LOGIN_TECNICO"].nunique()
     monitores_qtd = df_master["Monitor"].nunique()
 
-    render_section_header(titulo="Indicadores Operacionais", icone="📊")
+    cabecalho_secao("Indicadores Operacionais", icone="insights")
     c1, c2, c3 = st.columns(3)
     render_kpi(c1, "Volume O.S.", f"{soma_os:,}", tema="azul")
     render_kpi(
@@ -1426,11 +1476,11 @@ def main() -> None:
     st.markdown("")
 
     # ── Tabelas Rota / Turnos ────────────────────────
-    render_section_header(titulo="Distribuição por Monitor e Turno", icone="🗺️")
+    cabecalho_secao("Distribuição por Monitor e Turno", icone="map")
     render_bloco_rota_turno(df_master, st.session_state["total_montados_manual"])
 
     # ── Gráficos Executivos ──────────────────────────
-    render_section_header(titulo="Visão Executiva")
+    cabecalho_secao("Visão Executiva", icone="monitoring")
     g1, g2 = st.columns([1, 1.2])
 
     with g1:
@@ -1611,7 +1661,7 @@ def main() -> None:
             pontos,
             container=col_info1,
             icone="place",
-            ajuda="Total de pontos georreferenciados plotados no mapa.",
+            help="Total de pontos georreferenciados plotados no mapa.",
         )
         render_metric(
             "🏙️ Municípios",
@@ -1651,7 +1701,7 @@ def main() -> None:
     # ABA — RESUMO CONTRATOS
     # ============================================================
     with aba_contratos:
-        render_section_header(titulo="Resumo dos Contratos da Rota", icone="📄")
+        cabecalho_secao("Resumo dos Contratos da Rota", icone="description", ancora=False)
 
         COLUNAS_CONTRATOS: dict[str, list[str]] = {
             "CONTRATO": ["CONTRATO"],
@@ -1738,9 +1788,10 @@ def main() -> None:
     # ABA — EQUALIZAÇÃO
     # ============================================================
     with aba_equalizacao:
-        render_section_header(
-            titulo="Diagnóstico de Equalização por Distribuição de O.S.",
-            icone="⚖️",
+        cabecalho_secao(
+            "Diagnóstico de Equalização por Distribuição de O.S.",
+            icone="balance",
+            ancora=False,
         )
 
         df_eq_work = df_master[
@@ -2084,6 +2135,15 @@ def main() -> None:
                         )
                     st.rerun()
 
+            # Sem monitores mapeados não há o que simular: `st.columns(0)`
+            # levantaria StreamlitInvalidColumnSpecError (bug pré-existente).
+            if not monitores_atuais:
+                render_insight(
+                    "Nenhum monitor mapeado na base — a simulação de equalização "
+                    "fica indisponível.",
+                    tipo="alerta",
+                )
+                return
             cols_sim = st.columns(min(len(monitores_atuais), 4))
             for i, mon in enumerate(monitores_atuais):
                 equipe_mon = int(df_eq_mon.loc[df_eq_mon["Monitor"] == mon, "Equipe"].iloc[0])
@@ -2280,6 +2340,16 @@ def main() -> None:
                     f"{equilibrados_atual} no cenário atual).",
                     tipo="critico",
                 )
+
+    # ── Exportação e rodapé (padrão do portal) ───────
+    secao_exportacao(
+        df_master,
+        nome_arquivo="rota_inicial",
+        chave="rota_inicial",
+        titulo="Exportação",
+        subtitulo="Base filtrada do painel, com as colunas de velocidade e hierarquia.",
+    )
+    fechar_dashboard()
 
 
 if __name__ == "__main__":

@@ -442,6 +442,35 @@ def _cabecalho_secao(
     )
 
 
+def cabecalho_secao(
+    titulo: str,
+    *,
+    icone: str = "",
+    subtitulo: str = "",
+    badge: str = "",
+    badge_tipo: TipoBadgeType = "default",
+    ancora: bool = True,
+) -> str:
+    """Cabeçalho de seção **sem** abrir bloco — devolve a âncora usada.
+
+    Existe para as páginas longas que já têm seu próprio fluxo de contêineres
+    (abas, colunas e HTML em f-string): trocar ``st.subheader`` por este
+    cabeçalho padroniza o visual e cria a âncora do sumário sem reindentar o
+    corpo. Para blocos novos prefira o context manager :func:`secao`.
+    """
+    id_ancora = _slug(titulo) if ancora and titulo else ""
+    if titulo:
+        _cabecalho_secao(
+            titulo,
+            icone=icone,
+            subtitulo=subtitulo,
+            badge=badge,
+            badge_tipo=badge_tipo,
+            ancora=id_ancora,
+        )
+    return id_ancora
+
+
 @contextmanager
 def secao(
     titulo: str,
@@ -643,6 +672,7 @@ __all__ = [
     "ORDEM_PADRAO",
     "VERSAO_LAYOUT",
     "barra_filtros",
+    "cabecalho_secao",
     "colunas",
     "css_layout_pagina",
     "painel",

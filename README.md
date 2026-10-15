@@ -259,12 +259,13 @@ painel-totale/
 ├── .github/workflows/quality.yml # Lint e testes em push/PR
 ├── .streamlit/
 │   └── secrets.example.toml      # Modelo local de configuração (sem credenciais reais)
-├── components/                   # Componentes compartilhados
-│   ├── componentes.py            # Design System (KPI, gráficos, CSS global)
+├── components/                   # Componentes compartilhados (Design System)
+│   ├── componentes.py            # Design System (KPI, insight, herói, gráficos, CSS global)
 │   ├── kpi_cards.py              # Cartões de KPI avançados (delta, sparkline, progresso)
 │   ├── graficos.py               # Fábrica de 24 gráficos minimalistas + tema totale_min
 │   ├── css_global.py             # CSS global dos componentes nativos do Streamlit
-│   ├── layout_pagina.py          # Primitivas de organização de página (âncoras, filtros fixos)
+│   ├── layout_pagina.py          # Primitivas de página: secao/cabecalho_secao, sumário, filtros, rodapé
+│   ├── dashboards.py             # Esqueleto único dos painéis: abrir_dashboard/secao_exportacao/fechar_dashboard
 │   ├── dashboard_kit.py          # Kit v2 de dashboards: CSS global, gráficos, filtros e exportação
 │   ├── sidebar.py                # Sidebar corporativa: temas, seletor e componentes
 │   ├── criterios.py              # Regras de classificação operacional
@@ -272,8 +273,16 @@ painel-totale/
 │   ├── alertas_automaticos.py    # Avaliação de alertas operacionais
 │   ├── saude_dados.py            # Frescor e consistência das fontes
 │   └── css_paginas.py            # Estilos reutilizáveis das páginas
-├── config/                       # IDs, URLs e parâmetros centralizados
-├── services/                     # Clientes externos (Google Drive/Sheets) e camada de cache
+├── config/                       # Parâmetros centralizados
+│   ├── navegacao.py              # Menu declarativo: páginas, grupos, ícones e ordem da sidebar
+│   └── settings.py               # IDs, URLs, versão e ambiente
+├── services/                     # Camada de dados compartilhada (sem UI)
+│   ├── texto.py                  # Normalização e formatação pt-BR (números, colunas, logins)
+│   ├── planilhas.py              # Leitura de uploads/bytes e exportação Excel/CSV padronizada
+│   ├── hierarquia.py             # Hierarquia LOGIN → TÉCNICO/MONITOR/BASE com cache
+│   ├── dados_sessao.py           # Chaves e leitores da base carregada na sessão
+│   ├── cache_dados.py            # Cache em disco, pool HTTP e retry
+│   └── google_drive_client.py    # Clientes Google Drive/Sheets (CSV, gviz, download)
 ├── pages/                        # Páginas do aplicativo Streamlit
 ├── robo/                         # Leitura e monitoramento de arquivos locais
 ├── tests/                        # Testes de regressão e guardas estáticas
@@ -284,6 +293,38 @@ painel-totale/
 
 > Não há diretório `old/`: scripts legados foram removidos e um teste-guarda
 > (`tests/test_refatoracao_arquitetura.py`) impede que artefatos órfãos voltem.
+
+### Padrão dos dashboards
+
+Todo painel padronizado (`DASHBOARDS_PADRONIZADOS` em `config/navegacao.py`)
+segue o mesmo esqueleto, na ordem de leitura definida por
+`components/layout_pagina.py`: **cabeçalho → sumário → filtros → KPIs →
+gráficos → detalhamento → exportação → rodapé**.
+
+```python
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao, secao
+
+abrir_dashboard(
+    "Título do painel",
+    secoes=SECOES_PAGINA,          # alimenta o sumário de âncoras
+    chips={"Período": "01/10 a 15/10"},
+    registros=len(df),
+)
+with secao("Indicadores", icone="insights"):
+    ...
+secao_exportacao(df, nome_arquivo="meu_painel", chave="meu_painel")
+fechar_dashboard()
+```
+
+Regras que os guardas de `tests/test_organizacao_dashboards.py` fazem cumprir:
+
+* abrir com `abrir_dashboard()` e fechar com `fechar_dashboard()`;
+* corpo organizado em `secao()`/`cabecalho_secao()`;
+* base vinda de `services.dados_sessao` (exceto as páginas que sincronizam as
+  próprias fontes, listadas em `PAGINAS_SEM_BASE_DE_SESSAO`);
+* nada de reimplementar helpers (`gerar_excel`, `ler_arquivo`, `normalizar_texto`,
+  `render_kpi`, `render_hero`, …): use `services/` e `components/`.
 
 ---
 

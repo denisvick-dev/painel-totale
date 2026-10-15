@@ -28,7 +28,6 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 import streamlit as st
 
 from components.componentes import (
@@ -50,6 +49,13 @@ from components.layout_pagina import (
 )
 from components.sidebar import render_page_sidebar_theme_selector
 from services.cache_dados import temporizar
+from services.dados_sessao import (
+    CHAVE_ATUALIZACAO,
+    CHAVE_PRODUCAO,
+    obter_dataframe,
+    resumir_carga,
+    ultima_atualizacao,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,36 +94,19 @@ class ResumoDados:
         return self.tabelas > 0 or self.registros > 0
 
 
-def _coletar_dataframes(valor: Any) -> list[pd.DataFrame]:
-    """Extrai DataFrames de containers aninhados sem contar chaves como linhas."""
-    if isinstance(valor, pd.DataFrame):
-        return [valor]
-    if isinstance(valor, Mapping):
-        return [frame for conteudo in valor.values() for frame in _coletar_dataframes(conteudo)]
-    if isinstance(valor, (list, tuple)):
-        return [frame for conteudo in valor for frame in _coletar_dataframes(conteudo)]
-    return []
-
-
 def resumir_dados_producao(dados: Any) -> ResumoDados:
-    """Conta linhas e abas com dados, inclusive quando a carga é um dict de abas."""
-    frames = _coletar_dataframes(dados)
-    if frames:
-        return ResumoDados(
-            registros=sum(len(frame) for frame in frames),
-            tabelas=len(frames),
-            tabelas_com_dados=sum(not frame.empty for frame in frames),
-        )
+    """Conta linhas e abas com dados, inclusive quando a carga é um dict de abas.
 
-    # Compatibilidade com cargas antigas que guardavam linhas diretamente.
-    if isinstance(dados, (list, tuple)):
-        quantidade = len(dados)
-        return ResumoDados(
-            registros=quantidade,
-            tabelas=1 if quantidade else 0,
-            tabelas_com_dados=1 if quantidade else 0,
-        )
-    return ResumoDados()
+    A contagem em si vive em :func:`services.dados_sessao.resumir_carga` (fonte
+    única do portal); aqui só adaptamos o resultado para o ``ResumoDados`` que a
+    Home já expõe — inclusive para os testes em ``tests/test_home_dashboard.py``.
+    """
+    carga = resumir_carga(dados)
+    return ResumoDados(
+        registros=carga.registros,
+        tabelas=carga.tabelas,
+        tabelas_com_dados=carga.tabelas_com_dados,
+    )
 
 
 def formatar_data_pt_br(valor: datetime) -> str:
@@ -341,7 +330,7 @@ def _resumir_fontes(status_fontes: Any) -> list[dict[str, Any]]:
 
 def _obter_metricas_base() -> dict[str, Any]:
     """Extrai métricas reais da carga e do estado das fontes na sessão."""
-    resumo_dados = resumir_dados_producao(st.session_state.get("dados_prod"))
+    resumo_dados = resumir_dados_producao(obter_dataframe(CHAVE_PRODUCAO))
     fontes = _resumir_fontes(st.session_state.get("status_fontes"))
     fontes_ok = sum(fonte["ok"] for fonte in fontes)
 
@@ -357,7 +346,7 @@ def _obter_metricas_base() -> dict[str, Any]:
     else:
         status_carga = "Aguardando dados"
 
-    ultima_atualizacao = st.session_state.get("ultima_atualizacao")
+    atualizado_em = ultima_atualizacao(CHAVE_ATUALIZACAO)
     ultima_tentativa = st.session_state.get("ultima_tentativa_sync")
     return {
         "carregado": resumo_dados.carregado,
@@ -369,8 +358,8 @@ def _obter_metricas_base() -> dict[str, Any]:
         "fontes_ok": fontes_ok,
         "fontes_com_falha": [fonte["nome"] for fonte in fontes if not fonte["ok"]],
         "status_carga": status_carga,
-        "ultima_atualizacao": _formatar_data_hora(ultima_atualizacao),
-        "ultima_atualizacao_curta": _formatar_data_hora(ultima_atualizacao, com_segundos=False),
+        "ultima_atualizacao": _formatar_data_hora(atualizado_em),
+        "ultima_atualizacao_curta": _formatar_data_hora(atualizado_em, com_segundos=False),
         "ultima_tentativa": _formatar_data_hora(ultima_tentativa),
         "ultima_tentativa_curta": _formatar_data_hora(ultima_tentativa, com_segundos=False),
     }
