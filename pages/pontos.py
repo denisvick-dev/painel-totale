@@ -1398,9 +1398,9 @@ with aba_evolucao:
             )
         else:
             df_ag = (
-                df_ev.groupby([col_data, "Nome Equipe"], as_index=False)["Pontos"]
-                .sum()
-                .sort_values(col_data)
+                df_ev.groupby([col_data, "Nome Equipe"], as_index=False)
+                .agg({"Pontos": "sum"})
+                .sort_values(by=[col_data])
             )
             df_ag["Pontos Acumulados"] = df_ag.groupby("Nome Equipe")["Pontos"].cumsum()
 

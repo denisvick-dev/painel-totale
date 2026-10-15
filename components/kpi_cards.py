@@ -625,7 +625,7 @@ def render_kpi_row(
     specs: Sequence[SpecKPIAvancado],
     *,
     colunas: int | None = None,
-    gap: str = "small",
+    gap: Literal["xxsmall", "xsmall", "small", "medium", "large"] | int | None = "small",
     container: Any = None,
 ) -> None:
     """Renderiza uma fileira de cartões avançados a partir de especificações.

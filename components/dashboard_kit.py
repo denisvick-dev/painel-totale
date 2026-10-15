@@ -31,9 +31,9 @@ padrão de todos os dashboards do portal sem duplicar código nas páginas:
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from datetime import date, datetime
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, cast
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -227,7 +227,7 @@ def injetar_css_dashboards(*, container: object | None = None) -> None:
 # páginas que já importam deste kit: aliases diretos, sem lógica duplicada.
 
 
-def resumo_periodo(serie: pd.Series) -> dict[str, float | datetime | None]:
+def resumo_periodo(serie: pd.Series) -> dict[str, float | Hashable | None]:
     """Estatísticas de uma série diária: total, média, melhor e pior dia."""
     if serie is None or serie.empty:
         return {"total": None, "media": None, "melhor": None, "pior": None}
@@ -271,7 +271,7 @@ def render_kpi_grid(
     specs: Sequence[SpecKPI | SpecKPIAvancado],
     *,
     colunas: int | None = None,
-    gap: str = "small",
+    gap: Literal["xxsmall", "xsmall", "small", "medium", "large"] = "small",
 ) -> None:
     """Renderiza uma fileira de KPIs a partir de especificações declarativas.
 
@@ -287,7 +287,7 @@ def render_kpi_grid(
     if not specs:
         return
     if any(_CHAVES_AVANCADAS & set(spec) for spec in specs):
-        render_kpi_row(list(specs), colunas=colunas, gap=gap)
+        render_kpi_row(cast(Sequence[SpecKPIAvancado], specs), colunas=colunas, gap=gap)
         return
     quantidade = colunas or len(specs)
     grade = st.columns(quantidade, gap=gap)
@@ -356,7 +356,7 @@ def aplicar_tema_figura(
             "x": 0,
             "bgcolor": "rgba(255,255,255,0.85)",
         }
-    fig.update_layout(**layout)
+    fig.update_layout(layout)
     fig.update_xaxes(gridcolor="#F1F5F9", zerolinecolor="#E2E8F0")
     fig.update_yaxes(gridcolor="#F1F5F9", zerolinecolor="#E2E8F0")
     return fig
@@ -377,11 +377,11 @@ def grafico_barras_ranking(
     dados = df[[col_categoria, col_valor]].copy()
     dados[col_valor] = pd.to_numeric(dados[col_valor], errors="coerce").fillna(0.0)
     dados = (
-        dados.groupby(col_categoria, as_index=False)[col_valor]
-        .sum()
-        .sort_values(col_valor, ascending=ascendente)
+        dados.groupby(col_categoria, as_index=False)
+        .agg({col_valor: "sum"})
+        .sort_values(by=col_valor, ascending=ascendente)
         .head(top)
-        .sort_values(col_valor, ascending=True)
+        .sort_values(by=col_valor, ascending=True)
     )
     textos = [
         formatar_numero_br(v) if v >= 10 else f"{v:,.1f}".replace(".", ",")
@@ -794,9 +794,9 @@ def gerar_insights(
     insights.append(
         (
             "🏆 Melhor dia do recorte: "
-            f"**{pd.Timestamp(melhor_dia).strftime('%d/%m/%Y')}** com "
+            f"**{pd.Timestamp(str(melhor_dia)).strftime('%d/%m/%Y')}** com "
             f"**{formatar_numero_br(serie.max())} {rotulo_unidade}**; "
-            f"pior dia: **{pd.Timestamp(serie.idxmin()).strftime('%d/%m/%Y')}** "
+            f"pior dia: **{pd.Timestamp(str(serie.idxmin())).strftime('%d/%m/%Y')}** "
             f"({formatar_numero_br(serie.min())}).",
             "info",
         )

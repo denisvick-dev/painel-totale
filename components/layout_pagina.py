@@ -53,7 +53,7 @@ import unicodedata
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import streamlit as st
 
@@ -352,9 +352,13 @@ def render_cabecalho_pagina(
 
     itens: list[tuple[str, Any]] = []
     if isinstance(chips, Mapping):
-        itens.extend(chips.items())
+        itens.extend((str(rotulo), valor) for rotulo, valor in chips.items())
     elif chips:
-        itens.extend(tuple(item) for item in chips)
+        for item in chips:
+            par = tuple(item)
+            if len(par) != 2:
+                continue
+            itens.append((str(par[0]), par[1]))
     if atualizado_em:
         itens.append(("Atualizado", _texto_horario(atualizado_em)))
     if registros:
@@ -538,7 +542,7 @@ def barra_filtros(
     icone: str = "tune",
     fixa: bool = True,
     colunas: int = 4,
-    gap: str = "small",
+    gap: Literal["xxsmall", "xsmall", "small", "medium", "large"] | int | None = "small",
 ) -> Iterator[list[Any]]:
     """Barra de filtros fixa no topo da página ao rolar (sticky).
 
@@ -640,7 +644,10 @@ def render_barra_acoes(
 
 
 def colunas(
-    quantidade: int, *, gap: str = "small", proporcao: Sequence[float] | None = None
+    quantidade: int,
+    *,
+    gap: Literal["xxsmall", "xsmall", "small", "medium", "large"] | int | None = "small",
+    proporcao: Sequence[float] | None = None,
 ) -> list[Any]:
     """Atalho de grade: aceita número de colunas ou proporções."""
     if proporcao:

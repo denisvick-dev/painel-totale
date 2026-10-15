@@ -413,7 +413,7 @@ def _restaurar_dtypes(df: pd.DataFrame, dtypes: Mapping[str, str] | None) -> pd.
         if str(df[coluna].dtype) == nome:
             continue
         try:
-            df[coluna] = df[coluna].astype(nome)
+            df[coluna] = df[coluna].astype(pd.api.types.pandas_dtype(nome))
         except (TypeError, ValueError):  # pragma: no cover - dtype exótico
             logger.debug("Não foi possível restaurar o dtype %s de '%s'.", nome, coluna)
     return df
@@ -1035,7 +1035,7 @@ _CHAVE_TIMINGS = "_totale_timings"
 
 
 @contextmanager
-def temporizar(rotulo: str, *, registrar: bool = True) -> Iterator[dict[str, float]]:
+def temporizar(rotulo: str, *, registrar: bool = True) -> Iterator[dict[str, str | float]]:
     """Mede a duração de um bloco e (opcional) registra no estado da sessão.
 
     Uso::
@@ -1043,7 +1043,7 @@ def temporizar(rotulo: str, *, registrar: bool = True) -> Iterator[dict[str, flo
         with temporizar("carregar_producao"):
             df = carregar(...)
     """
-    medidor: dict[str, float] = {"rotulo": rotulo, "ms": 0.0}
+    medidor: dict[str, str | float] = {"rotulo": rotulo, "ms": 0.0}
     inicio = time.perf_counter()
     try:
         yield medidor
@@ -1089,7 +1089,12 @@ def resumo_desempenho() -> dict[str, Any]:
 
 
 def _render_metrica_diagnostico(
-    coluna: Any, rotulo: str, valor: Any, *, icone: str = "", tema: str = "azul"
+    coluna: Any,
+    rotulo: str,
+    valor: Any,
+    *,
+    icone: str = "",
+    tema: Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"] = "azul",
 ) -> None:
     """Métrica do painel de diagnóstico: cartão avançado quando disponível."""
     try:

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, time
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import streamlit as st
@@ -100,7 +100,7 @@ CONTRATO_VALORES_VAZIOS = {
 # COMPONENTES (adaptadores finos do Design System)
 # ═══════════════════════════════════════════════════════
 #: Cores usadas nos KPIs desta página → temas do Design System.
-TEMAS_POR_COR: dict[str, str] = {
+TEMAS_POR_COR: dict[str, Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo"]] = {
     "#012869": "azul",
     "#0284C7": "azul",
     "#059669": "verde",
@@ -221,7 +221,7 @@ def carregar_lista_ativos() -> pd.DataFrame:
     saida["Login"] = (
         saida["Login"].astype(str).str.replace(r"\.0$", "", regex=True).str.strip().str.upper()
     )
-    saida = saida.drop_duplicates(subset=[["Login"]], keep="last")
+    saida = saida.drop_duplicates(subset=["Login"], keep="last")
     return saida[saida["Login"] != ""].reset_index(drop=True)
 
 

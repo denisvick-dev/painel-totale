@@ -279,7 +279,7 @@ class InfoCalendario:
         # Trata os feriados (necessário 'pip install holidays')
         lista_feriados = []
         feriados_usados = False
-        if TEM_HOLIDAYS:
+        if TEM_HOLIDAYS and holidays is not None:
             feriados_br = holidays.BR(years=ano)
             # Converte os feriados do mês/ano para o formato datetime64 do numpy
             lista_feriados = [np.datetime64(data) for data in feriados_br if data.month == mes]

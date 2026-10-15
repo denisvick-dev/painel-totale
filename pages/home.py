@@ -25,7 +25,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import streamlit as st
@@ -422,14 +422,15 @@ def render_kpi_strip(info_base: dict[str, Any]) -> None:
     substituem o ``st.metric`` padrão em todo o portal.
     """
     status_carga = info_base["status_carga"]
-    tema_status = {
+    temas_status: dict[str, Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"]] = {
         "Atualizada": "verde",
         "Parcial": "laranja",
         "Com falhas": "vermelho",
         "Dados disponíveis": "azul",
         "Sem registros": "laranja",
         "Aguardando dados": "cinza",
-    }.get(status_carga, "cinza")
+    }
+    tema_status = temas_status.get(status_carga, "cinza")
 
     detalhe_status = (
         f"{info_base['fontes_ok']} de {info_base['fontes_total']} fontes atualizadas"
@@ -441,7 +442,7 @@ def render_kpi_strip(info_base: dict[str, Any]) -> None:
     if info_base["fontes_total"]:
         valor_fontes = f"{info_base['fontes_ok']}/{info_base['fontes_total']}"
         subtitulo_fontes = "Fontes com atualização bem-sucedida"
-        tema_fontes = (
+        tema_fontes: Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"] = (
             "verde"
             if info_base["fontes_ok"] == info_base["fontes_total"]
             else "vermelho"

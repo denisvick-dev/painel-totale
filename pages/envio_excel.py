@@ -145,7 +145,7 @@ except Exception:  # ambiente sem o design system — o app ainda abre
     render_insight = _insight_fb
     render_kpi = _kpi_fb
     render_kpi_row = _kpi_row_fb
-    SpecKPIAvancado = dict  # type: ignore[assignment, misc]
+    SpecKPIAvancado: Any = dict  # type: ignore[assignment, misc]
     render_page_sidebar_theme_selector = _noop  # type: ignore[assignment]
     render_section_header = _header_fb
     render_sidebar_brand = _noop
@@ -218,11 +218,7 @@ class StatusFonte:
     erro: str | None = None
 
     def rotulo(self) -> str:
-        quando = (
-            self.ultimo_sucesso.strftime("%d/%m às %H:%M")
-            if self.ultimo_sucesso
-            else "nunca"
-        )
+        quando = self.ultimo_sucesso.strftime("%d/%m às %H:%M") if self.ultimo_sucesso else "nunca"
         if self.ok:
             return f"{self.nome} • {_fmt_int(self.linhas)} linhas • ok em {quando}"
         if self.ultimo_sucesso is None:
@@ -261,11 +257,7 @@ def _intervalo_vencido(
         return False
     if not isinstance(ultima, datetime):
         return True
-    ref = (
-        ultima
-        if ultima.tzinfo is not None
-        else ultima.replace(tzinfo=Configuracoes.FUSO)
-    )
+    ref = ultima if ultima.tzinfo is not None else ultima.replace(tzinfo=Configuracoes.FUSO)
     decorrido = (agora - ref).total_seconds()
     return decorrido + Configuracoes.FOLGA_TIMER_SEG >= intervalo_seg
 
@@ -398,9 +390,7 @@ class ProcessadorDeDados:
             raise ValueError(
                 f"Nenhum combinado de encoding/separador produziu colunas: {ultimo_erro}"
             )
-        melhor.columns = pd.Index(
-            [str(c).strip().lstrip("\ufeff") for c in melhor.columns]
-        )
+        melhor.columns = pd.Index([str(c).strip().lstrip("\ufeff") for c in melhor.columns])
         return melhor
 
     @classmethod
@@ -424,9 +414,7 @@ class ProcessadorDeDados:
                 erros.append(f"{engine}: {type(e).__name__}: {e}")
                 continue
             if isinstance(bruto, dict):
-                return {
-                    str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)
-                }
+                return {str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)}
             if isinstance(bruto, pd.DataFrame):
                 return {"Prod": bruto}
             erros.append(f"{engine}: retorno inesperado")
@@ -437,9 +425,7 @@ class ProcessadorDeDados:
         )
 
     @classmethod
-    def _separar_internet_tv(
-        cls, internet_bruta: pd.Series
-    ) -> tuple[pd.Series, pd.Series]:
+    def _separar_internet_tv(cls, internet_bruta: pd.Series) -> tuple[pd.Series, pd.Series]:
         """Separa TV embutida depois do ponto."""
         bruto = cls._normalizar_serie(internet_bruta)
         partes = bruto.str.split(".", n=1, expand=True)
@@ -494,13 +480,9 @@ class ProcessadorDeDados:
         if "OBSERVACAO" in cons.columns:
             obs = cons["OBSERVACAO"].fillna("").astype(str)
             # Extrai listas temporárias para contagem
-            produtos_encontrados = obs.str.findall(
-                Configuracoes.REGEX_PRODUTO_OBSERVACAO
-            )
+            produtos_encontrados = obs.str.findall(Configuracoes.REGEX_PRODUTO_OBSERVACAO)
             cons["QTDE_PRODUTOS"] = (
-                produtos_encontrados.map(
-                    lambda x: len(x) if isinstance(x, (list, tuple)) else 0
-                )
+                produtos_encontrados.map(lambda x: len(x) if isinstance(x, (list, tuple)) else 0)
                 .fillna(0)
                 .astype(int)
             )
@@ -519,18 +501,14 @@ class ProcessadorDeDados:
         qtde_prod = cons["QTDE_PRODUTOS"].fillna(0).astype(int)
 
         tem_tv_bool = tipo_servico.str.contains("TV", case=False, regex=False, na=False)
-        tem_virtua_bool = tipo_servico.str.contains(
-            r"MEGA|GIGA", case=False, regex=True, na=False
+        tem_virtua_bool = tipo_servico.str.contains(r"MEGA|GIGA", case=False, regex=True, na=False)
+        is_combinado = tipo_servico.str.contains("&", case=False, regex=False, na=False) | (
+            tem_tv_bool & tem_virtua_bool
         )
-        is_combinado = tipo_servico.str.contains(
-            "&", case=False, regex=False, na=False
-        ) | (tem_tv_bool & tem_virtua_bool)
         tem_tv = tem_tv_bool.astype(int)
         tem_virtua = tem_virtua_bool.astype(int)
         cons["QTDE_TV"] = (tem_tv * qtde_prod).mask(is_combinado, tem_tv).astype(int)
-        cons["QTDE_VIRTUA"] = (
-            (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
-        )
+        cons["QTDE_VIRTUA"] = (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
         cons["QTDE_MESH"] = (
             (cons["QTDE_PRODUTOS"] - cons["QTDE_TV"] - cons["QTDE_VIRTUA"])
             .clip(lower=0)
@@ -540,16 +518,10 @@ class ProcessadorDeDados:
 
     @classmethod
     def merge_ativos(cls, cons: pd.DataFrame, ativos: pd.DataFrame) -> pd.DataFrame:
-        if (
-            ativos.empty
-            or "Login" not in ativos.columns
-            or "LOGIN NETSALES" not in cons.columns
-        ):
+        if ativos.empty or "Login" not in ativos.columns or "LOGIN NETSALES" not in cons.columns:
             return cons
 
-        cols = [
-            c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns
-        ]
+        cols = [c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns]
         ativos_limpo = ativos.loc[:, cols].dropna(subset=["Login"]).copy()
         ativos_limpo["Login_JOIN"] = ativos_limpo["Login"].map(cls._login_chave)
         ativos_limpo = ativos_limpo.loc[ativos_limpo["Login_JOIN"].ne("")]
@@ -581,11 +553,7 @@ class ProcessadorDeDados:
                 merged[c] = atual.mask(atual.eq(""), extra)
                 merged = merged.drop(columns=[alt])
             if c in merged.columns:
-                merged[c] = (
-                    merged[c]
-                    .map(Configuracoes.vazio_texto)
-                    .replace("", "Não Identificado")
-                )
+                merged[c] = merged[c].map(Configuracoes.vazio_texto).replace("", "Não Identificado")
         return merged
 
     _sessao = criar_sessao
@@ -713,9 +681,7 @@ def _baixar_fontes_paralelo(
             resultados[nome] = _executar_com_retry(fn)
         return resultados
 
-    with ThreadPoolExecutor(
-        max_workers=trabalhadores, thread_name_prefix="totale-sync"
-    ) as pool:
+    with ThreadPoolExecutor(max_workers=trabalhadores, thread_name_prefix="totale-sync") as pool:
         futuros = {pool.submit(_executar_com_retry, fn): nome for nome, fn in fontes}
         for futuro, nome in futuros.items():
             resultados[nome] = futuro.result()
@@ -919,7 +885,9 @@ def _sanitizar_para_analise(df: pd.DataFrame) -> pd.DataFrame:
                     lambda x: (
                         ", ".join(x)
                         if isinstance(x, (list, tuple, set))
-                        else str(x) if isinstance(x, dict) else x
+                        else str(x)
+                        if isinstance(x, dict)
+                        else x
                     )
                 )
     return df_copia
@@ -936,9 +904,7 @@ def _frames_carregados() -> dict[str, pd.DataFrame]:
         if isinstance(dados, pd.DataFrame):
             frames[fonte] = _sanitizar_para_analise(dados)
         elif isinstance(dados, dict):
-            partes = [
-                frame for frame in dados.values() if isinstance(frame, pd.DataFrame)
-            ]
+            partes = [frame for frame in dados.values() if isinstance(frame, pd.DataFrame)]
             if partes:
                 frames[fonte] = _sanitizar_para_analise(
                     pd.concat(partes, ignore_index=True, sort=False)
@@ -968,9 +934,7 @@ def _renderizar_status_fontes() -> None:
                 st.markdown(f"**{stf.nome}**")
                 st.caption(f"{_fmt_int(stf.linhas)} linhas na última sincronização")
                 st.markdown(f"{icones[estado_frescor]} **Frescor:** {frescor}")
-                st.markdown(
-                    f"{icones[estado_consistencia]} **Consistência:** {consistencia}"
-                )
+                st.markdown(f"{icones[estado_consistencia]} **Consistência:** {consistencia}")
                 if stf.erro:
                     st.caption(_erro_curto(stf.erro, 300))
     st.caption(
@@ -1041,8 +1005,7 @@ def _detalhes_falha() -> None:
 
 def _painel_dados(intervalo_seg: int) -> None:
     tem_dados_em_sessao = any(
-        st.session_state.get(k) is not None
-        for k in ("dados_prod", "dados_cons", "dados_ativos")
+        st.session_state.get(k) is not None for k in ("dados_prod", "dados_cons", "dados_ativos")
     )
     col_status, col_btn = _colunas([3, 1], "center")
     with col_btn:
@@ -1199,9 +1162,7 @@ def _painel_dados(intervalo_seg: int) -> None:
         render_section_header(
             titulo="Base Consultiva Detalhada", icone="📋", subtitulo="Processado"
         )
-        _preview_e_download(
-            df_cons, "consultivo", "download_consultivo", "Base consultiva vazia."
-        )
+        _preview_e_download(df_cons, "consultivo", "download_consultivo", "Base consultiva vazia.")
 
 
 def _preview_e_download(df: pd.DataFrame, prefixo: str, key: str, vazio: str) -> None:
@@ -1227,11 +1188,7 @@ def _proxima_execucao(intervalo_seg: int) -> datetime:
     agora = datetime.now(Configuracoes.FUSO)
     ultima = st.session_state.get("ultima_tentativa_sync")
     if isinstance(ultima, datetime):
-        ref = (
-            ultima
-            if ultima.tzinfo is not None
-            else ultima.replace(tzinfo=Configuracoes.FUSO)
-        )
+        ref = ultima if ultima.tzinfo is not None else ultima.replace(tzinfo=Configuracoes.FUSO)
         return ref + timedelta(seconds=intervalo_seg)
     return agora + timedelta(seconds=intervalo_seg)
 
@@ -1280,9 +1237,7 @@ def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
             memoria = memoria_dataframe(dados)
         elif isinstance(dados, Mapping):
             memoria = sum(
-                memoria_dataframe(v)
-                for v in dados.values()
-                if isinstance(v, pd.DataFrame)
+                memoria_dataframe(v) for v in dados.values() if isinstance(v, pd.DataFrame)
             )
         linhas.append(
             {
