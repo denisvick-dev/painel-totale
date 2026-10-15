@@ -10,8 +10,7 @@ import pandas as pd
 
 import config.settings as cfg
 import pages.envio_excel as envio_excel
-import robo.robo_engine as robo_engine
-import robo.robo_local as robo_local
+import robo
 import services.google_drive_client as drive_client
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -46,13 +45,15 @@ def test_requirements_possui_versoes_minimas_fixadas() -> None:
     assert not sem_piso, f"Pacotes sem versão mínima em requirements.txt: {sem_piso}"
 
 
-def test_robo_local_delega_para_robo_engine() -> None:
-    """robo_local deve reutilizar diretamente as funções e classes de robo_engine."""
-    assert robo_local.ler_arquivo_detalhado is robo_engine.ler_arquivo_detalhado
-    assert robo_local.processar_candidatos is robo_engine.processar_candidatos
-    assert robo_local.detectar_base_arquivo is robo_engine.detectar_base_arquivo
-    assert robo_local.buscar_arquivo_mais_recente is robo_engine.buscar_arquivo_mais_recente
-    assert robo_local.ArquivoBloqueadoError is robo_engine.ArquivoBloqueadoError
+def test_robo_em_um_unico_arquivo() -> None:
+    """Motor, monitor e CLI usam o mesmo módulo, sem submódulos duplicados."""
+    assert (RAIZ / "robo.py").is_file()
+    assert not list((RAIZ / "robo").glob("*.py"))  # robo/dados legada é permitida
+    assert Path(robo.__file__).resolve() == RAIZ / "robo.py"
+    for nome in robo.__all__:
+        assert hasattr(robo, nome), nome
+    for nome in ("processar_candidatos", "executar_ciclo_headless", "renderizar_robo_local"):
+        assert getattr(robo, nome).__module__ == "robo"
 
 
 def test_robo_local_unificado_no_shell_global() -> None:
@@ -67,8 +68,7 @@ def test_robo_local_unificado_no_shell_global() -> None:
         and no.func.id == "renderizar_robo_local"
     ]
 
-    assert not (RAIZ / "robo" / "main.py").exists()
-    assert 'st.Page("robo/main.py"' not in codigo_app
+    assert "from robo import renderizar_robo_local" in codigo_app
     assert len(chamadas_robo) == 1
     for pagina in (
         "envio_excel.py",
@@ -81,9 +81,7 @@ def test_robo_local_unificado_no_shell_global() -> None:
     assert "_aplicar_etl_robo_global" in (
         RAIZ / "pages" / "quebra_unificada.py"
     ).read_text(encoding="utf-8")
-    assert "df_memoria_raw" in (RAIZ / "robo" / "robo_local.py").read_text(
-        encoding="utf-8"
-    )
+    assert "df_memoria_raw" in (RAIZ / "robo.py").read_text(encoding="utf-8")
 
 
 def test_saida_robo_preserva_os_dois_contratos_de_sessao(monkeypatch) -> None:

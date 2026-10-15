@@ -208,6 +208,26 @@ streamlit run streamlit_app.py
 
 Acesse: **http://localhost:8501**
 
+### Robô local (`robo.py`)
+
+O monitor na sidebar examina a pasta configurada a cada 5 segundos e processa **somente o
+arquivo válido mais recente** (por data de modificação). Aceita `.csv`, `.xlsx`, `.xlsm` e
+`.xls`; reconhece os marcadores `SPO`, `GRS` e `ABCDM` no nome para completar a coluna `BASE`.
+Arquivos temporários do Excel/download e arquivos vazios não são processados. A leitura bruta
+fica em `df_memoria_raw` para as páginas aplicarem seus ETLs; erros aparecem na sidebar e o
+arquivo pode ser tentado novamente. O robô lê **o disco da máquina que executa o Streamlit**:
+em um deploy remoto, ele não tem acesso direto à pasta Downloads do navegador do usuário.
+
+Também é possível executar um ciclo isolado pelo terminal, sem abrir o portal:
+
+```bash
+python robo.py /caminho/da/pasta /caminho/saida.csv
+```
+
+O resultado é CSV com `;` e codificação UTF-8 com BOM. Sem argumentos, o robô procura
+`robo/dados/` (instalações antigas), `dados/`, `~/robo/` ou `~/Downloads/` e grava
+`_robo_cache.csv` na pasta encontrada. A CLI retorna código 1 se não houver arquivo válido.
+
 ### Testes
 
 ```bash
@@ -284,7 +304,7 @@ painel-totale/
 │   ├── cache_dados.py            # Cache em disco, pool HTTP e retry
 │   └── google_drive_client.py    # Clientes Google Drive/Sheets (CSV, gviz, download)
 ├── pages/                        # Páginas do aplicativo Streamlit
-├── robo/                         # Leitura e monitoramento de arquivos locais
+├── robo.py                       # Motor, sincronismo Streamlit e CLI em um único arquivo
 ├── tests/                        # Testes de regressão e guardas estáticas
 ├── assets/                       # Ícones, imagens e marca usados pelo app
 ├── fonts/                        # Fontes corporativas

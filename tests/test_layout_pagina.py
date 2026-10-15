@@ -301,8 +301,10 @@ def test_nenhum_with_st_container_captura_o_retorno() -> None:
     do ``with`` (ver ``components.layout_pagina``).
     """
     infratores: list[str] = []
-    pastas = ("pages", "components", "services", "robo")
-    arquivos = [RAIZ / "streamlit_app.py"] + [a for pasta in pastas for a in _arquivos_python(pasta)]
+    pastas = ("pages", "components", "services")
+    arquivos = [RAIZ / "streamlit_app.py", RAIZ / "robo.py"] + [
+        a for pasta in pastas for a in _arquivos_python(pasta)
+    ]
 
     for arquivo in arquivos:
         arvore = ast.parse(arquivo.read_text(encoding="utf-8"))

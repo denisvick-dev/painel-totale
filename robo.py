@@ -1,21 +1,21 @@
-"""
-robo/robo_engine.py
-===================
-Motor unificado de IO e processamento para arquivos TOTALE (CSV/Excel).
+"""Robô TOTALE: descoberta, leitura de CSV/Excel e sincronismo na sidebar.
 
-Não importa Streamlit. Concentra toda a descoberta de arquivos, verificação de
-estabilidade/assinatura, detecção de base (ABCDM, SPO, GRS), leitura resiliente
-de CSV/Excel e padronização de DataFrames.
+O motor, o ciclo headless e a interface Streamlit vivem neste único arquivo.
+A dependência de Streamlit é opcional para a execução via CLI e para os testes
+de leitura; o portal importa somente :func:`renderizar_robo_local`.
 """
 
 from __future__ import annotations
 
+import csv
 import fnmatch
 import logging
 import math
 import os
+import sys
 import tempfile
 import time
+import warnings
 import zipfile
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -36,14 +36,16 @@ logger = logging.getLogger(__name__)
 # ── Constantes ──────────────────────────────────────────────────────
 EngineExcel = Literal["openpyxl", "calamine", "xlrd"]
 ModoLeitura = Literal["ultimo", "ultimo_por_base", "todos"]
-Candidato = tuple[str, float, int]
+# caminho, mtime em nanossegundos, tamanho em bytes (assinatura sem perda de precisão)
+Candidato = tuple[str, int, int]
 
 PADROES_TOTALE: tuple[str, ...] = (
     "Atividades-*.csv",
     "Atividades-*.xlsx",
+    "Atividades-*.xlsm",
     "Atividades-*.xls",
 )
-EXTENSOES_VALIDAS: tuple[str, ...] = (".csv", ".xlsx", ".xls")
+EXTENSOES_VALIDAS: tuple[str, ...] = (".csv", ".xlsx", ".xlsm", ".xls")
 EXTENSOES_TEMP: tuple[str, ...] = (
     ".tmp",
     ".crdownload",
@@ -131,22 +133,29 @@ def _celula_para_texto(valor: object) -> str:
 
 
 def _nomes_colunas_unicos(nomes: Iterable[object]) -> list[str]:
-    vistos: dict[str, int] = {}
-    saida: list[str] = []
+    limpos: list[str] = []
     for i, bruto in enumerate(nomes):
         nome = (
-            ""
-            if bruto is None
-            else str(bruto).replace("\ufeff", "").replace("\xa0", " ").strip()
+            "" if bruto is None else str(bruto).replace("\ufeff", "").replace("\xa0", " ").strip()
         )
-        if not nome or nome.lower().startswith("unnamed"):
-            nome = f"col_{i}"
-        if nome in vistos:
-            vistos[nome] += 1
-            nome = f"{nome}.{vistos[nome]}"
-        else:
-            vistos[nome] = 0
-        saida.append(nome)
+        limpos.append(f"col_{i}" if not nome or nome.lower().startswith("unnamed") else nome)
+
+    # Reservar as grafias originais impede que uma duplicata de "A" vire "A.1"
+    # quando já existe uma coluna chamada "A.1" no arquivo.
+    reservados = set(limpos)
+    usados: set[str] = set()
+    contadores: dict[str, int] = {}
+    saida: list[str] = []
+    for nome in limpos:
+        unico = nome
+        if unico in usados:
+            sufixo = contadores.get(nome, 0) + 1
+            while f"{nome}.{sufixo}" in reservados or f"{nome}.{sufixo}" in usados:
+                sufixo += 1
+            contadores[nome] = sufixo
+            unico = f"{nome}.{sufixo}"
+        usados.add(unico)
+        saida.append(unico)
     return saida
 
 
@@ -170,8 +179,15 @@ def _padronizar_coluna_texto(serie: pd.Series) -> pd.Series:
         texto = numerica.astype("string")
         inteiros = numerica.notna() & (numerica == numerica.round())
         if inteiros.any():
-            # 12.0 → "12" (o float integral não vira texto com sufixo ".0").
-            texto = texto.where(~inteiros, numerica.round().astype("Int64").astype("string"))
+            # Não converte a coluna inteira para Int64: isso estoura para valores
+            # integrais > 2**63-1, apesar de haver floats perfeitamente válidos.
+            com_decimal_zero = inteiros & texto.str.fullmatch(r"-?\d+\.0+", na=False)
+            texto = texto.mask(com_decimal_zero, texto.str.replace(r"\.0+$", "", regex=True))
+            notacao_cientifica = inteiros & texto.str.contains(r"[eE]", na=False)
+            if notacao_cientifica.any():
+                texto.loc[notacao_cientifica] = numerica.loc[notacao_cientifica].map(
+                    _celula_para_texto
+                )
         return texto
 
     texto = serie.astype("string").str.strip()
@@ -199,9 +215,7 @@ def _cabecalho_fraco(colunas: Sequence[object]) -> bool:
     if not nomes:
         return True
     ruins = sum(
-        1
-        for n in nomes
-        if not n or n.lower().startswith("unnamed") or n.lower().startswith("col_")
+        1 for n in nomes if not n or n.lower().startswith("unnamed") or n.lower().startswith("col_")
     )
     return ruins / len(nomes) >= 0.5
 
@@ -262,9 +276,7 @@ def detectar_base_arquivo(caminho_ou_nome: str | Path | None) -> str | None:
 
 
 def _canonizar_coluna_base(df: pd.DataFrame) -> pd.DataFrame:
-    variantes = [
-        col for col in df.columns if str(col).casefold() == "base" and col != "BASE"
-    ]
+    variantes = [col for col in df.columns if str(col).casefold() == "base" and col != "BASE"]
     if not variantes:
         return df
     saida = df.copy()
@@ -310,7 +322,13 @@ def _unificar_nomes_colunas(frames: list[pd.DataFrame]) -> list[pd.DataFrame]:
 # ── Descoberta e Metadados de Arquivos ──────────────────────────────
 def obter_pasta_robo_padrao() -> str:
     base = Path(__file__).resolve().parent
-    for cand in (base / "dados", Path.home() / "robo", Path.home() / "Downloads"):
+    # Respeita instalações anteriores que mantêm arquivos em robo/dados.
+    for cand in (
+        base / "robo" / "dados",
+        base / "dados",
+        Path.home() / "robo",
+        Path.home() / "Downloads",
+    ):
         if cand.is_dir():
             return str(cand.resolve())
     return str(Path.home() / "Downloads")
@@ -341,19 +359,17 @@ def obter_metadados_arquivo(caminho: str | None) -> dict[str, str]:
             "nome": p.name,
             "ext": p.suffix.lower(),
             "tamanho": formatar_tamanho(stat.st_size),
-            "modificado": datetime.fromtimestamp(stat.st_mtime).strftime(
-                "%d/%m/%Y %H:%M:%S"
-            ),
+            "modificado": datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M:%S"),
             "caminho_completo": str(p.resolve()),
         }
     except OSError:
         return vazio
 
 
-def _stat_basico(caminho: str) -> tuple[float | None, int | None]:
+def _stat_basico(caminho: str) -> tuple[int | None, int | None]:
     try:
         st_ = os.stat(caminho)
-        return float(st_.st_mtime), int(st_.st_size)
+        return int(st_.st_mtime_ns), int(st_.st_size)
     except OSError:
         return None, None
 
@@ -389,26 +405,20 @@ def _listar_candidatos_com_stat(
     if not p.is_dir():
         return []
 
-    arquivos = [
-        arq for arq in _listar_arquivos(p, recursivo) if not _arquivo_ignorado(arq.name)
+    arquivos = [arq for arq in _listar_arquivos(p, recursivo) if not _arquivo_ignorado(arq.name)]
+    # A preferência pelo padrão não pode esconder um arquivo mais recente com
+    # nome alternativo (p.ex. GRS.csv ao lado de Atividades-SPO.csv).
+    marcadores = tuple(m.lower() for m in MAPA_BASES_ARQUIVO)
+    encontrados = [
+        arq
+        for arq in arquivos
+        if arq.suffix.lower() in EXTENSOES_VALIDAS
+        and (
+            _casa_padrao(arq.name, padroes)
+            or "atividades" in arq.stem.lower()
+            or any(m in arq.stem.lower() for m in marcadores)
+        )
     ]
-    encontrados = [arq for arq in arquivos if _casa_padrao(arq.name, padroes)]
-
-    if not encontrados:
-        encontrados = [
-            arq
-            for arq in arquivos
-            if "atividades" in arq.name.lower()
-            and arq.suffix.lower() in EXTENSOES_VALIDAS
-        ]
-    if not encontrados:
-        marcadores = tuple(m.lower() for m in MAPA_BASES_ARQUIVO)
-        encontrados = [
-            arq
-            for arq in arquivos
-            if arq.suffix.lower() in EXTENSOES_VALIDAS
-            and any(m in arq.name.lower() for m in marcadores)
-        ]
 
     candidatos: list[Candidato] = []
     for arq in encontrados:
@@ -424,16 +434,15 @@ def buscar_arquivo_mais_recente(
     pasta: str,
     padroes: tuple[str, ...] = PADROES_TOTALE,
 ) -> tuple[str | None, float | None, int | None]:
+    """Retorna o arquivo mais novo; mantém mtime em segundos na API pública."""
     candidatos = _listar_candidatos_com_stat(pasta, padroes)
     if not candidatos:
         return None, None, None
-    caminho, mtime, size = candidatos[0]
-    return caminho, mtime, size
+    caminho, mtime_ns, size = candidatos[0]
+    return caminho, mtime_ns / 1_000_000_000, size
 
 
-def mapear_arquivos_por_base(
-    pasta: str, recursivo: bool = False
-) -> dict[str, Candidato]:
+def mapear_arquivos_por_base(pasta: str, recursivo: bool = False) -> dict[str, Candidato]:
     por_base: dict[str, Candidato] = {}
     for item in _listar_candidatos_com_stat(pasta, recursivo=recursivo):
         base = detectar_base_arquivo(item[0])
@@ -464,29 +473,32 @@ def contar_arquivos_por_base(candidatos: Sequence[Candidato]) -> dict[str, int]:
 # ── Leitura Resiliente (CSV / Excel) ────────────────────────────────
 def _ler_bytes_estavel(caminho: str, tamanho_maximo: int) -> bytes:
     try:
-        tamanho = os.path.getsize(caminho)
+        antes = os.stat(caminho)
     except OSError as e:
-        raise ArquivoBloqueadoError(
-            f"'{Path(caminho).name}' não pôde ser medido."
-        ) from e
-    if tamanho > tamanho_maximo:
+        raise ArquivoBloqueadoError(f"'{Path(caminho).name}' não pôde ser medido.") from e
+    if antes.st_size > tamanho_maximo:
         raise ValueError(
-            f"'{Path(caminho).name}' tem {formatar_tamanho(tamanho)}, "
+            f"'{Path(caminho).name}' tem {formatar_tamanho(antes.st_size)}, "
             f"acima do limite de {formatar_tamanho(tamanho_maximo)}."
         )
-    if tamanho == 0:
+    if antes.st_size == 0:
         raise ValueError(f"'{Path(caminho).name}' está vazio.")
     try:
         with open(caminho, "rb") as fh:
             raw = fh.read()
-        tamanho_depois = os.path.getsize(caminho)
+        depois = os.stat(caminho)
     except PermissionError as e:
         raise ArquivoBloqueadoError(
             f"'{Path(caminho).name}' está bloqueado (OneDrive/Excel)."
         ) from e
     except OSError as e:
         raise ArquivoBloqueadoError(f"'{Path(caminho).name}' ficou inacessível.") from e
-    if len(raw) != tamanho or tamanho_depois != tamanho:
+    if (
+        len(raw) != antes.st_size
+        or depois.st_size != antes.st_size
+        or depois.st_mtime_ns != antes.st_mtime_ns
+        or (depois.st_dev, depois.st_ino) != (antes.st_dev, antes.st_ino)
+    ):
         raise ArquivoBloqueadoError(
             f"'{Path(caminho).name}' mudou durante a leitura. Aguardando o próximo ciclo."
         )
@@ -498,9 +510,7 @@ def _validar_xlsx(raw: bytes, nome: str) -> None:
         raise ValueError(f"'{nome}' tem {len(raw)} bytes — download incompleto.")
     bio = BytesIO(raw)
     if not zipfile.is_zipfile(bio):
-        raise ValueError(
-            f"'{nome}' não é um .xlsx válido (zip corrompido ou extensão errada)."
-        )
+        raise ValueError(f"'{nome}' não é um Excel ZIP válido (zip corrompido ou extensão errada).")
     bio.seek(0)
     with zipfile.ZipFile(bio) as zf:
         ruim = zf.testzip()
@@ -508,9 +518,7 @@ def _validar_xlsx(raw: bytes, nome: str) -> None:
         raise ValueError(f"'{nome}' está corrompido no membro interno: {ruim}")
 
 
-def _ler_excel_via_openpyxl_nativo(
-    raw: bytes, sheet_name: str | int, header: int
-) -> pd.DataFrame:
+def _ler_excel_via_openpyxl_nativo(raw: bytes, sheet_name: str | int, header: int) -> pd.DataFrame:
     from openpyxl import load_workbook
 
     wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
@@ -522,11 +530,7 @@ def _ler_excel_via_openpyxl_nativo(
         elif sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
         if ws is None:
-            ws = wb.active
-        if ws is None and wb.worksheets:
-            ws = wb.worksheets[0]
-        if ws is None:
-            return pd.DataFrame()
+            raise ValueError(f"Aba {sheet_name!r} não encontrada em {wb.sheetnames!r}.")
 
         linhas = list(ws.iter_rows(values_only=True))
         if header >= len(linhas):
@@ -560,7 +564,7 @@ def _ler_excel_robusto(
     ext = Path(caminho).suffix.lower()
     nome = Path(caminho).name
     raw = _ler_bytes_estavel(caminho, tamanho_maximo)
-    if ext == ".xlsx":
+    if ext in (".xlsx", ".xlsm"):
         _validar_xlsx(raw, nome)
 
     erros: list[str] = []
@@ -648,74 +652,79 @@ def _ler_excel_robusto(
     dica = ""
     joined = " | ".join(erros)
     if "engine ausente" in joined.lower():
-        dica = (
-            " → pip install openpyxl"
-            if ext != ".xls"
-            else " → pip install python-calamine"
-        )
-    raise RuntimeError(
-        f"{joined}{dica}" if erros else f"Falha desconhecida ao ler {nome}."
-    )
+        dica = " → pip install openpyxl" if ext != ".xls" else " → pip install xlrd"
+    raise RuntimeError(f"{joined}{dica}" if erros else f"Falha desconhecida ao ler {nome}.")
 
 
-_ENCODINGS_CSV: tuple[str, ...] = ("utf-8-sig", "cp1252", "latin1", "iso-8859-1", "utf-8")
-_SEPARADORES_CSV: tuple[str, ...] = (";", ",")
+_ENCODINGS_CSV: tuple[str, ...] = ("utf-8-sig", "utf-8", "cp1252", "latin1")
+_SEPARADORES_CSV: tuple[str, ...] = (";", ",", "\t", "|")
+
+
+def _quantidade_campos_csv(cabecalho: str, separador: str) -> int:
+    """Conta apenas delimitadores fora de aspas (CSV pode contê-los em nomes)."""
+    try:
+        return len(next(csv.reader([cabecalho], delimiter=separador)))
+    except (csv.Error, StopIteration):
+        return 0
 
 
 def _ordem_tentativas_csv(raw: bytes) -> list[tuple[str, str]]:
-    """Ordena ``(encoding, separador)`` pela probabilidade real do arquivo.
+    """Tenta primeiro o charset e separador mais prováveis, sem parses extras.
 
-    A leitura ingênua tenta 5 encodings × 2 separadores: um CSV separado por
-    vírgula exigia 2 parses completos do arquivo (0,28 s cada em bases grandes).
-    Aqui o separador é contado na primeira linha decodificável, então a
-    tentativa certa costuma ser a primeira — o restante fica como fallback.
+    Decodifica a linha de cabeçalho completa (não a corta no meio de um caractere
+    UTF-8) e ignora delimitadores dentro de campos entre aspas.
     """
+    cabecalho_bytes = raw.split(b"\n", 1)[0]
     primeira_linha = ""
     enc_inicial = _ENCODINGS_CSV[0]
     for enc in _ENCODINGS_CSV:
         try:
-            primeira_linha = raw[:8192].decode(enc, "strict").split("\n", 1)[0]
+            primeira_linha = cabecalho_bytes.decode(enc, "strict")
             enc_inicial = enc
             break
         except UnicodeDecodeError:
             continue
-    if not primeira_linha:
-        primeira_linha = raw[:8192].decode("latin1", "ignore").split("\n", 1)[0]
 
-    contagens = {sep: primeira_linha.count(sep) for sep in _SEPARADORES_CSV}
-    separadores = sorted(contagens, key=lambda sep: contagens[sep], reverse=True)
-
-    ordem: list[tuple[str, str]] = [(enc_inicial, separadores[0])]
-    for sep in separadores:
-        if (enc_inicial, sep) not in ordem:
-            ordem.append((enc_inicial, sep))
-    for enc in _ENCODINGS_CSV:
-        for sep in separadores:
-            if (enc, sep) not in ordem:
-                ordem.append((enc, sep))
+    separadores = sorted(
+        _SEPARADORES_CSV,
+        key=lambda sep: _quantidade_campos_csv(primeira_linha, sep),
+        reverse=True,
+    )
+    ordem: list[tuple[str, str]] = [(enc_inicial, sep) for sep in separadores]
+    ordem.extend((enc, sep) for enc in _ENCODINGS_CSV if enc != enc_inicial for sep in separadores)
     return ordem
 
 
 def _ler_csv_de_bytes(raw: bytes, nome: str) -> tuple[pd.DataFrame | None, str | None]:
     ultimo: Exception | None = None
+    cabecalho_bytes = raw.split(b"\n", 1)[0]
     for enc, sep in _ordem_tentativas_csv(raw):
         try:
-            df = pd.read_csv(
-                BytesIO(raw),
-                sep=sep,
-                encoding=enc,
-                dtype=str,
-                low_memory=False,
-                on_bad_lines="skip",
-            )
+            with warnings.catch_warnings():
+                # Pandas pode transformar uma coluna excedente em índice ou
+                # descartá-la com index_col=False. Nenhum dos dois é aceitável.
+                warnings.simplefilter("error", pd.errors.ParserWarning)
+                df = pd.read_csv(
+                    BytesIO(raw),
+                    sep=sep,
+                    encoding=enc,
+                    dtype=str,
+                    low_memory=False,
+                    index_col=False,
+                    on_bad_lines="error",
+                )
         except Exception as e:
             ultimo = e
             continue
-        if df.shape[1] <= 1:
-            continue
+        if df.shape[1] == 1:
+            # Uma coluna é válida; não aceitar um separador errado que deixou
+            # intacto um cabeçalho com duas ou mais colunas reais.
+            cabecalho = cabecalho_bytes.decode(enc)
+            if any(_quantidade_campos_csv(cabecalho, outro) > 1 for outro in _SEPARADORES_CSV):
+                continue
         return df, f"csv {enc} sep={sep!r}"
     detalhe = f" ({type(ultimo).__name__}: {ultimo})" if ultimo else ""
-    return None, f"{nome}: falha ao decodificar CSV{detalhe}"
+    return None, f"{nome}: falha ao interpretar CSV{detalhe}"
 
 
 def ler_arquivo_detalhado(
@@ -731,12 +740,10 @@ def ler_arquivo_detalhado(
     nome = Path(caminho_arquivo).name
     ext = Path(caminho_arquivo).suffix.lower()
     if ext not in EXTENSOES_VALIDAS:
-        return LeituraArquivo(
-            None, f"{nome}: extensão {ext or '—'} não é CSV/Excel.", None
-        )
+        return LeituraArquivo(None, f"{nome}: extensão {ext or '—'} não é CSV/Excel.", None)
 
     try:
-        if ext in (".xlsx", ".xls"):
+        if ext in (".xlsx", ".xlsm", ".xls"):
             df, motor = _ler_excel_robusto(
                 caminho_arquivo,
                 sheet_name=sheet_name,
@@ -744,9 +751,7 @@ def ler_arquivo_detalhado(
                 tamanho_maximo=tamanho_maximo,
             )
             df = _padronizar_dataframe(df)
-            if _cabecalho_fraco(list(df.columns)) or not _contem_colunas(
-                df, colunas_esperadas
-            ):
+            if _cabecalho_fraco(list(df.columns)) or not _contem_colunas(df, colunas_esperadas):
                 try:
                     alternativo, motor_alt = _ler_excel_robusto(
                         caminho_arquivo,
@@ -780,9 +785,7 @@ def ler_arquivo_detalhado(
         return LeituraArquivo(None, f"{nome}: {type(e).__name__} — {e}", None)
 
     if df.empty:
-        return LeituraArquivo(
-            None, f"{nome}: arquivo lido, porém sem linhas de dados.", motor
-        )
+        return LeituraArquivo(None, f"{nome}: arquivo lido, porém sem linhas de dados.", motor)
 
     df = _alinhar_colunas_esperadas(df, colunas_esperadas)
     faltando = _faltam_colunas(df, colunas_esperadas)
@@ -954,10 +957,7 @@ class TotaleRoboEngine:
                 atual = arquivo.stat()
             except OSError:
                 return False
-            if (
-                atual.st_size != anterior.st_size
-                or atual.st_mtime_ns != anterior.st_mtime_ns
-            ):
+            if atual.st_size != anterior.st_size or atual.st_mtime_ns != anterior.st_mtime_ns:
                 return False
             anterior = atual
         return anterior.st_size > 0
@@ -991,16 +991,431 @@ class TotaleRoboEngine:
         return df
 
 
+try:
+    import streamlit as st
+except ImportError:  # o motor e a CLI também funcionam sem Streamlit
+    st = None  # type: ignore[assignment]
+
+_LOCK_STALE_SEGUNDOS: int = 180
+EtlFn = Callable[[pd.DataFrame, pd.DataFrame], "pd.DataFrame | None"]
+FonteSheets = Callable[[], pd.DataFrame] | pd.DataFrame | None
+
+
+def ler_arquivo_totale(
+    caminho_arquivo: str,
+    colunas_esperadas: list[str] | None = None,
+    sheet_name: str | int | None = 0,
+    notificar: bool = True,
+) -> pd.DataFrame | None:
+    try:
+        leitura = ler_arquivo_detalhado(caminho_arquivo, colunas_esperadas, sheet_name)
+    except ArquivoBloqueadoError:
+        raise
+    if st is None or not notificar:
+        return leitura.df
+    nome = Path(caminho_arquivo).name if caminho_arquivo else "—"
+    if leitura.erro:
+        st.session_state["robo_erro"] = leitura.erro
+        _toast_dedup(f"Falha ao ler: {nome}", icon="⚠️")
+        return None
+    _toast_dedup(f"Arquivo carregado: {nome}", icon="✅")
+    return leitura.df
+
+
+# ── UI e Controle de Sessão Streamlit ───────────────────────────────
+def _exigir_streamlit() -> object:
+    if st is None:
+        raise RuntimeError("Streamlit não está instalado. A sidebar do robô só roda no app.")
+    return st
+
+
+def _toast_dedup(mensagem: str, icon: str = "✅") -> None:
+    if st is None:
+        return
+    assinatura = f"{icon}:{mensagem}"
+    if st.session_state.get("_robo_ultimo_toast") != assinatura:
+        st.session_state["_robo_ultimo_toast"] = assinatura
+        st.toast(mensagem, icon=icon)
+
+
+def _estado_str(chave: str, padrao: str) -> str:
+    if st is None:
+        return padrao
+    valor = st.session_state.get(chave, padrao)
+    return str(valor) if valor else padrao
+
+
+def _estado_bool(chave: str, padrao: bool) -> bool:
+    if st is None:
+        return padrao
+    valor = st.session_state.get(chave, padrao)
+    return bool(valor)
+
+
+def _modo_atual() -> ModoLeitura:
+    """O modo é fixo: somente o arquivo de maior mtime entra no pipeline."""
+    return "ultimo"
+
+
+def _lock_ativo() -> bool:
+    if st is None or not st.session_state.get("robo_processando", False):
+        return False
+    inicio = st.session_state.get("robo_processando_desde")
+    if isinstance(inicio, datetime):
+        agora = datetime.now(tz=inicio.tzinfo)
+        idade = (agora - inicio).total_seconds()
+        if 0 <= idade < _LOCK_STALE_SEGUNDOS:
+            return True
+    st.session_state["robo_processando"] = False
+    logger.warning("Lock do robô expirou ou não tem horário de início válido.")
+    return False
+
+
+def _obter_gsheets(gsheets_fn: FonteSheets) -> pd.DataFrame:
+    if callable(gsheets_fn):
+        return gsheets_fn()
+    if isinstance(gsheets_fn, pd.DataFrame):
+        return gsheets_fn
+    return pd.DataFrame()
+
+
+def _rerun_aplicacao() -> None:
+    if st is None:
+        return
+    rerun = st.rerun
+    try:
+        rerun(scope="app")
+    except TypeError:
+        rerun()
+
+
+def _executar_verificacao_robo(
+    pasta_monitorada: str,
+    etl_fn: EtlFn | None = None,
+    gsheets_fn: FonteSheets = None,
+    colunas_esperadas: list[str] | None = None,
+    sheet_name: str | int | None = 0,
+    ciclos_estabilidade: int = 2,
+    modo: ModoLeitura = "ultimo",
+    recursivo: bool = False,
+) -> None:
+    if st is None or not _estado_bool("robo_ativo", True) or _lock_ativo():
+        return
+
+    candidatos = _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo)
+    selecionados = selecionar_arquivos(candidatos, modo)
+    if not selecionados:
+        return
+
+    assinatura = tuple(selecionados)
+    if st.session_state.get("robo_candidato_sig") == assinatura:
+        stable = int(st.session_state.get("robo_candidato_stable", 0) or 0) + 1
+    else:
+        stable = 1
+    st.session_state["robo_candidato_sig"] = assinatura
+    st.session_state["robo_candidato_stable"] = stable
+    if stable < max(ciclos_estabilidade, 1):
+        return
+    if st.session_state.get("robo_processado_sig") == assinatura:
+        return
+
+    st.session_state["robo_processando"] = True
+    st.session_state["robo_processando_desde"] = datetime.now()
+    try:
+        if (
+            tuple(
+                selecionar_arquivos(
+                    _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo),
+                    modo,
+                )
+            )
+            != assinatura
+        ):
+            st.session_state["robo_candidato_stable"] = 0
+            _toast_dedup("Arquivos mudaram durante a espera. Aguardando...", icon="⚠️")
+            return
+
+        resultado = processar_candidatos(
+            candidatos,
+            modo=modo,
+            colunas_esperadas=colunas_esperadas,
+            sheet_name=sheet_name,
+        )
+        if resultado.bloqueio and resultado.df is None:
+            st.session_state["robo_candidato_stable"] = 0
+            st.session_state["_robo_aguardando_lock"] = resultado.bloqueio
+            return
+        if resultado.df is None:
+            st.session_state.pop("_robo_aguardando_lock", None)
+            if resultado.erros:
+                st.session_state["robo_erro"] = " | ".join(resultado.erros)
+            return
+
+        def _assinatura_atual() -> tuple[Candidato, ...]:
+            atuais = _listar_candidatos_com_stat(pasta_monitorada, recursivo=recursivo)
+            return tuple(selecionar_arquivos(atuais, modo))
+
+        if _assinatura_atual() != assinatura:
+            st.session_state["robo_candidato_stable"] = 0
+            _toast_dedup("Arquivos mudaram durante a leitura. Aguardando...", icon="⚠️")
+            return
+
+        # Executa o ETL antes de publicar a nova assinatura e os dados. Uma falha
+        # não deve marcar o arquivo como processado nem substituir a base anterior.
+        bruto = resultado.df
+        processado = bruto
+        if callable(etl_fn):
+            transformado = etl_fn(bruto.copy(deep=True), _obter_gsheets(gsheets_fn))
+            if transformado is not None:
+                if not isinstance(transformado, pd.DataFrame):
+                    raise TypeError("O ETL do robô deve retornar DataFrame ou None.")
+                processado = transformado
+        if _assinatura_atual() != assinatura:
+            st.session_state["robo_candidato_stable"] = 0
+            _toast_dedup("Arquivos mudaram durante o ETL. Aguardando...", icon="⚠️")
+            return
+
+        caminho_recente = selecionados[0][0]
+        st.session_state["df_memoria_raw"] = bruto
+        st.session_state["df_memoria"] = processado
+        st.session_state["robo_ultimo_processado_path"] = caminho_recente
+        st.session_state["robo_ultimo_processado_mtime"] = selecionados[0][1]
+        st.session_state["robo_arquivos_processados"] = {
+            caminho: mtime for caminho, mtime, _ in selecionados
+        }
+        st.session_state["robo_bases_carregadas"] = list(resultado.bases)
+        st.session_state["robo_base_detectada"] = detectar_base_arquivo(caminho_recente)
+        st.session_state["robo_hora_sucesso"] = datetime.now()
+        st.session_state["robo_motores"] = list(resultado.motores)
+        st.session_state["robo_duplicatas_removidas"] = resultado.duplicatas_removidas
+        st.session_state.pop("_robo_aguardando_lock", None)
+
+        sufixo = f" · {', '.join(resultado.bases)}" if resultado.bases else ""
+        st.session_state["origem_dados"] = (
+            f"Robô Local ({len(resultado.arquivos)} arquivo(s){sufixo})"
+        )
+        if resultado.erros:
+            st.session_state["robo_erro"] = "Parcial: " + " | ".join(resultado.erros)
+        else:
+            st.session_state.pop("robo_erro", None)
+        st.session_state["robo_processado_sig"] = assinatura
+
+        if resultado.bases:
+            _toast_dedup(f"Bases: {', '.join(resultado.bases)} — pipeline concluído!", icon="🚀")
+        else:
+            _toast_dedup("Pipeline concluído!", icon="🚀")
+        _rerun_aplicacao()
+    except Exception as e:
+        logger.exception("Falha no ciclo do robô")
+        st.session_state["robo_erro"] = f"{type(e).__name__}: {e}"
+        _toast_dedup(f"Erro no pipeline: {e}", icon="❌")
+    finally:
+        st.session_state["robo_processando"] = False
+
+
+if st is not None and hasattr(st, "fragment"):
+    _executar_verificacao_robo = st.fragment(run_every="5s")(_executar_verificacao_robo)
+
+
+def renderizar_robo_local(
+    etl_fn: EtlFn | None = None,
+    gsheets_fn: FonteSheets = None,
+    pasta_padrao: str | None = None,
+    colunas_esperadas: list[str] | None = None,
+    sheet_name: str | int | None = 0,
+    ciclos_estabilidade: int = 2,
+    mostrar_toggle: bool = True,
+    mostrar_config: bool = True,
+) -> None:
+    _exigir_streamlit()
+    assert st is not None
+
+    if "robo_ativo" not in st.session_state:
+        st.session_state["robo_ativo"] = True
+    st.session_state["robo_modo_leitura"] = "ultimo"
+    if "robo_recursivo" not in st.session_state:
+        st.session_state["robo_recursivo"] = False
+    if not st.session_state.get("robo_pasta_alvo"):
+        st.session_state["robo_pasta_alvo"] = pasta_padrao or obter_pasta_robo_padrao()
+    if (
+        pasta_padrao
+        and not st.session_state.get("_robo_pasta_user_set")
+        and st.session_state.get("robo_pasta_alvo") in (None, "", obter_pasta_robo_padrao())
+    ):
+        st.session_state["robo_pasta_alvo"] = pasta_padrao
+
+    pasta_alvo = str(st.session_state["robo_pasta_alvo"])
+    st.sidebar.markdown(
+        """
+        <div style='font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;
+        letter-spacing:0.8px;margin:14px 0 6px;padding-left:4px;'>
+            Robô de Sincronismo
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if mostrar_toggle:
+        ativo = st.sidebar.toggle(
+            "⚡ Auto-Sincronizar",
+            value=_estado_bool("robo_ativo", True),
+            key="robo_toggle_ui",
+            help=(
+                "Monitora a pasta a cada 5s enquanto esta sessão estiver aberta. "
+                "SPO→Leste, GRS→Guarulhos, ABCDM→ABCDM."
+            ),
+        )
+        st.session_state["robo_ativo"] = bool(ativo)
+    else:
+        ativo = _estado_bool("robo_ativo", True)
+
+    if mostrar_config:
+        with st.sidebar.expander("⚙️ Configurar Pasta", expanded=False):
+            pasta_input = st.text_input(
+                "Caminho do Disco:", value=pasta_alvo, key="input_pasta_robo"
+            )
+            if pasta_input != pasta_alvo:
+                st.session_state["_robo_pasta_user_set"] = True
+            st.session_state["robo_pasta_alvo"] = pasta_input
+            pasta_alvo = str(pasta_input)
+            st.caption("Leitura fixa: somente o arquivo mais recente da pasta inteira.")
+            st.session_state["robo_recursivo"] = bool(
+                st.checkbox(
+                    "Incluir subpastas",
+                    value=_estado_bool("robo_recursivo", False),
+                    key="robo_recursivo_ui",
+                )
+            )
+            if os.path.isdir(pasta_alvo):
+                st.success("✅ Pasta válida")
+            else:
+                st.error("❌ Pasta não existe")
+
+    modo = _modo_atual()
+    recursivo = _estado_bool("robo_recursivo", False)
+    candidatos_ui = _listar_candidatos_com_stat(pasta_alvo, recursivo=recursivo)
+    selecionados_ui = selecionar_arquivos(candidatos_ui, modo)
+    por_base = mapear_arquivos_por_base(pasta_alvo, recursivo=recursivo)
+
+    if candidatos_ui:
+        hora = st.session_state.get("robo_hora_sucesso")
+        hs = hora.strftime("%H:%M:%S") if isinstance(hora, datetime) else "—"
+        sig_ok = st.session_state.get("robo_processado_sig") == tuple(selecionados_ui)
+        stable = int(st.session_state.get("robo_candidato_stable", 0) or 0)
+        aguardando_lock = st.session_state.get("_robo_aguardando_lock")
+        if sig_ok:
+            st.sidebar.success(
+                f"✅ Sincronizado às {hs}\n{len(selecionados_ui)} arquivo(s) no pipeline"
+            )
+        elif isinstance(aguardando_lock, str) and aguardando_lock:
+            st.sidebar.info(f"⏳ {aguardando_lock}")
+        else:
+            st.sidebar.warning(
+                f"📥 {len(candidatos_ui)} na pasta, {len(selecionados_ui)} na fila\n"
+                f"Estável {stable}/{ciclos_estabilidade}"
+            )
+
+        extras = len(candidatos_ui) - len(selecionados_ui)
+        if extras > 0:
+            st.sidebar.caption(f"{extras} arquivo(s) mais antigo(s) fora do pipeline.")
+
+        st.sidebar.markdown(
+            """
+            <div style='font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;
+            letter-spacing:0.6px;margin:10px 0 4px;padding-left:4px;'>
+                Bases Monitoradas
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        processados_bruto = st.session_state.get("robo_arquivos_processados")
+        processados_map: dict[object, object] = (
+            processados_bruto if isinstance(processados_bruto, dict) else {}
+        )
+        for marcador, base in MAPA_BASES_ARQUIVO.items():
+            info = por_base.get(base)
+            if info is None:
+                st.sidebar.caption(f"⬜ {base} — aguardando arquivo com '{marcador}'")
+                continue
+            caminho_b, mtime_b, _ = info
+            meta = obter_metadados_arquivo(caminho_b)
+            ok = processados_map.get(caminho_b) == mtime_b
+            icone = "✅" if ok else "📥"
+            st.sidebar.caption(f"{icone} {base} — {meta['nome'][:32]} ({meta['tamanho']})")
+
+        sem_base = [c for c, _, _ in candidatos_ui if detectar_base_arquivo(c) is None]
+        if sem_base:
+            st.sidebar.caption(f"⚠️ {len(sem_base)} arquivo(s) sem SPO, GRS ou ABCDM no nome.")
+        removidas = st.session_state.get("robo_duplicatas_removidas")
+        if isinstance(removidas, int) and removidas > 0:
+            st.sidebar.caption(f"{removidas} linha(s) idêntica(s) removida(s) na junção.")
+    else:
+        estado = "🟢 Monitorando" if ativo else "⏸ Pausado"
+        st.sidebar.info(f"{estado}: `{Path(pasta_alvo).name}`")
+
+    erro = st.session_state.get("robo_erro")
+    if isinstance(erro, str) and erro:
+        st.sidebar.error(f"❌ {erro}")
+        c_a, c_b = st.sidebar.columns(2)
+        with c_a:
+            if st.button("🧹 Limpar", key="limpar_erro_robo", width="stretch"):
+                st.session_state.pop("robo_erro", None)
+                _rerun_aplicacao()
+        with c_b:
+            if st.button("🔄 Retentar", key="retry_erro_robo", width="stretch"):
+                st.session_state.pop("robo_erro", None)
+                st.session_state["robo_candidato_sig"] = None
+                st.session_state["robo_processado_sig"] = None
+                st.session_state["robo_candidato_stable"] = 0
+                _rerun_aplicacao()
+
+    _executar_verificacao_robo(
+        pasta_monitorada=pasta_alvo,
+        etl_fn=etl_fn,
+        gsheets_fn=gsheets_fn,
+        colunas_esperadas=colunas_esperadas,
+        sheet_name=sheet_name,
+        ciclos_estabilidade=ciclos_estabilidade,
+        modo=modo,
+        recursivo=recursivo,
+    )
+
+
+def executar_ciclo_headless(
+    pasta: str,
+    destino_csv: str | None = None,
+    modo: ModoLeitura = "ultimo",
+    colunas_esperadas: list[str] | None = None,
+) -> ResultadoCiclo:
+    """Um ciclo sem Streamlit. Processa apenas o arquivo mais recente da pasta."""
+    resultado = processar_candidatos(
+        _listar_candidatos_com_stat(pasta),
+        modo=modo,
+        colunas_esperadas=colunas_esperadas,
+    )
+    if resultado.df is not None and destino_csv:
+        destino = Path(destino_csv)
+        if destino.resolve() == Path(resultado.arquivos[0]).resolve():
+            raise ValueError("O CSV de saída não pode sobrescrever o arquivo de origem.")
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        resultado.df.to_csv(destino, index=False, sep=";", encoding="utf-8-sig")
+    return resultado
+
+
+renderizar_sidebar_robo = renderizar_robo_local
+_obter_pasta_robo_padrao = obter_pasta_robo_padrao
+_obter_metadados_arquivo = obter_metadados_arquivo
+
 __all__ = [
-    "EXTENSOES_TEMP",
-    "EXTENSOES_VALIDAS",
-    "MAPA_BASES_ARQUIVO",
-    "PADROES_TOTALE",
     "ArquivoBloqueadoError",
     "Candidato",
+    "EXTENSOES_TEMP",
+    "EXTENSOES_VALIDAS",
     "EngineExcel",
     "LeituraArquivo",
+    "MAPA_BASES_ARQUIVO",
     "ModoLeitura",
+    "PADROES_TOTALE",
     "ResultadoCiclo",
     "TotaleRoboEngine",
     "_TAMANHO_MAXIMO_PADRAO",
@@ -1019,11 +1434,29 @@ __all__ = [
     "contar_arquivos_por_base",
     "detectar_base_arquivo",
     "detectar_marcador_arquivo",
+    "executar_ciclo_headless",
     "formatar_tamanho",
     "ler_arquivo_detalhado",
+    "ler_arquivo_totale",
     "mapear_arquivos_por_base",
     "obter_metadados_arquivo",
     "obter_pasta_robo_padrao",
     "processar_candidatos",
+    "renderizar_robo_local",
+    "renderizar_sidebar_robo",
     "selecionar_arquivos",
 ]
+
+
+if __name__ == "__main__":
+    pasta_cli = sys.argv[1] if len(sys.argv) > 1 else obter_pasta_robo_padrao()
+    destino = sys.argv[2] if len(sys.argv) > 2 else str(Path(pasta_cli) / "_robo_cache.csv")
+    try:
+        ciclo = executar_ciclo_headless(pasta_cli, destino_csv=destino)
+    except (OSError, ValueError) as exc:
+        print(f"Erro ao executar o robô: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+    if ciclo.df is None:
+        print(ciclo.bloqueio or " | ".join(ciclo.erros) or "Nenhum arquivo processado.")
+        raise SystemExit(1)
+    print(f"{len(ciclo.df)} linhas, bases={', '.join(ciclo.bases) or '—'} → {destino}")
