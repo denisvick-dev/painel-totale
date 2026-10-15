@@ -80,6 +80,7 @@ __all__ = [
     "normalizar_serie",
     "normalizar_texto",
     "sem_acento",
+    "valor_nan",
     "valor_vazio",
 ]
 
@@ -134,14 +135,28 @@ def normalizar_login(valor: Any) -> str:
     """Identidade canônica do técnico: ``'123.0'`` → ``'123'``, ``' a.b '`` → ``'A.B'``.
 
     Remove o sufixo ``.0`` que o Excel/Sheets acrescenta a números lidos como
-    float — a causa histórica de *joins* que não casavam entre as bases.
+    float — a causa histórica de *joins* que não casavam entre as bases — e os
+    zeros à esquerda de logins puramente numéricos (``"00123.00"`` → ``"123"``),
+    mantendo intactos os identificadores alfanuméricos (``" a.b "`` → ``"A.B"``).
     """
     if _eh_nan(valor):
         return ""
     if isinstance(valor, float) and float(valor).is_integer():
         return str(int(valor))
     texto = normalizar_texto(valor).replace(" ", "")
-    return _RE_DECIMAL_SUJO.sub("", texto)
+    sem_decimal = _RE_DECIMAL_SUJO.sub("", texto)
+    if sem_decimal.isdigit():
+        return sem_decimal.lstrip("0") or "0"
+    return sem_decimal
+
+
+def valor_nan(valor: Any) -> bool:
+    """``True`` apenas para valores ausentes (``None``/``NaN``/``NaT``) escalares.
+
+    Diferente de :func:`valor_vazio`, não trata tokens textuais (``"N/A"``) como
+    ausência — serve para decidir a exibição de um número em tabela.
+    """
+    return _eh_nan(valor)
 
 
 def valor_vazio(valor: Any, extras: Iterable[str] = ()) -> bool:

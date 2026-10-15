@@ -1,35 +1,33 @@
 """
-quebra.py
-=========
+quebra_geral.py
+===============
 Super Relatório Corporativo Unificado | Quebra Operacional TOTALE
 
-Versão: 5.4.0 (Busca Avançada no Google Sheets + Conversão Login -> Nome do Técnico/Monitor)
+Versão: 5.5.0 (camada compartilhada de componentes/serviços + esqueleto padrão do portal)
 Author: TOTALE Tecnologia
+
+Esta página é um dos 11 dashboards padronizados: consome a camada compartilhada
+(:mod:`components.dashboards`, :mod:`components.layout_pagina` e
+:mod:`services.*`) em vez de reimplementar helpers, CSS global e exportação.
+O motor de negócio continua local (``Motor``/``DataLoader``/``Config``), pois
+``pages/quebra_unificada.py`` o importa.
 """
 
 from __future__ import annotations
 
-import csv
 import hashlib
-import importlib
 import logging
 import re
 import sys
-import unicodedata
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from html import escape
-from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 # Bootstrap de caminhos antes dos imports locais.
 _DIR: Final[Path] = Path(__file__).resolve().parent
@@ -39,6 +37,28 @@ for _path in (_DIR, _ROOT):
         sys.path.insert(0, str(_path))
 
 logger = logging.getLogger(__name__)
+
+# ── Camada compartilhada do portal (componentes + serviços) ──────────────────
+from components.componentes import (
+    render_hero as render_hero_portal,
+)
+from components.componentes import render_insight, render_kpi_sm, render_table_html
+from components.css_paginas import aplicar_css_quebra_operacional
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
+from services.dados_sessao import obter_dataframe
+from services.google_drive_client import carregar_planilha_gsheets_csv
+from services.planilhas import gerar_excel as gerar_excel_formatado
+from services.planilhas import ler_bytes
+from services.texto import (
+    escapar_html,
+    formatar_inteiro,
+    formatar_percentual,
+    normalizar_chave,
+    valor_nan,
+)
+from services.texto import normalizar_login as _normalizar_login_servico
+from services.texto import normalizar_texto as _normalizar_texto_servico
 
 TemaKPI = Literal[
     "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "amarelo", "escuro"
@@ -90,54 +110,11 @@ def _carregar_criterios() -> ModuloCriterios:
 CRITERIOS: Final[ModuloCriterios] = _carregar_criterios()
 
 
-@dataclass
-class ComponentesVisuais:
-    """Componentes de UI opcionais."""
-
-    disponivel: bool = False
-    section_header: Callable[..., Any] | None = None
-    sidebar_brand: Callable[..., Any] | None = None
-    table_html: Callable[..., Any] | None = None
-    insight: Callable[..., Any] | None = None
-    kpi: Callable[..., Any] | None = None
-    kpi_sm: Callable[..., Any] | None = None
-    theme_selector: Callable[..., Any] | None = None
-
-
-def _carregar_componentes() -> ComponentesVisuais:
-    try:
-        from components import componentes as m  # type: ignore
-
-        return ComponentesVisuais(
-            disponivel=True,
-            section_header=getattr(m, "render_section_header", None),
-            sidebar_brand=getattr(m, "render_sidebar_brand", None),
-            table_html=getattr(m, "render_table_html", None),
-            insight=getattr(m, "render_insight", None),
-            kpi=getattr(m, "render_kpi", None),
-            kpi_sm=getattr(m, "render_kpi_sm", None),
-            theme_selector=getattr(m, "render_page_sidebar_theme_selector", None),
-        )
-    except ImportError as erro:
-        logger.warning("Módulo componentes não disponível: %s", erro)
-        return ComponentesVisuais()
-
-
-COMPONENTES: Final[ComponentesVisuais] = _carregar_componentes()
-
-
 from config.settings import (
     SHEET_ABA_ATIVOS as _DEFAULT_WORKSHEET_ATIVOS,
 )
 from config.settings import (
     SHEET_ID_ATIVOS as _DEFAULT_SHEET_ID_ATIVOS,
-)
-from config.settings import (
-    URL_ATIVOS_EDIT as _DEFAULT_URL_LISTA_ATIVOS,
-)
-from config.settings import (
-    url_gsheets_export,
-    url_gsheets_gviz_csv,
 )
 
 
@@ -146,7 +123,6 @@ class Config:
 
     SLA_QUEBRA_MAXIMA: Final[float] = 0.20
     SLA_MIGRACAO_MAXIMA: Final[float] = 0.25
-    URL_LISTA_ATIVOS: Final[str] = _DEFAULT_URL_LISTA_ATIVOS
     SHEET_ID_ATIVOS: Final[str] = _DEFAULT_SHEET_ID_ATIVOS
     WORKSHEET_ATIVOS: Final[str] = _DEFAULT_WORKSHEET_ATIVOS
     STATUS_ORDEM: Final[tuple[str, ...]] = ("Executada", "Não Executada", "Pendente")
@@ -267,45 +243,22 @@ CIDADES_ABCDM: Final[frozenset[str]] = frozenset(
 VALORES_AUSENTES: Final[frozenset[str]] = frozenset(
     {"", "NAN", "NONE", "NULL", "NAT", "NA", "N/A", "-", "None"}
 )
-RE_ESPACOS: Final[re.Pattern[str]] = re.compile(r"\s+")
-RE_ALFANUMERICO: Final[re.Pattern[str]] = re.compile(r"[^A-Z0-9]")
 RE_NUMERO_INICIAL: Final[re.Pattern[str]] = re.compile(r"^(\d+)")
-RE_LOGIN_DECIMAL: Final[re.Pattern[str]] = re.compile(r"^(\d+)\.0+$")
 
 
-def html_safe(valor: Any) -> str:
-    return escape(str(valor), quote=True)
-
-
-def fmt_pct_br(valor: Any) -> str:
-    try:
-        n = float(valor)
-        if not np.isfinite(n):
-            return "—"
-        return f"{n * 100:,.2f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
-        return "—"
-
-
-def fmt_int_br(valor: Any) -> str:
-    try:
-        n = float(valor)
-        if not np.isfinite(n):
-            return "—"
-        return f"{int(round(n)):,}".replace(",", ".")
-    except (TypeError, ValueError):
-        return "—"
-
-
-def is_missing(valor: Any) -> bool:
-    try:
-        r = pd.isna(valor)
-        return bool(r) if isinstance(r, (bool, np.bool_)) else False
-    except (TypeError, ValueError):
-        return False
+#: Helpers de texto/número delegados a :mod:`services.texto` (fonte única do
+#: portal — antes cada página tinha a sua cópia, com diferenças sutis).
+html_safe = escapar_html
+fmt_int_br = formatar_inteiro
+fmt_pct_br = formatar_percentual
+is_missing = valor_nan
+normalizar_texto = _normalizar_texto_servico
+normalizar_coluna = normalizar_chave
+normalizar_login = _normalizar_login_servico
 
 
 def div_segura(num: pd.Series, den: pd.Series, padrao: float = 0.0) -> pd.Series:
+    """Divisão vetorizada sem ``inf``/``ZeroDivisionError`` (denominador 0 → ``padrao``)."""
     n = pd.to_numeric(num, errors="coerce").fillna(0).to_numpy(dtype=float)
     d = pd.to_numeric(den, errors="coerce").fillna(0).to_numpy(dtype=float)
     out = np.full_like(n, padrao, dtype=float)
@@ -313,41 +266,23 @@ def div_segura(num: pd.Series, den: pd.Series, padrao: float = 0.0) -> pd.Series
     return pd.Series(out, index=num.index)
 
 
-def hash_upload(nome: str, conteudo: bytes) -> str:
-    return f"{nome}|{len(conteudo)}|{hashlib.sha256(conteudo).hexdigest()}"
-
-
 def df_sessao(chave: str) -> pd.DataFrame | None:
-    v = st.session_state.get(chave)
-    return v if isinstance(v, pd.DataFrame) else None
+    """DataFrame guardado em ``st.session_state[chave]`` (``None`` se ausente).
+
+    Usa o :func:`services.dados_sessao.obter_dataframe` quando o contexto real do
+    Streamlit está disponível e cai para a leitura direta do ``st`` deste módulo
+    em testes que fazem *monkeypatch* do ``st`` da página
+    (``tests/test_quebra_geral.py``).
+    """
+    obtido = obter_dataframe(chave)
+    if not isinstance(obtido, pd.DataFrame):
+        obtido = getattr(st.session_state, "get", lambda *_: None)(chave)
+    return obtido if isinstance(obtido, pd.DataFrame) else None
 
 
-def normalizar_texto(valor: Any) -> str:
-    if valor is None:
-        return ""
-    try:
-        if isinstance(pd.isna(valor), (bool, np.bool_)) and bool(pd.isna(valor)):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    texto = unicodedata.normalize("NFKD", str(valor))
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    return RE_ESPACOS.sub(" ", texto.upper().strip())
-
-
-def normalizar_coluna(valor: Any) -> str:
-    return RE_ALFANUMERICO.sub("", normalizar_texto(valor))
-
-
-def normalizar_login(valor: Any) -> str:
-    if valor is None:
-        return ""
-    texto = normalizar_texto(valor).replace(" ", "")
-    m = RE_LOGIN_DECIMAL.match(texto)
-    base = m.group(1) if m else texto
-    if base.isdigit():
-        return base.lstrip("0") or "0"
-    return base
+def hash_upload(nome: str, conteudo: bytes) -> str:
+    """Identidade estável de um upload (nome + tamanho + SHA-256)."""
+    return f"{nome}|{len(conteudo)}|{hashlib.sha256(conteudo).hexdigest()}"
 
 
 def padronizar_tipo_servico(tipo: Any) -> str:
@@ -605,35 +540,6 @@ _PALAVRAS_PCT_EXCEL: Final[tuple[str, ...]] = (
 )
 
 
-def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-    nome_aba = re.sub(r"[\[\]:*?/\\]", "_", aba).strip()[:31] or "Dados"
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=nome_aba)
-        ws = writer.sheets[nome_aba]
-        header_fill = PatternFill("solid", fgColor="0F172A")
-        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        header_border = Border(bottom=Side(style="thin", color="CBD5E1"))
-        for cell in ws[1]:
-            cell.fill, cell.font = header_fill, header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            cell.border = header_border
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-        for i, col in enumerate(df.columns, start=1):
-            upper = str(col).upper()
-            amostra = df[col].head(2000).fillna("").astype(str).tolist()
-            ws.column_dimensions[get_column_letter(i)].width = min(
-                max(
-                    max([len(str(col)), *(len(v) for v in amostra)], default=12) + 2, 12
-                ),
-                40,
-            )
-            if any(t in upper for t in _PALAVRAS_PCT_EXCEL):
-                for linha in range(2, ws.max_row + 1):
-                    ws.cell(linha, i).number_format = "0.00%"
-    return buffer.getvalue()
-
 
 class Utils:
     normalizar_login = staticmethod(normalizar_login)
@@ -644,88 +550,53 @@ class Utils:
 
     @staticmethod
     def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-        return gerar_excel(df, aba)
+        """Exportação delegada a :func:`services.planilhas.gerar_excel`."""
+        return gerar_excel_formatado(
+            df, aba, autofiltro=True, colunas_pct=_PALAVRAS_PCT_EXCEL
+        )
 
 
 class DataLoader:
-    _ENCODINGS_CSV: Final[tuple[str, ...]] = ("utf-8-sig", "utf-8", "latin-1", "cp1252")
-
     @staticmethod
     @st.cache_data(show_spinner=False)
     def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-        if not file_bytes:
-            raise ValueError("O arquivo está vazio.")
-        ext = Path(filename).suffix.lower()
-        if ext == ".csv":
-            return DataLoader._ler_csv(file_bytes)
-        if ext in {".xlsx", ".xlsm"}:
-            return pd.read_excel(BytesIO(file_bytes), engine="openpyxl", dtype=str)
-        raise ValueError("Formato inválido. Utilize CSV, XLSX ou XLSM.")
+        """Leitura de upload delegada a :func:`services.planilhas.ler_bytes`.
 
-    @staticmethod
-    def _ler_csv(file_bytes: bytes) -> pd.DataFrame:
-        texto = None
-        for enc in DataLoader._ENCODINGS_CSV:
-            try:
-                texto = file_bytes.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        if texto is None:
-            raise ValueError("Encoding do CSV não identificado.")
-        amostra = texto[:10000]
-        try:
-            delim = csv.Sniffer().sniff(amostra, delimiters=";,\t|").delimiter
-        except csv.Error:
-            delim = max((";", ",", "\t", "|"), key=amostra.count)
-        return pd.read_csv(
-            StringIO(texto),
-            sep=delim,
+        Mantém o contrato histórico da página (tudo como texto, NA preservado
+        como string vazia) sem duplicar a detecção de encoding/separador.
+        """
+        return ler_bytes(
+            file_bytes,
+            filename,
             dtype=str,
-            engine="python",
+            manter_na=False,
             on_bad_lines="skip",
-            keep_default_na=False,
         )
 
     @staticmethod
     @st.cache_data(ttl=300, show_spinner="Sincronizando Lista de Ativos...")
     def buscar_gsheets() -> pd.DataFrame:
-        urls = (
-            url_gsheets_export(
-                Config.SHEET_ID_ATIVOS, fmt="csv", sheet=Config.WORKSHEET_ATIVOS
-            ),
-            url_gsheets_gviz_csv(
-                Config.SHEET_ID_ATIVOS, sheet=Config.WORKSHEET_ATIVOS
-            ),
+        """Lista de ativos via camada compartilhada (CSV do Sheets + aliases).
+
+        Antes a página abria URLs com ``urllib`` e reimplementava o dicionário de
+        aliases; hoje delega a :mod:`services.google_drive_client` e normaliza
+        com :meth:`processar_lista_ativos` (que ``tests/test_quebra_geral.py``
+        cobre). Sem rede devolve DataFrame vazio — o upload manual continua
+        disponível na barra lateral.
+        """
+        raw = carregar_planilha_gsheets_csv(
+            Config.SHEET_ID_ATIVOS, Config.WORKSHEET_ATIVOS, usar_cache=True, ttl=300
         )
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        for i, url in enumerate(urls, start=1):
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=12) as resp:
-                    data = resp.read()
-                raw = pd.read_csv(BytesIO(data), dtype=str)
-                if not raw.empty:
-                    out = DataLoader.processar_lista_ativos(raw)
-                    if not out.empty:
-                        return out
-            except Exception as e:
-                logger.debug("Falha método Google Sheets %s: %s", i, e)
-        try:
-            m = importlib.import_module("streamlit_gsheets")
-            conn = st.connection("gsheets", type=m.GSheetsConnection)
-            raw = conn.read(
-                spreadsheet=Config.URL_LISTA_ATIVOS, worksheet=Config.WORKSHEET_ATIVOS
-            )
-            if isinstance(raw, pd.DataFrame) and not raw.empty:
-                return DataLoader.processar_lista_ativos(raw)
-        except Exception as e:
-            logger.debug("Falha Streamlit Connection: %s", e)
+        if isinstance(raw, pd.DataFrame) and not raw.empty:
+            processada = DataLoader.processar_lista_ativos(raw)
+            if not processada.empty:
+                return processada
+        logger.warning(
+            "Lista de ativos indisponível (sheet %s); siga com upload manual se necessário.",
+            Config.SHEET_ID_ATIVOS,
+        )
         return pd.DataFrame()
 
-    @staticmethod
     def processar_lista_ativos(raw: pd.DataFrame) -> pd.DataFrame:
         if raw is None or raw.empty:
             return pd.DataFrame()
@@ -1389,98 +1260,6 @@ def _cache_matriz(df: pd.DataFrame) -> pd.DataFrame:
     return Motor._matriz_logic(df)
 
 
-_TEMAS_KPI: Final[dict[str, dict[str, str]]] = {
-    "amarelo": {
-        "fundo": "#FFFBEB",
-        "texto": "#92400E",
-        "borda": "#F59E0B",
-        "titulo": "#B45309",
-    },
-    "roxo": {
-        "fundo": "#FAF5FF",
-        "texto": "#6B21A8",
-        "borda": "#A855F7",
-        "titulo": "#7E22CE",
-    },
-    "escuro": {
-        "fundo": "#1E293B",
-        "texto": "#FFFFFF",
-        "borda": "#475569",
-        "titulo": "#E2E8F0",
-    },
-}
-
-
-def render_section_header(icone: str, titulo: str) -> None:
-    if COMPONENTES.section_header:
-        COMPONENTES.section_header(icone, titulo)
-    else:
-        st.subheader(f"{icone} {titulo}" if icone else titulo)
-
-
-def render_sidebar_brand(**kw: Any) -> None:
-    if COMPONENTES.sidebar_brand:
-        COMPONENTES.sidebar_brand(**kw)
-
-
-def render_table_html(df: pd.DataFrame, **kw: Any) -> None:
-    if COMPONENTES.table_html:
-        COMPONENTES.table_html(df, **kw)
-    else:
-        st.dataframe(df, width="stretch", hide_index=True)
-
-
-def render_insight(texto: str, tipo: TipoInsight = "info") -> None:
-    if COMPONENTES.insight:
-        COMPONENTES.insight(texto, tipo)
-    elif tipo == "ok":
-        st.success(texto)
-    elif tipo in {"critico", "alerta"}:
-        st.warning(texto)
-    elif tipo == "acao":
-        st.error(texto)
-    else:
-        st.info(texto)
-
-
-def render_kpi_sm(
-    col: Any, label: str, value: str, sub: str = "", tema: TemaKPI = "azul"
-) -> None:
-    if tema not in _TEMAS_KPI:
-        if COMPONENTES.kpi_sm:
-            COMPONENTES.kpi_sm(col, label, value, sub, tema)
-        else:
-            col.metric(label, value, sub)
-        return
-    e = _TEMAS_KPI[tema]
-    col.markdown(
-        f"""<div class="kpi-mini" style="--kpi-bg:{e["fundo"]};--kpi-text:{e["texto"]};--kpi-border:{e["borda"]};--kpi-label:{e["titulo"]}"><div class="kpi-mini__label">{html_safe(label)}</div><div class="kpi-mini__value">{html_safe(value)}</div><div class="kpi-mini__sub">{html_safe(sub)}</div></div>""",
-        unsafe_allow_html=True,
-    )
-
-
-_CSS_GLOBAL: Final[str] = """
-<style>
-:root{--page:#F4F7FB;--surface:#FFFFFF;--surface-soft:#F8FAFC;--ink:#0F172A;--muted:#64748B;--line:#E2E8F0;--navy:#012869;--accent:#F37C04;--radius:14px}
-html,body,[data-testid="stAppViewContainer"]{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
-[data-testid="stAppViewContainer"]{background:var(--page)}[data-testid="stMainBlockContainer"]{max-width:1480px;padding-top:1.4rem;padding-bottom:3rem}
-[data-testid="stSidebar"]{background:#fff;border-right:1px solid var(--line)}[data-testid="stSidebar"]>div{padding-top:1.2rem}
-h1:not(.hero-title):not(.th-title):not(.th-title-lg),h2,h3{color:var(--ink);letter-spacing:-.025em}
-.import-header-title{font-size:1.65rem;font-weight:750;color:var(--ink);letter-spacing:-.035em}.import-header-badge{display:inline-flex;margin-left:.7rem;padding:.25rem .65rem;border:1px solid #BFDBFE;border-radius:999px;background:#EFF6FF;color:#1D4ED8;font-size:.68rem;font-weight:700}.import-header-sub{margin:.4rem 0 1rem;color:var(--muted);font-size:.9rem}.import-header-line{height:2px;margin-bottom:1.25rem;border-radius:2px;background:linear-gradient(90deg,var(--navy),var(--accent) 65%,#E2E8F0)}
-.import-alert-green{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;padding:.85rem 1rem;border:1px solid #A7F3D0;border-radius:10px;background:#ECFDF5;color:#065F46;font-size:.85rem;font-weight:650}
-.hero-container{margin:0 0 1rem;padding:0;background:transparent}.hero-card{padding:1.7rem 1.9rem;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:linear-gradient(115deg,#011838,#012869 55%,#0A48AA);box-shadow:0 10px 28px rgba(1,40,105,.18);color:#fff!important}.hero-card__layout{display:flex;align-items:center;justify-content:space-between;gap:1.5rem}.hero-eyebrow{margin:0 0 .45rem;color:#9DB9E4!important;-webkit-text-fill-color:#9DB9E4!important;font-family:var(--font-texto,'Inter',sans-serif)!important;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.hero-title{margin:0;color:#fff!important;-webkit-text-fill-color:#fff!important;font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important;font-size:clamp(1.45rem,2.6vw,2rem);font-weight:750;line-height:1.15}.hero-sub{margin:.55rem 0 0;color:#CBD5E1!important;-webkit-text-fill-color:#CBD5E1!important;font-family:var(--font-texto,'Inter',sans-serif)!important;font-size:.9rem}.hero-badge{display:inline-block;margin-top:.85rem;padding:.3rem .65rem;border:1px solid rgba(255,255,255,.25);border-radius:999px;background:rgba(255,255,255,.08);color:#fff!important;-webkit-text-fill-color:#fff!important;font-family:var(--font-texto,'Inter',sans-serif)!important;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}.hero-side-metric{min-width:155px;padding:.9rem 1rem;border:1px solid rgba(255,255,255,.18);border-radius:12px;background:rgba(255,255,255,.08);text-align:right}.hero-side-metric span{display:block;color:#CBD5E1!important;-webkit-text-fill-color:#CBD5E1!important;font-family:var(--font-texto,'Inter',sans-serif)!important;font-size:.68rem;font-weight:600;text-transform:uppercase}.hero-side-metric strong{display:block;margin-top:.25rem;color:#fff!important;-webkit-text-fill-color:#fff!important;font-family:var(--font-titulo,'Oscine','Manrope',sans-serif)!important;font-size:1.55rem;font-weight:750}
-.base-info{display:flex;align-items:center;flex-wrap:wrap;gap:.55rem;margin-top:.75rem;padding:.85rem 1rem;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.base-info-label{margin-right:.2rem;color:var(--muted);font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.base-info-source{color:var(--muted);font-size:.75rem}.base-info-total{margin-left:auto;color:var(--ink);font-size:.8rem;font-weight:700}.badge-regiao{display:inline-flex;padding:.28rem .65rem;border:1px solid;border-radius:999px;font-size:.72rem;font-weight:700}
-.matriz-table-container{width:100%;overflow-x:auto;margin-bottom:1rem;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 3px 12px rgba(15,23,42,.04)}.matriz-table{width:100%;border-collapse:collapse;font-size:.82rem}.matriz-table th{padding:.85rem 1rem;border-bottom:1px solid var(--line);background:#F8FAFC;color:#475569;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-align:center;text-transform:uppercase}.matriz-table th:first-child,.matriz-table td:first-child{text-align:left}.matriz-table td{padding:.7rem 1rem;border-bottom:1px solid #F1F5F9;color:#334155;text-align:center}.matriz-table td:first-child{color:var(--ink);font-weight:650}.matriz-table tr:hover{background:#F8FAFC}.matriz-table tr.total-row{border-top:2px solid #CBD5E1;background:#F1F5F9;font-weight:750}
-.badge-meta-ok,.badge-meta-nok{display:inline-block;min-width:68px;padding:.28rem .55rem;border:1px solid;border-radius:7px;font-size:.74rem;font-weight:700}.badge-meta-ok{border-color:#A7F3D0;background:#ECFDF5;color:#047857}.badge-meta-nok{border-color:#FECACA;background:#FEF2F2;color:#B91C1C}
-div[data-testid="stMetric"]{padding:.85rem;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.035)}.kpi-mini{padding:12px 16px;margin-bottom:8px;border:1px solid var(--line);border-left:3px solid var(--kpi-border);border-radius:10px;background:var(--kpi-bg);box-shadow:0 2px 8px rgba(15,23,42,.035)}.kpi-mini__label{color:var(--kpi-label);font-size:.68rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase}.kpi-mini__value{margin-top:4px;color:var(--kpi-text);font-size:1.25rem;font-weight:750;line-height:1.2}.kpi-mini__sub{margin-top:3px;color:var(--kpi-label);font-size:.72rem}
-.matriz-table-container{font-family:inherit}.stButton>button,.stDownloadButton>button{min-height:2.55rem;border-radius:9px;font-weight:650}div[data-testid="stExpander"]{overflow:hidden;border:1px solid var(--line);border-radius:11px;background:#fff}div[data-testid="stFileUploader"] section{border:1px dashed #94A3B8;border-radius:12px;background:#F8FAFC}[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input{border-radius:9px}
-@media(max-width:760px){.hero-card__layout{align-items:flex-start;flex-direction:column}.hero-side-metric{width:100%;text-align:left}.base-info-total{margin-left:0}}
-</style>
-"""
-
-
-def injetar_css() -> None:
-    st.markdown(_CSS_GLOBAL, unsafe_allow_html=True)
 
 
 _METAS_COLUNA_MATRIZ: Final[dict[str, str]] = {
@@ -1561,27 +1340,7 @@ def render_bloco_importacao(dados_prontos: bool = False) -> bool:
     )
 
 
-def _html_base_ativa(regioes: list[str], total: int, origem: str) -> str:
-    badges = []
-    for regiao in sorted({str(r).upper().strip() for r in regioes}):
-        cor = CORES_REGIAO.get(regiao, CORES_REGIAO["OUTRAS"])
-        badges.append(
-            f'<span class="badge-regiao" style="background:{cor["bg"]};color:{cor["text"]};border-color:{cor["border"]};">{html_safe(regiao)}</span>'
-        )
-    origem_html = (
-        f'<span class="base-info-source">Fonte: {html_safe(origem)}</span>'
-        if origem
-        else ""
-    )
-    return (
-        '<div class="base-info"><span class="base-info-label">Bases analisadas</span>'
-        + "".join(badges)
-        + origem_html
-        + f'<span class="base-info-total">{fmt_int_br(total)} registros</span></div>'
-    )
-
-
-def render_hero(
+def render_hero_quebra(
     titulo: str,
     subtitulo: str,
     regioes: list[str],
@@ -1589,12 +1348,19 @@ def render_hero(
     badge: str = "",
     origem: str = "",
 ) -> None:
-    badge_html = f'<span class="hero-badge">{html_safe(badge)}</span>' if badge else ""
-    base_html = _html_base_ativa(regioes, total, origem) if total > 0 else ""
-    st.markdown(
-        f"""<div class="hero-container"><div class="hero-card"><div class="hero-card__layout"><div><p class="hero-eyebrow">TOTALE · RELATÓRIO OPERACIONAL</p><h1 class="hero-title">{html_safe(titulo)}</h1><p class="hero-sub">{html_safe(subtitulo)}</p>{badge_html}</div><div class="hero-side-metric"><span>Registros analisados</span><strong>{fmt_int_br(total)}</strong></div></div></div>{base_html}</div>""",
-        unsafe_allow_html=True,
-    )
+    """Cabeçalho da página: hero do Design System + resumo das bases analisadas.
+
+    Antes a página montava o próprio HTML do hero (``.hero-card``/``.base-info``)
+    com CSS local; hoje usa :func:`components.componentes.render_hero` — o mesmo
+    cabeçalho dos outros dashboards — e mantém as bases/regiões em legenda.
+    """
+    render_hero_portal(titulo, subtitulo, badge=badge)
+    nomes = sorted({str(regiao).upper().strip() for regiao in regioes if str(regiao).strip()})
+    if total > 0 and nomes:
+        st.caption(
+            f"Bases analisadas: {', '.join(nomes)} · {fmt_int_br(total)} registros"
+            + (f" · fonte: {origem}" if origem else "")
+        )
 
 
 _PALAVRAS_PCT_TABELA: Final[tuple[str, ...]] = (
@@ -1699,7 +1465,9 @@ def view_resumo_executivo(df: pd.DataFrame, meta_sla: float) -> None:
     render_matriz_executiva(matriz, meta_geral=meta_sla)
     st.download_button(
         "Baixar matriz (Excel)",
-        data=gerar_excel(matriz, "Matriz_Resumo"),
+        data=gerar_excel_formatado(
+            matriz, "Matriz_Resumo", autofiltro=True, colunas_pct=_PALAVRAS_PCT_EXCEL
+        ),
         file_name="Matriz_Resumo_Quebra.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
@@ -1721,7 +1489,7 @@ def view_analise_detalhada(
         ["Projeções", "Projeção personalizada", "Rankings", "Causas raiz", "Backoffice"]
     )
     with tab1:
-        render_section_header(titulo="Cenários de Projeção de Fechamento")
+        cabecalho_secao("Cenários de Projeção de Fechamento", ancora=False)
         render_tabela(
             Motor.tabela_cenarios(df, "MONITOR", p_ot, p_base, p_pess, min_aloc),
             "Projeção por Monitor",
@@ -1730,7 +1498,7 @@ def view_analise_detalhada(
             meta=meta_sla,
         )
     with tab2:
-        render_section_header(titulo="Projeção Personalizada")
+        cabecalho_secao("Projeção Personalizada", ancora=False)
         c1, c2 = st.columns(2)
         with c1:
             prob = st.slider("Probabilidade de Conversão (%)", 0, 100, 30, step=5) / 100
@@ -1767,7 +1535,7 @@ def view_analise_detalhada(
                 k4, "Conversão Média", f"{conv_med:.1%}", "Para atingir meta", "azul"
             )
     with tab3:
-        render_section_header(titulo="Técnicos Mais Críticos")
+        cabecalho_secao("Técnicos Mais Críticos", ancora=False)
         render_tabela(
             Motor.tecnicos_criticos(df, "TODOS", p_base, min_aloc, 20, p_ot, p_pess),
             "Top 20 Técnicos com Maior Risco",
@@ -1776,7 +1544,7 @@ def view_analise_detalhada(
             meta=meta_sla,
         )
     with tab4:
-        render_section_header(titulo="Análise de Causa Raiz")
+        cabecalho_secao("Análise de Causa Raiz", ancora=False)
         col = DF.buscar_coluna(
             df, ("CÓD DE BAIXA 1", "COD DE BAIXA 1", "MOTIVO DE BAIXA", "COD_BAIXA")
         )
@@ -1785,22 +1553,27 @@ def view_analise_detalhada(
         else:
             st.warning("Coluna de Código/Motivo de Baixa não encontrada.")
     with tab5:
-        render_section_header(titulo="Gestão de Fila (Backoffice)")
+        cabecalho_secao("Gestão de Fila (Backoffice)", ancora=False)
         render_tabela(Motor.backoffice_fila(df), "Fila Priorizada", "")
 
 
 def view_auditoria(df: pd.DataFrame) -> None:
-    render_section_header(titulo="Auditoria de Processamento")
+    cabecalho_secao(
+        "Auditoria de Processamento",
+        icone="rule",
+        subtitulo="Rastreabilidade do ETL aplicado à base carregada.",
+        ancora=False,
+    )
     total = len(df)
     importado = int(df.attrs.get("total_importado", total))
     rem_status = int(df.attrs.get("removidos_suspensos_cancelados", 0))
     rem_contrato = int(df.attrs.get("removidos_contrato", 0))
     gpon_sim = int(df.attrs.get("flag_gpon_sim_count", 0))
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Importados", fmt_int_br(importado))
-    k2.metric("Processados", fmt_int_br(total))
-    k3.metric("Removidos por status", fmt_int_br(rem_status))
-    k4.metric("Contratos inválidos", fmt_int_br(rem_contrato))
+    render_kpi_sm(k1, "Importados", fmt_int_br(importado), tema="azul")
+    render_kpi_sm(k2, "Processados", fmt_int_br(total), tema="verde")
+    render_kpi_sm(k3, "Removidos por status", fmt_int_br(rem_status), tema="laranja")
+    render_kpi_sm(k4, "Contratos inválidos", fmt_int_br(rem_contrato), tema="vermelho")
     st.caption(
         f"Arquivo de origem: {df.attrs.get('arquivo_origem', 'Não identificado')}"
     )
@@ -1812,8 +1585,16 @@ def view_auditoria(df: pd.DataFrame) -> None:
         g1, g2 = st.columns(2)
         pct_sim = gpon_sim / total * 100 if total > 0 else 0.0
         pct_nao = (total - gpon_sim) / total * 100 if total > 0 else 0.0
-        g1.metric("FLAG_GPON = Sim", f"{gpon_sim:,}", f"{pct_sim:.1f}%")
-        g2.metric("FLAG_GPON = Não", f"{total - gpon_sim:,}", f"{pct_nao:.1f}%")
+        render_kpi_sm(
+            g1, "FLAG_GPON = Sim", fmt_int_br(gpon_sim), f"{pct_sim:.1f}%", tema="verde"
+        )
+        render_kpi_sm(
+            g2,
+            "FLAG_GPON = Não",
+            fmt_int_br(total - gpon_sim),
+            f"{pct_nao:.1f}%",
+            tema="cinza",
+        )
     if "TIPO_SERVICO" in df.columns:
         st.markdown("### Distribuição de tipo de serviço")
         dist = df["TIPO_SERVICO"].value_counts().reset_index()
@@ -2024,19 +1805,24 @@ def _render_upload_os(dados_prontos: bool, nonce: int) -> Any:
         )
 
 
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Resumo executivo",
+    "Análise detalhada",
+    "Auditoria",
+    "Exportação",
+)
+
+
 def main() -> None:
-    injetar_css()
+    # O CSS de shell (body/sidebar/hero/KPI/tabelas) pertence ao streamlit_app.py
+    # + components.css_global; aqui entra só o CSS específico desta página
+    # (bloco de importação e matriz executiva), compartilhado em css_paginas.
+    aplicar_css_quebra_operacional()
     msg = st.session_state.pop("mensagem_flash", "")
     if msg:
         st.success(str(msg))
-    render_sidebar_brand(
-        titulo="TOTALE",
-        subtitulo="Quebra Operacional",
-        logo="monitoring",
-        ambiente="produção",
-        versao="v5.4.0",
-        mostrar_data=True,
-    )
+
     st.session_state.setdefault("upload_nonce", 0)
     nonce = int(st.session_state["upload_nonce"])
     _sidebar_ativos(nonce)
@@ -2055,6 +1841,7 @@ def main() -> None:
             "Lista de ativos indisponível. Utilize o upload manual nas configurações."
         )
     _aplicar_etl_robo_global(df_ativos)
+
     df_atual = df_sessao("df_memoria")
     dados_prontos = df_atual is not None and not df_atual.empty
     if render_bloco_importacao(dados_prontos):
@@ -2062,24 +1849,45 @@ def main() -> None:
         st.rerun()
     upload = _render_upload_os(dados_prontos, nonce)
     _processar_upload(upload, df_ativos)
+
     df = df_sessao("df_memoria")
     if df is None or df.empty:
-        st.info("Carregue uma base de O.S. para iniciar a análise.")
+        render_insight(
+            "Carregue uma base de O.S. para iniciar a análise — use o robô local "
+            "(barra lateral) ou o upload manual acima.",
+            tipo="alerta",
+            titulo="Sem base carregada",
+        )
+        fechar_dashboard()
         return
+
     p_ot, p_base, p_pess, min_aloc = _sidebar_filtros()
     regioes = (
         sorted(df["REGIÃO"].dropna().astype(str).unique().tolist())
         if "REGIÃO" in df.columns
         else ["TODAS"]
     )
-    render_hero(
-        "Super Relatório Corporativo",
-        "Análise unificada de desempenho operacional",
-        regioes,
-        len(df),
-        badge="TOTALE OPERACIONAL",
-        origem=str(st.session_state.get("origem_dados", "Base carregada")),
+
+    # 1) Cabeçalho e contexto — padrão do portal (hero + chips + sumário).
+    abrir_dashboard(
+        "Quebra Geral",
+        secoes=SECOES_PAGINA,
+        hero=render_hero_quebra,
+        hero_kwargs={
+            "titulo": "Super Relatório Corporativo",
+            "subtitulo": "Análise unificada de desempenho operacional",
+            "regioes": regioes,
+            "total": len(df),
+            "badge": "TOTALE OPERACIONAL",
+            "origem": str(st.session_state.get("origem_dados", "Base carregada")),
+        },
+        chips={
+            "Origem": str(st.session_state.get("origem_dados", "Base carregada")),
+            "Regiões": len(regioes) if regioes != ["TODAS"] else "todas",
+        },
+        registros=len(df),
     )
+
     if "TÉCNICO" in df.columns:
         nao_mapeados = int(df["TÉCNICO"].eq("NÃO MAPEADO").sum())
         if nao_mapeados > 0:
@@ -2089,10 +1897,24 @@ def main() -> None:
             )
         else:
             st.success("Todos os logins estão mapeados na Lista de Ativos.")
+
+    # 2) Detalhamento por visão (âncoras do sumário)
     aba = st.radio(
         "Navegação",
-        ["Resumo executivo", "Análise detalhada", "Auditoria"],
+        list(SECOES_PAGINA[:3]),
         horizontal=True,
+        key="quebra_geral_navegacao",
+    )
+    cabecalho_secao(
+        aba,
+        icone="monitoring" if aba == "Resumo executivo" else "search" if aba == "Análise detalhada" else "rule",
+        subtitulo=(
+            "Matriz executiva de SLA por segmento."
+            if aba == "Resumo executivo"
+            else "Cenários de projeção, causa raiz e gestão de fila."
+            if aba == "Análise detalhada"
+            else "Rastreabilidade do ETL aplicado à base carregada."
+        ),
     )
     rotas: dict[str, Callable[[], None]] = {
         "Resumo executivo": lambda: view_resumo_executivo(df, Config.SLA_QUEBRA_MAXIMA),
@@ -2102,7 +1924,16 @@ def main() -> None:
         "Auditoria": lambda: view_auditoria(df),
     }
     rotas[aba]()
-    st.divider()
+
+    # 3) Exportação e rodapé (padrão do portal)
+    secao_exportacao(
+        df,
+        nome_arquivo="quebra_geral",
+        chave="quebra_geral",
+        titulo="Exportação",
+        subtitulo="Base processada com as colunas de classificação do ETL.",
+    )
+    fechar_dashboard()
 
 
 if __name__ == "__main__":

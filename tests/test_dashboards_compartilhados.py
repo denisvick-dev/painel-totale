@@ -39,6 +39,7 @@ from services.texto import (
     formatar_percentual,
     normalizar_login,
     normalizar_texto,
+    valor_nan,
     valor_vazio,
 )
 
@@ -52,6 +53,7 @@ def test_normalizar_login_remove_sufixo_decimal_e_espacos() -> None:
     assert normalizar_login("123.0") == "123"
     assert normalizar_login(123.0) == "123"
     assert normalizar_login(" a.b ") == "A.B"
+    assert normalizar_login("00123.00") == "123"
     assert normalizar_login(None) == ""
     assert normalizar_login(float("nan")) == ""
 
@@ -60,6 +62,8 @@ def test_normalizar_texto_e_chave_sao_estaveis() -> None:
     assert normalizar_texto("  São   Paulo ") == "SAO PAULO"
     assert normalizar_texto(None) == ""
     assert valor_vazio("N/A") and valor_vazio(None) and not valor_vazio("SPO")
+    assert valor_nan(None) and valor_nan(float("nan"))
+    assert not valor_nan("N/A") and not valor_nan("SPO")
     assert escapar_html("<b>x</b>") == "&lt;b&gt;x&lt;/b&gt;"
 
 

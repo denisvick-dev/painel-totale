@@ -230,7 +230,31 @@ def larguras_colunas(df: pd.DataFrame, *, maxima: int = 60) -> list[int]:
     return larguras
 
 
-def _excel_xlsxwriter(df: pd.DataFrame, aba: str) -> bytes:
+def _nomes_sanitizados(aba: str) -> str:
+    """Nome de aba válido no Excel (sem ``[]:*?/\`` e com 31 caracteres)."""
+    import re
+
+    limpo = re.sub(r"[\[\]:*?/\\]", "_", str(aba or "")).strip()
+    return limpo[:31] or "Dados"
+
+
+def _colunas_percentuais(df: pd.DataFrame, termos: Sequence[str]) -> set[int]:
+    """Índices (1-based) das colunas cujo cabeçalho indica percentual."""
+    achadas: set[int] = set()
+    for indice, coluna in enumerate(df.columns, start=1):
+        nome = str(coluna).upper()
+        if any(termo.upper() in nome for termo in termos):
+            achadas.add(indice)
+    return achadas
+
+
+def _excel_xlsxwriter(
+    df: pd.DataFrame,
+    aba: str,
+    *,
+    autofiltro: bool = False,
+    colunas_pct: Sequence[str] = (),
+) -> bytes:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as escritor:
         df.to_excel(escritor, sheet_name=aba, index=False)
@@ -243,17 +267,30 @@ def _excel_xlsxwriter(df: pd.DataFrame, aba: str) -> bytes:
                 "border": 0,
                 "text_wrap": False,
                 "valign": "vcenter",
+                "align": "center",
             }
         )
         for indice, (coluna, largura) in enumerate(zip(df.columns, larguras_colunas(df))):
             planilha.write(0, indice, str(coluna), formato)
             planilha.set_column(indice, indice, largura)
         planilha.freeze_panes(1, 0)
+        if autofiltro:
+            planilha.autofilter(0, 0, max(len(df), 1), max(len(df.columns) - 1, 0))
+        if colunas_pct:
+            formato_pct = escritor.book.add_format({"num_format": "0.00%"})
+            for indice in sorted(_colunas_percentuais(df, colunas_pct)):
+                planilha.set_column(indice - 1, indice - 1, None, formato_pct)
     return buffer.getvalue()
 
 
-def _excel_openpyxl(df: pd.DataFrame, aba: str) -> bytes:
-    from openpyxl.styles import Font, PatternFill
+def _excel_openpyxl(
+    df: pd.DataFrame,
+    aba: str,
+    *,
+    autofiltro: bool = False,
+    colunas_pct: Sequence[str] = (),
+) -> bytes:
+    from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     buffer = io.BytesIO()
@@ -265,25 +302,42 @@ def _excel_openpyxl(df: pd.DataFrame, aba: str) -> bytes:
             celula = planilha.cell(row=1, column=indice)
             celula.font = Font(bold=True, color="FFFFFF")
             celula.fill = preenchimento
+            celula.alignment = Alignment(horizontal="center", vertical="center")
             planilha.column_dimensions[get_column_letter(indice)].width = largura
         planilha.freeze_panes = "A2"
+        if autofiltro:
+            planilha.auto_filter.ref = planilha.dimensions
+        if colunas_pct:
+            for indice in sorted(_colunas_percentuais(df, colunas_pct)):
+                for linha in range(2, planilha.max_row + 1):
+                    planilha.cell(linha, indice).number_format = "0.00%"
     return buffer.getvalue()
 
 
-def gerar_excel(df: pd.DataFrame, aba: str = "Dados") -> bytes:
+def gerar_excel(
+    df: pd.DataFrame,
+    aba: str = "Dados",
+    *,
+    autofiltro: bool = False,
+    colunas_pct: Sequence[str] = (),
+) -> bytes:
     """XLSX corporativo em memória: cabeçalho TOTALE, larguras e linha congelada.
 
     Prefere ``xlsxwriter``; sem ele no ambiente usa ``openpyxl`` — ambos são
     dependências do projeto, então a exportação nunca fica indisponível.
+
+    ``autofiltro`` liga o filtro automático do Excel na primeira linha e
+    ``colunas_pct`` formata como percentual as colunas cujo cabeçalho contém
+    algum dos termos (ex.: ``("TAXA", "%")``).
     """
     if df is None:
         raise ValueError("Não há DataFrame para exportar.")
-    nome_aba = str(aba or "Dados")[:31] or "Dados"
+    nome_aba = _nomes_sanitizados(aba)
     try:
         import xlsxwriter  # noqa: F401
     except ImportError:
-        return _excel_openpyxl(df, nome_aba)
-    return _excel_xlsxwriter(df, nome_aba)
+        return _excel_openpyxl(df, nome_aba, autofiltro=autofiltro, colunas_pct=colunas_pct)
+    return _excel_xlsxwriter(df, nome_aba, autofiltro=autofiltro, colunas_pct=colunas_pct)
 
 
 def gerar_csv(

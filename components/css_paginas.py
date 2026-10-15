@@ -139,3 +139,376 @@ def css_tabela_corporativa(
 def aplicar_css_tabela_corporativa(**kwargs: object) -> None:
     """Injeta na página o CSS de :func:`css_tabela_corporativa`."""
     injetar_css(css_tabela_corporativa(**kwargs))  # type: ignore[arg-type]
+
+
+# ── Quebra operacional (matriz executiva + bloco de importação) ──────────────
+# Estes blocos viviam em `pages/quebra_geral.py::_CSS_GLOBAL`, junto de regras de
+# shell (body/sidebar/hero/KPI) que já pertencem a `components/css_global.py`.
+# Ficam aqui porque são a aparência de tabelas e do cabeçalho de importação —
+# a mesma família de CSS compartilhado das `.corp-table`.
+COR_TINTA = "#0F172A"
+COR_SUAVE = "#F8FAFC"
+COR_TEXTO_SECUNDARIO = "#64748B"
+COR_LINHA = "#E2E8F0"
+COR_NAVY = "#012869"
+COR_LARANJA = "#F37C04"
+
+
+def css_quebra_operacional() -> str:
+    """CSS das páginas de quebra (matriz executiva e bloco de importação).
+
+    Preserva, caractere a caractere, as regras que ``pages/quebra_geral.py``
+    injetava por conta própria — apenas sem as regras de shell/hero/KPI, que o
+    Design System já aplica em todas as páginas.
+    """
+    return "\n".join(
+        [
+            _bloco(
+                ".import-header-title",
+                f"""
+                font-size: 1.65rem;
+                font-weight: 750;
+                color: {COR_TINTA};
+                letter-spacing: -.035em;
+                """,
+            ),
+            _bloco(
+                ".import-header-badge",
+                """
+                display: inline-flex;
+                margin-left: .7rem;
+                padding: .25rem .65rem;
+                border: 1px solid #BFDBFE;
+                border-radius: 999px;
+                background: #EFF6FF;
+                color: #1D4ED8;
+                font-size: .68rem;
+                font-weight: 700;
+                """,
+            ),
+            _bloco(
+                ".import-header-sub",
+                f"""
+                margin: .4rem 0 1rem;
+                color: {COR_TEXTO_SECUNDARIO};
+                font-size: .9rem;
+                """,
+            ),
+            _bloco(
+                ".import-header-line",
+                f"""
+                height: 2px;
+                margin-bottom: 1.25rem;
+                border-radius: 2px;
+                background: linear-gradient(90deg, {COR_NAVY}, {COR_LARANJA} 65%, {COR_LINHA});
+                """,
+            ),
+            _bloco(
+                ".import-alert-green",
+                """
+                display: flex;
+                align-items: center;
+                gap: .6rem;
+                margin-bottom: 1rem;
+                padding: .85rem 1rem;
+                border: 1px solid #A7F3D0;
+                border-radius: 10px;
+                background: #ECFDF5;
+                color: #065F46;
+                font-size: .85rem;
+                font-weight: 650;
+                """,
+            ),
+            _bloco(
+                ".matriz-table-container",
+                f"""
+                width: 100%;
+                overflow-x: auto;
+                margin-bottom: 1rem;
+                border: 1px solid {COR_LINHA};
+                border-radius: 12px;
+                background: #fff;
+                box-shadow: 0 3px 12px rgba(15, 23, 42, .04);
+                """,
+            ),
+            _bloco(
+                ".matriz-table",
+                """
+                width: 100%;
+                border-collapse: collapse;
+                font-size: .82rem;
+                """,
+            ),
+            _bloco(
+                ".matriz-table th",
+                f"""
+                padding: .85rem 1rem;
+                border-bottom: 1px solid {COR_LINHA};
+                background: {COR_SUAVE};
+                color: #475569;
+                font-size: .68rem;
+                font-weight: 700;
+                letter-spacing: .06em;
+                text-align: center;
+                text-transform: uppercase;
+                """,
+            ),
+            _bloco(
+                ".matriz-table th:first-child, .matriz-table td:first-child",
+                "text-align: left;",
+            ),
+            _bloco(
+                ".matriz-table td",
+                """
+                padding: .7rem 1rem;
+                border-bottom: 1px solid #F1F5F9;
+                color: #334155;
+                text-align: center;
+                """,
+            ),
+            _bloco(
+                ".matriz-table td:first-child",
+                f"""
+                color: {COR_TINTA};
+                font-weight: 650;
+                """,
+            ),
+            _bloco(".matriz-table tr:hover", f"background: {COR_SUAVE};"),
+            _bloco(
+                ".matriz-table tr.total-row",
+                """
+                border-top: 2px solid #CBD5E1;
+                background: #F1F5F9;
+                font-weight: 750;
+                """,
+            ),
+            _bloco(
+                ".badge-meta-ok, .badge-meta-nok",
+                """
+                display: inline-block;
+                min-width: 68px;
+                padding: .28rem .55rem;
+                border: 1px solid;
+                border-radius: 7px;
+                font-size: .74rem;
+                font-weight: 700;
+                """,
+            ),
+            _bloco(
+                ".badge-meta-ok",
+                """
+                border-color: #A7F3D0;
+                background: #ECFDF5;
+                color: #047857;
+                """,
+            ),
+            _bloco(
+                ".badge-meta-nok",
+                """
+                border-color: #FECACA;
+                background: #FEF2F2;
+                color: #B91C1C;
+                """,
+            ),
+        ]
+    )
+
+
+def aplicar_css_quebra_operacional() -> None:
+    """Injeta na página o CSS de :func:`css_quebra_operacional`."""
+    injetar_css(css_quebra_operacional())
+
+
+def css_cartao_segmento(cor_marca: str = COR_NAVY) -> str:
+    """CSS do painel de quebra por segmento (cartão de status, alertas e abas).
+
+    Vem de ``pages/quebra_unificada.py::_injetar_css_dinamico``, que além destas
+    regras repetia o CSS de shell (``:root``, sidebar, container, heróis) já
+    aplicado pelo Design System em todas as páginas. ``cor_marca`` pinta a marca
+    do segmento (azul/laranja/azul-claro) sem alterar o restante do visual.
+    """
+    cor = str(cor_marca or COR_NAVY)
+    return "\n".join(
+        [
+            f":root {{ --brand: {cor}; }}",
+            _bloco(
+                ".status-card",
+                f"""
+                margin: 1rem 0 1.25rem;
+                padding: 1.25rem 1.4rem;
+                border: 1px solid {COR_LINHA};
+                border-top: 3px solid var(--status);
+                border-radius: 16px;
+                background: #fff;
+                box-shadow: 0 4px 16px rgba(15, 23, 42, .045);
+                """,
+            ),
+            _bloco(
+                ".status-card__header",
+                """
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: .75rem;
+                """,
+            ),
+            _bloco(
+                ".status-card__eyebrow",
+                f"""
+                margin: 0;
+                color: {COR_TEXTO_SECUNDARIO};
+                font-size: .68rem;
+                font-weight: 700;
+                letter-spacing: .09em;
+                text-transform: uppercase;
+                """,
+            ),
+            _bloco(
+                ".status-card__title",
+                f"""
+                margin-top: .2rem;
+                color: {COR_TINTA};
+                font-size: 1.05rem;
+                font-weight: 750;
+                """,
+            ),
+            _bloco(
+                ".status-pill",
+                """
+                padding: .38rem .75rem;
+                border: 1px solid;
+                border-radius: 999px;
+                font-size: .7rem;
+                font-weight: 750;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+                """,
+            ),
+            _bloco(
+                ".status-card__metrics",
+                """
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: .75rem;
+                margin-top: 1.1rem;
+                """,
+            ),
+            _bloco(
+                ".status-metric",
+                f"""
+                padding: .8rem .9rem;
+                border: 1px solid {COR_LINHA};
+                border-radius: 12px;
+                background: {COR_SUAVE};
+                """,
+            ),
+            _bloco(
+                ".status-metric__label",
+                f"""
+                display: block;
+                color: {COR_TEXTO_SECUNDARIO};
+                font-size: .7rem;
+                font-weight: 600;
+                """,
+            ),
+            _bloco(
+                ".status-metric__value",
+                f"""
+                display: block;
+                margin-top: .25rem;
+                color: {COR_TINTA};
+                font-size: 1.25rem;
+                font-weight: 750;
+                """,
+            ),
+            _bloco(
+                ".status-card__bar-labels",
+                f"""
+                display: flex;
+                justify-content: space-between;
+                margin: 1rem 0 .4rem;
+                color: {COR_TEXTO_SECUNDARIO};
+                font-size: .68rem;
+                font-weight: 600;
+                """,
+            ),
+            _bloco(
+                ".status-track",
+                """
+                position: relative;
+                height: 8px;
+                overflow: visible;
+                border-radius: 999px;
+                background: #E2E8F0;
+                """,
+            ),
+            _bloco(".status-fill", "height: 100%; border-radius: 999px; background: var(--status);"),
+            _bloco(
+                ".status-target",
+                """
+                position: absolute;
+                top: -3px;
+                width: 2px;
+                height: 14px;
+                background: #334155;
+                transform: translateX(-50%);
+                """,
+            ),
+            _bloco(
+                ".status-card__foot",
+                f"""
+                margin-top: .5rem;
+                color: {COR_TEXTO_SECUNDARIO};
+                font-size: .68rem;
+                """,
+            ),
+            _bloco(
+                ".alert-chip",
+                """
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                margin: 4px 6px 4px 0;
+                padding: 6px 11px;
+                border-radius: 999px;
+                font-size: .74rem;
+                font-weight: 650;
+                """,
+            ),
+            _bloco(
+                '.stTabs [data-baseweb="tab-list"]',
+                f"""
+                gap: .35rem;
+                padding: .35rem;
+                border: 1px solid {COR_LINHA};
+                border-radius: 12px;
+                background: #fff;
+                """,
+            ),
+            _bloco(
+                '.stTabs [data-baseweb="tab"]',
+                """
+                height: 2.55rem;
+                padding: 0 1rem;
+                border-radius: 9px;
+                color: #475569;
+                font-size: .82rem;
+                font-weight: 650;
+                """,
+            ),
+            _bloco(
+                '.stTabs [aria-selected="true"]',
+                """
+                background: #EFF6FF;
+                color: #1D4ED8;
+                """,
+            ),
+            "@media (max-width: 760px) { .status-card__metrics { grid-template-columns: 1fr; } }",
+        ]
+    )
+
+
+def aplicar_css_cartao_segmento(cor_marca: str = COR_NAVY) -> None:
+    """Injeta na página o CSS de :func:`css_cartao_segmento`."""
+    injetar_css(css_cartao_segmento(cor_marca))

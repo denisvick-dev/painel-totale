@@ -179,15 +179,30 @@ def test_mapa_de_navegacao_cobre_todos_os_grupos_com_paginas() -> None:
         assert grupo in DESCRICAO_GRUPOS, f"Grupo '{grupo}' sem descrição."
 
 
-def test_mapa_de_paginas_exige_runtime_do_streamlit() -> None:
-    """``st.Page`` só resolve caminhos dentro do runtime.
+def test_mapa_de_paginas_monta_todas_as_paginas() -> None:
+    """O mapa devolve as seções completas, na ordem declarada, sem página a menos.
 
-    A montagem real do menu é coberta por ``tests/test_app_shell.py`` (que roda o
-    entrypoint no ``AppTest``); aqui garantimos apenas que fora do runtime o
-    mapa não devolve um menu pela metade em silêncio.
+    A montagem real do menu (``st.navigation`` + títulos/ícones resolvidos) é
+    coberta por ``tests/test_app_shell.py``, que roda o entrypoint no ``AppTest``:
+    fora do runtime ``st.Page`` não resolve ``title``/``url_path``, então aqui
+    validamos a estrutura — seções, quantidade de páginas por seção, tipo dos
+    itens, página padrão única e visibilidade dos módulos de apoio.
     """
-    with pytest.raises(Exception):
-        mapa_de_paginas()
+    from streamlit.navigation.page import Page
+
+    mapa = mapa_de_paginas()
+
+    assert list(mapa) == grupos_ordenados()
+    assert all(itens for itens in mapa.values()), "Seção sem páginas no mapa."
+    for grupo in grupos_ordenados():
+        assert len(mapa[grupo]) == len(paginas_do_grupo(grupo))
+
+    itens = [pagina for grupo in mapa.values() for pagina in grupo]
+    assert all(isinstance(pagina, Page) for pagina in itens)
+    assert sum(1 for pagina in itens if pagina._default) == 1
+    assert sum(1 for pagina in itens if pagina._visibility == "hidden") == len(
+        [p for p in PAGINAS if not p.visivel]
+    )
 
 
 def test_ordem_dos_grupos_e_do_portal() -> None:
@@ -249,11 +264,16 @@ def test_dashboard_usa_esqueleto_padrao(pagina: str) -> None:
     )
 
 
+#: Páginas que não consomem a base da sessão: o índice de painéis e o painel de
+#: indicadores, que sincroniza as próprias fontes (Drive + lista de ativos).
+PAGINAS_SEM_BASE_DE_SESSAO = {"visao_geral.py", "indicadores.py"}
+
+
 @pytest.mark.parametrize("pagina", DASHBOARDS_PADRONIZADOS)
 def test_dashboard_usa_camada_de_dados_compartilhada(pagina: str) -> None:
     """A base vem de ``services.dados_sessao`` — nunca de um bloco copiado."""
-    if pagina in {"visao_geral.py"}:
-        pytest.skip("O índice não consome a base de produção.")
+    if pagina in PAGINAS_SEM_BASE_DE_SESSAO:
+        pytest.skip(f"{pagina} não consome a base carregada na sessão.")
     importados = _modulos_importados(pagina)
     assert any(m.startswith("services.dados_sessao") for m in importados), (
         f"{pagina} não importa services.dados_sessao (guarda de entrada padrão)."

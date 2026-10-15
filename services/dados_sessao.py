@@ -28,7 +28,8 @@ Este módulo fixa o contrato:
   o padrão de onze dashboards em uma chamada.
 
 As chaves de sessão oficiais são ``dados_prod`` (produção consolidada),
-``df_memoria`` (saída bruta do robô) e ``ultima_atualizacao``.
+``dados_cons`` (consultivos), ``df_memoria`` (saída bruta do robô) e
+``ultima_atualizacao``.
 """
 
 from __future__ import annotations
@@ -48,6 +49,9 @@ VERSAO_DADOS_SESSAO = "1.0.0"
 #: Chave principal da carga consolidada (produção).
 CHAVE_PRODUCAO = "dados_prod"
 
+#: Chave da base de consultivos (Drive/CSV de consultivos).
+CHAVE_CONSULTIVO = "dados_cons"
+
 #: Chave da saída bruta/processada do robô local.
 CHAVE_MEMORIA = "df_memoria"
 
@@ -65,6 +69,7 @@ MENSAGEM_SEM_DADOS = (
 __all__ = [
     "ABAS_PREFERENCIAIS",
     "CHAVE_ATUALIZACAO",
+    "CHAVE_CONSULTIVO",
     "CHAVE_MEMORIA",
     "CHAVE_PRODUCAO",
     "MENSAGEM_SEM_DADOS",

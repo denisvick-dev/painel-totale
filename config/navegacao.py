@@ -166,7 +166,7 @@ PAGINAS: tuple[PaginaPortal, ...] = (
     PaginaPortal(
         arquivo="rota_geral.py",
         titulo="Rota Geral",
-        icone="🧭",
+        icone="🚏",
         grupo=GRUPO_CAMPO,
         descricao="Visão geral de rotas, turnos e distribuição da equipe.",
     ),
@@ -180,7 +180,7 @@ PAGINAS: tuple[PaginaPortal, ...] = (
     PaginaPortal(
         arquivo="retorno.py",
         titulo="Retornos",
-        icone="🔁",
+        icone="↩️",
         grupo=GRUPO_CAMPO,
         descricao="Retornos por equipe e cruzamento com a base Sinapse.",
     ),

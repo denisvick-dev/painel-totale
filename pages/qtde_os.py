@@ -30,10 +30,12 @@ from components.componentes import (
     render_hero_totale_2,
     render_insight,
     render_kpi,
-    render_section_header,
 )
 from components.css_paginas import aplicar_css_tabela_corporativa
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import exigir_base, resumir_carga
 
 # ====================================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -528,8 +530,6 @@ class Componentes:
 
     @staticmethod
     def grafico_tendencia(df_tend: pd.DataFrame) -> None:
-        render_section_header(titulo="Evolução Diária de O.S.", icone="📈")
-
         if df_tend.empty:
             render_insight("Sem dados de **Data Agendamento** para tendência.", "info")
             return
@@ -554,8 +554,6 @@ class Componentes:
 
     @staticmethod
     def visao_supervisor(df_sup: pd.DataFrame) -> None:
-        render_section_header(titulo="Visão por Supervisor", icone="👨‍💼")
-
         if df_sup.empty:
             render_insight("Sem dados de Supervisor.", "info")
             return
@@ -582,8 +580,6 @@ class Componentes:
 
     @staticmethod
     def visao_projeto(df_proj: pd.DataFrame) -> None:
-        render_section_header(titulo="Visão por Projeto", icone="💼")
-
         if df_proj.empty:
             render_insight("Sem dados de Projeto.", "info")
             return
@@ -629,8 +625,6 @@ class Componentes:
 
     @staticmethod
     def performance_tecnicos(df_tec: pd.DataFrame) -> None:
-        render_section_header(titulo="Performance de Técnicos", icone="👷")
-
         if df_tec.empty:
             render_insight("Sem dados de Técnicos para exibir.", "info")
             return
@@ -681,49 +675,45 @@ class Componentes:
             )
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
-    @staticmethod
-    def rodape(ultima_atualizacao: pd.Timestamp | None) -> None:
-        st.divider()
-        if ultima_atualizacao is not None and pd.notna(ultima_atualizacao):
-            st.sidebar.divider()
-            st.sidebar.caption(
-                f"🕒 **Última Atualização:**\n"
-                f"{pd.to_datetime(ultima_atualizacao).strftime('%d/%m/%Y')}"
-            )
-
-
 # ====================================================
 # 6. APLICAÇÃO PRINCIPAL
 # ====================================================
-def main() -> None:
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Indicadores",
+    "Evolução Diária",
+    "Visão por Supervisor",
+    "Visão por Projeto",
+    "Performance de Técnicos",
+    "Exportação",
+)
+
+
+def render_hero_os(total: int | None = None) -> None:
+    """Herói oficial da página (destaque = O.S. do recorte filtrado)."""
     render_hero_totale_2(
         titulo="⚡ Central de Performance | Qtde. de O.S.",
         subtitulo=(
-            "Volumetria operacional, projeções de fechamento e metas por supervisor e projeto"
+            "Volumetria operacional, projeções de fechamento e metas por "
+            "supervisor e projeto"
         ),
-        badge_texto="Acompanhamento em tempo real da quantidade de O.S. executadas por supervisores e projetos",
-        badge_tipo="info",
+        badge_texto=(
+            "Acompanhamento em tempo real da quantidade de O.S. executadas por "
+            "supervisores e projetos"
+        ),
+        valor_destaque=f"{total:,}".replace(",", ".") if total is not None else "—",
+        label_destaque="O.S. NO RECORTE",
     )
 
-    dados_prod = st.session_state.get("dados_prod")
-    if dados_prod is None:
-        render_insight("Carregue os dados na página principal primeiro.", "alerta")
-        st.stop()
 
-    if isinstance(dados_prod, pd.DataFrame):
-        df_raw = dados_prod.copy()
-    elif isinstance(dados_prod, dict) and "Prod" in dados_prod:
-        df_raw = dados_prod["Prod"].copy()
-    else:
-        render_insight("Aba **Prod** não encontrada na base de dados.", "critico")
-        st.stop()
-    if not isinstance(df_raw, pd.DataFrame) or df_raw.empty:
-        render_insight("Base de Produção vazia.", "alerta")
-        st.stop()
+def main() -> None:
+    # A guarda de entrada é a do portal: aceita DataFrame, dict de abas (Prod)
+    # ou a lista legada, avisa no padrão oficial e interrompe sem dados.
+    df_raw = exigir_base(pagina="Quantidade de O.S.")
 
     proc = ProcessadorDados(df_raw)
 
-    # ── Filtros ──
+    # ── Filtros (barra lateral, como no restante da Central de Performance) ──
     st.sidebar.header("🎯 Filtros Avançados")
 
     proj_sel = st.sidebar.selectbox(
@@ -739,7 +729,7 @@ def main() -> None:
     )
     proc.filtrar(ProcessadorDados.COL_SUPERVISOR, sup_sel)
 
-    if st.sidebar.button("🔄 Limpar Filtros"):
+    if st.sidebar.button("🔄 Limpar Filtros", key="qtde_os_limpar_filtros"):
         st.rerun()
 
     # ── Calendário ──
@@ -750,13 +740,26 @@ def main() -> None:
     )
     cal = InfoCalendario.calcular(data_ref)
 
-    # Aviso caso a biblioteca holidays não esteja instalada
     if not cal.feriados_usados:
         st.sidebar.warning(
             "⚠️ Biblioteca `holidays` não encontrada. "
             "Os feriados não estão sendo descontados do cálculo de projeção. "
             "(Instale com `pip install holidays`)"
         )
+
+    # ── 1) Cabeçalho e contexto (padrão do portal) ──
+    abrir_dashboard(
+        "Central de Performance | Qtde. de O.S.",
+        secoes=SECOES_PAGINA,
+        hero=render_hero_os,
+        hero_kwargs={"total": proc.total_filtrado},
+        resumo=resumir_carga(st.session_state.get("dados_prod")),
+        origem=str(st.session_state.get("origem_dados") or ""),
+        chips={
+            "Projetos": proc.qtd_projetos,
+            "Supervisores": proc.qtd_supervisores,
+        },
+    )
 
     render_insight(
         f"Período: **{cal.data_ref.strftime('%m/%Y')}** · "
@@ -766,28 +769,59 @@ def main() -> None:
         "info",
     )
 
-    # ── KPIs ──
+    # ── 2) KPIs ──
+    cabecalho_secao(
+        "Indicadores",
+        icone="monitoring",
+        subtitulo=(
+            f"Dias úteis decorridos: {cal.dias_passados} de {cal.total_dias_uteis} · "
+            f"restam {cal.dias_faltantes}."
+        ),
+        badge=f"{proc.total_filtrado:,} O.S.".replace(",", "."),
+    )
     Componentes.kpis(proc, cal.dias_faltantes)
-    st.divider()
 
-    # ── Tendência ──
+    # ── 3) Gráficos e tabelas ──
+    cabecalho_secao(
+        "Evolução Diária",
+        icone="trending_up",
+        subtitulo="Volume de O.S. por dia de agendamento no recorte atual.",
+    )
     Componentes.grafico_tendencia(proc.tendencia_diaria())
-    st.divider()
 
-    # ── Supervisor × Projeto ──
+    cabecalho_secao(
+        "Supervisor × Projeto",
+        icone="groups",
+        subtitulo="Faixas de meta, projeção de fechamento e share por projeto.",
+    )
     col_esq, col_dir = st.columns(2)
     with col_esq:
+        cabecalho_secao("Visão por Supervisor", icone="supervisor_account", ancora=False)
         Componentes.visao_supervisor(proc.tabela_supervisor(cal.dias_faltantes))
     with col_dir:
+        cabecalho_secao("Visão por Projeto", icone="business", ancora=False)
         Componentes.visao_projeto(proc.tabela_projeto(cal.dias_faltantes))
 
-    st.divider()
-
-    # ── Técnicos ──
+    cabecalho_secao(
+        "Performance de Técnicos",
+        icone="engineering",
+        subtitulo="Tabela geral e Top 10 técnicos do recorte.",
+    )
     Componentes.performance_tecnicos(proc.tabela_tecnico())
 
-    # ── Rodapé ──
-    Componentes.rodape(proc.ultima_atualizacao)
+    # ── 4) Exportação e rodapé ──
+    secao_exportacao(
+        proc.df, nome_arquivo="quantidade_os", chave="qtde_os", titulo="Exportação"
+    )
+
+    if proc.ultima_atualizacao is not None and pd.notna(proc.ultima_atualizacao):
+        st.sidebar.divider()
+        st.sidebar.caption(
+            f"🕒 **Última Atualização:**\n"
+            f"{pd.to_datetime(proc.ultima_atualizacao).strftime('%d/%m/%Y')}"
+        )
+
+    fechar_dashboard()
 
 
 if __name__ == "__main__":

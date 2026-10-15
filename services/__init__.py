@@ -40,6 +40,7 @@ from .cache_dados import (
 )
 from .dados_sessao import (
     CHAVE_ATUALIZACAO,
+    CHAVE_CONSULTIVO,
     CHAVE_MEMORIA,
     CHAVE_PRODUCAO,
     MENSAGEM_SEM_DADOS,
@@ -92,12 +93,14 @@ from .texto import (
     normalizar_chave,
     normalizar_login,
     normalizar_texto,
+    valor_nan,
     valor_vazio,
 )
 
 __all__ = [
     "ALIASES_HIERARQUIA",
     "CHAVE_ATUALIZACAO",
+    "CHAVE_CONSULTIVO",
     "CHAVE_MEMORIA",
     "CHAVE_PRODUCAO",
     "EspecificacaoFonte",
@@ -128,6 +131,7 @@ __all__ = [
     "normalizar_texto",
     "obter_base",
     "resumir_carga",
+    "valor_nan",
     "valor_vazio",
     "ResultadoCarga",
     "TTL_PADRAO",
