@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import io
 import logging
-import unicodedata
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -63,6 +61,13 @@ else:
     except ImportError:
         DeltaGenerator = Any
 
+#: Seções ancoradas do sumário (títulos usados em ``secao()``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Resumo Executivo",
+    "Cenários de Fechamento",
+    "Análise Detalhada por Frente",
+)
+
 TipoInsightType = Literal["ok", "info", "alerta", "critico", "acao"]
 TemaKPIType = Literal[
     "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"
@@ -87,12 +92,11 @@ try:
         grafico_donut,
         grafico_gauge_meta,
     )
-    from components.layout_pagina import (
-        render_chips,
-        render_rodape_pagina,
-        render_sumario,
-        secao,
+    from components.dashboards import (  # pyright: ignore[reportMissingImports]
+        abrir_dashboard,
+        fechar_dashboard,
     )
+    from components.layout_pagina import render_chips, render_sumario, secao
     from components.sidebar import (
         aplicar_sidebar_corp,
         render_page_sidebar_theme_selector,
@@ -104,6 +108,9 @@ try:
         render_sidebar_spacer,
         render_sidebar_status,
     )
+    from services.google_drive_client import carregar_planilha_gsheets_csv
+    from services.texto import formatar_inteiro
+    from services.texto import normalizar_texto as normalizar_texto_servico
 except ImportError:
 
     def _noop(*args: Any, **kwargs: Any) -> None:
@@ -172,6 +179,25 @@ except ImportError:
     def _fallback_table(df: pd.DataFrame, **kwargs: Any) -> None:
         st.dataframe(df, width="stretch")
 
+    def _abrir_dashboard_fallback(
+        titulo: str,
+        *,
+        secoes: Any = (),
+        hero: Any = None,
+        hero_kwargs: Any = None,
+        chips: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Sem components.dashboards: herói + chips + sumário na ordem padrão."""
+        if hero is not None:
+            hero(**dict(hero_kwargs or {}))
+        else:
+            st.title(titulo)
+        if chips:
+            render_chips(chips)
+        if secoes:
+            render_sumario(list(secoes), titulo="Nesta página")
+
     def _grafico_indisponivel(*args: Any, **kwargs: Any) -> None:
         """Dashboard Kit ausente: a página segue sem os gráficos extras."""
         return None
@@ -196,6 +222,32 @@ except ImportError:
     render_sidebar_spacer = _noop
     render_sidebar_status = _fallback_sidebar_status
     render_table_html = _fallback_table
+
+    # Sem a camada compartilhada (services/) a página mantém o comportamento
+    # antigo: normalização/formatação locais e leitura de planilha indisponível.
+    import unicodedata as _unicodedata_fallback
+
+    def _normalizar_texto_local(texto: Any) -> str:
+        if _is_na_scalar(texto):
+            return ""
+        txt = str(texto).strip()
+        return "".join(
+            c
+            for c in _unicodedata_fallback.normalize("NFD", txt)
+            if _unicodedata_fallback.category(c) != "Mn"
+        ).upper()
+
+    def _formatar_inteiro_local(valor: Any) -> str:
+        return f"{int(round(_to_float_safe(valor))):,}".replace(",", ".")
+
+    def _planilha_indisponivel(*args: Any, **kwargs: Any) -> pd.DataFrame:
+        return pd.DataFrame()
+
+    abrir_dashboard = _abrir_dashboard_fallback
+    carregar_planilha_gsheets_csv = _planilha_indisponivel
+    fechar_dashboard = _noop
+    formatar_inteiro = _formatar_inteiro_local
+    normalizar_texto_servico = _normalizar_texto_local
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -243,7 +295,6 @@ from config.settings import (
     obter_drive_id_cons,
     obter_sheet_id_ativos,
     obter_sheet_id_prod,
-    url_gsheets_export,
     url_gsheets_gviz_csv,
 )
 from config.settings import (
@@ -328,13 +379,9 @@ def _is_na_scalar(val: Any) -> bool:
         return False
 
 
-def normalizar_texto(texto: Any) -> str:
-    if _is_na_scalar(texto):
-        return ""
-    txt = str(texto).strip()
-    return "".join(
-        c for c in unicodedata.normalize("NFD", txt) if unicodedata.category(c) != "Mn"
-    ).upper()
+#: Normalização de texto delegada a :func:`services.texto.normalizar_texto`
+#: (maiúscula, sem acentos e sem espaços sobrando — fonte única do portal).
+normalizar_texto = normalizar_texto_servico
 
 
 def _to_float_safe(value: Any, default: float = 0.0) -> float:
@@ -356,8 +403,8 @@ def formatar_data_br(valor: Any, com_hora: bool = False) -> str:
     return ts.strftime("%d-%m-%Y %H:%M" if com_hora else "%d-%m-%Y")
 
 
-def _fmt_int(valor: Any) -> str:
-    return f"{int(round(_to_float_safe(valor))):,}".replace(",", ".")
+#: Inteiros em pt-BR delegados a :func:`services.texto.formatar_inteiro`.
+_fmt_int = formatar_inteiro
 
 
 def _fmt_dec(valor: Any, casas: int = 1) -> str:
@@ -591,25 +638,27 @@ def _baixar_drive_csv(file_id: str) -> bytes:
 
 
 @st.cache_data(ttl=CFG.CACHE_TTL_HIERARQUIA, show_spinner="Carregando Hierarquia...")
-def carregar_hierarquia() -> pd.DataFrame:
+def _carregar_hierarquia_com_projeto() -> pd.DataFrame:
+    """Lista de ativos com a coluna extra ``PROJETO`` que este painel agrupa.
+
+    O download passa pela camada compartilhada
+    (:func:`services.google_drive_client.carregar_planilha_gsheets_csv`, com
+    cache em disco e fallbacks de URL); o ``GSheetsConnection`` fica só como
+    último recurso. O mapeamento continua local porque esta página precisa de
+    ``PROJETO``, coluna que a hierarquia canônica do portal não carrega.
+    """
     df = pd.DataFrame()
-    urls = [
-        url_gsheets_export(CFG.SHEET_ID_ATIVOS, fmt="csv", sheet=CFG.SHEET_ABA_ATIVOS),
-        url_gsheets_gviz_csv(CFG.SHEET_ID_ATIVOS, sheet=CFG.SHEET_ABA_ATIVOS),
-    ]
-    for url in urls:
-        if not df.empty:
-            break
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=CFG.TIMEOUT) as resp:
-                data = resp.read()
-            if data and not data.strip().lower().startswith(b"<!doctype html"):
-                df_temp = pd.read_csv(io.BytesIO(data), dtype=str)
-                if not df_temp.empty:
-                    df = df_temp
-        except Exception:
-            pass
+    try:
+        bruto = carregar_planilha_gsheets_csv(
+            CFG.SHEET_ID_ATIVOS,
+            CFG.SHEET_ABA_ATIVOS,
+            usar_cache=True,
+            ttl=CFG.CACHE_TTL_HIERARQUIA,
+        )
+        if isinstance(bruto, pd.DataFrame) and not bruto.empty:
+            df = bruto
+    except Exception:
+        logger.warning("Leitura compartilhada da hierarquia falhou.", exc_info=True)
     if df.empty:
         try:
             from streamlit_gsheets import GSheetsConnection
@@ -621,7 +670,7 @@ def carregar_hierarquia() -> pd.DataFrame:
             if isinstance(df_temp, pd.DataFrame) and not df_temp.empty:
                 df = df_temp
         except Exception:
-            pass
+            logger.warning("Hierarquia indisponível também via conexão Streamlit.")
     if df.empty:
         return pd.DataFrame()
     df = mapear_colunas(
@@ -1337,7 +1386,7 @@ def coletar_alertas(
     return alertas
 
 
-df_hierarquia_raw = carregar_hierarquia()
+df_hierarquia_raw = _carregar_hierarquia_com_projeto()
 df_cons_raw, erro_cons = carregar_consultivos(VERSAO)
 df_prod_raw, erro_prod = carregar_producao(VERSAO)
 if df_hierarquia_raw.empty:
@@ -1481,7 +1530,7 @@ raw_filtro_datas = st.sidebar.date_input(
 _filtro_datas_safe = normalizar_janela_datas(raw_filtro_datas)
 render_sidebar_divider(espacamento="medio")
 if st.sidebar.button("Atualizar bases", width="stretch"):
-    carregar_hierarquia.clear()
+    _carregar_hierarquia_com_projeto.clear()
     carregar_consultivos.clear()
     carregar_producao.clear()
     converter_para_excel.clear()
@@ -1560,13 +1609,18 @@ _periodo_multimes = (_filtro_datas_safe[0].year, _filtro_datas_safe[0].month) !=
     _filtro_datas_safe[1].month,
 )
 
-render_hero_totale_2(
-    titulo="Painel Consolidado de Metas",
-    subtitulo="O que já foi feito, o que a projeção fecha e onde a meta exige ação imediata",
-    badge_texto=f"Período: {_data_inicio_str} até {_data_fim_str}",
-)
-render_chips(
-    [
+abrir_dashboard(
+    "Painel Consolidado de Metas",
+    secoes=SECOES_PAGINA,
+    hero=render_hero_totale_2,
+    hero_kwargs={
+        "titulo": "Painel Consolidado de Metas",
+        "subtitulo": (
+            "O que já foi feito, o que a projeção fecha e onde a meta exige ação imediata"
+        ),
+        "badge_texto": f"Período: {_data_inicio_str} até {_data_fim_str}",
+    },
+    chips=[
         ("Período", f"{_data_inicio_str} a {_data_fim_str}"),
         (
             "Âncora O.S.",
@@ -1577,15 +1631,7 @@ render_chips(
             f"{formatar_data_br(ancora_cons)} · {dias_trab_c}/{dias_tot_c} d.u. ({dias_rest_c} rest.)",
         ),
         ("Regra", "Seg–Sáb · Faltantes = Meta − Realizado"),
-    ]
-)
-render_sumario(
-    [
-        "Resumo Executivo",
-        "Cenários de Fechamento",
-        "Análise Detalhada por Frente",
     ],
-    titulo="Nesta página",
 )
 
 _avisos_operacionais: list[tuple[str, TipoInsightType]] = []
@@ -2364,4 +2410,4 @@ with tab_alertas:
                 f"Mais {len(alertas) - 16} alertas omitidos para preservar a legibilidade."
             )
 
-render_rodape_pagina(versao=VERSAO, ambiente="Produção")
+fechar_dashboard(versao=VERSAO)

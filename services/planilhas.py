@@ -236,7 +236,7 @@ def larguras_colunas(df: pd.DataFrame, *, maxima: int = 60) -> list[int]:
 
 
 def _nomes_sanitizados(aba: str) -> str:
-    """Nome de aba válido no Excel (sem ``[]:*?/\`` e com 31 caracteres)."""
+    r"""Nome de aba válido no Excel (sem ``[]:*?/\`` e com 31 caracteres)."""
     import re
 
     limpo = re.sub(r"[\[\]:*?/\\]", "_", str(aba or "")).strip()
