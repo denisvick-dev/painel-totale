@@ -26,9 +26,11 @@ from components.componentes import (
     render_insight,
     render_kpi,
     render_kpi_sm,
-    render_section_header,
 )
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import CHAVE_MEMORIA, obter_dataframe
 
 # Fallback caso a paleta não tenha essa cor exportada
 try:
@@ -41,6 +43,18 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from streamlit.runtime.uploaded_file_manager import UploadedFile
+
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``/``secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Importação das bases",
+    "Montados (digitação manual)",
+    "Indicadores gerais",
+    "Desempenho por base",
+    "Resultado consolidado",
+    "Análise visual",
+    "Insights automáticos",
+    "Exportação",
+)
 
 
 # ============================================================
@@ -684,14 +698,23 @@ class UI:
         UI._injetar_css()
         render_page_sidebar_theme_selector()
 
-        render_hero_totale_1(
-            titulo="🗺️ Rota Geral | TOTALE",
-            subtitulo="Ponto de partida da roteirização, unificando os dados das bases operacionais",
+        abrir_dashboard(
+            "Rota Geral | TOTALE",
+            secoes=SECOES_PAGINA,
+            hero=render_hero_totale_1,
+            hero_kwargs={
+                "titulo": "🗺️ Rota Geral | TOTALE",
+                "subtitulo": (
+                    "Ponto de partida da roteirização, unificando os dados das "
+                    "bases operacionais"
+                ),
+            },
+            chips={"Bases": " · ".join(Config.BASES)},
         )
 
         # Importação das bases
-        render_section_header(
-            titulo="Importação das bases",
+        cabecalho_secao(
+            "Importação das bases",
             subtitulo="Envie os arquivos consolidados de cada operação.",
             icone="📁",
             badge="CSV ou XLSX",
@@ -700,8 +723,8 @@ class UI:
         arquivos = UI._mostrar_uploaders()
 
         # Digitação Manual dos Montados
-        render_section_header(
-            titulo="Montados (digitação manual)",
+        cabecalho_secao(
+            "Montados (digitação manual)",
             subtitulo="Informe o quantitativo total de técnicos montados por base no dia.",
             icone="📝",
             badge="Entrada Manual",
@@ -1040,7 +1063,14 @@ class UI:
     def _processar_bases(
         arquivos: dict[str, UploadedFile | None], montados_dict: dict[str, int]
     ) -> None:
-        if not all(arquivos.values()):
+        # Base compartilhada da sessão (camada única de dados do portal): serve de
+        # fallback quando falta o arquivo de alguma das três operações.
+        compartilhada = obter_dataframe(CHAVE_MEMORIA)
+        if not isinstance(compartilhada, pd.DataFrame) or compartilhada.empty:
+            compartilhada = None
+
+        faltantes = [nome for nome, arq in arquivos.items() if arq is None]
+        if faltantes and compartilhada is None:
             render_insight("Selecione as **três bases** antes de processar.", "critico")
             st.stop()
 
@@ -1048,6 +1078,15 @@ class UI:
             bases_dfs = {
                 nome: DataProcessor.carregar_arquivo(arq) for nome, arq in arquivos.items()
             }
+            if compartilhada is not None:
+                for nome in faltantes:
+                    bases_dfs[nome] = compartilhada.copy()
+                render_insight(
+                    "Sem arquivo para "
+                    + ", ".join(f"**{nome}**" for nome in faltantes)
+                    + ": usando a base compartilhada carregada na sessão.",
+                    "alerta",
+                )
             if any(df is None for df in bases_dfs.values()):
                 st.stop()
 
@@ -1072,8 +1111,8 @@ class UI:
         UI._mostrar_kpis_por_base(df_bases)
 
         # Resultado Consolidado
-        render_section_header(
-            titulo="Resultado consolidado",
+        cabecalho_secao(
+            "Resultado consolidado",
             subtitulo="Ranking visual por indicador — cores destacam melhor e pior desempenho.",
             icone="📋",
             badge="Detalhamento",
@@ -1086,21 +1125,16 @@ class UI:
         UI._mostrar_insights(df_bases, total)
         UI._mostrar_diagnostico(bases_validas)
 
-        # Exportação Final
-        render_section_header(
+        # Exportação Final (bloco padrão do portal)
+        secao_exportacao(
+            df_final,
+            nome_arquivo="rota_geral",
+            chave="rota_geral",
             titulo="Exportação",
-            subtitulo="Faça o download do consolidado em planilha Excel formatada.",
-            icone="⬇️",
-            badge="Excel",
-            badge_tipo="sucesso",
+            subtitulo="Consolidado das três bases com a linha de total.",
+            rotulo_secao="Baixar resultado em Excel",
         )
-        st.download_button(
-            "Baixar resultado em Excel",
-            data=Visualization.gerar_excel(df_final),
-            file_name="rota_geral.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch",
-        )
+        fechar_dashboard()
 
     @staticmethod
     def _mostrar_legenda_heatmap() -> None:
@@ -1120,8 +1154,8 @@ class UI:
     # -----------------------------------------------------
     @staticmethod
     def _mostrar_kpis_gerais(total: dict[str, Any]) -> None:
-        render_section_header(
-            titulo="Indicadores gerais",
+        cabecalho_secao(
+            "Indicadores gerais",
             subtitulo="Visão consolidada do resultado agregado das três bases.",
             icone="📈",
             badge="Total consolidado",
@@ -1159,8 +1193,8 @@ class UI:
 
     @staticmethod
     def _mostrar_kpis_por_base(df_bases: pd.DataFrame) -> None:
-        render_section_header(
-            titulo="Desempenho por base",
+        cabecalho_secao(
+            "Desempenho por base",
             subtitulo="Cartões comparativos para leitura rápida por operação.",
             icone="🏢",
             badge="Comparativo rápido",
@@ -1194,8 +1228,8 @@ class UI:
 
     @staticmethod
     def _mostrar_graficos(df_bases: pd.DataFrame) -> None:
-        render_section_header(
-            titulo="Análise visual",
+        cabecalho_secao(
+            "Análise visual",
             subtitulo="Gráficos comparativos de participação, médias e intensidade por indicador.",
             icone="📊",
             badge="Gráficos comparativos",
@@ -1223,8 +1257,8 @@ class UI:
 
     @staticmethod
     def _mostrar_insights(df_bases: pd.DataFrame, total: dict[str, Any]) -> None:
-        render_section_header(
-            titulo="Insights automáticos",
+        cabecalho_secao(
+            "Insights automáticos",
             subtitulo="Leituras rápidas geradas a partir dos números consolidados.",
             icone="💡",
             badge="Leitura dos dados",
