@@ -586,6 +586,7 @@ class DataLoader:
         )
         return pd.DataFrame()
 
+    @staticmethod
     def processar_lista_ativos(raw: pd.DataFrame) -> pd.DataFrame:
         if raw is None or raw.empty:
             return pd.DataFrame()
@@ -1453,7 +1454,7 @@ def view_analise_detalhada(
                 return f"{x / total:.0%}" if total else "0%"
 
             render_kpi_sm(k1, "Dentro da Meta", str(dentro), pct(dentro), "verde")
-            render_kpi_sm(k2, "Atenção", str(atencao), pct(atencao), "amarelo")
+            render_kpi_sm(k2, "Atenção", str(atencao), pct(atencao), "laranja")
             render_kpi_sm(k3, "Crítico", str(critico), pct(critico), "vermelho")
             render_kpi_sm(k4, "Conversão Média", f"{conv_med:.1%}", "Para atingir meta", "azul")
     with tab3:

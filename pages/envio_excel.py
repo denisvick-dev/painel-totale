@@ -970,39 +970,39 @@ def _painel_dados(intervalo_seg: int) -> None:
         else 0.0
     )
 
-    specs_resumo: list[dict[str, object]] = [
-        {
-            "label": "Registros Produção",
-            "valor": _fmt_int(len(df_prod)),
-            "sub": "Base Produção",
-            "tema": "azul",
-            "icone": "inventory",
-            "ajuda": "Linhas disponíveis na aba de produção carregada na sessão.",
-        },
-        {
-            "label": "Base Consultiva",
-            "valor": _fmt_int(len(df_cons)),
-            "sub": "Processados",
-            "tema": "laranja",
-            "icone": "description",
-            "ajuda": "Registros consultivos após o processamento das regras de negócio.",
-        },
-        {
-            "label": "Total Equipamentos",
-            "valor": _fmt_int(total_equip),
-            "sub": "Detectados em OBS",
-            "tema": "verde",
-            "icone": "router",
-            "ajuda": "Soma de QTDE_PRODUTOS identificada na base consultiva.",
-        },
-        {
-            "label": "Serviços / Venda",
-            "valor": f"{media_servicos:.2f}".replace(".", ","),
-            "sub": "Média de penetração",
-            "tema": "cinza",
-            "icone": "monitoring",
-            "ajuda": "Média de QTDE_CONSULTIVO por registro da base.",
-        },
+    specs_resumo = [
+        SpecKPIAvancado(
+            label="Registros Produção",
+            valor=_fmt_int(len(df_prod)),
+            sub="Base Produção",
+            tema="azul",
+            icone="inventory",
+            ajuda="Linhas disponíveis na aba de produção carregada na sessão.",
+        ),
+        SpecKPIAvancado(
+            label="Base Consultiva",
+            valor=_fmt_int(len(df_cons)),
+            sub="Processados",
+            tema="laranja",
+            icone="description",
+            ajuda="Registros consultivos após o processamento das regras de negócio.",
+        ),
+        SpecKPIAvancado(
+            label="Total Equipamentos",
+            valor=_fmt_int(total_equip),
+            sub="Detectados em OBS",
+            tema="verde",
+            icone="router",
+            ajuda="Soma de QTDE_PRODUTOS identificada na base consultiva.",
+        ),
+        SpecKPIAvancado(
+            label="Serviços / Venda",
+            valor=f"{media_servicos:.2f}".replace(".", ","),
+            sub="Média de penetração",
+            tema="cinza",
+            icone="monitoring",
+            ajuda="Média de QTDE_CONSULTIVO por registro da base.",
+        ),
     ]
     render_kpi_row(specs_resumo, colunas=4)
 
