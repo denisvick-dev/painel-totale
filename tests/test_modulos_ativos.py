@@ -21,16 +21,13 @@ def _modulos_do_app() -> dict[str, Path]:
     for pasta in ("components", "services", "config", "pages"):
         arquivos.extend((RAIZ / pasta).rglob("*.py"))
     return {
-        ".".join(caminho.relative_to(RAIZ).with_suffix("").parts).removesuffix(".__init__"):
-        caminho
+        ".".join(caminho.relative_to(RAIZ).with_suffix("").parts).removesuffix(".__init__"): caminho
         for caminho in arquivos
         if "__pycache__" not in caminho.parts
     }
 
 
-def _importacoes_locais(
-    modulo: str, caminho: Path, modulos: dict[str, Path]
-) -> set[str]:
+def _importacoes_locais(modulo: str, caminho: Path, modulos: dict[str, Path]) -> set[str]:
     pacote = modulo if caminho.name == "__init__.py" else modulo.rpartition(".")[0]
     nomes: set[str] = set()
     for no in ast.walk(ast.parse(caminho.read_text(encoding="utf-8"))):
@@ -65,9 +62,7 @@ def test_todo_modulo_tem_ligacao_com_uma_entrada_do_app() -> None:
             continue
         assert modulo in modulos, f"Entrada inexistente: {modulo}"
         visitados.add(modulo)
-        pendentes.update(
-            _importacoes_locais(modulo, modulos[modulo], modulos) - visitados
-        )
+        pendentes.update(_importacoes_locais(modulo, modulos[modulo], modulos) - visitados)
 
     orfaos = sorted(set(modulos) - visitados)
     assert not orfaos, (

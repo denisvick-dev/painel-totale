@@ -383,7 +383,10 @@ def grafico_barras_ranking(
         .head(top)
         .sort_values(col_valor, ascending=True)
     )
-    textos = [formatar_numero_br(v) if v >= 10 else f"{v:,.1f}".replace(".", ",") for v in dados[col_valor]]
+    textos = [
+        formatar_numero_br(v) if v >= 10 else f"{v:,.1f}".replace(".", ",")
+        for v in dados[col_valor]
+    ]
     fig = go.Figure(
         go.Bar(
             x=dados[col_valor],
@@ -471,7 +474,10 @@ def grafico_donut(
             labels=[str(r) for r in rotulos],
             values=list(valores),
             hole=0.56,
-            marker={"colors": ConfigCores.PLOTLY_COLORWAY, "line": {"color": "#FFFFFF", "width": 2}},
+            marker={
+                "colors": ConfigCores.PLOTLY_COLORWAY,
+                "line": {"color": "#FFFFFF", "width": 2},
+            },
             textinfo="label+percent",
             insidetextorientation="radial",
             hovertemplate="%{label}: %{value:,.0f} (%{percent})<extra></extra>",
@@ -522,7 +528,10 @@ def grafico_gauge_meta(
         go.Indicator(
             mode="gauge+number",
             value=pct,
-            number={"suffix": "%", "font": {"family": Fontes.TITULO, "size": 30, "color": Cores.TEXTO}},
+            number={
+                "suffix": "%",
+                "font": {"family": Fontes.TITULO, "size": 30, "color": Cores.TEXTO},
+            },
             title={
                 "text": valor_rotulo or titulo,
                 "font": {"family": Fontes.TEXTO, "size": 13, "color": Cores.TEXTO_3},
@@ -590,9 +599,7 @@ def render_filtros_dashboard(
         return df
 
     chave_base = f"{_CHAVE_PREFIXO}::{chave}"
-    colunas_validas = {
-        col: rotulo for col, rotulo in colunas.items() if col in df.columns
-    }
+    colunas_validas = {col: rotulo for col, rotulo in colunas.items() if col in df.columns}
     if not colunas_validas and coluna_data not in (None, *df.columns):
         return df
 
@@ -721,10 +728,7 @@ def render_barra_exportacao(
                     "⬇️ Excel",
                     data=dados_xlsx,
                     file_name=f"{nome_arquivo}_{carimbo}.xlsx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument"
-                        ".spreadsheetml.sheet"
-                    ),
+                    mime=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
                     key=f"{_CHAVE_PREFIXO}::{chave}::xlsx",
                     width="stretch",
                 )

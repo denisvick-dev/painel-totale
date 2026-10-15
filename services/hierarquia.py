@@ -157,10 +157,7 @@ def normalizar_hierarquia(bruto: pd.DataFrame | None) -> pd.DataFrame:
     resultado = resultado.loc[~resultado["LOGIN"].isin(VALORES_AUSENTES)]
     for coluna in ("TÉCNICO", "MONITOR", "BASE"):
         resultado[coluna] = resultado[coluna].map(_limpar_nome).str.title()
-    return (
-        resultado.drop_duplicates(subset=["LOGIN"], keep="last")
-        .reset_index(drop=True)
-    )
+    return resultado.drop_duplicates(subset=["LOGIN"], keep="last").reset_index(drop=True)
 
 
 def _ler_via_conexao_streamlit(sheet_id: str, aba: str | None) -> pd.DataFrame:

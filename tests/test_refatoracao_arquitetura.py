@@ -75,9 +75,9 @@ def test_robo_local_exclusivo_na_pagina_envio_excel() -> None:
     for pagina in ("volumetria.py", "quebra_geral.py", "quebra_unificada.py"):
         codigo_pagina = (RAIZ / "pages" / pagina).read_text(encoding="utf-8")
         assert "renderizar_robo_local(" not in codigo_pagina
-    assert "_aplicar_etl_robo_global" in (
-        RAIZ / "pages" / "quebra_unificada.py"
-    ).read_text(encoding="utf-8")
+    assert "_aplicar_etl_robo_global" in (RAIZ / "pages" / "quebra_unificada.py").read_text(
+        encoding="utf-8"
+    )
     assert "df_memoria_raw" in (RAIZ / "robo.py").read_text(encoding="utf-8")
 
 

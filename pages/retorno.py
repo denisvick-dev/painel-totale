@@ -1170,7 +1170,5 @@ else:
 # 🏁 RODAPÉ (padrão do portal)
 # ==========================================================
 fechar_dashboard(
-    texto=(
-        f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name})"
-    ),
+    texto=(f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name})"),
 )

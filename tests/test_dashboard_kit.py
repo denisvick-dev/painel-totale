@@ -179,7 +179,7 @@ def test_aplicar_tema_figura_define_acabamento_sem_tocar_nos_dados() -> None:
 def test_css_dashboards_contem_seletores_globais_e_chaves_balanceadas() -> None:
     css = kit.css_dashboards()
     for trecho in (
-        '.card-premium:hover',
+        ".card-premium:hover",
         'data-testid="stPlotlyChart"',
         'data-testid="stMetric"',
         'data-testid="stTabs"',
@@ -191,7 +191,7 @@ def test_css_dashboards_contem_seletores_globais_e_chaves_balanceadas() -> None:
         assert trecho in css, f"Trecho ausente no CSS v2: {trecho!r}"
     assert css.count("{") == css.count("}"), "Chaves desbalanceadas no CSS v2"
     # o CSS é global mas nunca pode tocar a sidebar (tema próprio)
-    assert "[data-testid=\"stSidebar\"]" not in css
+    assert '[data-testid="stSidebar"]' not in css
 
 
 def test_entrypoint_injeta_css_dos_dashboards() -> None:

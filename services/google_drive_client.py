@@ -106,9 +106,7 @@ def adicionar_confirm_url(url: str, token: str) -> str:
     partes = urlsplit(url)
     query = dict(parse_qsl(partes.query, keep_blank_values=True))
     query["confirm"] = token
-    return urlunsplit(
-        (partes.scheme, partes.netloc, partes.path, urlencode(query), "")
-    )
+    return urlunsplit((partes.scheme, partes.netloc, partes.path, urlencode(query), ""))
 
 
 def baixar_bytes_drive(
@@ -126,22 +124,14 @@ def baixar_bytes_drive(
         if not e_resposta_html(corpo, ctype):
             return corpo
         token = next(
-            (
-                v
-                for k, v in resposta.cookies.items()
-                if k.startswith("download_warning")
-            ),
+            (v for k, v in resposta.cookies.items() if k.startswith("download_warning")),
             None,
         ) or extrair_token_confirm(corpo)
         if not token:
             continue
-        resposta2 = cliente.get(
-            adicionar_confirm_url(candidato, token), timeout=timeout
-        )
+        resposta2 = cliente.get(adicionar_confirm_url(candidato, token), timeout=timeout)
         resposta2.raise_for_status()
-        if not e_resposta_html(
-            resposta2.content, resposta2.headers.get("Content-Type", "")
-        ):
+        if not e_resposta_html(resposta2.content, resposta2.headers.get("Content-Type", "")):
             return resposta2.content
     raise RuntimeError(
         "O Google Drive respondeu com uma página HTML. "
@@ -309,7 +299,9 @@ def carregar_planilha_gsheets_csv(
         if not resultado.df.empty:
             logger.warning("Cache preservado para %s: %s", sid, resultado.erro)
             return resultado.df
-        logger.warning("Cache de %s indisponível (%s); tentando caminho legado.", sid, resultado.erro)
+        logger.warning(
+            "Cache de %s indisponível (%s); tentando caminho legado.", sid, resultado.erro
+        )
     cliente = sess or criar_sessao_http()
     urls = [
         url_gsheets_export(sid, fmt="csv", sheet=aba),

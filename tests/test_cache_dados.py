@@ -770,9 +770,7 @@ def test_cache_em_disco_nao_entra_no_repositorio() -> None:
         rastreados = [
             str(caminho.relative_to(RAIZ))
             for caminho in RAIZ.rglob("*.parquet")
-            if not any(
-                parte in IGNORADOS_PARQUET for parte in caminho.relative_to(RAIZ).parts
-            )
+            if not any(parte in IGNORADOS_PARQUET for parte in caminho.relative_to(RAIZ).parts)
         ]
 
     suspeitos = [

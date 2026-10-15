@@ -71,9 +71,7 @@ def _arquivos(ignorar_ocultos: bool = False) -> list[Path]:
         and not any(parte in IGNORADOS for parte in caminho.relative_to(RAIZ).parts)
     )
     if ignorar_ocultos:
-        return sorted(
-            caminho for caminho in arquivos if not caminho.name.startswith(".")
-        )
+        return sorted(caminho for caminho in arquivos if not caminho.name.startswith("."))
     return sorted(arquivos)
 
 
@@ -126,9 +124,7 @@ def test_todo_asset_versionado_tem_referencia() -> None:
             if not asset.is_file():
                 continue
             citado = any(
-                asset.name in conteudo
-                for outro, conteudo in textos.items()
-                if outro != asset
+                asset.name in conteudo for outro, conteudo in textos.items() if outro != asset
             )
             if not citado:
                 orfaos.append(f"{asset.relative_to(RAIZ)} (nenhuma referência)")
@@ -157,9 +153,7 @@ def test_sem_diretorios_vazios() -> None:
                 if parent.parts
             ):
                 vazios.append(str(caminho.relative_to(RAIZ)))
-    assert not vazios, "Diretórios vazios na árvore (remova-os):\n  " + "\n  ".join(
-        sorted(vazios)
-    )
+    assert not vazios, "Diretórios vazios na árvore (remova-os):\n  " + "\n  ".join(sorted(vazios))
 
 
 def test_config_versionada_sem_caminho_de_maquina() -> None:
@@ -188,8 +182,8 @@ def test_sem_arquivos_em_utf16() -> None:
             continue
         if inicio in (b"\xff\xfe", b"\xfe\xff"):
             ofensas.append(str(caminho.relative_to(RAIZ)))
-    assert not ofensas, (
-        "Arquivos em UTF-16 (BOM) — salve em UTF-8:\n  " + "\n  ".join(sorted(ofensas))
+    assert not ofensas, "Arquivos em UTF-16 (BOM) — salve em UTF-8:\n  " + "\n  ".join(
+        sorted(ofensas)
     )
 
 
@@ -226,9 +220,7 @@ def _entradas_da_arvore_do_readme() -> list[tuple[int, str]]:
     linhas = [linha for linha in bloco.group(1).splitlines() if linha.strip()]
     entradas: list[tuple[int, str]] = []
     for linha in linhas[1:]:  # primeira linha é o nome do projeto
-        posicao = min(
-            (linha.index(g) for g in ("├", "└") if g in linha), default=-1
-        )
+        posicao = min((linha.index(g) for g in ("├", "└") if g in linha), default=-1)
         if posicao < 0:
             continue
         nome = linha[posicao:].lstrip("├└─ ").split("#", 1)[0].strip().rstrip("/")

@@ -25,16 +25,38 @@ Substituem o `st.metric` nativo (nenhuma página o usa mais).
 from components.kpi_cards import render_metric, render_kpi_row, render_kpi_de_serie
 
 # Drop-in replacement de st.metric (mesma posição dos argumentos)
-render_metric("OS concluídas", "1.248", delta="+8,4%", delta_color="normal",
-              tema="azul", icone="verified", ajuda="Total no período")
+render_metric(
+    "OS concluídas",
+    "1.248",
+    delta="+8,4%",
+    delta_color="normal",
+    tema="azul",
+    icone="verified",
+    ajuda="Total no período",
+)
 
 # Linha de cartões declarativa (padrão das páginas)
-render_kpi_row([
-    {"label": "OS abertas", "valor": "1.248", "sub": "set/2026", "tema": "azul",
-     "icone": "assignment", "ajuda": "Somente produção"},
-    {"label": "SLA", "valor": "92,4%", "delta": 3.1, "tema": "verde",
-     "progresso": (92.4, 95.0), "sparkline": serie_diaria},
-], colunas=2)
+render_kpi_row(
+    [
+        {
+            "label": "OS abertas",
+            "valor": "1.248",
+            "sub": "set/2026",
+            "tema": "azul",
+            "icone": "assignment",
+            "ajuda": "Somente produção",
+        },
+        {
+            "label": "SLA",
+            "valor": "92,4%",
+            "delta": 3.1,
+            "tema": "verde",
+            "progresso": (92.4, 95.0),
+            "sparkline": serie_diaria,
+        },
+    ],
+    colunas=2,
+)
 
 # Cartão derivado de uma série (calcula último valor, variação e sparkline)
 render_kpi_de_serie(label="Volume diário", serie=serie, unidade=" OS", inverso=False)
@@ -59,8 +81,9 @@ horizontal abaixo do gráfico, grade apenas no eixo Y).
 ```python
 from components.graficos import criar_grafico, render_grafico, render_graficos_em_abas
 
-fig = criar_grafico("linha", df, "DATA", "OS", col_grupo="EQUIPE",
-                    titulo="Evolução diária", altura=380)
+fig = criar_grafico(
+    "linha", df, "DATA", "OS", col_grupo="EQUIPE", titulo="Evolução diária", altura=380
+)
 render_grafico(fig, chave="home_evolucao")
 
 # Vários recortes do mesmo dado em abas
@@ -96,7 +119,8 @@ tabelas, alertas, upload, progresso, tooltips, diálogos).
 
 ```python
 from components.css_global import injetar_css_global
-injetar_css_global()          # chamado uma única vez por sessão
+
+injetar_css_global()  # chamado uma única vez por sessão
 ```
 
 - Idempotente: a 1ª chamada injeta (~31 KB), as seguintes devolvem `None`
@@ -121,15 +145,25 @@ Ordem canônica (`ORDEM_PADRAO`), usada como referência em `pages/home.py`:
 
 ```python
 from components.layout_pagina import (
-    barra_filtros, painel, render_barra_acoes, render_cabecalho_pagina,
-    render_chips, render_rodape_pagina, render_sumario, secao,
+    barra_filtros,
+    painel,
+    render_barra_acoes,
+    render_cabecalho_pagina,
+    render_chips,
+    render_rodape_pagina,
+    render_sumario,
+    secao,
 )
 
-render_cabecalho_pagina("Volumetria", subtitulo="Produção por equipe",
-                        badge="PRODUÇÃO", chips=[("Atualizado", "13/10 08:00")])
-render_sumario(["Filtros", "KPIs", "Gráficos"])     # âncoras clicáveis
+render_cabecalho_pagina(
+    "Volumetria",
+    subtitulo="Produção por equipe",
+    badge="PRODUÇÃO",
+    chips=[("Atualizado", "13/10 08:00")],
+)
+render_sumario(["Filtros", "KPIs", "Gráficos"])  # âncoras clicáveis
 
-with barra_filtros("volumetria", colunas=3) as (c1, c2, c3):   # barra fixa no topo
+with barra_filtros("volumetria", colunas=3) as (c1, c2, c3):  # barra fixa no topo
     base = c1.selectbox("Base", opcoes)
     inicio = c2.date_input("Início", value=hoje)
     status = c3.multiselect("Status", opcoes)
@@ -137,7 +171,7 @@ with barra_filtros("volumetria", colunas=3) as (c1, c2, c3):   # barra fixa no t
 with secao("KPIs", icone="monitoring", subtitulo="Recorte atual"):
     render_kpi_row(specs, colunas=4)
 
-with painel("Saída do robô", altura=260):           # altura controlada, com scroll
+with painel("Saída do robô", altura=260):  # altura controlada, com scroll
     st.dataframe(df, width="stretch")
 
 with render_barra_acoes():
@@ -172,21 +206,23 @@ SECOES_PAGINA = ("Filtros", "Indicadores", "Detalhamento", "Exportação")
 
 abrir_dashboard(
     "Volumetria | TOTALE",
-    secoes=SECOES_PAGINA,              # gera o sumário de âncoras
+    secoes=SECOES_PAGINA,  # gera o sumário de âncoras
     chips={"Período": "01/10 a 15/10", "Registros": len(df)},
     registros=len(df),
-    hero=render_hero_totale_1,         # opcional; sem hero usa o cabeçalho padrão
+    hero=render_hero_totale_1,  # opcional; sem hero usa o cabeçalho padrão
 )
 
 cabecalho_secao("Indicadores", icone="insights", subtitulo="Recorte atual")
 with secao("Detalhamento", icone="table"):
     st.dataframe(df, width="stretch")
 
-secao_exportacao(                      # Excel + CSV com nome/carimbo padronizados
-    df, nome_arquivo="volumetria", chave="volumetria",
+secao_exportacao(  # Excel + CSV com nome/carimbo padronizados
+    df,
+    nome_arquivo="volumetria",
+    chave="volumetria",
     rotulo_secao="Baixar resultado",
 )
-fechar_dashboard()                     # rodapé com versão e ambiente
+fechar_dashboard()  # rodapé com versão e ambiente
 ```
 
 Detalhes:
@@ -220,7 +256,7 @@ from services.dados_sessao import CHAVE_MEMORIA, exigir_base, obter_dataframe
 from services.planilhas import gerar_excel, ler_bytes
 from services.texto import formatar_inteiro, normalizar_texto
 
-df = exigir_base(CHAVE_MEMORIA, titulo="Volumetria")   # ou obter_dataframe(...)
+df = exigir_base(CHAVE_MEMORIA, titulo="Volumetria")  # ou obter_dataframe(...)
 planilha = gerar_excel(df, aba="Base", autofiltro=True)
 ```
 
@@ -237,7 +273,10 @@ gerar_excel = partial(gerar_excel_padrao, autofiltro=True)
 
 ```python
 from services.cache_dados import (
-    EspecificacaoFonte, carregar_varias, otimizar_dtypes, render_painel_desempenho,
+    EspecificacaoFonte,
+    carregar_varias,
+    otimizar_dtypes,
+    render_painel_desempenho,
     temporizar,
 )
 
@@ -247,11 +286,11 @@ fontes = [
     EspecificacaoFonte(chave="ativos", produtor=carregar_ativos_local),
 ]
 with temporizar("sincronizacao"):
-    resultados = carregar_varias(fontes, max_workers=4)   # downloads em paralelo
+    resultados = carregar_varias(fontes, max_workers=4)  # downloads em paralelo
 
 for nome, r in resultados.items():
     if r.ok:
-        df = r.df            # r.origem: rede | cache | cache_validado | produtor
+        df = r.df  # r.origem: rede | cache | cache_validado | produtor
 render_painel_desempenho(resultados=resultados)
 ```
 

@@ -159,9 +159,7 @@ def _verificar_senha(digitada: str, armazenada: str) -> bool:
         except (ValueError, TypeError):
             return False
     if len(a) == 64 and all(ch in "0123456789abcdefABCDEF" for ch in a):
-        dk_legado = hashlib.pbkdf2_hmac(
-            "sha256", d.encode("utf-8"), b"", 1
-        ).hex()
+        dk_legado = hashlib.pbkdf2_hmac("sha256", d.encode("utf-8"), b"", 1).hex()
         return hmac.compare_digest(dk_legado, a.lower())
     return hmac.compare_digest(d, a)
 
@@ -212,10 +210,7 @@ def _gravar_gspread(worksheet_name: str, df: pd.DataFrame) -> bool:
             return False
         ws = _gspread_sheet(worksheet_name)
         cabecalho = [_sanitizar_celula_planilha(c) for c in df_api.columns.tolist()]
-        linhas = [
-            [_sanitizar_celula_planilha(v) for v in row]
-            for row in df_api.values.tolist()
-        ]
+        linhas = [[_sanitizar_celula_planilha(v) for v in row] for row in df_api.values.tolist()]
         dados = [cabecalho] + linhas
         num_linhas, num_colunas = len(dados), len(df_api.columns)
 
@@ -799,9 +794,7 @@ def main():
     aplicar_estilo()  # <--- APLICA O CSS DO COMPONENTES.PY
     render_page_sidebar_theme_selector()
     _init()
-    if not st.session_state.autenticado or not isinstance(
-        st.session_state.get("usuario"), Usuario
-    ):
+    if not st.session_state.autenticado or not isinstance(st.session_state.get("usuario"), Usuario):
         tela_login()
     else:
         tela_principal()

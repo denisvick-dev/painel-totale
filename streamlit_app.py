@@ -134,9 +134,7 @@ def handle_exceptions(func: Callable[P, R]) -> Callable[P, R | None]:
             raise
         except Exception as exc:
             error_id = uuid.uuid4().hex[:8].upper()
-            logger.exception(
-                "Erro em %s [ref=%s]: %s", func.__name__, error_id, exc
-            )
+            logger.exception("Erro em %s [ref=%s]: %s", func.__name__, error_id, exc)
             st.error(
                 f"Ocorreu um erro inesperado ao carregar a página "
                 f"(código de referência #{error_id})."

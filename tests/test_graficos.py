@@ -171,8 +171,16 @@ CASOS: list[tuple[str, tuple, dict]] = [
     ("violino", (), {"df_col": "base", "col_y": "OS", "col_x": "EQUIPE"}),
     ("calor", (), {"df_col": "base", "col_x": "EQUIPE", "col_y": "DATA", "col_valor": "OS"}),
     ("calendario", (), {"serie_col": "serie_diaria"}),
-    ("treemap", (), {"df_col": "categorica", "caminho": ["SEGMENTO", "REGIAO"], "col_valor": "VALOR"}),
-    ("sunburst", (), {"df_col": "categorica", "caminho": ["SEGMENTO", "REGIAO"], "col_valor": "VALOR"}),
+    (
+        "treemap",
+        (),
+        {"df_col": "categorica", "caminho": ["SEGMENTO", "REGIAO"], "col_valor": "VALOR"},
+    ),
+    (
+        "sunburst",
+        (),
+        {"df_col": "categorica", "caminho": ["SEGMENTO", "REGIAO"], "col_valor": "VALOR"},
+    ),
     ("funil", (), {"df_col": "funil", "col_etapa": "ETAPA", "col_valor": "QTD"}),
     ("radar", (), {"categorias": ["SLA", "Meta", "Quebra", "Volume"], "valores": [82, 65, 40, 91]}),
     ("cascata", (), {"df_col": "cascata", "col_categoria": "PASSO", "col_valor": "DELTA"}),
@@ -180,9 +188,17 @@ CASOS: list[tuple[str, tuple, dict]] = [
     ("gauge", (), {"valor_pct": 78.0}),
     ("polar", (), {"df_col": "base", "col_theta": "EQUIPE", "col_r": "OS"}),
     ("densidade", (), {"df_col": "base", "col_x": "PONTOS", "col_y": "QUEBRA"}),
-    ("combinado", (), {"df_col": "diaria", "col_x": "DATA", "col_barras": "OS", "col_linha": "SLA"}),
+    (
+        "combinado",
+        (),
+        {"df_col": "diaria", "col_x": "DATA", "col_barras": "OS", "col_linha": "SLA"},
+    ),
     ("progresso", (), {"valores_col": "progresso"}),
-    ("comparativo", (), {"categorias": ["SP", "RJ", "MG"], "atual": [120, 90, 60], "anterior": [100, 95, 40]}),
+    (
+        "comparativo",
+        (),
+        {"categorias": ["SP", "RJ", "MG"], "atual": [120, 90, 60], "anterior": [100, 95, 40]},
+    ),
 ]
 
 

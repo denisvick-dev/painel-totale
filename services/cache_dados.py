@@ -129,7 +129,9 @@ class ResultadoCarga:
         )
 
 
-def resultado_vazio(chave: str = "", erro: str | None = None, inicio: float | None = None) -> ResultadoCarga:
+def resultado_vazio(
+    chave: str = "", erro: str | None = None, inicio: float | None = None
+) -> ResultadoCarga:
     """``ResultadoCarga`` vazio padronizado (nunca devolvemos ``None``)."""
     comeco = time.perf_counter() if inicio is None else inicio
     return ResultadoCarga(
@@ -425,7 +427,9 @@ def idade_cache_segundos(chave: str) -> float | None:
     gravado_em = ""
     if caminho_meta.exists():
         try:
-            gravado_em = str(json.loads(caminho_meta.read_text(encoding="utf-8")).get("gravado_em", ""))
+            gravado_em = str(
+                json.loads(caminho_meta.read_text(encoding="utf-8")).get("gravado_em", "")
+            )
         except (OSError, json.JSONDecodeError):
             gravado_em = ""
     if gravado_em:
@@ -469,9 +473,9 @@ def estatisticas_cache() -> dict[str, Any]:
     total = sum(p.stat().st_size for p in parquets if p.exists())
     mais_recente = ""
     if parquets:
-        mais_recente = datetime.fromtimestamp(
-            max(p.stat().st_mtime for p in parquets)
-        ).strftime("%d/%m/%Y %H:%M:%S")
+        mais_recente = datetime.fromtimestamp(max(p.stat().st_mtime for p in parquets)).strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
     return {
         "itens": len(parquets),
         "tamanho_bytes": int(total),
@@ -744,7 +748,10 @@ def agregar_com_cache(
             gravar_cache_dataframe(
                 f"agg::{chave}",
                 resultado,
-                meta_extra={"tipo": "dataframe", "duracao_ms": (time.perf_counter() - inicio) * 1000},
+                meta_extra={
+                    "tipo": "dataframe",
+                    "duracao_ms": (time.perf_counter() - inicio) * 1000,
+                },
             )
     except Exception:  # pragma: no cover
         logger.debug("Agregação não cacheável para '%s'.", chave, exc_info=True)
@@ -1015,7 +1022,9 @@ def carregar_varias(
                 resultados[spec.chave] = futuro.result()
             except Exception as exc:  # pragma: no cover - proteção de runtime
                 logger.exception("Falha inesperada na carga de '%s'.", spec.chave)
-                resultados[spec.chave] = resultado_vazio(spec.chave, erro=f"{type(exc).__name__}: {exc}")
+                resultados[spec.chave] = resultado_vazio(
+                    spec.chave, erro=f"{type(exc).__name__}: {exc}"
+                )
     return resultados
 
 
@@ -1086,9 +1095,7 @@ def _render_metrica_diagnostico(
     try:
         from components.kpi_cards import render_metric
 
-        render_metric(
-            rotulo, valor, container=coluna, icone=icone, tema=tema, tamanho="compacto"
-        )
+        render_metric(rotulo, valor, container=coluna, icone=icone, tema=tema, tamanho="compacto")
     except Exception:  # pragma: no cover - componentes indisponíveis
         logger.debug("Cartão de KPI indisponível; usando st.metric.", exc_info=True)
         coluna.metric(rotulo, valor)

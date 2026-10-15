@@ -46,7 +46,9 @@ def test_normalizacao_nao_modifica_dataframe_original() -> None:
 def test_limites_preservam_fonte_valida_quando_outra_esta_vazia() -> None:
     fontes = [pd.DataFrame(), pd.DataFrame({"DATA": ["30/09/2026", "02/10/2026"]})]
     assert limites_datas_disponiveis(fontes, date(2026, 10, 15)) == (
-        date(2026, 9, 30), date(2026, 10, 2), date(2026, 10, 1)
+        date(2026, 9, 30),
+        date(2026, 10, 2),
+        date(2026, 10, 1),
     )
 
 
@@ -60,5 +62,7 @@ def test_janela_incompleta_nao_vira_recorte_de_um_dia() -> None:
 def test_filtro_inclui_horario_do_ultimo_dia() -> None:
     serie = pd.Series(["01/10/2026 23:59:59", "02/10/2026 23:59:59", "03/10/2026"])
     assert mascara_periodo(serie, date(2026, 10, 1), date(2026, 10, 2)).tolist() == [
-        True, True, False
+        True,
+        True,
+        False,
     ]

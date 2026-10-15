@@ -284,7 +284,8 @@ def render_chips(
         elif str(rotulo) in acoes:
             variante = "totale-chip--acao"
         texto_valor = (
-            formatar_numero_br(valor) if isinstance(valor, (int, float)) and not isinstance(valor, bool)
+            formatar_numero_br(valor)
+            if isinstance(valor, (int, float)) and not isinstance(valor, bool)
             else str(valor)
         )
         chips.append(_chip_html(str(rotulo), texto_valor, variante=variante))
@@ -638,7 +639,9 @@ def render_barra_acoes(
         return faixa.container()
 
 
-def colunas(quantidade: int, *, gap: str = "small", proporcao: Sequence[float] | None = None) -> list[Any]:
+def colunas(
+    quantidade: int, *, gap: str = "small", proporcao: Sequence[float] | None = None
+) -> list[Any]:
     """Atalho de grade: aceita número de colunas ou proporções."""
     if proporcao:
         return list(st.columns(list(proporcao), gap=gap))

@@ -578,8 +578,7 @@ def main() -> None:
         hero_kwargs={
             "titulo": "Painel de Primeiro Atendimento",
             "subtitulo": (
-                "Gestão Operacional de Ordens de Serviço · "
-                "Merge automático via Google Sheets"
+                "Gestão Operacional de Ordens de Serviço · Merge automático via Google Sheets"
             ),
             "badge": "SISTEMA TOTALE",
         },
@@ -806,9 +805,7 @@ def main() -> None:
         "Ranking de Técnicos — Primeiro Horário de Saída",
         icone="emoji_events",
         badge=(
-            f"{len(df_primeiro_horario)} técnicos"
-            if not df_primeiro_horario.empty
-            else "sem dados"
+            f"{len(df_primeiro_horario)} técnicos" if not df_primeiro_horario.empty else "sem dados"
         ),
     )
 

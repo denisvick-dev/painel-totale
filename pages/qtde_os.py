@@ -675,6 +675,7 @@ class Componentes:
             )
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
+
 # ====================================================
 # 6. APLICAÇÃO PRINCIPAL
 # ====================================================
@@ -694,8 +695,7 @@ def render_hero_os(total: int | None = None) -> None:
     render_hero_totale_2(
         titulo="⚡ Central de Performance | Qtde. de O.S.",
         subtitulo=(
-            "Volumetria operacional, projeções de fechamento e metas por "
-            "supervisor e projeto"
+            "Volumetria operacional, projeções de fechamento e metas por supervisor e projeto"
         ),
         badge_texto=(
             "Acompanhamento em tempo real da quantidade de O.S. executadas por "
@@ -810,9 +810,7 @@ def main() -> None:
     Componentes.performance_tecnicos(proc.tabela_tecnico())
 
     # ── 4) Exportação e rodapé ──
-    secao_exportacao(
-        proc.df, nome_arquivo="quantidade_os", chave="qtde_os", titulo="Exportação"
-    )
+    secao_exportacao(proc.df, nome_arquivo="quantidade_os", chave="qtde_os", titulo="Exportação")
 
     if proc.ultima_atualizacao is not None and pd.notna(proc.ultima_atualizacao):
         st.sidebar.divider()

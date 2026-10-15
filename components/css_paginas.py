@@ -443,7 +443,9 @@ def css_cartao_segmento(cor_marca: str = COR_NAVY) -> str:
                 background: #E2E8F0;
                 """,
             ),
-            _bloco(".status-fill", "height: 100%; border-radius: 999px; background: var(--status);"),
+            _bloco(
+                ".status-fill", "height: 100%; border-radius: 999px; background: var(--status);"
+            ),
             _bloco(
                 ".status-target",
                 """

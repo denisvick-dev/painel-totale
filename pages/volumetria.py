@@ -271,12 +271,8 @@ class DataLoader:
         df_gs = pd.DataFrame(
             {
                 "__LOGIN_KEY": Utils.normalizar_login(hierarquia["LOGIN"]),
-                "__TEC_GS": (
-                    hierarquia["TÉCNICO"] if "TÉCNICO" in hierarquia.columns else ""
-                ),
-                "__MON_GS": (
-                    hierarquia["MONITOR"] if "MONITOR" in hierarquia.columns else ""
-                ),
+                "__TEC_GS": (hierarquia["TÉCNICO"] if "TÉCNICO" in hierarquia.columns else ""),
+                "__MON_GS": (hierarquia["MONITOR"] if "MONITOR" in hierarquia.columns else ""),
             }
         )
         return df_gs.drop_duplicates("__LOGIN_KEY")
@@ -1157,9 +1153,7 @@ def renderizar_volumetria_tecnicos(df: pd.DataFrame, total_montados_fixo: int):
     nm = total_montados_fixo
     dif = max(0, nm - ne)
 
-    a1, a2 = st.tabs(
-        ["🟢 Escalados — Base Importada", "🟡 Montados — Valor Fixo"]
-    )
+    a1, a2 = st.tabs(["🟢 Escalados — Base Importada", "🟡 Montados — Valor Fixo"])
 
     with a1:
         st.markdown(
@@ -1454,9 +1448,7 @@ def main():
                 else "✅ **Base compartilhada disponível na sessão.**"
             )
             rotulo_botao = (
-                "🚀 Processar Dados do Robô"
-                if origem_robo
-                else "🚀 Processar Base Compartilhada"
+                "🚀 Processar Dados do Robô" if origem_robo else "🚀 Processar Base Compartilhada"
             )
             st.success(mensagem)
             if st.button(rotulo_botao, width="stretch", type="primary"):
@@ -1603,16 +1595,12 @@ def main():
             f"Quebra: {kpis['quebra']:.1%}",
             "vermelho",
         )
-        render_kpi_sm(
-            s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul"
-        )
+        render_kpi_sm(s2, "Baixadas", f"{kpis['baixadas']:,}", "Exec + Não Exec", "azul")
         render_kpi_sm(
             s3,
             "Pendentes",
             f"{kpis['pendentes']:,}",
-            f"{kpis['pendentes'] / kpis['total']:.1%} do total"
-            if kpis["total"]
-            else "0%",
+            f"{kpis['pendentes'] / kpis['total']:.1%} do total" if kpis["total"] else "0%",
             "cinza",
         )
 
@@ -1685,9 +1673,7 @@ def main():
                 ],
             }
         )
-        medias["Diferença (Montados - Escalados)"] = (
-            medias["Montados"] - medias["Escalados"]
-        )
+        medias["Diferença (Montados - Escalados)"] = medias["Montados"] - medias["Escalados"]
 
         col_comp_chart, col_comp_tab = st.columns([3, 2], gap="large")
         with col_comp_chart:
@@ -1698,22 +1684,13 @@ def main():
                 Utils.sanitizar_para_pyarrow(medias).style.format(
                     {
                         "Escalados": lambda x: (
-                            f"{x:,.1f}"
-                            .replace(",", "X")
-                            .replace(".", ",")
-                            .replace("X", ".")
+                            f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
                         ),
                         "Montados": lambda x: (
-                            f"{x:,.1f}"
-                            .replace(",", "X")
-                            .replace(".", ",")
-                            .replace("X", ".")
+                            f"{x:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
                         ),
                         "Diferença (Montados - Escalados)": lambda x: (
-                            f"{x:+,.1f}"
-                            .replace(",", "X")
-                            .replace(".", ",")
-                            .replace("X", ".")
+                            f"{x:+,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
                         ),
                     }
                 ),
@@ -1760,18 +1737,14 @@ def main():
                 color_col="Taxa Execução",
                 color_meta=Config.META_EXECUCAO,
             )
-            st.download_button(
-                "📥 Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx"
-            )
+            st.download_button("📥 Baixar Equipes", gerar_excel(te, "Equipes"), "equipes.xlsx")
 
         with t2:
             renderizar_volumetria_tecnicos(df, total_montados_fixo)
 
         with t3:
             md = st.selectbox("Monitor", sel_m, key="monitor_detalhe")
-            tt = calcular_volumetria(
-                df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO]
-            )
+            tt = calcular_volumetria(df[df[Config.COL_MONITOR] == md], [Config.COL_TECNICO])
             tt = tt.sort_values(
                 ["Executada", "Taxa Execução", "Total Alocado"],
                 ascending=[False, False, False],

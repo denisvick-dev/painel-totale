@@ -1423,9 +1423,7 @@ def main() -> None:
         hero=render_hero,
         hero_kwargs={
             "titulo": "🗺️ Gestão de Rota Inicial",
-            "subtitulo": (
-                "Visão operacional de rotas, serviços premium e distribuição de equipes"
-            ),
+            "subtitulo": ("Visão operacional de rotas, serviços premium e distribuição de equipes"),
         },
         chips={
             "Regiões": ", ".join(str(r) for r in regioes) if regioes else "—",

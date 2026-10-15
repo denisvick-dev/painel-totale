@@ -705,8 +705,7 @@ class UI:
             hero_kwargs={
                 "titulo": "🗺️ Rota Geral | TOTALE",
                 "subtitulo": (
-                    "Ponto de partida da roteirização, unificando os dados das "
-                    "bases operacionais"
+                    "Ponto de partida da roteirização, unificando os dados das bases operacionais"
                 ),
             },
             chips={"Bases": " · ".join(Config.BASES)},

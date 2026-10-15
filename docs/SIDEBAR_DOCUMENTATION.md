@@ -107,11 +107,11 @@ from components.sidebar import (
 )
 
 definir_tema_sidebar(tema_ativo)
-aplicar_estilo()                                    # Design System + sidebar
+aplicar_estilo()  # Design System + sidebar
 
 render_sidebar_brand(nome="TOTALE", subtitulo="Portal de Operações", versao="3.4.0")
 render_sidebar_section("Aparência", icone="🎨")
-tema_escolhido = render_sidebar_theme_selector()    # já persiste e reaplica o CSS
+tema_escolhido = render_sidebar_theme_selector()  # já persiste e reaplica o CSS
 render_sidebar_divider()
 render_sidebar_status(status="ok", label="Sistema operacional")
 render_sidebar_spacer("pequeno")

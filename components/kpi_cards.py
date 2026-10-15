@@ -151,7 +151,9 @@ def direcao_delta(
     texto = str(delta).strip()
     if not texto:
         return "none"
-    limpo = texto.replace("−", "-").replace("+", "").replace("%", "").replace(".", "").replace(",", ".")
+    limpo = (
+        texto.replace("−", "-").replace("+", "").replace("%", "").replace(".", "").replace(",", ".")
+    )
     try:
         valor = float(limpo)
     except ValueError:
@@ -314,7 +316,7 @@ def _barra_progresso(
     percentual = proporcao * 100.0
     rotulo = (
         f'<span class="kpi-avancado__progresso-txt" style="color:{cor_texto};">'
-        f'{formatar_numero_br(percentual, 1)}% da meta</span>'
+        f"{formatar_numero_br(percentual, 1)}% da meta</span>"
         if mostrar_rotulo
         else ""
     )
@@ -436,7 +438,9 @@ def render_kpi_card(
                 valor_barra, meta_barra = float(progresso[0]), float(progresso[1])
             except (TypeError, ValueError):
                 valor_barra, meta_barra = 0.0, 0.0
-            barra_html = _barra_progresso(valor_barra, meta_barra, cor=cor_acento, cor_texto=cor_texto)
+            barra_html = _barra_progresso(
+                valor_barra, meta_barra, cor=cor_acento, cor_texto=cor_texto
+            )
         else:
             try:
                 percentual = float(progresso)

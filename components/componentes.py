@@ -70,9 +70,7 @@ def _agora_br() -> datetime:
 # =============================================================================
 @runtime_checkable
 class StreamlitContainer(Protocol):
-    def markdown(
-        self, body: str, unsafe_allow_html: bool = False, **kwargs: Any
-    ) -> Any: ...
+    def markdown(self, body: str, unsafe_allow_html: bool = False, **kwargs: Any) -> Any: ...
 
 
 TemaKPIType: TypeAlias = Literal[
@@ -80,9 +78,7 @@ TemaKPIType: TypeAlias = Literal[
 ]
 TipoInsightType: TypeAlias = Literal["ok", "info", "alerta", "critico", "acao"]
 TipoStatusType: TypeAlias = Literal["ok", "info", "alerta", "critico", "neutro"]
-TipoEmptyStateType: TypeAlias = Literal[
-    "dados", "filtro", "erro", "carregando", "padrao"
-]
+TipoEmptyStateType: TypeAlias = Literal["dados", "filtro", "erro", "carregando", "padrao"]
 TipoBadgeType: TypeAlias = Literal[
     "default", "sucesso", "alerta", "erro", "info", "roxo", "laranja"
 ]
@@ -91,9 +87,7 @@ TipoProgressBarType: TypeAlias = Literal[
 ]
 TipoTrendType: TypeAlias = Literal["up", "down", "neutral", "none"]
 TipoNotificationType: TypeAlias = Literal["sucesso", "info", "alerta", "erro"]
-TipoTimelineItemType: TypeAlias = Literal[
-    "concluido", "em_andamento", "pendente", "cancelado"
-]
+TipoTimelineItemType: TypeAlias = Literal["concluido", "em_andamento", "pendente", "cancelado"]
 TipoHeroType: TypeAlias = Literal[
     "padrao", "migracao", "pme", "totale_1", "totale_2", "novos_domicilios"
 ]
@@ -462,7 +456,9 @@ except ValueError:
     _PANDAS_SUPORTA_MIXED = False
 
 
-def detectar_formato_data(textos: pd.Series, *, limite: int = 200, tolerancia: float = 0.98) -> str | None:
+def detectar_formato_data(
+    textos: pd.Series, *, limite: int = 200, tolerancia: float = 0.98
+) -> str | None:
     """Detecta o formato de data predominante em uma amostra de textos.
 
     Testa os formatos conhecidos em uma amostra curta (até ``limite`` valores)
@@ -602,9 +598,7 @@ def _garantir_container(container: Any = None) -> Any:
         return st
     if hasattr(container, "markdown"):
         return container
-    logger.warning(
-        "Container inválido recebido: %s. Usando st.", type(container).__name__
-    )
+    logger.warning("Container inválido recebido: %s. Usando st.", type(container).__name__)
     return st
 
 
@@ -621,9 +615,7 @@ def _safe_render_html(html_str: str, container: Any = None) -> None:
             c.html(clean)
             return
         except Exception:
-            logger.debug(
-                "st.html indisponível; usando markdown como fallback.", exc_info=True
-            )
+            logger.debug("st.html indisponível; usando markdown como fallback.", exc_info=True)
 
     clean_md = clean.replace("\n", " ").replace("\r", " ").replace("\t", " ")
     clean_md = re.sub(r">\s+<", "><", clean_md)
@@ -687,9 +679,7 @@ def _injetar_js(html: str) -> None:
                 exc_info=True,
             )
     components.html(
-        html.replace("__DOC__", "window.parent.document").replace(
-            "__WIN__", "window.parent"
-        ),
+        html.replace("__DOC__", "window.parent.document").replace("__WIN__", "window.parent"),
         height=0,
     )
 
@@ -1148,13 +1138,10 @@ class PlotlyConfig:
 class FontInjector:
     @staticmethod
     def _build_links_html() -> str:
-        tags = "\n".join(
-            f'<link rel="stylesheet" href="{url}">' for url in GoogleFonts.URLS
-        )
+        tags = "\n".join(f'<link rel="stylesheet" href="{url}">' for url in GoogleFonts.URLS)
         return (
             '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
-            '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
-            + tags
+            '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' + tags
         )
 
     @staticmethod
@@ -1231,9 +1218,7 @@ class CSSInjector:
         inicio = css_html.find("<style>")
         fim = css_html.rfind("</style>")
         regras = (
-            css_html[inicio + len("<style>") : fim]
-            if inicio >= 0 and fim > inicio
-            else css_html
+            css_html[inicio + len("<style>") : fim] if inicio >= 0 and fim > inicio else css_html
         )
         payload = json.dumps(regras).replace("<", "\\u003c")
         _injetar_js(
@@ -1318,14 +1303,10 @@ def render_hero(titulo: str, subtitulo: str = "", badge: str = "") -> None:
         raise ValueError("render_hero: 'titulo' não pode ser vazio.")
     _garantir_css_heros()
     badge_html = (
-        f'<span class="hero-badge">{Validadores.html_escape(badge)}</span>'
-        if badge
-        else ""
+        f'<span class="hero-badge">{Validadores.html_escape(badge)}</span>' if badge else ""
     )
     sub_html = (
-        f'<p class="hero-subtitle">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
+        f'<p class="hero-subtitle">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
     )
     _safe_render_html(
         '<div class="hero-corp"><div class="hero-content">'
@@ -1345,7 +1326,9 @@ def render_hero_totale_1(
     if not titulo:
         raise ValueError("render_hero_totale_1: 'titulo' não pode ser vazio.")
     _garantir_css_heros()
-    badge_efetivo = str(kwargs.get("pill_texto") or kwargs.get("badge_texto") or badge or "").strip()
+    badge_efetivo = str(
+        kwargs.get("pill_texto") or kwargs.get("badge_texto") or badge or ""
+    ).strip()
     icone_efetivo = str(kwargs.get("pill_icone") or icone or "").strip()
     icone_html = _icone_hero(icone_efetivo)
     b = (
@@ -1354,16 +1337,8 @@ def render_hero_totale_1(
         if badge_efetivo
         else ""
     )
-    s = (
-        f'<p class="th-sub-muted">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
-    )
-    m = (
-        f'<div class="th-meta">{Validadores.html_escape(meta_info)}</div>'
-        if meta_info
-        else ""
-    )
+    s = f'<p class="th-sub-muted">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
+    m = f'<div class="th-meta">{Validadores.html_escape(meta_info)}</div>' if meta_info else ""
     _safe_render_html(
         '<div class="totale-hero-1"><div>'
         f'{b}<h1 class="th-title-lg" style="color:#FFFFFF !important; -webkit-text-fill-color:#FFFFFF !important;">{Validadores.html_escape(titulo)}</h1>{s}{m}</div></div>'
@@ -1390,16 +1365,8 @@ def render_hero_totale_2(
         if badge_texto
         else ""
     )
-    tag = (
-        f'<span class="th-tag">{Validadores.html_escape(tag_info)}</span>'
-        if tag_info
-        else ""
-    )
-    s = (
-        f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
-    )
+    tag = f'<span class="th-tag">{Validadores.html_escape(tag_info)}</span>' if tag_info else ""
+    s = f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
     card = (
         '<div class="totale-hero-2-card">'
         f'<div class="th-card-label">{Validadores.html_escape(label_destaque)}</div>'
@@ -1424,16 +1391,11 @@ def render_hero_migracao(
         raise ValueError("render_hero_migracao: 'titulo' não pode ser vazio.")
     _garantir_css_heros()
     badge_html = (
-        '<div class="hero-badge">'
-        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
+        f'<div class="hero-badge">{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>'
         if badge
         else ""
     )
-    sub_html = (
-        f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
-    )
+    sub_html = f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
     stats_html = _hero_stats(stats, "#FDBA74")  # Laranja claro oficial (SECUNDARIA_LIGHT)
     _safe_render_html(
         '<div class="hero-migracao"><div>'
@@ -1453,16 +1415,11 @@ def render_hero_pme(
         raise ValueError("render_hero_pme: 'titulo' não pode ser vazio.")
     _garantir_css_heros()
     badge_html = (
-        '<div class="hero-badge">'
-        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
+        f'<div class="hero-badge">{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>'
         if badge
         else ""
     )
-    sub_html = (
-        f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
-    )
+    sub_html = f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
     feat_html = ""
     if features:
         pills = "".join(
@@ -1470,7 +1427,9 @@ def render_hero_pme(
             f"{Validadores.html_escape(feature)}</span>"
             for feature in list(features)[:5]
         )
-        feat_html = f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;">{pills}</div>'
+        feat_html = (
+            f'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;">{pills}</div>'
+        )
     _safe_render_html(
         '<div class="hero-pme"><div>'
         f'{badge_html}<h1 class="th-title-lg">{Validadores.html_escape(titulo)}</h1>'
@@ -1490,20 +1449,13 @@ def render_hero_novos_domicilios(
         raise ValueError("render_hero_novos_domicilios: 'titulo' não pode ser vazio.")
     _garantir_css_heros()
     badge_html = (
-        '<div class="hero-badge">'
-        f"{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>"
+        f'<div class="hero-badge">{_icone_hero(icone)} {Validadores.html_escape(badge)}</div>'
         if badge
         else ""
     )
-    sub_html = (
-        f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>'
-        if subtitulo
-        else ""
-    )
+    sub_html = f'<p class="th-sub">{Validadores.html_escape(subtitulo)}</p>' if subtitulo else ""
     meta_html = (
-        f'<div class="th-meta">{Validadores.html_escape(meta_info)}</div>'
-        if meta_info
-        else ""
+        f'<div class="th-meta">{Validadores.html_escape(meta_info)}</div>' if meta_info else ""
     )
     _safe_render_html(
         '<div class="hero-domicilios"><div>'
@@ -1563,11 +1515,7 @@ def render_section_header(
     # 4.7.1: chamada antiga (icone, titulo, subtitulo) não pode quebrar o layout.
     if _parece_icone(titulo_final) and _parece_titulo(icone_final):
         titulo_final, icone_final = icone_final, titulo_final
-        if (
-            badge_final
-            and not subtitulo_final
-            and (" " in badge_final or len(badge_final) > 18)
-        ):
+        if badge_final and not subtitulo_final and (" " in badge_final or len(badge_final) > 18):
             subtitulo_final = badge_final
             badge_final = ""
         logger.warning(
@@ -1647,9 +1595,7 @@ def _card_premium(
     if delta:
         trend_norm = normalizar_tipo_trend(delta_tipo)
         seta = ConfigCores.TREND_ICONS.get(trend_norm, "")
-        classe_delta = "trend-pill" + (
-            f" trend-{trend_norm}" if trend_norm != "none" else ""
-        )
+        classe_delta = "trend-pill" + (f" trend-{trend_norm}" if trend_norm != "none" else "")
         delta_html = (
             f'<span class="{classe_delta}"><span aria-hidden="true">{seta}</span>'
             f"{Validadores.html_escape(delta)}</span>"
@@ -1705,18 +1651,14 @@ def render_kpi_sm(
     tema: TemaKPIType = "azul",
     icone: str = "",
 ) -> None:
-    _card_premium(
-        container, label, valor, sub, tema, icone, colorida=True, compacto=True
-    )
+    _card_premium(container, label, valor, sub, tema, icone, colorida=True, compacto=True)
 
 
 def render_insight(msg: str, tipo: TipoInsightType = "info", titulo: str = "") -> None:
     if not msg:
         return
     tipo_norm = normalizar_tipo_insight(tipo)
-    bg, texto, borda, icone = ConfigCores.INSIGHT.get(
-        tipo_norm, ConfigCores.INSIGHT["info"]
-    )
+    bg, texto, borda, icone = ConfigCores.INSIGHT.get(tipo_norm, ConfigCores.INSIGHT["info"])
     titulo_html = (
         f'<span class="totale-insight-title">{Validadores.html_escape(titulo)}</span>'
         if titulo
@@ -1739,9 +1681,7 @@ def render_notification(
     if not mensagem:
         return
     tipo_norm = normalizar_tipo(tipo, {"sucesso", "info", "alerta", "erro"}, "info")
-    bg, fg, borda, icone = ConfigCores.NOTIFICATION.get(
-        tipo_norm, ConfigCores.NOTIFICATION["info"]
-    )
+    bg, fg, borda, icone = ConfigCores.NOTIFICATION.get(tipo_norm, ConfigCores.NOTIFICATION["info"])
     titulo_html = (
         f'<strong style="display:block;margin-bottom:2px;font-size:13px;">{Validadores.html_escape(titulo)}</strong>'
         if titulo
@@ -1766,9 +1706,7 @@ def render_empty_state(
         tipo, ConfigCores.EMPTY_STATE["padrao"]
     )
     desc_html = (
-        f'<p class="empty-state-desc">{Validadores.html_escape(descricao)}</p>'
-        if descricao
-        else ""
+        f'<p class="empty-state-desc">{Validadores.html_escape(descricao)}</p>' if descricao else ""
     )
     acao_html = (
         f'<p style="margin:12px 0 0;font-size:13px;color:{Cores.SECUNDARIA};font-weight:700;">'
@@ -1795,9 +1733,7 @@ def render_progress_bar(
     animado: bool = True,
 ) -> None:
     tema_norm = normalizar_tipo_progress(tema)
-    altura_px = {"pequeno": "6px", "medio": "8px", "grande": "10px"}.get(
-        str(altura).lower(), "8px"
-    )
+    altura_px = {"pequeno": "6px", "medio": "8px", "grande": "10px"}.get(str(altura).lower(), "8px")
     try:
         v, m = float(valor), float(maximo)
     except Exception:
@@ -1867,15 +1803,11 @@ def render_table_html(
                 alinhamentos[c] = "right"
 
     ld_coluna = str(linha_destaque.get("coluna", "")) if linha_destaque else ""
-    ld_valor = (
-        str(linha_destaque.get("valor", "")).strip().upper() if linha_destaque else ""
-    )
+    ld_valor = str(linha_destaque.get("valor", "")).strip().upper() if linha_destaque else ""
 
     def formatar_data_limpa(valor_raw: Any) -> str:
         s = str(valor_raw).strip()
-        match_datetime = re.match(
-            r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})", s
-        )
+        match_datetime = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})", s)
         match_date = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
         if match_datetime:
             ano, mes, dia, h, m, _ = match_datetime.groups()
@@ -1944,11 +1876,7 @@ def render_table_html(
                 "EM ANDAMENTO",
             ):
                 val_str = f'<span class="td-badge-neutro">{val_str}</span>'
-            if (
-                color_rules
-                and col in color_rules
-                and isinstance(color_rules[col], dict)
-            ):
+            if color_rules and col in color_rules and isinstance(color_rules[col], dict):
                 classe_cor = color_rules[col].get(str(val), "")
                 if classe_cor in ("positive", "sucesso"):
                     val_str = f'<span class="td-badge-ok">{val_str}</span>'
@@ -1959,9 +1887,7 @@ def render_table_html(
                 if align == "right"
                 else ""
             )
-            td_parts.append(
-                f'<td style="text-align:{align};{font_style}">{val_str}</td>'
-            )
+            td_parts.append(f'<td style="text-align:{align};{font_style}">{val_str}</td>')
         classe_linha: list[str] = []
         if eh_destaque:
             classe_linha.append("linha-destaque")
@@ -2064,9 +1990,7 @@ def render_badge(
     )
 
 
-def render_skeleton(
-    linhas: int = 3, altura_linha: int = 16, largura_ultima: str = "60%"
-) -> None:
+def render_skeleton(linhas: int = 3, altura_linha: int = 16, largura_ultima: str = "60%") -> None:
     linhas = max(1, int(linhas))
     rows = []
     for i in range(linhas):

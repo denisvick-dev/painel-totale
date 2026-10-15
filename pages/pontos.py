@@ -1040,13 +1040,9 @@ def render_hero_producao(registros: int | None = None) -> None:
     """Herói oficial da página (destaque = O.S. do recorte carregado)."""
     render_hero_totale_2(
         titulo="📈 Central de Performance | Produção por Técnico",
-        subtitulo=(
-            "Acompanhamento individual de execução, produtividade e performance em campo"
-        ),
+        subtitulo=("Acompanhamento individual de execução, produtividade e performance em campo"),
         badge_texto="Acompanhamento em tempo real da produção de técnicos e equipes",
-        valor_destaque=(
-            Utilitarios.formatar_numero(registros) if registros is not None else "—"
-        ),
+        valor_destaque=(Utilitarios.formatar_numero(registros) if registros is not None else "—"),
         label_destaque="O.S. NO RECORTE",
     )
 
@@ -1110,7 +1106,9 @@ with secao(
     subtitulo="Recorte atual comparado ao total carregado da base.",
     badge=f"{TOTAL_GERAL_OS} O.S. na base",
 ):
-    dias_brutos, dias_seguros, ultima_atualizacao, dias_passados = Utilitarios.calcular_dias_uteis(df)
+    dias_brutos, dias_seguros, ultima_atualizacao, dias_passados = Utilitarios.calcular_dias_uteis(
+        df
+    )
 
     total_equipes_filtro = df["Nome Equipe"].nunique() if "Nome Equipe" in df.columns else 0
     total_os_filtro = len(df)
@@ -1204,7 +1202,9 @@ aba_ranking, aba_executivo, aba_aderencia, aba_evolucao, aba_frequencia = st.tab
 
 # ── ABA 1 ──────────────────────────────────────────
 with aba_ranking:
-    cabecalho_secao("Ranking & Metas", icone="emoji_events", subtitulo="Pódio, metas e projeção por equipe.")
+    cabecalho_secao(
+        "Ranking & Metas", icone="emoji_events", subtitulo="Pódio, metas e projeção por equipe."
+    )
     cabecalho_secao("", ancora=False)
     ComponenteVisual.gerar_podio(ranking)
 
@@ -1275,7 +1275,11 @@ with aba_ranking:
 
 # ── ABA 2 ──────────────────────────────────────────
 with aba_executivo:
-    cabecalho_secao("Visão Executiva", icone="business_center", subtitulo="Saúde da operação e ranking de supervisores.")
+    cabecalho_secao(
+        "Visão Executiva",
+        icone="business_center",
+        subtitulo="Saúde da operação e ranking de supervisores.",
+    )
     cabecalho_secao("", ancora=False)
     if ranking.empty:
         render_insight(
@@ -1307,7 +1311,11 @@ with aba_executivo:
 
 # ── ABA 3 (Aderência Custom HTML) ────────────────────────────────────────
 with aba_aderencia:
-    cabecalho_secao("Aderência (Projeção)", icone="track_changes", subtitulo="Equipes com projeção acima da meta de 300 pontos.")
+    cabecalho_secao(
+        "Aderência (Projeção)",
+        icone="track_changes",
+        subtitulo="Equipes com projeção acima da meta de 300 pontos.",
+    )
     cabecalho_secao("", ancora=False)
     if ranking.empty:
         render_insight("Sem dados disponíveis para calcular a aderência.", tipo="info")
@@ -1371,7 +1379,9 @@ with aba_aderencia:
 
 # ── ABA 4 ──────────────────────────────────────────
 with aba_evolucao:
-    cabecalho_secao("Evolução Temporal", icone="trending_up", subtitulo="Curva de tendência diária das equipes.")
+    cabecalho_secao(
+        "Evolução Temporal", icone="trending_up", subtitulo="Curva de tendência diária das equipes."
+    )
     col_data = Utilitarios.encontrar_coluna_data(df)
     cabecalho_secao("", ancora=False)
     if col_data and not ranking.empty:
@@ -1411,7 +1421,11 @@ with aba_evolucao:
 
 # ── ABA 5 (Frequência Custom HTML) ──────────────────────────────────────────
 with aba_frequencia:
-    cabecalho_secao("Frequência", icone="calendar_month", subtitulo="Dias ativos em campo por equipe, supervisor e projeto.")
+    cabecalho_secao(
+        "Frequência",
+        icone="calendar_month",
+        subtitulo="Dias ativos em campo por equipe, supervisor e projeto.",
+    )
     cabecalho_secao("", ancora=False)
     col_data_frequencia = Utilitarios.encontrar_coluna_data(df)
     frequencia_base = resumo_frequencia(
@@ -1599,9 +1613,7 @@ with aba_frequencia:
                     "Máx. Dias": lambda v: f"{int(_para_float(v))} dias",
                     "Registros": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
                 }
-                ComponenteVisual.render_tabela_html_custom(
-                    freq_por_sup, fmt_sup_freq, height=280
-                )
+                ComponenteVisual.render_tabela_html_custom(freq_por_sup, fmt_sup_freq, height=280)
 
             with col_res_proj:
                 cabecalho_secao("", ancora=False)
@@ -1627,9 +1639,7 @@ with aba_frequencia:
                     "Máx. Dias": lambda v: f"{int(_para_float(v))} dias",
                     "Registros": lambda v: f"{int(_para_float(v)):,}".replace(",", "."),
                 }
-                ComponenteVisual.render_tabela_html_custom(
-                    freq_por_proj, fmt_proj_freq, height=280
-                )
+                ComponenteVisual.render_tabela_html_custom(freq_por_proj, fmt_proj_freq, height=280)
 
     st.caption(
         "Este indicador conta apenas datas com produção registrada. Não identifica faltas: "

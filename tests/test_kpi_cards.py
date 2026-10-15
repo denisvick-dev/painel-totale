@@ -242,7 +242,7 @@ def test_cartoes_nao_usam_html_nao_escapado_do_usuario() -> None:
     # Rótulo/valor escapados: nenhum tag ou handler cru sobrevive.
     assert "<script>" not in corpo
     assert "&lt;script&gt;" in corpo
-    assert '<img src=x' not in corpo
+    assert "<img src=x" not in corpo
     assert 'onerror="alert(2)"' not in corpo
     assert "&quot;" in corpo  # aspas escapadas dentro do atributo title
 

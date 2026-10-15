@@ -194,4 +194,3 @@ def test_fontes_heros_incluem_oscine_local_e_protecao_de_contraste() -> None:
     assert "var(--font-titulo)" in _CSS_HEROS
     assert ".hero-title" in _CSS_RESET_GLOBAL
     assert "totale-icon-glyph" in _icone_hero("dashboard")
-

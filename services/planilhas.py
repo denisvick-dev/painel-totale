@@ -58,9 +58,7 @@ EXTENSOES_ACEITAS: frozenset[str] = frozenset({".csv", ".txt", ".xlsx", ".xlsm",
 #: Cor do cabeçalho das planilhas exportadas (azul oficial TOTALE).
 COR_CABECALHO: str = "#012869"
 
-MIME_XLSX = (
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MIME_CSV = "text/csv"
 
 __all__ = [
@@ -94,8 +92,7 @@ def _decodificar_csv(conteudo: bytes) -> str:
         except UnicodeDecodeError:
             continue
     raise ValueError(
-        "Não foi possível identificar o encoding do CSV "
-        f"(tentados: {', '.join(ENCODINGS_CSV)})."
+        f"Não foi possível identificar o encoding do CSV (tentados: {', '.join(ENCODINGS_CSV)})."
     )
 
 
@@ -202,15 +199,12 @@ def ler_upload(
 # ====================================================
 # 📤 BLOCO 2: EXPORTAÇÃO CORPORATIVA
 # ====================================================
-def nome_com_carimbo(nome_base: str, extensao: str = "xlsx", *, quando: datetime | None = None) -> str:
+def nome_com_carimbo(
+    nome_base: str, extensao: str = "xlsx", *, quando: datetime | None = None
+) -> str:
     """``producao`` → ``producao_20261014_1830.xlsx`` (sem espaços/acentos)."""
     instante = quando or datetime.now()
-    limpo = (
-        str(nome_base or "dados")
-        .strip()
-        .replace(" ", "_")
-        .replace("/", "-")
-    )
+    limpo = str(nome_base or "dados").strip().replace(" ", "_").replace("/", "-")
     sufixo = str(extensao or "xlsx").lstrip(".")
     return f"{limpo}_{instante:%Y%m%d_%H%M}.{sufixo}"
 
@@ -223,9 +217,7 @@ def larguras_colunas(df: pd.DataFrame, *, maxima: int = 60) -> list[int]:
     """
     larguras: list[int] = []
     for coluna in df.columns:
-        comprimentos = (
-            df[coluna].head(200).fillna("").astype(str).str.len().dropna()
-        )
+        comprimentos = df[coluna].head(200).fillna("").astype(str).str.len().dropna()
         maior = comprimentos.max() if not comprimentos.empty else 10
         try:
             maior_int = int(maior)
@@ -373,9 +365,9 @@ def gerar_csv(
     if df is None:
         raise ValueError("Não há DataFrame para exportar.")
     recorte = df[list(colunas)] if colunas else df
-    return recorte.to_csv(
-        index=False, sep=separador, decimal=decimal, encoding="utf-8-sig"
-    ).encode("utf-8-sig")
+    return recorte.to_csv(index=False, sep=separador, decimal=decimal, encoding="utf-8-sig").encode(
+        "utf-8-sig"
+    )
 
 
 # ====================================================

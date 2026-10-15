@@ -148,7 +148,12 @@ class Calculos:
 # ====================================================
 #: Nomes históricos das colunas da lista de ativos nesta página. A leitura e a
 #: normalização vivem em ``services.hierarquia`` (fonte única do portal).
-COLUNAS_HIERARQUIA_LEGADAS = {"LOGIN": "Login", "TÉCNICO": "Técnico", "MONITOR": "Monitor", "BASE": "Base"}
+COLUNAS_HIERARQUIA_LEGADAS = {
+    "LOGIN": "Login",
+    "TÉCNICO": "Técnico",
+    "MONITOR": "Monitor",
+    "BASE": "Base",
+}
 
 
 def preparar_ranking(
@@ -365,9 +370,7 @@ def render_hero_consultivo() -> None:
     """Herói oficial da página."""
     render_hero_totale_2(
         titulo="📋 Painel de Consultivos e Produtos",
-        subtitulo=(
-            "Análise de mix de produtos, consultivos realizados e oportunidades comerciais"
-        ),
+        subtitulo=("Análise de mix de produtos, consultivos realizados e oportunidades comerciais"),
         badge_texto="Atualização em tempo real",
     )
 

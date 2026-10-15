@@ -344,7 +344,7 @@ from components.layout_pagina import cabecalho_secao, secao
 
 abrir_dashboard(
     "Título do painel",
-    secoes=SECOES_PAGINA,          # alimenta o sumário de âncoras
+    secoes=SECOES_PAGINA,  # alimenta o sumário de âncoras
     chips={"Período": "01/10 a 15/10"},
     registros=len(df),
 )

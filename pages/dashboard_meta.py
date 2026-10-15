@@ -69,12 +69,8 @@ SECOES_PAGINA: tuple[str, ...] = (
 )
 
 TipoInsightType = Literal["ok", "info", "alerta", "critico", "acao"]
-TemaKPIType = Literal[
-    "azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"
-]
-TipoProgressBarType = Literal[
-    "azul", "laranja", "verde", "vermelho", "roxo", "gradiente"
-]
+TemaKPIType = Literal["azul", "verde", "vermelho", "laranja", "cinza", "roxo", "gradiente"]
+TipoProgressBarType = Literal["azul", "laranja", "verde", "vermelho", "roxo", "gradiente"]
 
 try:
     from components.componentes import (  # pyright: ignore[reportMissingImports]
@@ -139,11 +135,7 @@ except ImportError:
         container.metric(label, valor, delta=trend_valor or None, help=sub or None)
 
     def _fallback_section_header(*args: Any, **kwargs: Any) -> None:
-        titulo = (
-            kwargs.get("titulo")
-            or kwargs.get("title")
-            or (args[0] if args else "Seção")
-        )
+        titulo = kwargs.get("titulo") or kwargs.get("title") or (args[0] if args else "Seção")
         st.subheader(str(titulo))
 
     def _fallback_progress(
@@ -249,9 +241,7 @@ except ImportError:
     formatar_inteiro = _formatar_inteiro_local
     normalizar_texto_servico = _normalizar_texto_local
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("dashboard_meta")
 st.set_page_config(
     page_title="Metas | TOTALE",
@@ -311,9 +301,7 @@ from services.google_drive_client import baixar_arquivo_drive, criar_sessao_http
 
 @dataclass
 class Configuracoes:
-    URL_ATIVOS: str = field(
-        default_factory=lambda: _obter_secret("URL_ATIVOS", URL_ATIVOS_BASE)
-    )
+    URL_ATIVOS: str = field(default_factory=lambda: _obter_secret("URL_ATIVOS", URL_ATIVOS_BASE))
     SHEET_ID_ATIVOS: str = field(default_factory=obter_sheet_id_ativos)
     SHEET_ABA_ATIVOS: str = _DEFAULT_ABA_ATIVOS
     SHEET_ID_PROD: str = field(default_factory=obter_sheet_id_prod)
@@ -430,9 +418,7 @@ def mapear_colunas(df: pd.DataFrame, regras: dict[str, list[str]]) -> pd.DataFra
             if destino in destino_para_origem:
                 break
     if destino_para_origem:
-        df_copia = df_copia.rename(
-            columns={o: d for d, o in destino_para_origem.items()}
-        )
+        df_copia = df_copia.rename(columns={o: d for d, o in destino_para_origem.items()})
     return df_copia.loc[:, ~df_copia.columns.duplicated(keep="first")].copy()
 
 
@@ -483,9 +469,7 @@ def _feriados_brasil(ano: int) -> tuple[date, ...]:
 def _busday_count(inicio: date, fim_inclusivo: date, feriados: tuple[date, ...]) -> int:
     if fim_inclusivo < inicio:
         return 0
-    hol = np.array(
-        [np.datetime64(str(d), "D") for d in feriados], dtype="datetime64[D]"
-    )
+    hol = np.array([np.datetime64(str(d), "D") for d in feriados], dtype="datetime64[D]")
     return int(
         np.busday_count(
             np.datetime64(str(inicio), "D"),
@@ -532,9 +516,7 @@ def _fator_por_data_max(data_max: date) -> tuple[float, int, int, int]:
     return r["fator"], r["uteis_restantes"], r["total_uteis"], r["uteis_decorridos"]
 
 
-def fator_projecao(
-    df: pd.DataFrame, coluna_data: str = "DATA"
-) -> tuple[float, int, int, int]:
+def fator_projecao(df: pd.DataFrame, coluna_data: str = "DATA") -> tuple[float, int, int, int]:
     ancora = data_ancora_projecao(df, coluna_data)
     return (1.0, 0, 0, 0) if ancora is None else _fator_por_data_max(ancora)
 
@@ -560,9 +542,7 @@ def classificar_semaforo(valor_projetado: Any, metas: dict[str, int]) -> str:
     return "🟢 Meta atingida"
 
 
-def calcular_cenarios(
-    realizado: Any, fator: float, variacao: float = 0.15
-) -> dict[str, int]:
+def calcular_cenarios(realizado: Any, fator: float, variacao: float = 0.15) -> dict[str, int]:
     real = max(0, int(round(_to_float_safe(realizado))))
     atual = max(real, int(real * max(_to_float_safe(fator), 0.0)))
     restante_projetado = max(atual - real, 0)
@@ -590,9 +570,7 @@ def adicionar_cenarios_agrupados(
     return df
 
 
-def resolver_status_atingimento(
-    valor: Any, metas: dict[str, int]
-) -> tuple[str, TemaKPIType]:
+def resolver_status_atingimento(valor: Any, metas: dict[str, int]) -> tuple[str, TemaKPIType]:
     v = _to_float_safe(valor)
     if v >= metas["alta_perf"]:
         return "Alta Performance", "verde"
@@ -664,9 +642,7 @@ def _carregar_hierarquia_com_projeto() -> pd.DataFrame:
             from streamlit_gsheets import GSheetsConnection
 
             conn = st.connection("gsheets", type=GSheetsConnection)
-            df_temp = conn.read(
-                spreadsheet=CFG.URL_ATIVOS, worksheet=CFG.SHEET_ABA_ATIVOS, ttl=0
-            )
+            df_temp = conn.read(spreadsheet=CFG.URL_ATIVOS, worksheet=CFG.SHEET_ABA_ATIVOS, ttl=0)
             if isinstance(df_temp, pd.DataFrame) and not df_temp.empty:
                 df = df_temp
         except Exception:
@@ -697,9 +673,7 @@ def _carregar_hierarquia_com_projeto() -> pd.DataFrame:
     df = add_norm_cols(df)
     if "_LOGIN_NORM" in df.columns:
         df = df[df["_LOGIN_NORM"].str.strip() != ""].copy()
-        return df.drop_duplicates(subset=["_LOGIN_NORM"], keep="last").reset_index(
-            drop=True
-        )
+        return df.drop_duplicates(subset=["_LOGIN_NORM"], keep="last").reset_index(drop=True)
     return df.drop_duplicates(subset=["LOGIN"], keep="last").reset_index(drop=True)
 
 
@@ -855,9 +829,7 @@ def add_norm_cols(df: pd.DataFrame) -> pd.DataFrame:
                 df_copia[src]
                 .astype(str)
                 .map(normalizar_texto)
-                .replace(
-                    ["", "NAN", "NONE", "NA", "NÃO INFORMADO", "NAO INFORMADO"], ""
-                )
+                .replace(["", "NAN", "NONE", "NA", "NÃO INFORMADO", "NAO INFORMADO"], "")
             )
         else:
             df_copia[dst] = ""
@@ -886,15 +858,11 @@ def garantir_projeto_de_base(df: pd.DataFrame) -> pd.DataFrame:
         df_out.loc[m_alias, "PROJETO"] = proj_oficial
     projeto_norm = df_out["PROJETO"].astype(str).map(normalizar_texto)
     if "_PROJETO_NORM_ATIVOS" in df_out.columns:
-        projeto_norm_ativos = df_out["_PROJETO_NORM_ATIVOS"].astype(str).map(
-            normalizar_texto
-        )
+        projeto_norm_ativos = df_out["_PROJETO_NORM_ATIVOS"].astype(str).map(normalizar_texto)
         projeto_ativos_valido = ~projeto_norm_ativos.isin(
             ROTULOS_VAZIOS | {"NAO INFORMADO", "NÃO INFORMADO"}
         )
-        projeto_norm = projeto_norm_ativos.where(
-            projeto_ativos_valido, projeto_norm
-        )
+        projeto_norm = projeto_norm_ativos.where(projeto_ativos_valido, projeto_norm)
         df_out = df_out.drop(columns=["_PROJETO_NORM_ATIVOS"])
     df_out["_PROJETO_NORM"] = projeto_norm
     if "_BASE_NORM" not in df_out.columns:
@@ -908,17 +876,13 @@ def _isin_norm(serie: pd.Series, valores: list[str]) -> pd.Series:
 
 
 def _match_base_ou_projeto(df: pd.DataFrame, valores: list[str]) -> pd.Series:
-    alvos = [
-        normalizar_texto(v) for v in valores if v is not None and not _is_na_scalar(v)
-    ]
+    alvos = [normalizar_texto(v) for v in valores if v is not None and not _is_na_scalar(v)]
     alvos_set = set(alvos)
     masks = []
     for coluna in ("BASE", "PROJETO"):
         if coluna not in df.columns:
             continue
-        s_norm = df[coluna].map(
-            lambda v: normalizar_texto(v) if not _is_na_scalar(v) else ""
-        )
+        s_norm = df[coluna].map(lambda v: normalizar_texto(v) if not _is_na_scalar(v) else "")
         exato = s_norm.isin(alvos_set)
         fuzzy = s_norm.map(
             lambda v: (
@@ -943,9 +907,7 @@ def _match_base_ou_projeto(df: pd.DataFrame, valores: list[str]) -> pd.Series:
     return out
 
 
-def enriquecer_dados_completos(
-    df: pd.DataFrame, hierarquia: pd.DataFrame
-) -> pd.DataFrame:
+def enriquecer_dados_completos(df: pd.DataFrame, hierarquia: pd.DataFrame) -> pd.DataFrame:
     """A hierarquia preenche apenas os campos originalmente vazios."""
     if df.empty:
         return add_norm_cols(df)
@@ -957,9 +919,7 @@ def enriquecer_dados_completos(
         return add_norm_cols(resultado)
     df_resultado = add_norm_cols(df)
     hierarquia_copia = garantir_projeto_de_base(add_norm_cols(hierarquia.copy()))
-    mask_valida = hierarquia_copia["_LOGIN_NORM"].notna() & (
-        hierarquia_copia["_LOGIN_NORM"] != ""
-    )
+    mask_valida = hierarquia_copia["_LOGIN_NORM"].notna() & (hierarquia_copia["_LOGIN_NORM"] != "")
     hierarquia_valida = hierarquia_copia.loc[mask_valida].drop_duplicates(
         subset=["_LOGIN_NORM"], keep="first"
     )
@@ -989,9 +949,7 @@ def enriquecer_dados_completos(
             df_resultado.loc[vazio, col] = df_resultado.loc[vazio, src]
             df_resultado = df_resultado.drop(columns=[src])
     if "_PROJETO_NORM_ATIVOS" in df_resultado.columns:
-        projeto_norm_ativos = df_resultado["_PROJETO_NORM_ATIVOS"].astype(str).map(
-            normalizar_texto
-        )
+        projeto_norm_ativos = df_resultado["_PROJETO_NORM_ATIVOS"].astype(str).map(normalizar_texto)
         projeto_ativos_valido = ~projeto_norm_ativos.isin(
             ROTULOS_VAZIOS | {"NAO INFORMADO", "NÃO INFORMADO"}
         )
@@ -1001,9 +959,7 @@ def enriquecer_dados_completos(
         )
     for col in ["BASE", "PROJETO", "MONITOR", "TECNICO"]:
         if col in df_resultado.columns:
-            df_resultado[f"_{col}_NORM"] = (
-                df_resultado[col].astype(str).map(normalizar_texto)
-            )
+            df_resultado[f"_{col}_NORM"] = df_resultado[col].astype(str).map(normalizar_texto)
             df_resultado[col] = df_resultado[col].fillna("Não Informado")
     return df_resultado
 
@@ -1083,9 +1039,7 @@ def diagnosticar_perda_filtros(df: pd.DataFrame, label: str) -> pd.DataFrame:
                 )
             )
         rows.append(("   ↳ datas inválidas/vazias na fonte", int(sdt.isna().sum()), 0))
-    return pd.DataFrame(
-        rows, columns=["Etapa", "Linhas que restam", "Eliminadas nesta etapa"]
-    )
+    return pd.DataFrame(rows, columns=["Etapa", "Linhas que restam", "Eliminadas nesta etapa"])
 
 
 def render_tabela_segura(df: pd.DataFrame, **kwargs: Any) -> None:
@@ -1105,19 +1059,13 @@ def render_tabela_segura(df: pd.DataFrame, **kwargs: Any) -> None:
         serie = garantir_datetime(df_display[[col]], col=col, origem="Tabela")[col]
         validas = serie.dropna()
         tem_hora = (
-            bool(
-                (
-                    validas.dt.hour.ne(0)
-                    | validas.dt.minute.ne(0)
-                    | validas.dt.second.ne(0)
-                ).any()
-            )
+            bool((validas.dt.hour.ne(0) | validas.dt.minute.ne(0) | validas.dt.second.ne(0)).any())
             if not validas.empty
             else False
         )
-        df_display[col] = serie.dt.strftime(
-            "%d-%m-%Y %H:%M" if tem_hora else "%d-%m-%Y"
-        ).fillna("-")
+        df_display[col] = serie.dt.strftime("%d-%m-%Y %H:%M" if tem_hora else "%d-%m-%Y").fillna(
+            "-"
+        )
     try:
         render_table_html(df_display, **kwargs)
     except TypeError:
@@ -1145,9 +1093,7 @@ def render_resumo_cards(
     tecnico_dia: float | None = None,
     ancora: date | None = None,
 ) -> None:
-    subtitulo = (
-        "Realizado, projeção de fechamento e ritmo necessário (Meta − Realizado)"
-    )
+    subtitulo = "Realizado, projeção de fechamento e ritmo necessário (Meta − Realizado)"
     if ancora is not None:
         subtitulo += f" • projeção ancorada em {formatar_data_br(ancora)}"
     render_section_header(titulo=titulo, icone=icone, subtitulo=subtitulo)
@@ -1171,9 +1117,7 @@ def render_resumo_cards(
             label=label_realizado,
             valor=_fmt_int(realizado),
             sub=(
-                f"{pct_real:.1f}% da meta mensal"
-                if ancora is not None
-                else "Sem dados no recorte"
+                f"{pct_real:.1f}% da meta mensal" if ancora is not None else "Sem dados no recorte"
             ),
             tema="azul",
             icone="✅",
@@ -1252,9 +1196,7 @@ def render_resumo_cards(
         )
         return
     if dias_restantes <= 0:
-        render_insight(
-            f"Período de dias úteis encerrado para {titulo.lower()}.", tipo="info"
-        )
+        render_insight(f"Período de dias úteis encerrado para {titulo.lower()}.", tipo="info")
         return
 
 
@@ -1273,9 +1215,7 @@ def coletar_alertas(
     if erro_cons:
         alertas.append((f"Carga de consultivos falhou: {erro_cons}", "critico"))
     if df_cons_raw.empty and not erro_cons:
-        alertas.append(
-            ("Consultivos: arquivo carregado mas sem linhas úteis.", "critico")
-        )
+        alertas.append(("Consultivos: arquivo carregado mas sem linhas úteis.", "critico"))
     elif not df_cons_raw.empty and df_cons_filtrado.empty:
         alertas.append(
             (
@@ -1299,9 +1239,7 @@ def coletar_alertas(
                 )
             )
     elif df_prod_raw.empty and df_cons_raw.empty:
-        alertas.append(
-            ("Nenhuma linha de produção ou consultivo recebida das fontes.", "critico")
-        )
+        alertas.append(("Nenhuma linha de produção ou consultivo recebida das fontes.", "critico"))
     for nome, df in (("produção", df_prod_raw), ("consultivos", df_cons_raw)):
         sem_tec, pct_tec = percentual_sem_vinculo(df, "TECNICO")
         sem_base, pct_base = percentual_sem_vinculo(df, "BASE")
@@ -1345,9 +1283,7 @@ def coletar_alertas(
             )
         )
     if not resumo.empty and "Agrupamento" in resumo.columns:
-        acompanhados = {
-            normalizar_texto(x) for x in (*BASES_PRIORITARIAS, *PROJETOS_NET)
-        }
+        acompanhados = {normalizar_texto(x) for x in (*BASES_PRIORITARIAS, *PROJETOS_NET)}
         for _, row in resumo.iterrows():
             nome = str(row.get("Agrupamento", "—"))
             if normalizar_texto(nome) not in acompanhados:
@@ -1380,9 +1316,7 @@ def coletar_alertas(
         presentes = {normalizar_texto(x) for x in resumo["Agrupamento"].astype(str)}
         for base in BASES_PRIORITARIAS:
             if normalizar_texto(base) not in presentes:
-                alertas.append(
-                    (f"{base} não aparece no agrupamento deste recorte.", "info")
-                )
+                alertas.append((f"{base} não aparece no agrupamento deste recorte.", "info"))
     return alertas
 
 
@@ -1391,12 +1325,8 @@ df_cons_raw, erro_cons = carregar_consultivos(VERSAO)
 df_prod_raw, erro_prod = carregar_producao(VERSAO)
 if df_hierarquia_raw.empty:
     render_insight("Atenção: Lista de Ativos falhou ao carregar.", tipo="alerta")
-df_prod = garantir_projeto_de_base(
-    enriquecer_dados_completos(df_prod_raw, df_hierarquia_raw)
-)
-df_cons = garantir_projeto_de_base(
-    enriquecer_dados_completos(df_cons_raw, df_hierarquia_raw)
-)
+df_prod = garantir_projeto_de_base(enriquecer_dados_completos(df_prod_raw, df_hierarquia_raw))
+df_cons = garantir_projeto_de_base(enriquecer_dados_completos(df_cons_raw, df_hierarquia_raw))
 if not df_prod.empty and any(
     c not in df_prod.columns for c in ["DATA", "LOGIN", "BASE", "PROJETO"]
 ):
@@ -1479,9 +1409,7 @@ filtro_net_opcao = st.sidebar.checkbox(
     on_change=_aplicar_canais_net,
     help="Ao marcar, seleciona NET-ABCDM, NET-LESTE, NET-LESTE VT, NET-GUARULHOS e NET-GRU VT.",
 )
-default_proj = (
-    [p for p in PROJETOS_NET if p in all_projetos] if filtro_net_opcao else []
-)
+default_proj = [p for p in PROJETOS_NET if p in all_projetos] if filtro_net_opcao else []
 filtro_projeto = st.sidebar.multiselect(
     "Projeto / Contrato",
     all_projetos,
@@ -1508,9 +1436,7 @@ filtro_monitor = st.sidebar.multiselect(
 )
 
 hoje_tz = datetime.now(CFG.TZ).date()
-data_min_disponivel, data_max, data_min = limites_datas_disponiveis(
-    [df_prod, df_cons], hoje_tz
-)
+data_min_disponivel, data_max, data_min = limites_datas_disponiveis([df_prod, df_cons], hoje_tz)
 # Permite MTD mesmo quando o primeiro registro do mês é do dia 2 ou 3.
 # Isso não certifica que a fonte contenha todas as transações do mês.
 limite_min_widget = data_min_disponivel.replace(day=1)
@@ -1541,18 +1467,16 @@ if _filtro_datas_safe is None:
     st.stop()
 
 
-def _mascara_filtros_operacionais(
-    df: pd.DataFrame, eh_consultivo: bool = False
-) -> pd.Series:
+def _mascara_filtros_operacionais(df: pd.DataFrame, eh_consultivo: bool = False) -> pd.Series:
     """Regra original: BASE OR PROJETO; MONITOR restringe o resultado."""
     mask = pd.Series(True, index=df.index)
     base_match = _match_base_ou_projeto(df, filtro_base) if filtro_base else mask.copy()
     projeto_match = mask.copy()
     if filtro_projeto:
         if "PROJETO" in df.columns:
-            projeto_match = _isin_norm(
-                df["PROJETO"], filtro_projeto
-            ) | _match_base_ou_projeto(df, filtro_projeto)
+            projeto_match = _isin_norm(df["PROJETO"], filtro_projeto) | _match_base_ou_projeto(
+                df, filtro_projeto
+            )
             if not projeto_match.any() and eh_consultivo and "BASE" in df.columns:
                 projeto_match = _isin_norm(df["BASE"], filtro_projeto)
         elif "BASE" in df.columns:
@@ -1687,16 +1611,12 @@ real_prod = len(df_prod_f)
 proj_prod = int(real_prod * fator_global_os)
 meta_prod = METAS_PRODUCAO_OS_GERAL["meta_base"]
 os_faltantes_geral = meta_prod - real_prod
-os_media_diaria_geral = (
-    max(os_faltantes_geral, 0) / dias_rest_os if dias_rest_os > 0 else 0
-)
+os_media_diaria_geral = max(os_faltantes_geral, 0) / dias_rest_os if dias_rest_os > 0 else 0
 real_cons = len(df_cons_f)
 proj_cons = int(real_cons * fator_global_cons)
 meta_cons = METAS_CONSULTIVO_GERAL["meta_base"]
 cons_faltantes_geral = meta_cons - real_cons
-cons_media_diaria_geral = (
-    max(cons_faltantes_geral, 0) / dias_rest_c if dias_rest_c > 0 else 0
-)
+cons_media_diaria_geral = max(cons_faltantes_geral, 0) / dias_rest_c if dias_rest_c > 0 else 0
 pct_real_os_geral = calcular_atingimento_float(real_prod, meta_prod)
 pct_proj_os_geral = calcular_atingimento_float(proj_prod, meta_prod)
 pct_real_cons_geral = calcular_atingimento_float(real_cons, meta_cons)
@@ -1725,11 +1645,7 @@ with secao(
             if ancora_os
             else "Sem dados para projetar"
         ),
-        tema=(
-            tema_kpi_de_valor(proj_prod, METAS_PRODUCAO_OS_GERAL)
-            if ancora_os
-            else "cinza"
-        ),
+        tema=(tema_kpi_de_valor(proj_prod, METAS_PRODUCAO_OS_GERAL) if ancora_os else "cinza"),
         icone="📈",
     )
     render_kpi(
@@ -1749,11 +1665,7 @@ with secao(
             if ancora_cons
             else "Sem dados para projetar"
         ),
-        tema=(
-            tema_kpi_de_valor(proj_cons, METAS_CONSULTIVO_GERAL)
-            if ancora_cons
-            else "cinza"
-        ),
+        tema=(tema_kpi_de_valor(proj_cons, METAS_CONSULTIVO_GERAL) if ancora_cons else "cinza"),
         icone="🎯",
     )
 
@@ -1898,15 +1810,11 @@ def processar_resumo_agrupado(
     if a.empty and b.empty:
         return pd.DataFrame()
     m = pd.merge(a, b, on="CHAVE_AGRUPAMENTO", how="outer")
-    m["Agrupamento"] = (
-        m["Agrupamento"].fillna(m["Agrupamento_C"]).fillna("Não Informado")
-    )
+    m["Agrupamento"] = m["Agrupamento"].fillna(m["Agrupamento_C"]).fillna("Não Informado")
     m = m.drop(columns=["Agrupamento_C", "CHAVE_AGRUPAMENTO"])
     for col in ["OS_Volume", "Cons_Volume", "Tecnicos_Ativos"]:
         m[col] = (
-            pd.to_numeric(m[col], errors="coerce").fillna(0).astype(int)
-            if col in m.columns
-            else 0
+            pd.to_numeric(m[col], errors="coerce").fillna(0).astype(int) if col in m.columns else 0
         )
     m["O.S. Projetadas"] = (m["OS_Volume"] * ft_os).astype(int)
     m["Consultivos Projetados"] = (m["Cons_Volume"] * ft_cons).astype(int)
@@ -1933,15 +1841,9 @@ def processar_resumo_agrupado(
         lambda v: classificar_semaforo(v, METAS_CONSULTIVO_BASE)
     )
     m = adicionar_cenarios_agrupados(m, "OS_Volume", "O.S. Projetadas", "O.S.")
-    m = adicionar_cenarios_agrupados(
-        m, "Cons_Volume", "Consultivos Projetados", "Consultivos"
-    )
+    m = adicionar_cenarios_agrupados(m, "Cons_Volume", "Consultivos Projetados", "Consultivos")
     m["_ordem"] = np.where(m["OS_Volume"] > 0, m["% Meta O.S. (Proj)"], 999.0)
-    return (
-        m.sort_values(["_ordem", "Agrupamento"])
-        .drop(columns=["_ordem"])
-        .reset_index(drop=True)
-    )
+    return m.sort_values(["_ordem", "Agrupamento"]).drop(columns=["_ordem"]).reset_index(drop=True)
 
 
 df_prod_para_resumo = df_prod_f.copy()
@@ -1959,9 +1861,7 @@ if not df_cons_para_resumo.empty:
         chave_cons = df_cons_para_resumo["BASE"].astype(str).map(normalizar_texto)
     else:
         chave_cons = pd.Series("", index=df_cons_para_resumo.index)
-    df_cons_para_resumo["CHAVE_AGRUPAMENTO"] = chave_cons.where(
-        chave_cons != "", "Não Informado"
-    )
+    df_cons_para_resumo["CHAVE_AGRUPAMENTO"] = chave_cons.where(chave_cons != "", "Não Informado")
 df_resumo_agrupado = processar_resumo_agrupado(
     df_prod_para_resumo, df_cons_para_resumo, fator_global_os, fator_global_cons
 )
@@ -2003,9 +1903,7 @@ def render_diagnostico_zerado(
             st.warning("⚠️ Fonte veio vazia.")
         else:
             st.success(f"✅ Fonte OK: {_fmt_int(len(df_raw))} linhas brutas.")
-        st.dataframe(
-            diagnosticar_perda_filtros(df, nome), hide_index=True, width="stretch"
-        )
+        st.dataframe(diagnosticar_perda_filtros(df, nome), hide_index=True, width="stretch")
         if not df.empty and "DATA" in df.columns:
             st.markdown("### Amostra de Datas Corrigidas (DD-MM-AAAA)")
             cols = [
@@ -2015,9 +1913,7 @@ def render_diagnostico_zerado(
             ]
             amostra = df[cols].head(15).copy()
             amostra["DATA"] = (
-                converter_serie_datas(amostra["DATA"])
-                .dt.strftime("%d-%m-%Y %H:%M")
-                .fillna("-")
+                converter_serie_datas(amostra["DATA"]).dt.strftime("%d-%m-%Y %H:%M").fillna("-")
             )
             st.dataframe(amostra, hide_index=True, width="stretch")
         st.markdown("### Ações")
@@ -2188,9 +2084,7 @@ with tab_bases:
             for c in ("% Meta O.S. (Proj)", "% Meta Cons. (Proj)")
             if c in df_display.columns
         }
-        render_tabela_segura(
-            df_display, fmt=fmt, colunas_num=colunas_num, color_rules=color_rules
-        )
+        render_tabela_segura(df_display, fmt=fmt, colunas_num=colunas_num, color_rules=color_rules)
         render_botao_exportacao(df_resumo_agrupado, "Resumo_Agrupado")
     else:
         render_empty_state(tipo="dados", titulo="Sem dados para a visão agrupada.")
@@ -2219,9 +2113,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
             os_projetado = _to_float_safe(row["O.S. Projetadas"])
             cons_real = _to_float_safe(row["Cons_Volume"])
             cons_projetado = _to_float_safe(row["Consultivos Projetados"])
-            tecnicos_base = max(
-                1, int(_to_float_safe(row["Tecnicos_Ativos"], default=1))
-            )
+            tecnicos_base = max(1, int(_to_float_safe(row["Tecnicos_Ativos"], default=1)))
         except (IndexError, KeyError, ValueError, TypeError) as exc:
             render_insight(f"Erro: {exc}", tipo="critico")
             return
@@ -2249,9 +2141,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
         os_faltantes = meta_os - os_real
         os_media_diaria = max(os_faltantes, 0) / dias_rest_os if dias_rest_os > 0 else 0
         cons_faltantes = meta_cons_base - cons_real
-        cons_media_diaria = (
-            max(cons_faltantes, 0) / dias_rest_c if dias_rest_c > 0 else 0
-        )
+        cons_media_diaria = max(cons_faltantes, 0) / dias_rest_c if dias_rest_c > 0 else 0
         sub_os, sub_cons = st.tabs(
             [
                 f"📊 Produção O.S. ({_fmt_int(os_real)} / {_fmt_int(meta_os)})",
@@ -2274,9 +2164,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
                 label_meta="META DE O.S.",
                 label_faltantes="O.S. FALTANTES",
                 metas=METAS_PRODUCAO_OS_BASE,
-                tecnico_dia=(
-                    os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0
-                ),
+                tecnico_dia=(os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0),
                 ancora=ancora_os if os_real > 0 else None,
             )
         with sub_cons:
@@ -2313,13 +2201,9 @@ with tab_monitores:
     else:
         partes = []
         if not df_prod_f.empty and "MONITOR" in df_prod_f.columns:
-            partes.append(
-                df_prod_f.groupby("MONITOR").size().rename("OS_Equipe").reset_index()
-            )
+            partes.append(df_prod_f.groupby("MONITOR").size().rename("OS_Equipe").reset_index())
         if not df_cons_f.empty and "MONITOR" in df_cons_f.columns:
-            partes.append(
-                df_cons_f.groupby("MONITOR").size().rename("Consultivos").reset_index()
-            )
+            partes.append(df_cons_f.groupby("MONITOR").size().rename("Consultivos").reset_index())
         if not partes:
             render_empty_state(tipo="dados", titulo="Sem monitor na hierarquia")
         else:
@@ -2348,9 +2232,7 @@ with tab_monitores:
                     if fig_donut is not None:
                         st.plotly_chart(fig_donut, width="stretch")
                 else:
-                    render_empty_state(
-                        tipo="dados", titulo="Sem volume de O.S. por supervisor"
-                    )
+                    render_empty_state(tipo="dados", titulo="Sem volume de O.S. por supervisor")
             with col_tabela_mon:
                 render_tabela_segura(
                     df_mon,
@@ -2406,8 +2288,6 @@ with tab_alertas:
             else:
                 render_insight("Nenhum aviso adicional.", tipo="ok")
         if len(alertas) > 16:
-            st.caption(
-                f"Mais {len(alertas) - 16} alertas omitidos para preservar a legibilidade."
-            )
+            st.caption(f"Mais {len(alertas) - 16} alertas omitidos para preservar a legibilidade.")
 
 fechar_dashboard(versao=VERSAO)

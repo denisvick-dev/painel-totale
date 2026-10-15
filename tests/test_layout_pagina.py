@@ -353,8 +353,7 @@ def test_pagina_referencia_usa_as_primitivas_de_layout() -> None:
         (
             no.value
             for no in arvore.body
-            if isinstance(no, ast.AnnAssign)
-            and getattr(no.target, "id", "") == "SECOES_PAGINA"
+            if isinstance(no, ast.AnnAssign) and getattr(no.target, "id", "") == "SECOES_PAGINA"
         ),
         None,
     )

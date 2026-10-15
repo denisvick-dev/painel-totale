@@ -156,9 +156,7 @@ def main() -> None:
         )
 
     # 2) Filtros --------------------------------------------------------------
-    with barra_filtros(
-        "visao_geral", titulo="Localizar painel", icone="search", colunas=1
-    ) as cols:
+    with barra_filtros("visao_geral", titulo="Localizar painel", icone="search", colunas=1) as cols:
         termo = cols[0].text_input(
             "Buscar por nome, área ou assunto",
             key="visao_geral_busca",

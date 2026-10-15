@@ -520,7 +520,9 @@ def grafico_linha(
         y=col_y,
         color=col_grupo if _coluna_existe(dados, col_grupo) else None,
         color_discrete_sequence=PALETA_TOTALE,
-        category_orders={col_grupo: list(ordem)} if ordem and _coluna_existe(dados, col_grupo) else None,
+        category_orders={col_grupo: list(ordem)}
+        if ordem and _coluna_existe(dados, col_grupo)
+        else None,
         labels=_rotulos(rotulos, {"x": "", "y": "", "color": col_grupo or ""}),
         **kwargs,
     )
@@ -602,7 +604,9 @@ def grafico_barras(
         dados[col_grupo] = dados[col_grupo].astype(str)
     if agregacao == "contagem":
         agrupar = [col_x] + ([col_grupo] if tem_grupo else [])
-        dados = dados.groupby(agrupar, as_index=False).size().rename(columns={"size": "__contagem__"})
+        dados = (
+            dados.groupby(agrupar, as_index=False).size().rename(columns={"size": "__contagem__"})
+        )
         col_valor = "__contagem__"
     else:
         col_valor = col_y
@@ -678,7 +682,11 @@ def grafico_ranking(
     rotulos: Mapping[str, str] | None = None,
 ) -> go.Figure:
     """Ranking horizontal (Top N) com o líder destacado no laranja da marca."""
-    if _esta_vazio(df) or not _coluna_existe(df, col_categoria) or not _coluna_existe(df, col_valor):
+    if (
+        _esta_vazio(df)
+        or not _coluna_existe(df, col_categoria)
+        or not _coluna_existe(df, col_valor)
+    ):
         return figura_vazia(titulo, "Sem categorias para ranquear.")
     dados = (
         df.assign(**{col_categoria: df[col_categoria].astype(str)})
@@ -892,7 +900,9 @@ def grafico_pizza(
         pesos = [float(v) for v in pd.to_numeric(agrupado[col_valor], errors="coerce").fillna(0.0)]
     elif rotulos is not None and valores is not None:
         nomes = [str(r) for r in rotulos]
-        pesos = [float(v) for v in pd.to_numeric(pd.Series(list(valores)), errors="coerce").fillna(0.0)]
+        pesos = [
+            float(v) for v in pd.to_numeric(pd.Series(list(valores)), errors="coerce").fillna(0.0)
+        ]
     else:
         return figura_vazia(titulo, "Informe DataFrame + colunas ou rotulos + valores.")
 
@@ -984,7 +994,9 @@ def grafico_treemap(
         textinfo="label+value",
         hovertemplate="%{label}<br>%{value:.0f}<extra></extra>",
     )
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_sunburst(
@@ -1015,7 +1027,9 @@ def grafico_sunburst(
         labels=dict(_rotulos(rotulos, {})),
     )
     fig.update_traces(hovertemplate="%{label}<br>%{value:.0f}<extra></extra>")
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_funil(
@@ -1065,7 +1079,9 @@ def grafico_funil(
         textposition="inside",
         hovertemplate="%{y}<br>%{x:.0f}<extra></extra>",
     )
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_histograma(
@@ -1100,7 +1116,9 @@ def grafico_histograma(
         labels=_rotulos(rotulos, {"x": col_x, "y": "Frequência", "color": col_grupo or ""}),
     )
     fig.update_traces(marker_line_color="#FFFFFF", marker_line_width=0.8)
-    aplicar_tema(fig, titulo=titulo or None, altura=altura, legenda=_coluna_existe(dados, col_grupo))
+    aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, legenda=_coluna_existe(dados, col_grupo)
+    )
     if mostrar_media:
         media = float(dados[col_x].mean())
         fig.add_vline(
@@ -1165,7 +1183,9 @@ def grafico_distribuicao(
     )
 
 
-def grafico_caixa(df: pd.DataFrame, col_y: str, col_x: str | None = None, **kwargs: Any) -> go.Figure:
+def grafico_caixa(
+    df: pd.DataFrame, col_y: str, col_x: str | None = None, **kwargs: Any
+) -> go.Figure:
     """Atalho para ``grafico_distribuicao(..., tipo="caixa")``."""
     return grafico_distribuicao(df, col_y, col_x, tipo="caixa", **kwargs)
 
@@ -1299,12 +1319,12 @@ def grafico_mapa_calor(
         largo,
         color_continuous_scale=escalas.get(escala, ESCALA_TOTALE),
         aspect="auto",
-        labels=_rotulos(
-            rotulos, {"x": str(col_x), "y": str(col_y), "color": str(col_valor)}
-        ),
+        labels=_rotulos(rotulos, {"x": str(col_x), "y": str(col_y), "color": str(col_valor)}),
     )
     _textos_matriz(fig, largo, mostrar_valores)
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_calendario(
@@ -1366,7 +1386,9 @@ def grafico_calendario(
         tickfont={"size": 10},
         dtick=max(1, len(matriz.columns) // 12),
     )
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_densidade(
@@ -1397,7 +1419,9 @@ def grafico_densidade(
             color_continuous_scale=ESCALA_TOTALE,
             labels=rotulos_eixo,
         )
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 # ====================================================
@@ -1440,7 +1464,10 @@ def grafico_radar(
         )
     )
     if comparativo is not None:
-        base = [float(v) for v in pd.to_numeric(pd.Series(list(comparativo)), errors="coerce").fillna(0.0)]
+        base = [
+            float(v)
+            for v in pd.to_numeric(pd.Series(list(comparativo)), errors="coerce").fillna(0.0)
+        ]
         if base:
             fig.add_trace(
                 go.Scatterpolar(
@@ -1464,7 +1491,10 @@ def grafico_radar(
                 "gridcolor": GRADE,
                 "linecolor": BORDA,
                 "tickfont": {"size": 10, "color": TEXTO_SECUNDARIO},
-                "range": [0, max(serie + ([max(base)] if comparativo is not None and base else [])) * 1.15],
+                "range": [
+                    0,
+                    max(serie + ([max(base)] if comparativo is not None and base else [])) * 1.15,
+                ],
             },
             "angularaxis": {
                 "gridcolor": GRADE,
@@ -1492,7 +1522,11 @@ def grafico_cascata(
     cor_total: str = AZUL_ESCURO,
 ) -> go.Figure:
     """Ponte (waterfall) de contribuições positivas e negativas até o total."""
-    if _esta_vazio(df) or not _coluna_existe(df, col_categoria) or not _coluna_existe(df, col_valor):
+    if (
+        _esta_vazio(df)
+        or not _coluna_existe(df, col_categoria)
+        or not _coluna_existe(df, col_valor)
+    ):
         return figura_vazia(titulo, "Sem dados para a cascata.")
     dados = df[[col_categoria, col_valor]].copy()
     dados[col_categoria] = dados[col_categoria].astype(str)
@@ -1522,7 +1556,9 @@ def grafico_cascata(
             hovertemplate="%{x}: %{y:.0f}<extra></extra>",
         )
     )
-    return aplicar_tema(fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False)
+    return aplicar_tema(
+        fig, titulo=titulo or None, altura=altura, hover_unificado=False, legenda=False
+    )
 
 
 def grafico_bullet(
@@ -1549,9 +1585,7 @@ def grafico_bullet(
     steps = []
     anterior = 0.0
     for indice, limite in enumerate([*passos, teto]):
-        steps.append(
-            {"range": [anterior, limite], "color": cores_faixa[indice % len(cores_faixa)]}
-        )
+        steps.append({"range": [anterior, limite], "color": cores_faixa[indice % len(cores_faixa)]})
         anterior = limite
     fig = go.Figure(
         go.Indicator(
@@ -1564,7 +1598,10 @@ def grafico_bullet(
             title={"text": rotulo or titulo, "font": {"size": 12, "color": TEXTO_SECUNDARIO}},
             gauge={
                 "shape": "bullet",
-                "bar": {"color": AZUL_TOTALE if valor_f >= meta_f else LARANJA_TOTALE, "thickness": 0.55},
+                "bar": {
+                    "color": AZUL_TOTALE if valor_f >= meta_f else LARANJA_TOTALE,
+                    "thickness": 0.55,
+                },
                 "bgcolor": "rgba(0,0,0,0)",
                 "borderwidth": 0,
                 "steps": steps,
@@ -1618,7 +1655,10 @@ def grafico_gauge(
         go.Indicator(
             mode="gauge+number",
             value=pct,
-            number={"suffix": "%", "font": {"family": FONTE_TITULO, "size": 28, "color": TEXTO_PRIMARIO}},
+            number={
+                "suffix": "%",
+                "font": {"family": FONTE_TITULO, "size": 28, "color": TEXTO_PRIMARIO},
+            },
             title={"text": rotulo or titulo, "font": {"size": 12.5, "color": TEXTO_SECUNDARIO}},
             gauge={
                 "axis": {"range": [0, teto], "tickwidth": 1, "tickcolor": BORDA},
@@ -1705,7 +1745,9 @@ def grafico_progresso(
             annotation_position="top",
             annotation_font_size=10,
         )
-    aplicar_tema(fig, titulo=titulo or None, altura=altura or max(200, 32 * len(nomes) + 80), legenda=False)
+    aplicar_tema(
+        fig, titulo=titulo or None, altura=altura or max(200, 32 * len(nomes) + 80), legenda=False
+    )
     fig.update_layout(bargap=0.36, xaxis_range=[0, max([*numeros, meta or 0]) * 1.18])
     return fig
 
