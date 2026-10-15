@@ -67,6 +67,45 @@ def test_match_nao_depende_do_preenchimento_do_nome_do_tecnico() -> None:
     assert list(ativos.columns) == colunas_originais
 
 
+def test_matriz_executiva_calcula_e_exibe_percentuais_com_escala_consistente(monkeypatch) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "MONITOR": "MONITOR A",
+                "TIPO_SERVICO": tipo,
+                "Status Contrato": status,
+                "TOTAL DE TAREFAS": quantidade,
+            }
+            for tipo, status, quantidade in (
+                ("Novos Domicílios", "Executada", 131),
+                ("Novos Domicílios", "Não Executada", 68),
+                ("PME", "Executada", 124),
+                ("PME", "Não Executada", 1),
+                ("Migração", "Executada", 9),
+                ("Migração", "Não Executada", 3),
+                ("Outros", "Executada", 1),
+            )
+        ]
+    )
+
+    matriz = quebra_geral.Motor._matriz_logic(df)
+    monitor = matriz.loc[matriz["Monitor"] == "MONITOR A"].iloc[0]
+    assert monitor["Novos Domicílios"] == 68 / (131 + 68)
+    assert monitor["PME"] == 1 / (124 + 1)
+
+    saidas: list[str] = []
+    monkeypatch.setattr(
+        quebra_geral, "st", SimpleNamespace(markdown=lambda html, **_: saidas.append(html))
+    )
+    quebra_geral.render_matriz_executiva(matriz)
+
+    html = "".join(saidas)
+    assert "34,2%" in html
+    assert "0,8%" in html
+    assert "25,0%" in html
+    assert "337" in html
+
+
 def test_etl_da_pagina_usa_saida_bruta_do_robo_global_uma_vez(monkeypatch) -> None:
     bruto = pd.DataFrame({"Login do Técnico": [123]})
     processado = pd.DataFrame({"TÉCNICO": ["EXEMPLO"]})
