@@ -73,7 +73,7 @@ from components.sidebar import (
     render_sidebar_theme_selector,
 )
 from config.settings import AMBIENTE_PORTAL, ICON_PATH_PORTAL, VERSAO_PORTAL
-from robo.robo_local import renderizar_robo_local
+from robo import renderizar_robo_local
 
 # Configuração de logging
 logging.basicConfig(

@@ -179,3 +179,8 @@ cython_debug/
 #.idea/
 # Ambiente de verificação de versão (validação do piso do Streamlit)
 .venv-check/
+
+# Exportações locais monitoradas pelo robô; não versionar dados de produção.
+/dados/
+/robo/dados/
+/_robo_cache.csv

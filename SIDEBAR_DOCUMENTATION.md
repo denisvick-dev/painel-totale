@@ -127,7 +127,8 @@ render_page_sidebar_theme_selector()  # no-op quando o shell raiz já renderizou
 
 O entrypoint marca `_totale_root_navigation_shell = True`; com isso, as páginas não criam um
 segundo seletor de tema (o que quebraria a chave única do widget). O mesmo shell renderiza o
-`renderizar_robo_local()` compartilhado; páginas não devem criar outra instância. O DataFrame bruto
+`renderizar_robo_local()` compartilhado (importado de `robo.py`); páginas não devem criar outra
+instância. Motor, monitor e CLI estão no mesmo arquivo, sem pacote `robo/`. O DataFrame bruto
 fica em `st.session_state["df_memoria_raw"]` e cada página aplica seu próprio ETL sobre essa fonte.
 
 ### Atalho
