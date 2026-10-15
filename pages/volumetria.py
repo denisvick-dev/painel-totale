@@ -12,8 +12,7 @@ import html
 import logging
 import re
 import textwrap
-import unicodedata
-from io import BytesIO
+from functools import partial
 from typing import Any, Literal
 
 import numpy as np
@@ -21,9 +20,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
-from streamlit_gsheets import GSheetsConnection
 
 # ==========================================================
 # COMPONENTES CORPORATIVOS CENTRALIZADOS
@@ -42,15 +38,28 @@ from components.componentes import (
 from components.componentes import (
     render_kpi as render_kpi_corp,
 )
-from components.layout_pagina import (
-    render_chips,
-    render_rodape_pagina,
-    render_sumario,
-    secao,
-)
+from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.dados_sessao import CHAVE_MEMORIA, obter_dataframe
+from services.hierarquia import hierarquia_da_sessao
+from services.planilhas import gerar_excel as gerar_excel_padrao
+from services.planilhas import ler_bytes
+from services.texto import sem_acento
 
 logger = logging.getLogger(__name__)
+
+#: Chave da saída bruta do robô global (a base processada fica em ``base_data``).
+CHAVE_MEMORIA_RAW = "df_memoria_raw"
+
+#: Seções ancoradas do sumário (títulos usados em ``secao()``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Indicadores Gerais",
+    "Escalados × Montados",
+    "Panorama Visual",
+    "Análises Detalhadas",
+    "Exportação",
+)
 
 # ==========================================================
 # CONFIGURAÇÃO DE PÁGINA
@@ -140,11 +149,8 @@ COLUNAS_INTEIRAS = [
 # UTILITÁRIOS
 # ==========================================================
 class Utils:
-    @staticmethod
-    def remover_acentos(valor) -> str:
-        if pd.isna(valor):
-            return ""
-        return unicodedata.normalize("NFKD", str(valor)).encode("ASCII", "ignore").decode("ASCII")
+    #: Remoção de acentos delegada a :func:`services.texto.sem_acento`.
+    remover_acentos = staticmethod(sem_acento)
 
     @staticmethod
     def normalizar_chave(serie: pd.Series) -> pd.Series:
@@ -241,51 +247,39 @@ class DataLoader:
     @staticmethod
     @st.cache_data(show_spinner=False)
     def ler_arquivo(file_bytes: bytes, filename: str) -> pd.DataFrame:
-        if not file_bytes:
-            raise ValueError("O arquivo enviado está vazio.")
+        """Leitura do upload delegada a :func:`services.planilhas.ler_bytes`.
 
-        nome = filename.lower()
-        if nome.endswith(".xlsx"):
-            return pd.read_excel(BytesIO(file_bytes), engine="openpyxl")
-        if nome.endswith(".xls"):
-            return pd.read_excel(BytesIO(file_bytes))
-        if nome.endswith(".csv"):
-            try:
-                return pd.read_csv(
-                    BytesIO(file_bytes), sep=None, engine="python", encoding="utf-8-sig"
-                )
-            except UnicodeDecodeError:
-                return pd.read_csv(
-                    BytesIO(file_bytes), sep=None, engine="python", encoding="latin1"
-                )
-        raise ValueError("Formato não suportado. Use .xlsx, .xls ou .csv.")
+        Mantém o cache por conteúdo e aceita .xlsx/.xls/.csv — a detecção de
+        encoding e separador é do serviço, não de cada página.
+        """
+        return ler_bytes(file_bytes, filename)
 
     @staticmethod
     @st.cache_data(ttl=600, show_spinner=False)
     def buscar_hierarquia_gsheets() -> pd.DataFrame:
-        try:
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            raw = conn.read(spreadsheet=Config.URL_GSHEETS)
-            if raw is None or raw.empty:
-                return pd.DataFrame()
-            col_login = Utils.buscar_coluna(raw, ["LOGIN", "MATRÍCULA", "ID"])
-            col_tec = Utils.buscar_coluna(raw, ["TÉCNICO", "NOME"])
-            col_mon = Utils.buscar_coluna(raw, ["MONITOR", "GESTOR"])
-            if not col_login:
-                return pd.DataFrame()
-            df_gs = pd.DataFrame(
-                {
-                    "__LOGIN_KEY": Utils.normalizar_login(raw[col_login]),
-                    "__TEC_GS": raw[col_tec] if col_tec else "",
-                    "__MON_GS": raw[col_mon] if col_mon else "",
-                }
-            )
-            return df_gs.drop_duplicates("__LOGIN_KEY")
-        except Exception:
-            logger.warning(
-                "Hierarquia via Google Sheets indisponível; seguindo sem ela.", exc_info=True
-            )
+        """Hierarquia (login → técnico/monitor) vinda da camada compartilhada.
+
+        Antes a página abria a própria conexão ``GSheetsConnection`` e refazia a
+        detecção de colunas; hoje consome :func:`services.hierarquia.hierarquia_da_sessao`
+        (uma leitura por sessão, colunas canônicas e degradação graciosa offline)
+        e apenas monta as colunas internas ``__LOGIN_KEY``/``__TEC_GS``/``__MON_GS``
+        que ``preparar_base`` espera.
+        """
+        hierarquia = hierarquia_da_sessao(ttl=600)
+        if hierarquia.empty:
             return pd.DataFrame()
+        df_gs = pd.DataFrame(
+            {
+                "__LOGIN_KEY": Utils.normalizar_login(hierarquia["LOGIN"]),
+                "__TEC_GS": (
+                    hierarquia["TÉCNICO"] if "TÉCNICO" in hierarquia.columns else ""
+                ),
+                "__MON_GS": (
+                    hierarquia["MONITOR"] if "MONITOR" in hierarquia.columns else ""
+                ),
+            }
+        )
+        return df_gs.drop_duplicates("__LOGIN_KEY")
 
     @staticmethod
     def preparar_base(df: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
@@ -487,28 +481,9 @@ def calcular_volumetria(df: pd.DataFrame, grupos: list[str]) -> pd.DataFrame:
     return tabela.sort_values("Total Alocado", ascending=False)
 
 
-def gerar_excel(df: pd.DataFrame, nome_aba: str) -> bytes:
-    output = BytesIO()
-    export = df.copy()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        export.to_excel(writer, index=False, sheet_name=nome_aba[:31])
-        ws = writer.sheets[nome_aba[:31]]
-        hf = PatternFill("solid", fgColor="012869")
-
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-
-        for cell in ws[1]:
-            cell.fill = hf
-            cell.font = Font(color="FFFFFF", bold=True)
-
-        for i, col in enumerate(export.columns, 1):
-            valores = export[col].head(500).astype(str)
-            maior = max([len(str(col))] + [len(v) for v in valores], default=10)
-            ws.column_dimensions[get_column_letter(i)].width = min(max(maior + 2, 12), 40)
-
-    output.seek(0)
-    return output.getvalue()
+#: Exportação delegada a :func:`services.planilhas.gerar_excel` (cabeçalho
+#: corporativo, larguras seguras para NaN, linha congelada e autofiltro).
+gerar_excel = partial(gerar_excel_padrao, autofiltro=True)
 
 
 # ==========================================================
@@ -1387,11 +1362,8 @@ def main():
     aplicar_estilo_corp()
     aplicar_estilo_pagina()
 
-    # Hero Principal Corporativo
-    render_hero_totale_1(
-        titulo="📊 Gestão de Volumetria",
-        subtitulo="Análise executiva de performance e projeções operacionais",
-    )
+    # O herói corporativo entra via abrir_dashboard (no fluxo com dados e no de
+    # importação), junto dos chips de contexto e do sumário de âncoras.
 
     # Inicialização de estado
     if "base_data" not in st.session_state:
@@ -1449,6 +1421,16 @@ def main():
 
     # ── CARREGAR DADOS (ROBÔ OU UPLOAD MANUAL) ───────────────────────────────
     if st.session_state.base_data is None:
+        abrir_dashboard(
+            "Gestão de Volumetria",
+            secoes=SECOES_PAGINA,
+            hero=render_hero_totale_1,
+            hero_kwargs={
+                "titulo": "📊 Gestão de Volumetria",
+                "subtitulo": "Análise executiva de performance e projeções operacionais",
+            },
+            chips={"Fonte": "Robô local ou upload"},
+        )
         render_section_header(
             titulo="Importação de Dados",
             subtitulo="Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.",
@@ -1457,10 +1439,11 @@ def main():
             badge_tipo="info",
         )
 
-        # Cada página aplica seu próprio ETL sobre a mesma saída bruta do robô.
-        df_robo = st.session_state.get("df_memoria_raw")
+        # Cada página aplica seu próprio ETL sobre a mesma saída bruta do robô,
+        # lida pela camada compartilhada (services.dados_sessao).
+        df_robo = obter_dataframe(CHAVE_MEMORIA_RAW)
         if not isinstance(df_robo, pd.DataFrame) or df_robo.empty:
-            df_robo = st.session_state.get("df_memoria")
+            df_robo = obter_dataframe(CHAVE_MEMORIA)
 
         if isinstance(df_robo, pd.DataFrame) and not df_robo.empty:
             origem_robo = str(st.session_state.get("origem_dados", ""))
@@ -1509,7 +1492,7 @@ def main():
                 except Exception as exc:
                     render_insight(f"Não foi possível processar o arquivo: {exc}", "critico")
                     st.exception(exc)
-        render_rodape_pagina(versao="3.6.0", ambiente="Produção")
+        fechar_dashboard()
         return
 
     df_full = st.session_state.base_data
@@ -1539,17 +1522,23 @@ def main():
     ]
     if df.empty:
         render_insight("Nenhum dado selecionado com os filtros atuais.", "alerta")
-        render_rodape_pagina(versao="3.6.0", ambiente="Produção")
+        fechar_dashboard()
         return
 
     n_escalados = int(df.loc[df[Config.COL_TOTAL] >= 1, Config.COL_TECNICO].nunique())
     n_montados = int(total_montados_fixo)
     regioes_ativas = sorted(df[Config.COL_REGIAO].unique())
 
-    # ── RESULTADO DA BASE E SUMÁRIO ──────────────────────
-    render_resultado_base(regioes_ativas, len(df))
-    render_chips(
-        [
+    # ── CABEÇALHO PADRÃO: resultado da base, chips de contexto e sumário ──
+    abrir_dashboard(
+        "Gestão de Volumetria",
+        secoes=SECOES_PAGINA,
+        hero=render_hero_totale_1,
+        hero_kwargs={
+            "titulo": "📊 Gestão de Volumetria",
+            "subtitulo": "Análise executiva de performance e projeções operacionais",
+        },
+        chips=[
             ("Regiões Ativas", ", ".join(regioes_ativas) if regioes_ativas else "—"),
             ("Monitores", str(df[Config.COL_MONITOR].nunique())),
             ("Técnicos Escalados", str(n_escalados)),
@@ -1558,17 +1547,10 @@ def main():
                 "Meta Corporativa",
                 f"{Config.META_EXECUCAO:.0%} exec. · {Config.META_EXECUTADAS_TECNICO} O.S./téc.",
             ),
-        ]
-    )
-    render_sumario(
-        [
-            "Indicadores Gerais",
-            "Escalados × Montados",
-            "Panorama Visual",
-            "Análises Detalhadas",
         ],
-        titulo="Nesta página",
+        registros=len(df),
     )
+    render_resultado_base(regioes_ativas, len(df))
 
     kpis = calcular_kpis(df)
     vol_esc = calcular_volumetria_por_tecnico(kpis, n_escalados)
@@ -1822,7 +1804,15 @@ def main():
                 "base_volumetria.xlsx",
             )
 
-    render_rodape_pagina(versao="3.6.0", ambiente="Produção")
+    # Exportação e rodapé no padrão do portal (última seção ancorada)
+    secao_exportacao(
+        df,
+        nome_arquivo="volumetria",
+        chave="volumetria",
+        titulo="Exportação",
+        subtitulo="Base filtrada do painel, com as colunas de classificação.",
+    )
+    fechar_dashboard()
 
 
 if __name__ == "__main__":
