@@ -25,6 +25,13 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
 
+# O CI executa este arquivo direto (`python tests/test_sintaxe.py`), sem o
+# rootdir no `sys.path` que o pytest adiciona automaticamente. Como dois guardas
+# importam `config.navegacao`/`config.settings`, a raiz precisa estar no caminho
+# nos dois modos de execução.
+if str(RAIZ) not in sys.path:
+    sys.path.insert(0, str(RAIZ))
+
 # Diretórios ignorados: `old/` guarda scripts legados que não fazem parte do app.
 IGNORADOS = {"old", "__pycache__", ".venv", ".git", "build", "dist"}
 
