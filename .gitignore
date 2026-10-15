@@ -9,6 +9,8 @@ desktop.ini
 *~
 *.orig
 *.rej
+*.bak
+*.swo
 .idea/
 
 # Byte-compiled / optimized / DLL files
@@ -62,6 +64,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 cover/
 
 # Translations
@@ -184,3 +187,7 @@ cython_debug/
 /dados/
 /robo/dados/
 /_robo_cache.csv
+
+# Cache geográfico: preservar somente a malha usada pelas rotas.
+/.streamlit_cache/*
+!/.streamlit_cache/geo_sp_2022.parquet

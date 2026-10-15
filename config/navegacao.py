@@ -27,9 +27,9 @@ Aqui o menu vira **dado**:
 
 Regras:
 
-* todo arquivo de ``pages/`` ou aparece em :data:`PAGINAS` ou está listado em
-  :data:`MODULOS_DE_APOIO` (módulos importados por outras páginas, que não são
-  painéis) — o guarda ``tests/test_organizacao_dashboards.py`` confere isso;
+* todo arquivo de ``pages/`` aparece em :data:`PAGINAS`; módulos de apoio
+  ficam em ``services/`` ou ``components/`` — o guarda
+  ``tests/test_organizacao_dashboards.py`` confere isso;
 * a URL de cada página continua sendo derivada do nome do arquivo
   (``pages/pontos.py`` → ``/pontos``), então renomear título/ícone não quebra
   links compartilhados;
@@ -245,13 +245,6 @@ DASHBOARDS_PADRONIZADOS: tuple[str, ...] = (
     "quebra_unificada.py",
 )
 
-#: Arquivos de ``pages/`` que não são painéis: módulos de apoio importados por
-#: outras páginas. Estão aqui para o menu (e os testes) saberem que existem.
-MODULOS_DE_APOIO: dict[str, str] = {
-    "datas_dashboard.py": "Motor de datas (ISO/BR) usado por pages/dashboard_meta.py.",
-    "login.py": "Tela de autenticação standalone, fora do menu do portal.",
-}
-
 
 def paginas_do_grupo(grupo: str) -> list[PaginaPortal]:
     """Páginas de uma seção do menu, na ordem declarada."""
@@ -304,7 +297,6 @@ __all__ = [
     "GRUPO_UTILITARIOS",
     "GRUPO_VISAO_GERAL",
     "GRUPOS",
-    "MODULOS_DE_APOIO",
     "PAGINAS",
     "PaginaPortal",
     "VERSAO_NAVEGACAO",

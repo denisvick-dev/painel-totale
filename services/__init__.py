@@ -15,6 +15,7 @@ Módulo                             Responsabilidade
 ``hierarquia``                     Lista de Ativos (Login → Técnico → Monitor → Base)
 ``dados_sessao``                   Contrato das bases carregadas na sessão (guarda de entrada)
 ``planilhas``                      Leitura de uploads e exportação CSV/XLSX corporativa
+``datas``                          Conversão ISO/BR, fusos e janelas de datas dos dashboards
 ``texto``                          Normalização de texto, colunas, logins e números pt-BR
 =================================  ==========================================================
 """

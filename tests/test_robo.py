@@ -380,7 +380,7 @@ def test_gsheets_nao_e_carregado_sem_etl_e_none_nao_mantem_dado_antigo(
     assert estado["df_memoria"].loc[0, "OS"] == "2"
 
 
-def test_sidebar_streamlit_real_processa_e_atualiza_arquivo(pasta: Path) -> None:
+def test_painel_streamlit_real_processa_e_atualiza_arquivo(pasta: Path) -> None:
     arquivo = _csv(pasta, "Atividades-SPO.csv", "OS;NOME\n1;Ana\n")
     codigo = (
         "from robo import renderizar_robo_local\n"
@@ -398,6 +398,27 @@ def test_sidebar_streamlit_real_processa_e_atualiza_arquivo(pasta: Path) -> None
     app.run()
     assert not list(app.exception)
     assert app.session_state["df_memoria_raw"].loc[0, "OS"] == "2"
+
+
+def test_controles_robo_no_corpo_da_pagina(pasta: Path) -> None:
+    _csv(pasta, "Atividades-SPO.csv", "OS;NOME\n1;Ana\n")
+    codigo = (
+        "from robo import renderizar_robo_local\n"
+        f"renderizar_robo_local(pasta_padrao={str(pasta)!r}, "
+        "ciclos_estabilidade=1)\n"
+    )
+    app = AppTest.from_string(codigo, default_timeout=30).run()
+    assert not list(app.exception)
+    assert len(app.sidebar.toggle) == 0
+    assert len(app.sidebar.expander) == 0
+    assert app.main.toggle[0].label == "⚡ Auto-Sincronizar"
+    assert app.main.expander[0].label == "⚙️ Configurar Pasta"
+    assert any("Bases Monitoradas" in item.value for item in app.main.markdown)
+    assert any("NET-LESTE" in item.value for item in app.main.caption)
+
+    app.main.toggle[0].set_value(False).run()
+    assert not list(app.exception)
+    assert app.session_state["robo_ativo"] is False
 
 
 def test_lock_expirado_ou_invalido_e_liberado(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -33,7 +33,6 @@ from config.navegacao import (
     DASHBOARDS_PADRONIZADOS,
     DESCRICAO_GRUPOS,
     GRUPOS,
-    MODULOS_DE_APOIO,
     PAGINAS,
     grupos_ordenados,
     mapa_de_paginas,
@@ -128,20 +127,19 @@ def _chamadas(nome: str) -> list[tuple[str, int]]:
 # 🧭 BLOCO 1: MAPA DE NAVEGAÇÃO
 # ====================================================
 def test_toda_pagina_do_portal_esta_no_mapa_uma_vez() -> None:
-    """``pages/*.py`` ou é painel do menu ou é módulo de apoio declarado."""
+    """``pages/`` contém apenas telas ativas e registradas na navegação."""
     arquivos = sorted(c.name for c in PASTA_PAGINAS.glob("*.py") if c.name != "__init__.py")
     no_menu = [p.arquivo for p in PAGINAS]
 
     assert len(no_menu) == len(set(no_menu)), "Há página duplicada no mapa de navegação."
-    fora = [a for a in arquivos if a not in no_menu and a not in MODULOS_DE_APOIO]
+    fora = [a for a in arquivos if a not in no_menu]
     inexistentes = [a for a in no_menu if a not in arquivos]
 
     assert not fora, (
-        "Páginas fora do mapa de navegação (adicione em config/navegacao.py ou "
-        f"declare como módulo de apoio): {fora}"
+        "Páginas fora do mapa de navegação (registre em config/navegacao.py "
+        f"ou mova módulos de apoio para services/): {fora}"
     )
     assert not inexistentes, f"O mapa cita páginas que não existem: {inexistentes}"
-    assert MODULOS_DE_APOIO, "Módulos de apoio precisam estar documentados no mapa."
 
 
 def test_existe_uma_unica_pagina_padrao_do_portal() -> None:
@@ -186,7 +184,7 @@ def test_mapa_de_paginas_monta_todas_as_paginas() -> None:
     coberta por ``tests/test_app_shell.py``, que roda o entrypoint no ``AppTest``:
     fora do runtime ``st.Page`` não resolve ``title``/``url_path``, então aqui
     validamos a estrutura — seções, quantidade de páginas por seção, tipo dos
-    itens, página padrão única e visibilidade dos módulos de apoio.
+    itens, página padrão única e visibilidade das páginas.
     """
     from streamlit.navigation.page import Page
 
@@ -311,7 +309,7 @@ def test_dashboard_nao_reimplementa_componentes_de_interface(pagina: str) -> Non
 
 @pytest.mark.parametrize("pagina", DASHBOARDS_PADRONIZADOS)
 def test_dashboard_nao_usa_st_metric(pagina: str) -> None:
-    """``st.metric`` está banido do portal (ver DESIGN_SYSTEM.md, seção 1)."""
+    """``st.metric`` está banido do portal (ver docs/DESIGN_SYSTEM.md, seção 1)."""
     ofensas = [linha for nome, linha in _chamadas(pagina) if nome == "st.metric"]
     assert not ofensas, f"{pagina} usa st.metric nas linhas {ofensas}."
 

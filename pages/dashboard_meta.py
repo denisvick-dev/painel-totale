@@ -16,7 +16,7 @@ Mudanças v4.7.0:
   Kit: molduras em gráficos, abas pill, hover nos cards de KPI).
 
 Mudanças v4.6.17:
-- Motor de datas centralizado em datas_dashboard.py: ISO e BR sem inversão.
+- Motor de datas centralizado em services/datas.py: ISO e BR sem inversão.
 - Janela temporal funciona mesmo quando uma fonte está vazia ou sem DATA.
 - Seleção incompleta não é interpretada como um recorte de um dia.
 - Filtros, diagnóstico, âncoras e exibição usam o mesmo parser.
@@ -40,7 +40,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from pages.datas_dashboard import (
+from services.datas import (
     converter_serie_datas,
     converter_serie_datas_mdy,
     data_ancora_projecao,

@@ -73,7 +73,6 @@ from components.sidebar import (
     render_sidebar_theme_selector,
 )
 from config.settings import AMBIENTE_PORTAL, ICON_PATH_PORTAL, VERSAO_PORTAL
-from robo import renderizar_robo_local
 
 # Configuração de logging
 logging.basicConfig(
@@ -244,12 +243,6 @@ class GerenciadorNavegacao:
         )
         st.session_state["tema_sidebar"] = tema_escolhido
 
-        render_sidebar_divider(
-            estilo="gradiente",
-            espacamento="pequeno",
-            tema=tema_escolhido,
-        )
-        renderizar_robo_local(mostrar_toggle=True, mostrar_config=True)
         render_sidebar_divider(
             estilo="gradiente",
             espacamento="pequeno",
