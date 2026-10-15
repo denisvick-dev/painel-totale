@@ -127,6 +127,10 @@ def _ler_csv_bytes(
         padrao["keep_default_na"] = False
         padrao["na_values"] = [""]
     padrao.update(kwargs)
+    if padrao.get("engine") == "python":
+        # ``low_memory`` só existe no engine C: quem migra de um ``pd.read_csv``
+        # antigo pode passá-la sem querer e o pandas levantaria ValueError.
+        padrao.pop("low_memory", None)
     return pd.read_csv(io.StringIO(texto), **padrao)
 
 

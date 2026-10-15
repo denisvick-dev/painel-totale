@@ -394,3 +394,13 @@ def test_gerar_excel_multiabas_respeita_limite_de_abas() -> None:
 
     abas = pd.read_excel(io.BytesIO(dados), sheet_name=None)
     assert len(abas) == 4  # consolidado + 3 grupos
+
+
+def test_ler_bytes_descarta_low_memory_incompativel_com_engine_python() -> None:
+    """Leituras antigas passavam ``low_memory=False``; o engine python não aceita."""
+    dados = "Contrato;Status\nC1;PENDENTE\nC2;EXECUTADA\n".encode("utf-8-sig")
+
+    df = ler_bytes(dados, "base.csv", dtype=str, low_memory=False)
+
+    assert list(df.columns) == ["Contrato", "Status"]
+    assert df["Status"].tolist() == ["PENDENTE", "EXECUTADA"]
