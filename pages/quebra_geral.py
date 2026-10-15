@@ -1234,7 +1234,11 @@ def render_matriz_executiva(df: pd.DataFrame, meta_geral: float = Config.SLA_QUE
                         )
                     else:
                         cls = "badge-meta-ok" if n <= metas[cu] else "badge-meta-nok"
-                        linhas.append(f"<td><span class='{cls}'>{fmt_pct_br(n)}</span></td>")
+                        # Motor._matriz_logic retorna frações (0–1), diferente do
+                        # helper de apresentação, cujo padrão recebe pontos percentuais.
+                        linhas.append(
+                            f"<td><span class='{cls}'>{fmt_pct_br(n, ja_e_pct=False)}</span></td>"
+                        )
                 except (TypeError, ValueError):
                     linhas.append(f"<td>{html_safe(v)}</td>")
             elif cu in {"TOTAL TASKS", "TOTAL_TASKS"}:
