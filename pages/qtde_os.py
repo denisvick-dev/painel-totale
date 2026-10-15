@@ -21,6 +21,7 @@ try:
 
     TEM_HOLIDAYS = True
 except ImportError:
+    holidays = None  # type: ignore[assignment]
     TEM_HOLIDAYS = False
 
 from components.componentes import (

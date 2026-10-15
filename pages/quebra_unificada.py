@@ -102,7 +102,7 @@ def _obter_folga_sla(df: pd.DataFrame, sla_meta: float) -> dict[str, Any]:
     """Wrapper seguro com tipagem explícita para Motor.folga_sla."""
     folga_fn = getattr(Motor, "folga_sla", None)
     if folga_fn is not None and callable(folga_fn):
-        folga_resultado: Any = folga_fn(df, sla_meta)
+        folga_resultado: Any = folga_fn(df, sla_meta)  # pylint: disable=not-callable
         return cast(dict[str, Any], folga_resultado)
 
     if df.empty or "Status Contrato" not in df.columns:

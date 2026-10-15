@@ -777,6 +777,8 @@ if not arquivo_toa or not arquivo_sinapse:
 # ==========================================================
 # 📥 PROCESSAMENTO
 # ==========================================================
+df_toa_raw: pd.DataFrame = pd.DataFrame()
+df_sin_raw: pd.DataFrame = pd.DataFrame()
 try:
     # FIX #1 — getvalue() é idempotente entre reruns; read() esvazia o buffer
     df_toa_raw, _ = carregar_arquivo(arquivo_toa.getvalue(), arquivo_toa.name)

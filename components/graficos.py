@@ -1463,6 +1463,7 @@ def grafico_radar(
             hovertemplate=f"{rotulo_serie}: %{{r:.1f}}<extra>%{{theta}}</extra>",
         )
     )
+    base: list[float] = []
     if comparativo is not None:
         base = [
             float(v)

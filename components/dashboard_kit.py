@@ -608,6 +608,8 @@ def render_filtros_dashboard(
 
     itens = list(colunas_validas.items())
     linhas_filtro = [itens[i : i + max_por_linha] for i in range(0, len(itens), max_por_linha)]
+    min_data = None
+    max_data = None
     if coluna_data is not None and coluna_data in df.columns:
         datas = pd.to_datetime(df[coluna_data], errors="coerce", dayfirst=True)
         if datas.notna().any():
@@ -625,9 +627,9 @@ def render_filtros_dashboard(
                 if coluna == "__periodo__":
                     selecao_data = st.date_input(
                         rotulo,
-                        value=(min_data, max_data),
-                        min_value=min_data,
-                        max_value=max_data,
+                        value=(min_data, max_data),  # type: ignore[arg-type]
+                        min_value=min_data,  # type: ignore[arg-type]
+                        max_value=max_data,  # type: ignore[arg-type]
                         format="DD/MM/YYYY",
                         key=f"{chave_base}::periodo",
                     )
