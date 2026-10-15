@@ -44,6 +44,7 @@ from config.settings import (
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
 )
+from robo import renderizar_robo_local
 from services.cache_dados import (
     formatar_bytes,
     memoria_dataframe,
@@ -1219,7 +1220,9 @@ def _rodar() -> None:
         )
         _painel_dados(intervalo_seg)
 
-    _painel_saida_robo_local()
+    with st.container(border=True):
+        renderizar_robo_local(mostrar_toggle=True, mostrar_config=True)
+        _painel_saida_robo_local()
 
 
 if __name__ == "__main__":

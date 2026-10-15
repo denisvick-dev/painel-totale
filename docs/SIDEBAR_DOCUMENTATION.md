@@ -4,8 +4,9 @@
 
 O módulo `components/sidebar.py` concentra o CSS dos temas, o seletor de tema persistente e os
 componentes corporativos da sidebar do portal. Ele substitui o CSS que antes ficava acoplado ao
-`streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas. O robô local também é
-renderizado uma única vez pelo shell global do app, para monitorar a mesma pasta em todas as páginas.
+`streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas. O robô local fica no corpo da Central de Atualização (`pages/envio_excel.py`),
+fora da sidebar. O monitor roda enquanto essa página está aberta; os dados carregados
+continuam compartilhados na sessão para consumo pelas outras páginas.
 
 O Design System (`components/componentes.py`) reexporta os principais símbolos deste módulo, então
 as páginas podem importar tanto de `components.sidebar` quanto de `components.componentes`.

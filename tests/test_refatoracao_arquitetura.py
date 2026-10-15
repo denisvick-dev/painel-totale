@@ -56,26 +56,23 @@ def test_robo_em_um_unico_arquivo() -> None:
         assert getattr(robo, nome).__module__ == "robo"
 
 
-def test_robo_local_unificado_no_shell_global() -> None:
-    """Uma única sidebar global monitora arquivos para todas as páginas."""
+def test_robo_local_exclusivo_na_pagina_envio_excel() -> None:
+    """Os controles ficam no corpo da Central, não no shell ou em outras páginas."""
     codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
-    arvore_app = ast.parse(codigo_app)
+    assert "renderizar_robo_local" not in codigo_app
+
+    codigo_envio = (RAIZ / "pages" / "envio_excel.py").read_text(encoding="utf-8")
+    arvore_envio = ast.parse(codigo_envio)
     chamadas_robo = [
         no
-        for no in ast.walk(arvore_app)
+        for no in ast.walk(arvore_envio)
         if isinstance(no, ast.Call)
         and isinstance(no.func, ast.Name)
         and no.func.id == "renderizar_robo_local"
     ]
-
-    assert "from robo import renderizar_robo_local" in codigo_app
+    assert "from robo import renderizar_robo_local" in codigo_envio
     assert len(chamadas_robo) == 1
-    for pagina in (
-        "envio_excel.py",
-        "volumetria.py",
-        "quebra_geral.py",
-        "quebra_unificada.py",
-    ):
+    for pagina in ("volumetria.py", "quebra_geral.py", "quebra_unificada.py"):
         codigo_pagina = (RAIZ / "pages" / pagina).read_text(encoding="utf-8")
         assert "renderizar_robo_local(" not in codigo_pagina
     assert "_aplicar_etl_robo_global" in (

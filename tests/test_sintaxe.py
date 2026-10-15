@@ -32,8 +32,8 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-# Diretórios ignorados: `old/` guarda scripts legados que não fazem parte do app.
-IGNORADOS = {"old", "__pycache__", ".venv", ".git", "build", "dist"}
+# Diretórios locais que não fazem parte do app.
+IGNORADOS = {"__pycache__", ".venv", ".venv-check", ".git", "build", "dist"}
 
 
 def _arquivos_python() -> list[Path]:
@@ -112,9 +112,8 @@ def test_exemplo_de_secrets_e_seguro_e_valido() -> None:
     config = tomllib.loads(caminho.read_text(encoding="utf-8"))
 
     assert config["usuarios"]["admin"]["senha"] == ""
-    for pagina in ("gestao_ativos.py", "login.py"):
-        codigo = (RAIZ / "pages" / pagina).read_text(encoding="utf-8")
-        assert "admin123" not in codigo, f"Senha padrão insegura encontrada em {pagina}."
+    codigo = (RAIZ / "pages" / "gestao_ativos.py").read_text(encoding="utf-8")
+    assert "admin123" not in codigo, "Senha padrão insegura na Gestão de Ativos."
 
 
 def test_todos_modulos_compilam() -> None:

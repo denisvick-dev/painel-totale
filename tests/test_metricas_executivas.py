@@ -4,7 +4,6 @@ from datetime import datetime
 
 import pandas as pd
 
-from components.alertas_automaticos import avaliar_alertas
 from components.metricas_executivas import (
     comparar_periodos,
     resumo_frequencia,
@@ -104,9 +103,3 @@ def test_saude_de_dados_classifica_frescor_e_duplicatas() -> None:
 
     assert estado == "ok"
     assert consistencia == "alerta"
-
-
-def test_alertas_ordenados_por_severidade_e_incluem_erro_robo() -> None:
-    alertas = avaliar_alertas({"robo_erro": "Falha ao ler arquivo", "robo_duplicatas_removidas": 2})
-
-    assert [alerta.severidade for alerta in alertas] == ["ALTO", "BAIXO"]

@@ -1,4 +1,4 @@
-"""Robô TOTALE: descoberta, leitura de CSV/Excel e sincronismo na sidebar.
+"""Robô TOTALE: descoberta, leitura de CSV/Excel e sincronismo na Central de Atualização.
 
 O motor, o ciclo headless e a interface Streamlit vivem neste único arquivo.
 A dependência de Streamlit é opcional para a execução via CLI e para os testes
@@ -1059,7 +1059,7 @@ def ler_arquivo_totale(
 def _exigir_streamlit() -> object:
     if st is None:
         raise RuntimeError(
-            "Streamlit não está instalado. A sidebar do robô só roda no app."
+            "Streamlit não está instalado. A interface do robô só roda no app."
         )
     return st
 
@@ -1264,6 +1264,7 @@ def renderizar_robo_local(
     mostrar_toggle: bool = True,
     mostrar_config: bool = True,
 ) -> None:
+    """Renderiza os controles no contêiner atual da página de envio de Excel."""
     _exigir_streamlit()
     assert st is not None
 
@@ -1283,7 +1284,7 @@ def renderizar_robo_local(
         st.session_state["robo_pasta_alvo"] = pasta_padrao
 
     pasta_alvo = str(st.session_state["robo_pasta_alvo"])
-    st.sidebar.markdown(
+    st.markdown(
         """
         <div style='font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;
         letter-spacing:0.8px;margin:14px 0 6px;padding-left:4px;'>
@@ -1294,7 +1295,7 @@ def renderizar_robo_local(
     )
 
     if mostrar_toggle:
-        ativo = st.sidebar.toggle(
+        ativo = st.toggle(
             "⚡ Auto-Sincronizar",
             value=_estado_bool("robo_ativo", True),
             key="robo_toggle_ui",
@@ -1308,7 +1309,7 @@ def renderizar_robo_local(
         ativo = _estado_bool("robo_ativo", True)
 
     if mostrar_config:
-        with st.sidebar.expander("⚙️ Configurar Pasta", expanded=False):
+        with st.expander("⚙️ Configurar Pasta", expanded=False):
             pasta_input = st.text_input(
                 "Caminho do Disco:", value=pasta_alvo, key="input_pasta_robo"
             )
@@ -1342,22 +1343,22 @@ def renderizar_robo_local(
         stable = int(st.session_state.get("robo_candidato_stable", 0) or 0)
         aguardando_lock = st.session_state.get("_robo_aguardando_lock")
         if sig_ok:
-            st.sidebar.success(
+            st.success(
                 f"✅ Sincronizado às {hs}\n{len(selecionados_ui)} arquivo(s) no pipeline"
             )
         elif isinstance(aguardando_lock, str) and aguardando_lock:
-            st.sidebar.info(f"⏳ {aguardando_lock}")
+            st.info(f"⏳ {aguardando_lock}")
         else:
-            st.sidebar.warning(
+            st.warning(
                 f"📥 {len(candidatos_ui)} na pasta, {len(selecionados_ui)} na fila\n"
                 f"Estável {stable}/{ciclos_estabilidade}"
             )
 
         extras = len(candidatos_ui) - len(selecionados_ui)
         if extras > 0:
-            st.sidebar.caption(f"{extras} arquivo(s) mais antigo(s) fora do pipeline.")
+            st.caption(f"{extras} arquivo(s) mais antigo(s) fora do pipeline.")
 
-        st.sidebar.markdown(
+        st.markdown(
             """
             <div style='font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;
             letter-spacing:0.6px;margin:10px 0 4px;padding-left:4px;'>
@@ -1373,34 +1374,34 @@ def renderizar_robo_local(
         for marcador, base in MAPA_BASES_ARQUIVO.items():
             info = por_base.get(base)
             if info is None:
-                st.sidebar.caption(f"⬜ {base} — aguardando arquivo com '{marcador}'")
+                st.caption(f"⬜ {base} — aguardando arquivo com '{marcador}'")
                 continue
             caminho_b, mtime_b, _ = info
             meta = obter_metadados_arquivo(caminho_b)
             ok = processados_map.get(caminho_b) == mtime_b
             icone = "✅" if ok else "📥"
-            st.sidebar.caption(
+            st.caption(
                 f"{icone} {base} — {meta['nome'][:32]} ({meta['tamanho']})"
             )
 
         sem_base = [c for c, _, _ in candidatos_ui if detectar_base_arquivo(c) is None]
         if sem_base:
-            st.sidebar.caption(
+            st.caption(
                 f"⚠️ {len(sem_base)} arquivo(s) sem SPO, GRS ou ABCDM no nome."
             )
         removidas = st.session_state.get("robo_duplicatas_removidas")
         if isinstance(removidas, int) and removidas > 0:
-            st.sidebar.caption(
+            st.caption(
                 f"{removidas} linha(s) idêntica(s) removida(s) na junção."
             )
     else:
         estado = "🟢 Monitorando" if ativo else "⏸ Pausado"
-        st.sidebar.info(f"{estado}: `{Path(pasta_alvo).name}`")
+        st.info(f"{estado}: `{Path(pasta_alvo).name}`")
 
     erro = st.session_state.get("robo_erro")
     if isinstance(erro, str) and erro:
-        st.sidebar.error(f"❌ {erro}")
-        c_a, c_b = st.sidebar.columns(2)
+        st.error(f"❌ {erro}")
+        c_a, c_b = st.columns(2)
         with c_a:
             if st.button("🧹 Limpar", key="limpar_erro_robo", width="stretch"):
                 st.session_state.pop("robo_erro", None)

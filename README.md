@@ -44,7 +44,7 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 
 ### 🎛️ Design System & Desempenho (v3.6.0)
 
-Versão atual: **3.6.0** — veja [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) para o guia de uso dos componentes.
+Versão atual: **3.6.0** — veja [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) para o guia de uso dos componentes.
 
 - **Cartões de KPI avançados** (`components/kpi_cards.py`): variação D-1/W-1 com seta e cor semântica, sparkline SVG inline, barra de progresso contra meta, ícone Material, 6 temas e 3 densidades. `render_metric` é *drop-in replacement* de `st.metric` (nenhuma página usa mais o widget nativo)
 - **Fábrica de gráficos minimalista** (`components/graficos.py`): 24 tipos (`criar_grafico("linha"|"ranking"|"cascata"|"gauge"|…)`) sobre Plotly Express com o tema `totale_min` — sem chrome, grade só no eixo Y, legenda horizontal e menu enxuto. A fábrica nunca levanta exceção: dado inválido vira figura com aviso
@@ -52,7 +52,7 @@ Versão atual: **3.6.0** — veja [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) para o 
 - **CSS global dos componentes nativos** (`components/css_global.py`): botões, inputs, selects, abas, tabelas, alertas, upload, progresso e tooltips padronizados — injeção única por sessão (~40 KB a menos por rerun)
 - **Organização de página** (`components/layout_pagina.py`): cabeçalho com contexto, sumário de âncoras, filtros fixos no topo ao rolar, seções, painéis com altura controlada, barra de ações e rodapé — ordem canônica em `ORDEM_PADRAO`
 - **Carga de dados até 3× mais rápida** (`services/cache_dados.py`): requisições condicionais (ETag/`If-Modified-Since` → `304` sem reparse), cache Parquet em disco fora do repositório, downloads paralelos por fonte, sessão HTTP com pool e retry, leitura de CSV com detecção de separador/encoding
-- **Robô local unificado**: um único monitor na sidebar global acompanha a pasta configurada em todas as páginas; a leitura bruta é compartilhada e cada painel aplica seu ETL específico sem duplicar o monitor
+- **Robô local unificado**: um único monitor no corpo da Central de Atualização (`pages/envio_excel.py`) acompanha a pasta configurada enquanto essa página está aberta; a leitura bruta é compartilhada e cada painel aplica seu ETL específico sem duplicar o monitor
 - **Processamento Pandas otimizado**: normalização vetorial de colunas no robô (1,03 s → 0,22 s para 120 mil linhas, ~4,7×) e `otimizar_dtypes` com downcast numérico, texto→número sem perdas e categóricas opcionais (−81% de memória no caso medido)
 - **Diagnóstico de desempenho** (`render_painel_desempenho`): tempos por fonte, origem do dado (rede/cache/`304`), linhas, memória e estado do cache em disco
 
@@ -210,11 +210,11 @@ Acesse: **http://localhost:8501**
 
 ### Robô local (`robo.py`)
 
-O monitor na sidebar examina a pasta configurada a cada 5 segundos e processa **somente o
+O monitor na Central de Atualização (`pages/envio_excel.py`) examina a pasta configurada a cada 5 segundos e processa **somente o
 arquivo válido mais recente** (por data de modificação). Aceita `.csv`, `.xlsx`, `.xlsm` e
 `.xls`; reconhece os marcadores `SPO`, `GRS` e `ABCDM` no nome para completar a coluna `BASE`.
 Arquivos temporários do Excel/download e arquivos vazios não são processados. A leitura bruta
-fica em `df_memoria_raw` para as páginas aplicarem seus ETLs; erros aparecem na sidebar e o
+fica em `df_memoria_raw` para as páginas aplicarem seus ETLs; erros aparecem no próprio painel e o
 arquivo pode ser tentado novamente. O robô lê **o disco da máquina que executa o Streamlit**:
 em um deploy remoto, ele não tem acesso direto à pasta Downloads do navegador do usuário.
 
@@ -274,8 +274,11 @@ painel-totale/
 ├── requirements-dev.txt          # Ambiente completo de desenvolvimento
 ├── requirements-test.txt         # Dependências mínimas para CI/testes
 ├── .ruff.toml                    # Regras de lint
+├── pytest.ini                   # Testes em tests/ e imports a partir da raiz
 ├── README.md
-├── DESIGN_SYSTEM.md              # Guia dos componentes v3.6 (KPI, gráficos, layout, CSS)
+├── docs/                        # Guias de manutenção e interface
+│   ├── DESIGN_SYSTEM.md          # KPI, gráficos, layout e CSS
+│   └── SIDEBAR_DOCUMENTATION.md  # Sidebar, temas e persistência
 ├── .github/workflows/quality.yml # Lint e testes em push/PR
 ├── .streamlit/
 │   └── secrets.example.toml      # Modelo local de configuração (sem credenciais reais)
@@ -290,20 +293,20 @@ painel-totale/
 │   ├── sidebar.py                # Sidebar corporativa: temas, seletor e componentes
 │   ├── criterios.py              # Regras de classificação operacional
 │   ├── metricas_executivas.py    # Métricas e resumos executivos
-│   ├── alertas_automaticos.py    # Avaliação de alertas operacionais
 │   ├── saude_dados.py            # Frescor e consistência das fontes
 │   └── css_paginas.py            # Estilos reutilizáveis das páginas
 ├── config/                       # Parâmetros centralizados
 │   ├── navegacao.py              # Menu declarativo: páginas, grupos, ícones e ordem da sidebar
 │   └── settings.py               # IDs, URLs, versão e ambiente
 ├── services/                     # Camada de dados compartilhada (sem UI)
+│   ├── datas.py                 # Parser ISO/BR, fusos e janelas de datas
 │   ├── texto.py                  # Normalização e formatação pt-BR (números, colunas, logins)
 │   ├── planilhas.py              # Leitura de uploads/bytes e exportação Excel/CSV padronizada
 │   ├── hierarquia.py             # Hierarquia LOGIN → TÉCNICO/MONITOR/BASE com cache
 │   ├── dados_sessao.py           # Chaves e leitores da base carregada na sessão
 │   ├── cache_dados.py            # Cache em disco, pool HTTP e retry
 │   └── google_drive_client.py    # Clientes Google Drive/Sheets (CSV, gviz, download)
-├── pages/                        # Páginas do aplicativo Streamlit
+├── pages/                        # Somente páginas ativas do mapa de navegação
 ├── robo.py                       # Motor, sincronismo Streamlit e CLI em um único arquivo
 ├── tests/                        # Testes de regressão e guardas estáticas
 ├── assets/                       # Ícones, imagens e marca usados pelo app
@@ -313,6 +316,20 @@ painel-totale/
 
 > Não há diretório `old/`: scripts legados foram removidos e um teste-guarda
 > (`tests/test_refatoracao_arquitetura.py`) impede que artefatos órfãos voltem.
+
+### Organização e limpeza
+
+- `pages/` contém somente telas registradas em `config/navegacao.py`.
+- Regras de dados e integrações ficam em `services/`; componentes visuais, em `components/`.
+- Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md) e
+  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md). O README é o ponto de entrada.
+- `pages/login.py` (tela standalone não integrada ao portal) e
+  `components/alertas_automaticos.py` (sem consumidores no app) foram removidos.
+  A autenticação própria da Gestão de Ativos continua preservada.
+- Fontes, imagens e `.streamlit_cache/geo_sp_2022.parquet` são usados pelo app:
+  o Parquet geográfico é preservado para evitar baixar a malha novamente.
+- Caches locais, ambientes virtuais e exportações não devem ser versionados.
+  Os testes de higiene verificam assets órfãos e módulos sem ligação com o app.
 
 ### Padrão dos dashboards
 
