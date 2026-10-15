@@ -112,6 +112,20 @@ except ImportError:
     def _noop(*args: Any, **kwargs: Any) -> None:
         pass
 
+    # Fallbacks para os primitivos de layout usados por ``_abrir_dashboard_fallback``.
+    render_chips = _noop
+    render_sumario = _noop
+
+    class _SecaoCtx:
+        def __enter__(self) -> "_SecaoCtx":
+            return self
+
+        def __exit__(self, *args: Any) -> bool:
+            return False
+
+    def secao(*args: Any, **kwargs: Any) -> _SecaoCtx:
+        return _SecaoCtx()
+
     def _fallback_kpi(
         container: Any,
         label: str,
