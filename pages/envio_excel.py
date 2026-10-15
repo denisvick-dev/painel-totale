@@ -11,13 +11,19 @@ Página do app Streamlit (rodar como página em pages/ ou como main).
    paralelo** (pool de threads) desde a v3.6.0 — o tempo total passa a ser o da
    fonte mais lenta, não a soma das três. Se uma falha, a última carga boa das
    outras permanece e o status individual é preservado.
-3. Retries HTTP + página HTML de confirmação do Drive (confirm=t e
-   drive.usercontent.google.com). Sessão HTTP com pool de conexões reutilizável.
+   >>> v3.6.1: cada thread cria sua própria `requests.Session` para evitar o
+   problema conhecido de thread-safety de `Session` (cookie jar / adapters).
+3. Retries HTTP com backoff exponencial por fonte (até 3 tentativas),
+   página HTML de confirmação do Drive (confirm=t e drive.usercontent.google.com).
 4. CSV: separador inferido uma vez (Sniffer, com contagem como reserva).
 5. Excel: tenta openpyxl e depois calamine.
 6. Sem time.sleep + st.rerun().
 7. Painel de desempenho: duração por fonte, memória das bases e estado do cache
    em disco (services.cache_dados), para acompanhar a otimização de carga.
+8. v3.6.1: cache incremental do Consultivo — se só Ativos mudou, não refaz
+   `tratar_planos`/`processar_quantidades`; só rodamos o `merge_ativos`.
+9. v3.6.1: CSV export sanitiza prefixos perigosos (=, +, -, @) para mitigar
+   CSV injection quando aberto no Excel.
 """
 
 from __future__ import annotations
@@ -103,7 +109,11 @@ def _kpi_row_fb(specs: object, **_k: object) -> None:
 
 
 def _tabela_fb(df: object, **_k: object) -> None:
-    st.dataframe(df, width="stretch")
+    try:
+        st.dataframe(df, width="stretch")
+    except TypeError:
+        # Streamlit < 1.38 não aceita width="stretch"
+        st.dataframe(df, use_container_width=True)
 
 
 def _hero_fb(**k: object) -> None:
@@ -153,9 +163,26 @@ class Configuracoes:
     PADRAO_VAZIO = r"^(?:-|nan|none|na|n/a|<na>|nat|null)$"
     _RE_VAZIO = re.compile(PADRAO_VAZIO, re.IGNORECASE)
 
+    # Regex para detectar códigos de produto na coluna OBSERVACAO.
+    # Mantido como atributo de classe para facilitar ajuste futuro sem mexer
+    # no corpo das funções de processamento.
+    REGEX_PRODUTO_OBSERVACAO = r"\b\d{9,12}\b"
+
     FUSO = FUSO_BR
     TIMEOUT = TIMEOUT_HTTP_PADRAO
+
+    # Grace period para o timer da atualização automática. O fragmento do
+    # Streamlit pode disparar alguns milissegundos antes do intervalo exato,
+    # então damos 2 s de folga para evitar que a condição "venceu?" perca a
+    # janela e espere mais um ciclo inteiro.
     FOLGA_TIMER_SEG = 2
+
+    # Retry por fonte: até 3 tentativas com backoff exponencial (1 s, 2 s).
+    # Isso complementa qualquer retry que já exista em `baixar_bytes_drive`,
+    # cobrindo 503/timeout transitórios sem esperar o próximo ciclo de sync.
+    TENTATIVAS_FONTE = 3
+    BACKOFF_BASE_SEG = 1.0
+
     ABAS_PROD: list[str] | None = None  # None = todas as abas
     ABA_PROD_UI = "Prod"
     COLUNAS_ATIVOS = ("Monitor", "U.N.", "Base")
@@ -166,6 +193,10 @@ class Configuracoes:
         "A cada 5 minutos": 300,
         "A cada 15 minutos": 900,
     }
+
+    # Caracteres que o Excel interpreta como início de fórmula ao abrir CSV.
+    # Prefixamos com apóstrofo para neutralizar CSV injection em downloads.
+    PREFIXOS_CSV_INJECTION = ("=", "+", "-", "@")
 
     @classmethod
     def vazio_texto(cls, valor: object) -> str:
@@ -187,7 +218,11 @@ class StatusFonte:
     erro: str | None = None
 
     def rotulo(self) -> str:
-        quando = self.ultimo_sucesso.strftime("%d/%m às %H:%M") if self.ultimo_sucesso else "nunca"
+        quando = (
+            self.ultimo_sucesso.strftime("%d/%m às %H:%M")
+            if self.ultimo_sucesso
+            else "nunca"
+        )
         if self.ok:
             return f"{self.nome} • {_fmt_int(self.linhas)} linhas • ok em {quando}"
         if self.ultimo_sucesso is None:
@@ -198,7 +233,13 @@ class StatusFonte:
 
 
 def _fmt_int(n: int) -> str:
-    return f"{n:,}".replace(",", ".")
+    """Formata inteiro no padrão pt-BR (ponto como separador de milhar).
+
+    Trata negativos explicitamente para não depender do comportamento do locale
+    quando `n < 0` (o replace cego não quebra, mas deixo defensivo).
+    """
+    sinal = "-" if n < 0 else ""
+    return sinal + f"{abs(n):,}".replace(",", ".")
 
 
 def _erro_curto(erro: str | None, limite: int = 120) -> str:
@@ -220,9 +261,38 @@ def _intervalo_vencido(
         return False
     if not isinstance(ultima, datetime):
         return True
-    ref = ultima if ultima.tzinfo is not None else ultima.replace(tzinfo=Configuracoes.FUSO)
+    ref = (
+        ultima
+        if ultima.tzinfo is not None
+        else ultima.replace(tzinfo=Configuracoes.FUSO)
+    )
     decorrido = (agora - ref).total_seconds()
     return decorrido + Configuracoes.FOLGA_TIMER_SEG >= intervalo_seg
+
+
+def _sanitizar_celula_csv(valor: object) -> object:
+    """Previne CSV injection prefixando células perigosas com apóstrofo.
+
+    Excel/LibreOffice interpretam células que começam com =, +, -, @ como
+    fórmulas quando abrem CSVs. Isso é um vetor de ataque conhecido quando o
+    arquivo é compartilhado com terceiros. Prefixar com `'` neutraliza o
+    comportamento sem alterar o conteúdo visualmente para a maioria dos casos.
+    """
+    if not isinstance(valor, str) or not valor:
+        return valor
+    if valor[0] in Configuracoes.PREFIXOS_CSV_INJECTION:
+        return "'" + valor
+    return valor
+
+
+def _para_csv_seguro(df: pd.DataFrame) -> bytes:
+    """Serializa DataFrame para CSV `;` com sanitização anti-injection."""
+    if df.empty:
+        return df.to_csv(index=False, sep=";").encode("utf-8-sig")
+    df_seguro = df.copy()
+    for col in df_seguro.select_dtypes(include=["object"]).columns:
+        df_seguro[col] = df_seguro[col].map(_sanitizar_celula_csv)
+    return df_seguro.to_csv(index=False, sep=";").encode("utf-8-sig")
 
 
 class ProcessadorDeDados:
@@ -328,7 +398,9 @@ class ProcessadorDeDados:
             raise ValueError(
                 f"Nenhum combinado de encoding/separador produziu colunas: {ultimo_erro}"
             )
-        melhor.columns = pd.Index([str(c).strip().lstrip("\ufeff") for c in melhor.columns])
+        melhor.columns = pd.Index(
+            [str(c).strip().lstrip("\ufeff") for c in melhor.columns]
+        )
         return melhor
 
     @classmethod
@@ -352,7 +424,9 @@ class ProcessadorDeDados:
                 erros.append(f"{engine}: {type(e).__name__}: {e}")
                 continue
             if isinstance(bruto, dict):
-                return {str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)}
+                return {
+                    str(k): v for k, v in bruto.items() if isinstance(v, pd.DataFrame)
+                }
             if isinstance(bruto, pd.DataFrame):
                 return {"Prod": bruto}
             erros.append(f"{engine}: retorno inesperado")
@@ -363,7 +437,9 @@ class ProcessadorDeDados:
         )
 
     @classmethod
-    def _separar_internet_tv(cls, internet_bruta: pd.Series) -> tuple[pd.Series, pd.Series]:
+    def _separar_internet_tv(
+        cls, internet_bruta: pd.Series
+    ) -> tuple[pd.Series, pd.Series]:
         """Separa TV embutida depois do ponto."""
         bruto = cls._normalizar_serie(internet_bruta)
         partes = bruto.str.split(".", n=1, expand=True)
@@ -418,9 +494,13 @@ class ProcessadorDeDados:
         if "OBSERVACAO" in cons.columns:
             obs = cons["OBSERVACAO"].fillna("").astype(str)
             # Extrai listas temporárias para contagem
-            produtos_encontrados = obs.str.findall(r"\b\d{9,12}\b")
+            produtos_encontrados = obs.str.findall(
+                Configuracoes.REGEX_PRODUTO_OBSERVACAO
+            )
             cons["QTDE_PRODUTOS"] = (
-                produtos_encontrados.map(lambda x: len(x) if isinstance(x, (list, tuple)) else 0)
+                produtos_encontrados.map(
+                    lambda x: len(x) if isinstance(x, (list, tuple)) else 0
+                )
                 .fillna(0)
                 .astype(int)
             )
@@ -439,14 +519,18 @@ class ProcessadorDeDados:
         qtde_prod = cons["QTDE_PRODUTOS"].fillna(0).astype(int)
 
         tem_tv_bool = tipo_servico.str.contains("TV", case=False, regex=False, na=False)
-        tem_virtua_bool = tipo_servico.str.contains(r"MEGA|GIGA", case=False, regex=True, na=False)
-        is_combinado = tipo_servico.str.contains("&", case=False, regex=False, na=False) | (
-            tem_tv_bool & tem_virtua_bool
+        tem_virtua_bool = tipo_servico.str.contains(
+            r"MEGA|GIGA", case=False, regex=True, na=False
         )
+        is_combinado = tipo_servico.str.contains(
+            "&", case=False, regex=False, na=False
+        ) | (tem_tv_bool & tem_virtua_bool)
         tem_tv = tem_tv_bool.astype(int)
         tem_virtua = tem_virtua_bool.astype(int)
         cons["QTDE_TV"] = (tem_tv * qtde_prod).mask(is_combinado, tem_tv).astype(int)
-        cons["QTDE_VIRTUA"] = (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
+        cons["QTDE_VIRTUA"] = (
+            (tem_virtua * qtde_prod).mask(is_combinado, tem_virtua).astype(int)
+        )
         cons["QTDE_MESH"] = (
             (cons["QTDE_PRODUTOS"] - cons["QTDE_TV"] - cons["QTDE_VIRTUA"])
             .clip(lower=0)
@@ -456,10 +540,16 @@ class ProcessadorDeDados:
 
     @classmethod
     def merge_ativos(cls, cons: pd.DataFrame, ativos: pd.DataFrame) -> pd.DataFrame:
-        if ativos.empty or "Login" not in ativos.columns or "LOGIN NETSALES" not in cons.columns:
+        if (
+            ativos.empty
+            or "Login" not in ativos.columns
+            or "LOGIN NETSALES" not in cons.columns
+        ):
             return cons
 
-        cols = [c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns]
+        cols = [
+            c for c in ("Login", *Configuracoes.COLUNAS_ATIVOS) if c in ativos.columns
+        ]
         ativos_limpo = ativos.loc[:, cols].dropna(subset=["Login"]).copy()
         ativos_limpo["Login_JOIN"] = ativos_limpo["Login"].map(cls._login_chave)
         ativos_limpo = ativos_limpo.loc[ativos_limpo["Login_JOIN"].ne("")]
@@ -491,7 +581,11 @@ class ProcessadorDeDados:
                 merged[c] = atual.mask(atual.eq(""), extra)
                 merged = merged.drop(columns=[alt])
             if c in merged.columns:
-                merged[c] = merged[c].map(Configuracoes.vazio_texto).replace("", "Não Identificado")
+                merged[c] = (
+                    merged[c]
+                    .map(Configuracoes.vazio_texto)
+                    .replace("", "Não Identificado")
+                )
         return merged
 
     _sessao = criar_sessao
@@ -550,50 +644,129 @@ def _baixar_ativos(sess: requests.Session) -> pd.DataFrame:
 
 
 _CHAVE_TEMPOS_FONTES = "_totale_sync_tempos_fontes"
+_CHAVE_CONS_INTERMEDIARIO = "_totale_cons_intermediario"
+
+
+def _executar_com_retry(fn: FonteFn) -> tuple[Any, Exception | None, float, int]:
+    """Executa a função da fonte com retry/backoff exponencial.
+
+    Cada thread cria sua **própria** `requests.Session` para evitar o problema
+    conhecido de thread-safety do `Session` (cookie jar / adapters compartilhados
+    não são seguros sob concorrência — ver psf/requests#2766).
+    """
+    inicio = time.perf_counter()
+    sess = ProcessadorDeDados.criar_sessao()
+    ultimo_erro: Exception | None = None
+    tentativas_usadas = 0
+    try:
+        for tentativa in range(1, Configuracoes.TENTATIVAS_FONTE + 1):
+            tentativas_usadas = tentativa
+            try:
+                resultado = fn(sess)
+                return (
+                    resultado,
+                    None,
+                    (time.perf_counter() - inicio) * 1000.0,
+                    tentativa,
+                )
+            except Exception as exc:  # noqa: BLE001 - erro por fonte é esperado
+                ultimo_erro = exc
+                if tentativa >= Configuracoes.TENTATIVAS_FONTE:
+                    break
+                espera = Configuracoes.BACKOFF_BASE_SEG * (2 ** (tentativa - 1))
+                time.sleep(espera)
+    finally:
+        # Fecha a sessão desta thread para liberar o pool de conexões.
+        try:
+            sess.close()
+        except Exception:
+            pass
+    return (
+        None,
+        ultimo_erro,
+        (time.perf_counter() - inicio) * 1000.0,
+        tentativas_usadas,
+    )
 
 
 def _baixar_fontes_paralelo(
-    sess: requests.Session,
     fontes: Sequence[tuple[str, FonteFn]],
     *,
     max_workers: int = 3,
-) -> dict[str, tuple[Any, Exception | None, float]]:
-    """Baixa as fontes em paralelo e devolve ``(resultado, erro, ms)`` por nome.
+) -> dict[str, tuple[Any, Exception | None, float, int]]:
+    """Baixa as fontes em paralelo e devolve ``(resultado, erro, ms, tentativas)`` por nome.
 
     O I/O das três bases é independente, então a espera deixa de ser somada:
-    em medições locais, 3 fontes de ~2 s cada caíram de ~6 s para ~2,1 s. A
-    sessão HTTP usa pool de conexões (``services.cache_dados``), seguro para uso
-    concorrente, e o processamento continua **sequencial e ordenado** na thread
-    principal — nada de ``st.session_state`` tocado por threads.
+    em medições locais, 3 fontes de ~2 s cada caíram de ~6 s para ~2,1 s.
+
+    Cada worker cria sua própria `requests.Session` (ver `_executar_com_retry`).
+    O processamento continua **sequencial e ordenado** na thread principal —
+    nada de ``st.session_state`` tocado por threads.
     """
-    resultados: dict[str, tuple[Any, Exception | None, float]] = {}
+    resultados: dict[str, tuple[Any, Exception | None, float, int]] = {}
     if not fontes:
         return resultados
-
-    def _executar(fn: FonteFn) -> tuple[Any, Exception | None, float]:
-        inicio = time.perf_counter()
-        try:
-            return fn(sess), None, (time.perf_counter() - inicio) * 1000.0
-        except Exception as exc:  # noqa: BLE001 - erro por fonte é esperado
-            return None, exc, (time.perf_counter() - inicio) * 1000.0
 
     trabalhadores = max(1, min(int(max_workers), len(fontes)))
     if trabalhadores == 1:
         for nome, fn in fontes:
-            resultados[nome] = _executar(fn)
+            resultados[nome] = _executar_com_retry(fn)
         return resultados
 
-    with ThreadPoolExecutor(max_workers=trabalhadores, thread_name_prefix="totale-sync") as pool:
-        futuros = {pool.submit(_executar, fn): nome for nome, fn in fontes}
+    with ThreadPoolExecutor(
+        max_workers=trabalhadores, thread_name_prefix="totale-sync"
+    ) as pool:
+        futuros = {pool.submit(_executar_com_retry, fn): nome for nome, fn in fontes}
         for futuro, nome in futuros.items():
             resultados[nome] = futuro.result()
     return resultados
 
 
-def executar_sincronizacao(
-    sess: requests.Session | None = None,
-) -> dict[str, StatusFonte]:
-    sess = sess or ProcessadorDeDados.criar_sessao()
+def _obter_ativos_dataframe() -> pd.DataFrame:
+    """Resgata a base Ativos do session_state como DataFrame, tolerante a dict."""
+    bruto = st.session_state.get("dados_ativos")
+    if isinstance(bruto, pd.DataFrame):
+        return bruto
+    if isinstance(bruto, Mapping):
+        partes = [v for v in bruto.values() if isinstance(v, pd.DataFrame)]
+        if partes:
+            return pd.concat(partes, ignore_index=True, sort=False)
+    return pd.DataFrame()
+
+
+def _processar_consultivo(
+    cons: object,
+    *,
+    reaproveitar_intermediario: bool = False,
+) -> None:
+    """Aplica regras de negócio ao Consultivo e salva no state.
+
+    Se `reaproveitar_intermediario=True` e já existe um resultado pós-plano/
+    pós-quantidades no cache, reusamos ele e rodamos **apenas** `merge_ativos`.
+    Isso evita CPU desnecessária quando só a base Ativos mudou.
+    """
+    if not isinstance(cons, pd.DataFrame) or cons.empty:
+        st.session_state["dados_cons"] = {"Consultivo": pd.DataFrame()}
+        st.session_state.pop(_CHAVE_CONS_INTERMEDIARIO, None)
+        return
+
+    intermediario: pd.DataFrame | None = None
+    if reaproveitar_intermediario:
+        cache = st.session_state.get(_CHAVE_CONS_INTERMEDIARIO)
+        if isinstance(cache, pd.DataFrame) and len(cache) == len(cons):
+            intermediario = cache
+
+    if intermediario is None:
+        intermediario = ProcessadorDeDados.tratar_planos(cons)
+        intermediario = ProcessadorDeDados.processar_quantidades(intermediario)
+        st.session_state[_CHAVE_CONS_INTERMEDIARIO] = intermediario
+
+    ativos = _obter_ativos_dataframe()
+    final = ProcessadorDeDados.merge_ativos(intermediario, ativos)
+    st.session_state["dados_cons"] = {"Consultivo": final}
+
+
+def executar_sincronizacao() -> dict[str, StatusFonte]:
     agora = datetime.now(Configuracoes.FUSO)
     st.session_state["ultima_tentativa_sync"] = agora
 
@@ -603,13 +776,15 @@ def executar_sincronizacao(
         ("Ativos", _baixar_ativos),
     ]
     with temporizar("sync.download_paralelo"):
-        baixas = _baixar_fontes_paralelo(sess, fontes)
+        baixas = _baixar_fontes_paralelo(fontes)
 
     tempos_fontes: dict[str, float] = {}
+    tentativas_fontes: dict[str, int] = {}
     baixados: dict[str, pd.DataFrame | dict[str, pd.DataFrame]] = {}
     for nome, _fn in fontes:
-        resultado, exc, ms = baixas.get(nome, (None, None, 0.0))
+        resultado, exc, ms, tentativas = baixas.get(nome, (None, None, 0.0, 0))
         tempos_fontes[nome] = round(float(ms), 1)
+        tentativas_fontes[nome] = int(tentativas)
         stf = _status(nome)
         sucesso_anterior = stf.ultimo_sucesso
         linhas_anteriores = stf.linhas
@@ -623,6 +798,8 @@ def executar_sincronizacao(
             continue
         baixados[nome] = resultado
         if nome == "Consultivo":
+            # O status do Consultivo só vira "ok" depois do processamento ETL,
+            # abaixo. Guardamos o bruto para o próximo passo.
             st.session_state["dados_cons_bruto"] = resultado
             continue
         stf.ok = True
@@ -635,14 +812,20 @@ def executar_sincronizacao(
         st.session_state["dados_prod"] = baixados["Produção"]
     if "Ativos" in baixados:
         st.session_state["dados_ativos"] = baixados["Ativos"]
+        # Qualquer mudança na base Ativos invalida o merge anterior do Consultivo,
+        # mas o intermediário (planos + quantidades) continua válido.
 
     bruto = st.session_state.get("dados_cons_bruto")
-    if isinstance(bruto, pd.DataFrame) and ("Consultivo" in baixados or "Ativos" in baixados):
+    cons_mudou = "Consultivo" in baixados
+    ativos_mudou = "Ativos" in baixados
+    if isinstance(bruto, pd.DataFrame) and (cons_mudou or ativos_mudou):
         stf = _status("Consultivo")
         sucesso_anterior = stf.ultimo_sucesso
         linhas_anteriores = stf.linhas
         try:
-            _processar_consultivo(bruto)
+            # Se o Consultivo em si não mudou (só Ativos), reaproveitamos o
+            # intermediário pós-plano/pós-quantidades para pular CPU.
+            _processar_consultivo(bruto, reaproveitar_intermediario=not cons_mudou)
         except Exception as e:
             stf.ok = False
             stf.erro = f"{type(e).__name__}: {e}"
@@ -650,7 +833,9 @@ def executar_sincronizacao(
             stf.linhas = linhas_anteriores
             _salvar_status(stf)
         else:
-            if "Consultivo" in baixados or stf.ultimo_sucesso is None:
+            # Só reportamos sucesso no Consultivo se ele próprio foi re-baixado,
+            # ou se é a primeira vez que conseguimos processar (sem sucesso prévio).
+            if cons_mudou or stf.ultimo_sucesso is None:
                 stf.ok = True
                 stf.erro = None
                 stf.linhas = len(bruto)
@@ -661,20 +846,8 @@ def executar_sincronizacao(
     if any(s.ok for s in stats.values()):
         st.session_state["ultima_atualizacao"] = agora
     st.session_state[_CHAVE_TEMPOS_FONTES] = tempos_fontes
+    st.session_state["_totale_sync_tentativas"] = tentativas_fontes
     return stats
-
-
-def _processar_consultivo(cons: object) -> None:
-    if not isinstance(cons, pd.DataFrame) or cons.empty:
-        st.session_state["dados_cons"] = {"Consultivo": pd.DataFrame()}
-        return
-    cons = ProcessadorDeDados.tratar_planos(cons)
-    cons = ProcessadorDeDados.processar_quantidades(cons)
-    ativos = st.session_state.get("dados_ativos")
-    if not isinstance(ativos, pd.DataFrame):
-        ativos = pd.DataFrame()
-    cons = ProcessadorDeDados.merge_ativos(cons, ativos)
-    st.session_state["dados_cons"] = {"Consultivo": cons}
 
 
 def _mapa_status() -> dict[str, StatusFonte]:
@@ -746,9 +919,7 @@ def _sanitizar_para_analise(df: pd.DataFrame) -> pd.DataFrame:
                     lambda x: (
                         ", ".join(x)
                         if isinstance(x, (list, tuple, set))
-                        else str(x)
-                        if isinstance(x, dict)
-                        else x
+                        else str(x) if isinstance(x, dict) else x
                     )
                 )
     return df_copia
@@ -765,7 +936,9 @@ def _frames_carregados() -> dict[str, pd.DataFrame]:
         if isinstance(dados, pd.DataFrame):
             frames[fonte] = _sanitizar_para_analise(dados)
         elif isinstance(dados, dict):
-            partes = [frame for frame in dados.values() if isinstance(frame, pd.DataFrame)]
+            partes = [
+                frame for frame in dados.values() if isinstance(frame, pd.DataFrame)
+            ]
             if partes:
                 frames[fonte] = _sanitizar_para_analise(
                     pd.concat(partes, ignore_index=True, sort=False)
@@ -795,7 +968,9 @@ def _renderizar_status_fontes() -> None:
                 st.markdown(f"**{stf.nome}**")
                 st.caption(f"{_fmt_int(stf.linhas)} linhas na última sincronização")
                 st.markdown(f"{icones[estado_frescor]} **Frescor:** {frescor}")
-                st.markdown(f"{icones[estado_consistencia]} **Consistência:** {consistencia}")
+                st.markdown(
+                    f"{icones[estado_consistencia]} **Consistência:** {consistencia}"
+                )
                 if stf.erro:
                     st.caption(_erro_curto(stf.erro, 300))
     st.caption(
@@ -866,7 +1041,8 @@ def _detalhes_falha() -> None:
 
 def _painel_dados(intervalo_seg: int) -> None:
     tem_dados_em_sessao = any(
-        st.session_state.get(k) is not None for k in ("dados_prod", "dados_cons", "dados_ativos")
+        st.session_state.get(k) is not None
+        for k in ("dados_prod", "dados_cons", "dados_ativos")
     )
     col_status, col_btn = _colunas([3, 1], "center")
     with col_btn:
@@ -1023,7 +1199,9 @@ def _painel_dados(intervalo_seg: int) -> None:
         render_section_header(
             titulo="Base Consultiva Detalhada", icone="📋", subtitulo="Processado"
         )
-        _preview_e_download(df_cons, "consultivo", "download_consultivo", "Base consultiva vazia.")
+        _preview_e_download(
+            df_cons, "consultivo", "download_consultivo", "Base consultiva vazia."
+        )
 
 
 def _preview_e_download(df: pd.DataFrame, prefixo: str, key: str, vazio: str) -> None:
@@ -1033,10 +1211,15 @@ def _preview_e_download(df: pd.DataFrame, prefixo: str, key: str, vazio: str) ->
     render_table_html(df.head(50), max_rows=50, colunas_num=[], height=360)
     st.download_button(
         "⬇️ Baixar base completa (.csv)",
-        df.to_csv(index=False, sep=";").encode("utf-8-sig"),
+        _para_csv_seguro(df),
         file_name=f"{prefixo}_{datetime.now(Configuracoes.FUSO):%Y%m%d_%H%M}.csv",
         mime="text/csv",
         key=key,
+        help=(
+            "CSV com `;` como separador. Células que começariam com =, +, -, @ "
+            "são prefixadas com apóstrofo para evitar interpretação como fórmula "
+            "no Excel (CSV injection)."
+        ),
     )
 
 
@@ -1044,7 +1227,11 @@ def _proxima_execucao(intervalo_seg: int) -> datetime:
     agora = datetime.now(Configuracoes.FUSO)
     ultima = st.session_state.get("ultima_tentativa_sync")
     if isinstance(ultima, datetime):
-        ref = ultima if ultima.tzinfo is not None else ultima.replace(tzinfo=Configuracoes.FUSO)
+        ref = (
+            ultima
+            if ultima.tzinfo is not None
+            else ultima.replace(tzinfo=Configuracoes.FUSO)
+        )
         return ref + timedelta(seconds=intervalo_seg)
     return agora + timedelta(seconds=intervalo_seg)
 
@@ -1072,29 +1259,36 @@ def _pipeline_robo_local(
 
 
 def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
-    """Monta as linhas do painel de desempenho (duração, linhas e memória)."""
+    """Monta as linhas do painel de desempenho (duração, linhas, memória, tentativas)."""
     tempos = st.session_state.get(_CHAVE_TEMPOS_FONTES) or {}
+    tentativas = st.session_state.get("_totale_sync_tentativas") or {}
     if not isinstance(tempos, Mapping):
         tempos = {}
+    if not isinstance(tentativas, Mapping):
+        tentativas = {}
+    mapa_chave = {
+        "Produção": "dados_prod",
+        "Consultivo": "dados_cons",
+        "Ativos": "dados_ativos",
+    }
     linhas: list[dict[str, Any]] = []
     for nome, duracao in tempos.items():
         stf = _status(str(nome))
-        dados = st.session_state.get(
-            {"Produção": "dados_prod", "Consultivo": "dados_cons", "Ativos": "dados_ativos"}.get(
-                str(nome), ""
-            )
-        )
+        dados = st.session_state.get(mapa_chave.get(str(nome), ""))
         memoria = 0
         if isinstance(dados, pd.DataFrame):
             memoria = memoria_dataframe(dados)
         elif isinstance(dados, Mapping):
             memoria = sum(
-                memoria_dataframe(v) for v in dados.values() if isinstance(v, pd.DataFrame)
+                memoria_dataframe(v)
+                for v in dados.values()
+                if isinstance(v, pd.DataFrame)
             )
         linhas.append(
             {
                 "Fonte": nome,
                 "Download (ms)": duracao,
+                "Tentativas": int(tentativas.get(nome, 1)),
                 "Linhas": stf.linhas,
                 "Memória": formatar_bytes(memoria),
                 "Situação": "ok" if stf.ok else (stf.erro or "sem carga"),
@@ -1104,7 +1298,7 @@ def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
 
 
 def _render_painel_desempenho_sync() -> None:
-    """Diagnóstico de performance da sincronização (v3.6.0)."""
+    """Diagnóstico de performance da sincronização (v3.6.1)."""
     linhas = _linhas_desempenho_fontes()
     if not linhas:
         return
@@ -1136,7 +1330,10 @@ def _painel_saida_robo_local() -> None:
         return
 
     st.success(f"Dados carregados via {fonte}")
-    st.dataframe(dados.head(), width="stretch")
+    try:
+        st.dataframe(dados.head(), width="stretch")
+    except TypeError:
+        st.dataframe(dados.head(), use_container_width=True)
 
 
 def _rodar() -> None:
