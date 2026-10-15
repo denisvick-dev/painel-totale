@@ -1,9 +1,11 @@
 """Pacote central de configurações do Portal TOTALE."""
 
 from .settings import (
+    AMBIENTE_PORTAL,
     DRIVE_ID_CONS,
     DRIVE_ID_INDICADORES,
     FUSO_BR,
+    ICON_PATH_PORTAL,
     SHEET_ABA_ATIVOS,
     SHEET_ABA_PROD,
     SHEET_ID_ATIVOS,
@@ -14,12 +16,15 @@ from .settings import (
     URL_ATIVOS_EDIT,
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
+    VERSAO_PORTAL,
     FontesDadosConfig,
+    obter_ambiente_portal,
     obter_drive_id_cons,
     obter_drive_id_indicadores,
     obter_secret,
     obter_sheet_id_ativos,
     obter_sheet_id_prod,
+    obter_versao_portal,
     url_drive_download,
     url_gsheets_base,
     url_gsheets_edit,
@@ -28,7 +33,9 @@ from .settings import (
 )
 
 __all__ = [
+    "AMBIENTE_PORTAL",
     "DRIVE_ID_CONS",
+    "ICON_PATH_PORTAL",
     "DRIVE_ID_INDICADORES",
     "FUSO_BR",
     "FontesDadosConfig",
@@ -42,11 +49,14 @@ __all__ = [
     "URL_ATIVOS_EDIT",
     "URL_CONS_DOWNLOAD",
     "URL_PROD_XLSX",
+    "VERSAO_PORTAL",
+    "obter_ambiente_portal",
     "obter_drive_id_cons",
     "obter_drive_id_indicadores",
     "obter_secret",
     "obter_sheet_id_ativos",
     "obter_sheet_id_prod",
+    "obter_versao_portal",
     "url_drive_download",
     "url_gsheets_base",
     "url_gsheets_edit",

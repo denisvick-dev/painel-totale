@@ -30,7 +30,6 @@ padrão de todos os dashboards do portal sem duplicar código nas páginas:
 
 from __future__ import annotations
 
-import io
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
@@ -672,68 +671,15 @@ def render_filtros_dashboard(
 # ====================================================
 
 
-def _larguras_colunas(df: pd.DataFrame) -> list[int]:
-    """Largura sugerida por coluna (base no cabeçalho + até 200 linhas)."""
-    larguras: list[int] = []
-    for coluna in df.columns:
-        amostra = df[coluna].astype(str).str.len().head(200)
-        largura = max(len(str(coluna)), int(amostra.max()) if not amostra.empty else 10)
-        larguras.append(min(largura + 2, 60))
-    return larguras
+def gerar_excel_exportacao(df: pd.DataFrame, aba: str = "Dados") -> bytes:
+    """XLSX corporativo (delega a :func:`services.planilhas.gerar_excel`).
 
-
-def _excel_xlsxwriter(df: pd.DataFrame, aba: str) -> bytes:
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as escritor:
-        df.to_excel(escritor, sheet_name=aba, index=False)
-        planilha = escritor.sheets[aba]
-        formato_cabecalho = escritor.book.add_format(
-            {
-                "bold": True,
-                "font_color": "#FFFFFF",
-                "bg_color": Cores.PRIMARIA,
-                "border": 0,
-                "text_wrap": False,
-                "valign": "vcenter",
-            }
-        )
-        for indice, (coluna, largura) in enumerate(zip(df.columns, _larguras_colunas(df))):
-            planilha.write(0, indice, str(coluna), formato_cabecalho)
-            planilha.set_column(indice, indice, largura)
-        planilha.freeze_panes(1, 0)
-    return buffer.getvalue()
-
-
-def _excel_openpyxl(df: pd.DataFrame, aba: str) -> bytes:
-    from openpyxl.styles import Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as escritor:
-        df.to_excel(escritor, sheet_name=aba, index=False)
-        planilha = escritor.sheets[aba]
-        preenchimento = PatternFill("solid", fgColor=Cores.PRIMARIA.lstrip("#"))
-        for indice, largura in enumerate(_larguras_colunas(df), start=1):
-            celula = planilha.cell(row=1, column=indice)
-            celula.font = Font(bold=True, color="FFFFFF")
-            celula.fill = preenchimento
-            planilha.column_dimensions[get_column_letter(indice)].width = largura
-        planilha.freeze_panes = "A2"
-    return buffer.getvalue()
-
-
-def _gerar_excel_bytes(df: pd.DataFrame, aba: str = "Dados") -> bytes:
-    """XLSX corporativo em memória: cabeçalho TOTALE, congelamento e larguras.
-
-    Prefere ``xlsxwriter``; sem ele no ambiente, usa ``openpyxl`` — ambos já
-    são dependências do projeto, então a exportação nunca fica indisponível.
+    Mantido aqui como nome histórico do kit; a implementação única vive em
+    :mod:`services.planilhas`, que as páginas também usam diretamente.
     """
-    aba = aba[:31] or "Dados"
-    try:
-        import xlsxwriter  # noqa: F401
-    except ImportError:
-        return _excel_openpyxl(df, aba)
-    return _excel_xlsxwriter(df, aba)
+    from services.planilhas import gerar_excel
+
+    return gerar_excel(df, aba=aba)
 
 
 def render_barra_exportacao(
@@ -766,7 +712,7 @@ def render_barra_exportacao(
     with col_xlsx:
         if incluir_excel:
             try:
-                dados_xlsx = _gerar_excel_bytes(df)
+                dados_xlsx = gerar_excel_exportacao(df)
             except Exception:  # pragma: no cover - proteção de runtime
                 logger.exception("Falha ao gerar Excel para '%s'.", nome_arquivo)
                 st.warning("Não foi possível gerar o Excel agora; use o CSV.")

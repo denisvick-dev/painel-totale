@@ -21,6 +21,11 @@ except ImportError:  # permite importar em testes/scripts sem Streamlit ativo
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
 TIMEOUT_HTTP_PADRAO: int = 30
 
+# Identidade de versão do portal — fonte única (entrypoint, rodapé das páginas e
+# documentação leem daqui; nenhuma página hardcoda a versão).
+VERSAO_PORTAL_PADRAO: str = "3.7.0"
+AMBIENTE_PORTAL_PADRAO: str = "Produção"
+
 # Valores padrão (fallbacks) dos recursos corporativos no Google Drive / Sheets
 _DEFAULT_SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
 _DEFAULT_SHEET_ID_PROD = "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
@@ -105,6 +110,16 @@ def obter_drive_id_indicadores() -> str:
     return obter_secret("DRIVE_FILE_ID", _DEFAULT_DRIVE_ID_INDICADORES)
 
 
+def obter_versao_portal() -> str:
+    """Versão publicada do portal (``TOTALE_VERSAO`` em secrets/ambiente)."""
+    return obter_secret("TOTALE_VERSAO", VERSAO_PORTAL_PADRAO)
+
+
+def obter_ambiente_portal() -> str:
+    """Ambiente publicado do portal (``TOTALE_AMBIENTE`` em secrets/ambiente)."""
+    return obter_secret("TOTALE_AMBIENTE", AMBIENTE_PORTAL_PADRAO)
+
+
 # Constantes prontas para uso direto nos módulos
 SHEET_ID_ATIVOS: str = obter_sheet_id_ativos()
 SHEET_ID_PROD: str = obter_sheet_id_prod()
@@ -119,6 +134,12 @@ URL_ATIVOS_BASE: str = url_gsheets_base(SHEET_ID_ATIVOS)
 URL_ATIVOS_CSV: str = url_gsheets_export(SHEET_ID_ATIVOS, fmt="csv")
 URL_PROD_XLSX: str = url_gsheets_export(SHEET_ID_PROD, fmt="xlsx")
 URL_CONS_DOWNLOAD: str = url_drive_download(DRIVE_ID_CONS)
+
+VERSAO_PORTAL: str = obter_versao_portal()
+AMBIENTE_PORTAL: str = obter_ambiente_portal()
+
+#: Ícone do portal (asset versionado, conferido por ``tests/test_sintaxe.py``).
+ICON_PATH_PORTAL: str = "assets/icons/totale.ico"
 
 
 @dataclass(frozen=True)
@@ -136,6 +157,8 @@ class FontesDadosConfig:
 
 
 __all__ = [
+    "AMBIENTE_PORTAL",
+    "AMBIENTE_PORTAL_PADRAO",
     "DRIVE_ID_CONS",
     "DRIVE_ID_INDICADORES",
     "FUSO_BR",
@@ -148,13 +171,18 @@ __all__ = [
     "URL_ATIVOS_CSV",
     "URL_ATIVOS_EDIT",
     "URL_CONS_DOWNLOAD",
+    "ICON_PATH_PORTAL",
     "URL_PROD_XLSX",
+    "VERSAO_PORTAL",
+    "VERSAO_PORTAL_PADRAO",
     "FontesDadosConfig",
+    "obter_ambiente_portal",
     "obter_drive_id_cons",
     "obter_drive_id_indicadores",
     "obter_secret",
     "obter_sheet_id_ativos",
     "obter_sheet_id_prod",
+    "obter_versao_portal",
     "url_drive_download",
     "url_gsheets_base",
     "url_gsheets_edit",
