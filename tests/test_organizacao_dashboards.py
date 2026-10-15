@@ -264,9 +264,10 @@ def test_dashboard_usa_esqueleto_padrao(pagina: str) -> None:
     )
 
 
-#: Páginas que não consomem a base da sessão: o índice de painéis e o painel de
-#: indicadores, que sincroniza as próprias fontes (Drive + lista de ativos).
-PAGINAS_SEM_BASE_DE_SESSAO = {"visao_geral.py", "indicadores.py"}
+#: Páginas que não consomem a base da sessão: o índice de painéis, o painel de
+#: indicadores (sincroniza as próprias fontes — Drive + lista de ativos) e a
+#: auditoria de retornos, que trabalha com uploads próprios de TOA e Sinapse.
+PAGINAS_SEM_BASE_DE_SESSAO = {"visao_geral.py", "indicadores.py", "retorno.py"}
 
 
 @pytest.mark.parametrize("pagina", DASHBOARDS_PADRONIZADOS)

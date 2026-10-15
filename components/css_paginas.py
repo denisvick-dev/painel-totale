@@ -512,3 +512,99 @@ def css_cartao_segmento(cor_marca: str = COR_NAVY) -> str:
 def aplicar_css_cartao_segmento(cor_marca: str = COR_NAVY) -> None:
     """Injeta na página o CSS de :func:`css_cartao_segmento`."""
     injetar_css(css_cartao_segmento(cor_marca))
+
+
+def css_cartao_upload() -> str:
+    """CSS do cartão de upload e da barra de resultado (página Primeiro Atendimento).
+
+    Vem de ``pages/p_atendimento.py::_injetar_css_local``, que além destas duas
+    famílias repetia o CSS de shell (fontes, container, sidebar), o herói
+    corporativo, os cartões de KPI, os cabeçalhos de seção e os alertas — tudo já
+    entregue pelo Design System (``components/css_global.py`` e
+    ``components/componentes.py``).
+    """
+    return "\n".join(
+        [
+            _bloco(
+                ".upload-card",
+                """
+                background: #FFFFFF;
+                border: 1px dashed #CBD5E1;
+                border-radius: 8px;
+                padding: 32px;
+                text-align: center;
+                margin-bottom: 16px;
+                transition: all 0.2s;
+                """,
+            ),
+            _bloco(
+                ".upload-icon",
+                f"""
+                font-size: 32px;
+                color: {COR_TINTA};
+                margin-bottom: 12px;
+                """,
+            ),
+            _bloco(
+                ".upload-title",
+                f"""
+                font-size: 16px;
+                font-weight: 600;
+                color: {COR_TINTA};
+                margin-bottom: 4px;
+                """,
+            ),
+            _bloco(
+                ".upload-subtitle",
+                f"""
+                font-size: 13px;
+                color: {COR_TEXTO_SECUNDARIO};
+                """,
+            ),
+            _bloco(
+                ".resultado-base",
+                f"""
+                background: #FFFFFF;
+                border: 1px solid {COR_LINHA};
+                padding: 12px 16px;
+                border-radius: 6px;
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+                flex-wrap: wrap;
+                font-size: 13px;
+                """,
+            ),
+            _bloco(
+                ".resultado-label",
+                f"""
+                color: {COR_TEXTO_SECUNDARIO};
+                font-weight: 600;
+                """,
+            ),
+            _bloco(
+                ".resultado-badge",
+                """
+                display: inline-flex;
+                padding: .2rem .6rem;
+                border: 1px solid;
+                border-radius: 999px;
+                font-size: .78rem;
+                font-weight: 700;
+                """,
+            ),
+            _bloco(
+                ".resultado-count",
+                f"""
+                margin-left: auto;
+                color: {COR_TINTA};
+                font-weight: 700;
+                """,
+            ),
+        ]
+    )
+
+
+def aplicar_css_cartao_upload() -> None:
+    """Injeta na página o CSS de :func:`css_cartao_upload`."""
+    injetar_css(css_cartao_upload())

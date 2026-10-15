@@ -37,9 +37,22 @@ from components.componentes import (
     render_kpi,
     render_table_html,
 )
+from components.dashboards import abrir_dashboard, fechar_dashboard
+from components.layout_pagina import cabecalho_secao
 from components.sidebar import render_page_sidebar_theme_selector
+from services.planilhas import gerar_excel_multiabas
 
 logger = logging.getLogger(__name__)
+
+#: Seções ancoradas do sumário (títulos usados em ``cabecalho_secao``).
+SECOES_PAGINA: tuple[str, ...] = (
+    "Fontes de Dados",
+    "Filtros do Relatório",
+    "Indicadores da Auditoria",
+    "Legenda de Supervisores",
+    "Base Detalhada de Retornos",
+    "Exportação",
+)
 
 # ==========================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -53,14 +66,8 @@ st.set_page_config(
 aplicar_estilo()
 render_page_sidebar_theme_selector()
 
-st.markdown(
-    """
-    <style>
-    .main .block-container { padding-top: 2rem; max-width: 1400px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# O CSS de shell (container, sidebar, hero e tabelas) vem do entrypoint +
+# components.css_global — a página não repete essas regras.
 
 # ==========================================================
 # ORDEM OFICIAL DAS COLUNAS
@@ -693,112 +700,50 @@ def cruzar_com_sinapse(
 # ==========================================================
 # EXPORTAÇÃO EXCEL MULTI-ABAS
 # ==========================================================
-def _sanitizar_nome_aba(nome: Any, usados: set[str]) -> str:
-    """FIX #4 — Nome de aba válido (<=31), sem chars proibidos e ÚNICO."""
-    base = re.sub(r"[\\/*?:\[\]]", "-", str(nome)).strip().strip("'")
-    base = re.sub(r"\s+", " ", base) or "Sem_Equipe"
-    base = base[:31]
-    candidato = base
-    i = 1
-    while candidato.lower() in usados:
-        sufixo = f"_{i}"
-        candidato = f"{base[: 31 - len(sufixo)]}{sufixo}"
-        i += 1
-    usados.add(candidato.lower())
-    return candidato
-
-
 @st.cache_data(show_spinner="Gerando planilha...")
-def gerar_excel_por_equipe(
+def _gerar_excel_por_equipe(
     df_consolidado: pd.DataFrame,
     coluna_agrupamento: str = "DONO_CÓD_AUX_EQUIPE",
     max_abas: int = 150,
 ) -> bytes:
-    output = BytesIO()
-    try:
-        import xlsxwriter  # noqa: F401
+    """Relatório multi-abas — delega a :func:`services.planilhas.gerar_excel_multiabas`.
 
-        engine = "xlsxwriter"
-    except ImportError:
-        engine = "openpyxl"
-
-    usados: set[str] = set()
-
-    with pd.ExcelWriter(output, engine=engine) as writer:
-        aba_geral = _sanitizar_nome_aba("Consolidado_Geral", usados)
-        df_consolidado.to_excel(writer, sheet_name=aba_geral, index=False)
-
-        if coluna_agrupamento in df_consolidado.columns and not df_consolidado.empty:
-            grupos = list(df_consolidado.groupby(coluna_agrupamento, dropna=False))
-            if len(grupos) > max_abas:
-                logger.warning(
-                    "Grupos (%s) acima do limite de abas (%s); abas extras omitidas.",
-                    len(grupos),
-                    max_abas,
-                )
-                grupos = grupos[:max_abas]
-            for grupo_nome, df_g in grupos:
-                df_g.to_excel(
-                    writer,
-                    sheet_name=_sanitizar_nome_aba(grupo_nome, usados),
-                    index=False,
-                )
-
-        # FIX #5 — o formato agora é realmente aplicado
-        if engine == "xlsxwriter":
-            wb: Any = writer.book
-            header_fmt = wb.add_format(
-                {
-                    "bold": True,
-                    "bg_color": "#012869",
-                    "font_color": "white",
-                    "border": 1,
-                    "align": "center",
-                    "valign": "vcenter",
-                    "text_wrap": True,
-                }
-            )
-            n_cols = max(len(df_consolidado.columns) - 1, 0)
-            for ws in writer.sheets.values():
-                ws_any: Any = ws
-                ws_any.set_column(0, n_cols, 22)
-                ws_any.freeze_panes(1, 0)
-                for idx, nome_col in enumerate(df_consolidado.columns):
-                    ws_any.write(0, idx, str(nome_col), header_fmt)
-                if n_cols:
-                    ws_any.autofilter(0, 0, 0, n_cols)
-
-    return output.getvalue()
-
-
-def secao(titulo: str, sub: str = "") -> None:
-    subhtml = (
-        f'<span style="font-size:12px;color:#9CA3AF;margin-left:12px;">{sub}</span>' if sub else ""
-    )
-    st.markdown(
-        f'<div style="margin:28px 0 12px 0;padding-bottom:8px;border-bottom:1px solid #E5E7EB;">'
-        f"<span style=\"font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#012869;\">{titulo}</span>"
-        f"{subhtml}</div>",
-        unsafe_allow_html=True,
+    Mantém o cache (o arquivo não é regerado a cada rerun de filtro) e o contrato
+    histórico: aba ``Consolidado_Geral`` + uma aba por CódAuxEquipe.
+    """
+    return gerar_excel_multiabas(
+        df_consolidado,
+        coluna_grupo=coluna_agrupamento,
+        max_abas=max_abas,
     )
 
 
 # ==========================================================
-# 🎨 CABEÇALHO HERO
+# 🎨 CABEÇALHO + CONTEXTO (padrão do portal)
 # ==========================================================
-render_hero(
-    titulo="🔍 Donos do Retorno — Equipe & Monitor",
-    subtitulo=(
-        "Auditoria precisa dos retornos do TOA cruzados com o Sinapse, "
-        "excluindo suspensos e destacando a cadeia de supervisão."
-    ),
-    badge="Auditoria TOA ↔ Sinapse",
+abrir_dashboard(
+    "Donos do Retorno — Equipe & Monitor",
+    secoes=SECOES_PAGINA,
+    hero=render_hero,
+    hero_kwargs={
+        "titulo": "Donos do Retorno — Equipe & Monitor",
+        "subtitulo": (
+            "Auditoria precisa dos retornos do TOA cruzados com o Sinapse, "
+            "excluindo suspensos e destacando a cadeia de supervisão."
+        ),
+        "badge": "Auditoria TOA ↔ Sinapse",
+    },
+    chips={"Fontes": "TOA + Sinapse"},
 )
 
 # ==========================================================
 # 📁 UPLOAD DOS ARQUIVOS
 # ==========================================================
-secao("Fontes de Dados", "importe os arquivos do TOA e do Sinapse")
+cabecalho_secao(
+    "Fontes de Dados",
+    icone="upload_file",
+    subtitulo="Importe os arquivos do TOA e do Sinapse.",
+)
 
 c_up1, c_up2 = st.columns(2)
 
@@ -984,7 +929,11 @@ df_auditado, stats_cruzamento = cruzar_com_sinapse(
 # ==========================================================
 # 🔎 FILTROS DINÂMICOS
 # ==========================================================
-secao("Filtros do Relatório", "refine a visualização por equipe ou supervisor")
+cabecalho_secao(
+    "Filtros do Relatório",
+    icone="filter_alt",
+    subtitulo="Refine a visualização por equipe ou supervisor.",
+)
 
 f_col1, f_col2, f_col3, f_col4 = st.columns([1, 1, 1, 1])
 
@@ -1028,7 +977,11 @@ df_view = df_view.reset_index(drop=True)
 # ==========================================================
 # 📊 PAINEL EXECUTIVO
 # ==========================================================
-secao("Indicadores da Auditoria", "resumo executivo do cruzamento")
+cabecalho_secao(
+    "Indicadores da Auditoria",
+    icone="monitoring",
+    subtitulo="Resumo executivo do cruzamento.",
+)
 
 k1, k2, k3, k4 = st.columns(4)
 render_kpi(
@@ -1069,7 +1022,11 @@ render_kpi(
 # ==========================================================
 # 📈 LEGENDA DE CORES DOS MONITORES
 # ==========================================================
-secao("Legenda de Supervisores", "identificação visual por monitor")
+cabecalho_secao(
+    "Legenda de Supervisores",
+    icone="palette",
+    subtitulo="Identificação visual por monitor.",
+)
 
 LEGENDA = [
     ("🔵 EDSON MARCO PINHEIRO", "#DBEAFE", "#1E40AF", "#BFDBFE"),
@@ -1088,7 +1045,11 @@ for coluna, (rotulo, bg, fg, borda) in zip(st.columns(4), LEGENDA, strict=False)
 # ==========================================================
 # 🔍 BASE DETALHADA
 # ==========================================================
-secao("Base Detalhada de Retornos", f"{len(df_view):,} registros na ordem oficial")
+cabecalho_secao(
+    "Base Detalhada de Retornos",
+    icone="table",
+    subtitulo=f"{len(df_view):,} registros na ordem oficial.",
+)
 
 
 def _pred(val: Any, trecho: str) -> bool:
@@ -1170,7 +1131,7 @@ else:
 # ==========================================================
 # 📤 EXPORTAÇÃO
 # ==========================================================
-secao("Exportação", "download dos relatórios oficiais")
+cabecalho_secao("Exportação", icone="download", subtitulo="Download dos relatórios oficiais.")
 
 if df_view.empty:
     st.info("Sem dados para exportar com os filtros atuais.", icon="ℹ️")
@@ -1181,7 +1142,7 @@ else:
     with exp_c1:
         # FIX #8 — geração cacheada (não reprocessa a cada rerun de filtro)
         try:
-            excel_bytes = gerar_excel_por_equipe(df_view, coluna_agrupamento="DONO_CÓD_AUX_EQUIPE")
+            excel_bytes = _gerar_excel_por_equipe(df_view, "DONO_CÓD_AUX_EQUIPE")
             st.download_button(
                 "📊 Baixar Relatório Excel (Abas por CódAuxEquipe)",
                 data=excel_bytes,
@@ -1206,12 +1167,10 @@ else:
         )
 
 # ==========================================================
-# 🏁 RODAPÉ
+# 🏁 RODAPÉ (padrão do portal)
 # ==========================================================
-st.markdown(
-    f'<div style="text-align:center;color:#9CA3AF;font-size:11px;padding:24px 0;'
-    f'margin-top:32px;border-top:1px solid #F1F5F9;">'
-    f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name}) "
-    f"· Gerado em {date.today().strftime('%d/%m/%Y')}</div>",
-    unsafe_allow_html=True,
+fechar_dashboard(
+    texto=(
+        f"Auditoria TOA ({arquivo_toa.name}) ↔ Sinapse ({arquivo_sinapse.name})"
+    ),
 )

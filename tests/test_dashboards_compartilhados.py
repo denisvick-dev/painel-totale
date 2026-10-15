@@ -29,7 +29,13 @@ from services.dados_sessao import (
     resumir_carga,
 )
 from services.hierarquia import COLUNAS_CANONICAS, hierarquia_vazia, normalizar_hierarquia
-from services.planilhas import gerar_csv, gerar_excel, ler_bytes, nome_com_carimbo
+from services.planilhas import (
+    gerar_csv,
+    gerar_excel,
+    gerar_excel_multiabas,
+    ler_bytes,
+    nome_com_carimbo,
+)
 from services.texto import (
     buscar_coluna,
     colunas_presentes,
@@ -345,3 +351,46 @@ def test_versao_do_portal_vem_de_config() -> None:
     from config.settings import AMBIENTE_PORTAL, VERSAO_PORTAL
 
     assert versao_do_portal() == (VERSAO_PORTAL, AMBIENTE_PORTAL)
+
+
+def test_gerar_excel_multiabas_cria_consolidado_e_abas_por_grupo() -> None:
+    df = pd.DataFrame(
+        {
+            "Contrato": ["C1", "C2", "C3", "C4"],
+            "Equipe": ["Alpha", "Alpha", "Beta", None],
+            "Qtde": [1, 2, 3, 4],
+        }
+    )
+
+    dados = gerar_excel_multiabas(df, coluna_grupo="Equipe")
+
+    abas = pd.read_excel(io.BytesIO(dados), sheet_name=None)
+    assert list(abas) == ["Consolidado_Geral", "Alpha", "Beta", "nan"]
+    assert len(abas["Consolidado_Geral"]) == 4
+    assert len(abas["Alpha"]) == 2
+    assert list(abas["Beta"]["Contrato"]) == ["C3"]
+
+
+def test_gerar_excel_multiabas_desambigua_nomes_de_aba_repetidos() -> None:
+    df = pd.DataFrame(
+        {
+            "Equipe": ["A" * 40, "A" * 40 + "x", "curta"],
+            "Qtde": [1, 2, 3],
+        }
+    )
+
+    dados = gerar_excel_multiabas(df, coluna_grupo="Equipe", aba_geral="Geral")
+
+    abas = pd.read_excel(io.BytesIO(dados), sheet_name=None)
+    assert list(abas)[0] == "Geral"
+    assert all(len(nome) <= 31 for nome in abas)
+    assert len(set(abas)) == len(abas)
+
+
+def test_gerar_excel_multiabas_respeita_limite_de_abas() -> None:
+    df = pd.DataFrame({"Equipe": [f"E{i}" for i in range(10)], "Qtde": range(10)})
+
+    dados = gerar_excel_multiabas(df, coluna_grupo="Equipe", max_abas=3)
+
+    abas = pd.read_excel(io.BytesIO(dados), sheet_name=None)
+    assert len(abas) == 4  # consolidado + 3 grupos

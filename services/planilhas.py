@@ -75,6 +75,7 @@ __all__ = [
     "botao_download_planilha",
     "gerar_csv",
     "gerar_excel",
+    "gerar_excel_multiabas",
     "larguras_colunas",
     "ler_bytes",
     "ler_upload",
@@ -236,6 +237,23 @@ def _nomes_sanitizados(aba: str) -> str:
 
     limpo = re.sub(r"[\[\]:*?/\\]", "_", str(aba or "")).strip()
     return limpo[:31] or "Dados"
+
+
+def _nome_aba_unico(nome: Any, usados: set[str]) -> str:
+    """Nome de aba sanitizado e único (``Equipe A`` repetida → ``Equipe A_1``)."""
+    import re
+
+    base = re.sub(r"[\\/*?:\[\]]", "-", str(nome)).strip().strip("'")
+    base = re.sub(r"\s+", " ", base) or "Sem_Nome"
+    base = base[:31]
+    candidato = base
+    sufixo = 1
+    while candidato.lower() in usados:
+        extra = f"_{sufixo}"
+        candidato = f"{base[: 31 - len(extra)]}{extra}"
+        sufixo += 1
+    usados.add(candidato.lower())
+    return candidato
 
 
 def _colunas_percentuais(df: pd.DataFrame, termos: Sequence[str]) -> set[int]:
@@ -407,3 +425,80 @@ def botao_download_csv(
         width="stretch",
         **kwargs,
     )
+
+
+def gerar_excel_multiabas(
+    df: pd.DataFrame,
+    *,
+    coluna_grupo: str,
+    aba_geral: str = "Consolidado_Geral",
+    max_abas: int = 150,
+) -> bytes:
+    """XLSX com uma aba consolidada + uma aba por grupo de ``coluna_grupo``.
+
+    Regras herdadas das páginas que reimplementavam este formato:
+
+    * nome de aba válido (≤31 caracteres, sem ``\\/*?:[]``) e **único** — grupos
+      com o mesmo nome ganham sufixo ``_1``, ``_2``…;
+    * acima de ``max_abas`` grupos as abas extras são omitidas (o Excel não
+      aceita volume ilimitado e o arquivo ficaria pesado);
+    * cabeçalho corporativo, largura fixa, linha congelada e autofiltro em todas
+      as abas (com ``xlsxwriter``; sem ele, o ``openpyxl`` faz o equivalente).
+    """
+    if df is None:
+        raise ValueError("Não há DataFrame para exportar.")
+
+    try:
+        import xlsxwriter  # noqa: F401
+
+        engine = "xlsxwriter"
+    except ImportError:
+        engine = "openpyxl"
+
+    grupos: list[tuple[Any, pd.DataFrame]] = []
+    if coluna_grupo in df.columns and not df.empty:
+        grupos = list(df.groupby(coluna_grupo, dropna=False))
+        if len(grupos) > max_abas:
+            logger.warning(
+                "Grupos (%s) acima do limite de abas (%s); abas extras omitidas.",
+                len(grupos),
+                max_abas,
+            )
+            grupos = grupos[:max_abas]
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine=engine) as escritor:
+        nomes_usados: set[str] = set()
+        df.to_excel(escritor, sheet_name=_nome_aba_unico(aba_geral, nomes_usados), index=False)
+        for nome_grupo, df_grupo in grupos:
+            df_grupo.to_excel(
+                escritor,
+                sheet_name=_nome_aba_unico(nome_grupo, nomes_usados),
+                index=False,
+            )
+
+        if engine == "xlsxwriter":
+            livro: Any = escritor.book
+            formato = livro.add_format(
+                {
+                    "bold": True,
+                    "bg_color": COR_CABECALHO,
+                    "font_color": "white",
+                    "border": 1,
+                    "align": "center",
+                    "valign": "vcenter",
+                    "text_wrap": True,
+                }
+            )
+            colunas = list(df.columns)
+            ultima_coluna = max(len(colunas) - 1, 0)
+            for planilha in escritor.sheets.values():
+                alvo: Any = planilha
+                alvo.set_column(0, ultima_coluna, 22)
+                alvo.freeze_panes(1, 0)
+                for indice, nome_coluna in enumerate(colunas):
+                    alvo.write(0, indice, str(nome_coluna), formato)
+                if ultima_coluna:
+                    alvo.autofilter(0, 0, 0, ultima_coluna)
+
+    return buffer.getvalue()
