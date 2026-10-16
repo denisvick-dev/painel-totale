@@ -158,6 +158,31 @@ def test_selectbox_sidebar_estiliza_markup_atual_do_streamlit() -> None:
         assert "-webkit-text-fill-color: var(--totale-sb-input-text) !important;" in css
 
 
+def test_widgets_da_sidebar_herdam_a_paleta_escolhida() -> None:
+    """Inputs, ações, expansores, slider e upload seguem o tema selecionado."""
+    cores_de_foco = {
+        "claro": "#C2410C",
+        "azul": "#FDBA74",
+        "laranja": "#FFD09A",
+    }
+    seletores = (
+        '[data-testid="stNumberInput"]',
+        '[data-testid="stExpander"]',
+        '[data-testid="stButton"]',
+        '[data-testid="stSelectbox"]',
+        '[data-testid="stSlider"]',
+        '[data-testid="stFileUploaderDropzone"]',
+    )
+    for tema, cor_foco in cores_de_foco.items():
+        css = CSSInjector._build_css(tema)
+        assert f"--totale-sb-input-focus: {cor_foco};" in css
+        for seletor in seletores:
+            assert f'[data-testid="stSidebar"] {seletor}' in css, (tema, seletor)
+        assert "var(--totale-sb-input-focus)" in css
+        assert "var(--totale-sb-button-hover-bg)" in css
+        assert "var(--totale-sb-nav-hover-bg)" in css
+
+
 def test_pagina_preserva_tema_da_sessao() -> None:
     """Página que chama aplicar_estilo() sem argumento mantém o tema escolhido."""
     for tema in ("claro", "azul", "laranja"):
