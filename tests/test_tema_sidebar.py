@@ -158,6 +158,16 @@ def test_selectbox_sidebar_estiliza_markup_atual_do_streamlit() -> None:
         assert "-webkit-text-fill-color: var(--totale-sb-input-text) !important;" in css
 
 
+def test_links_do_menu_customizado_herdam_a_paleta_e_destacam_ativo() -> None:
+    """Links acessíveis renderizados com st.page_link acompanham os três temas."""
+    for tema in ("claro", "azul", "laranja"):
+        css = CSSInjector._build_css(tema)
+        assert '[data-testid="stPageLink"] > a' in css
+        assert '[data-testid="stPageLink"] > a[aria-current="page"]' in css
+        assert "var(--totale-sb-nav-active-bg)" in css
+        assert "var(--totale-sb-nav-active-accent)" in css
+
+
 def test_widgets_da_sidebar_herdam_a_paleta_escolhida() -> None:
     """Inputs, ações, expansores, slider e upload seguem o tema selecionado."""
     cores_de_foco = {

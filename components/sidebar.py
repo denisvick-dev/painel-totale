@@ -258,6 +258,44 @@ _CSS_SIDEBAR = r"""
     -webkit-text-fill-color: var(--totale-sb-nav-active-text) !important;
 }
 
+/* Links do menu customizado (st.page_link): mesma hierarquia do menu nativo. */
+[data-testid="stSidebar"] [data-testid="stPageLink"] > a {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    min-height: 38px !important;
+    padding: 8px 10px !important;
+    margin: 2px 0 !important;
+    box-sizing: border-box !important;
+    color: var(--totale-sb-nav) !important;
+    font-size: 12.5px !important;
+    line-height: 1.35 !important;
+    font-weight: 560 !important;
+    border-radius: 9px !important;
+    border: 1px solid transparent !important;
+    border-left: 3px solid transparent !important;
+    text-decoration: none !important;
+    transition: background .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease !important;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] > a:not([aria-current="page"]):hover {
+    background: var(--totale-sb-nav-hover-bg) !important;
+    color: var(--totale-sb-nav-hover) !important;
+    transform: translateX(2px);
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] > a[aria-current="page"] {
+    background: var(--totale-sb-nav-active-bg) !important;
+    color: var(--totale-sb-nav-active-text) !important;
+    font-weight: 700 !important;
+    border: 1px solid var(--totale-sb-nav-active-border) !important;
+    border-left: 3px solid var(--totale-sb-nav-active-accent) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .13) !important;
+}
+[data-testid="stSidebar"] [data-testid="stPageLink"] > a[aria-current="page"],
+[data-testid="stSidebar"] [data-testid="stPageLink"] > a[aria-current="page"] * {
+    color: var(--totale-sb-nav-active-text) !important;
+    -webkit-text-fill-color: var(--totale-sb-nav-active-text) !important;
+}
+
 /* Compatibilidade BaseWeb e React Aria nas versões recentes do Streamlit. */
 [data-testid="stSidebar"] div[data-baseweb="select"] > div,
 [data-testid="stSidebar"] input:not([type="checkbox"]):not([type="radio"]),
@@ -1149,7 +1187,7 @@ def render_sidebar_status(
     )
     total_html = (
         f'<div style="font-size:12px;color:{tokens["texto_secundario"]};margin-top:5px;">'
-        f'Total <strong style="color:{tokens["texto_primario"]};">{_escapar(total_registros)}</strong></div>'
+        f'Registros <strong style="color:{tokens["texto_primario"]};">{_escapar(total_registros)}</strong></div>'
         if total_registros is not None
         else ""
     )

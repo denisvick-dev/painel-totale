@@ -8,6 +8,7 @@ leitura e camada de serviços compartilhada entre as páginas)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
+• Navegação lateral pesquisável por título/área/descrição, com grupos recolhíveis.
 • Tema selecionado persistido entre reruns e sincronizado com components.sidebar.
 • Marca, status do sistema e informações do ambiente na sidebar.
 • CSS do app limitado ao corpo da página; components.sidebar controla a sidebar.
@@ -217,13 +218,32 @@ class GerenciadorNavegacao:
         return mapa_de_navegacao()
 
     @staticmethod
-    def renderizar_sidebar_corporativa() -> None:
-        """Renderiza marca, seletor de tema, status e informações do portal."""
+    def _resumir_status_dados(dados: Any) -> tuple[str, str, int | None]:
+        """Devolve status e total de linhas da carga, inclusive dicts de abas."""
+        from services.dados_sessao import resumir_carga
+
+        resumo = resumir_carga(dados)
+        total_registros = resumo.registros if dados is not None else None
+        if resumo.registros:
+            return "Dados disponíveis", "ok", total_registros
+        if dados is not None:
+            return "Base carregada sem registros", "alerta", total_registros
+        return "Aguardando dados", "info", None
+
+    @staticmethod
+    def renderizar_sidebar_corporativa(pagina_selecionada: Any = None) -> None:
+        """Renderiza marca, busca/navegação, tema, status e informações do portal."""
+        from config.navegacao import (
+            GRUPOS,
+            ICONES_GRUPOS,
+            PAGINAS,
+            filtrar_paginas,
+        )
+
         tema_atual = st.session_state.get(
             "_totale_sidebar_theme",
             st.session_state.get("tema_sidebar", "laranja"),
         )
-
         render_sidebar_brand(
             nome="TOTALE",
             subtitulo="Portal de Produção & Performance",
@@ -231,14 +251,19 @@ class GerenciadorNavegacao:
             icone="⚡",
             tema=tema_atual,
         )
-        render_sidebar_section("Aparência", icone="🎨", tema=tema_atual)
-        tema_escolhido = render_sidebar_theme_selector(
-            label="Tema visual",
-            help="Escolha as cores do menu lateral.",
-            key="_totale_sidebar_theme_select",
-            mostrar_icone=True,
-            aplicar_automaticamente=True,
-        )
+
+        # A aparência é uma preferência secundária; deixá-la recolhida libera
+        # espaço para os filtros das páginas e para a navegação.
+        tema_escolhido = tema_atual
+        with st.sidebar.expander("🎨 Aparência", expanded=False) as aparencia:
+            tema_escolhido = render_sidebar_theme_selector(
+                label="Tema visual",
+                help="Escolha as cores do menu lateral.",
+                container=aparencia,
+                key="_totale_sidebar_theme_select",
+                mostrar_icone=True,
+                aplicar_automaticamente=True,
+            )
         st.session_state["tema_sidebar"] = tema_escolhido
 
         render_sidebar_divider(
@@ -246,22 +271,74 @@ class GerenciadorNavegacao:
             espacamento="pequeno",
             tema=tema_escolhido,
         )
+        render_sidebar_section("Navegação", icone="🧭", tema=tema_escolhido)
+        termo_busca = st.sidebar.text_input(
+            "Buscar painel",
+            placeholder="Ex.: produção, rota, SLA...",
+            help="Pesquise pelo nome, área ou descrição do painel.",
+            key="_totale_sidebar_navigation_search",
+        )
 
+        paginas_filtradas = filtrar_paginas(termo_busca)
+        if termo_busca.strip() and paginas_filtradas:
+            total = len(paginas_filtradas)
+            rotulo = "painel encontrado" if total == 1 else "painéis encontrados"
+            st.sidebar.caption(f"{total} {rotulo}")
+        if not paginas_filtradas:
+            st.sidebar.caption("Nenhum painel encontrado. Tente outro termo.")
+        else:
+            titulo_atual = str(getattr(pagina_selecionada, "title", "") or "")
+            caminho_atual = str(
+                getattr(pagina_selecionada, "url_path", "")
+                or getattr(pagina_selecionada, "_url_path", "")
+                or ""
+            )
+            pagina_atual = next(
+                (
+                    pagina
+                    for pagina in PAGINAS
+                    if pagina.titulo == titulo_atual
+                    or pagina.arquivo.removesuffix(".py") == caminho_atual
+                ),
+                None,
+            )
+            grupo_atual = pagina_atual.grupo if pagina_atual else ""
+
+            for grupo in GRUPOS:
+                itens = [pagina for pagina in paginas_filtradas if pagina.grupo == grupo]
+                if not itens:
+                    continue
+                icone_grupo = ICONES_GRUPOS.get(grupo, "📂")
+                label_grupo = f"{icone_grupo} {grupo} · {len(itens)}"
+                with st.sidebar.expander(
+                    label_grupo,
+                    expanded=(grupo == grupo_atual or bool(termo_busca.strip())),
+                ):
+                    for pagina in itens:
+                        st.page_link(
+                            pagina.caminho,
+                            label=pagina.titulo,
+                            icon=pagina.icone,
+                            help=pagina.descricao,
+                            width="stretch",
+                        )
+
+        render_sidebar_divider(
+            estilo="gradiente",
+            espacamento="pequeno",
+            tema=tema_escolhido,
+        )
         dados = st.session_state.get("dados_prod")
+        status, tipo_status, total_registros = GerenciadorNavegacao._resumir_status_dados(dados)
         ultima = st.session_state.get("ultima_atualizacao")
         ultima_formatada = format_datetime(ultima) if ultima is not None else ""
-        try:
-            total_registros = len(dados) if dados is not None else None
-        except (TypeError, ValueError):
-            total_registros = None
 
-        tem_dados = dados is not None
         render_sidebar_status(
-            status="Dados disponíveis" if tem_dados else "Aguardando dados",
+            status=status,
             label="STATUS DO SISTEMA",
             ultima_atualizacao=ultima_formatada,
             total_registros=total_registros,
-            tipo="ok" if tem_dados else "info",
+            tipo=tipo_status,
             tema=tema_escolhido,
         )
         render_sidebar_spacer("pequeno")
@@ -302,7 +379,9 @@ def main() -> None:
         st.session_state["tema_sidebar"] = "laranja"
 
     paginas = GerenciadorNavegacao._definir_paginas()
-    pg = st.navigation(paginas)
+    # O router continua registrando todas as rotas; o menu visual é montado
+    # abaixo com busca e grupos recolhíveis para evitar uma lista extensa.
+    pg = st.navigation(paginas, position="hidden")
 
     # A chave do widget tem precedência para não reverter a escolha no rerun.
     tema_ativo = (
@@ -320,7 +399,7 @@ def main() -> None:
     _aplicar_estilo_seguro(tema_ativo)
     injetar_css_dashboards()
     GerenciadorEstilos.injetar_css_global()
-    GerenciadorNavegacao.renderizar_sidebar_corporativa()
+    GerenciadorNavegacao.renderizar_sidebar_corporativa(pagina_selecionada=pg)
 
     st.session_state["_totale_root_navigation_shell"] = True
     pg.run()

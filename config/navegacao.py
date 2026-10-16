@@ -21,7 +21,8 @@ Aqui o menu vira **dado**:
 * :data:`GRUPOS` define as seções da barra lateral, na ordem de leitura do
   gestor (visão geral → performance → campo → SLA → cadastros → utilitários);
 * :func:`mapa_de_navegacao` devolve o ``dict[str, list[st.Page]]`` que o
-  ``st.navigation`` consome;
+  ``st.navigation`` consome para registrar as rotas (o menu visual é customizado);
+* :func:`filtrar_paginas` busca por título, grupo, descrição ou arquivo sem exigir acentos;
 * :func:`paginas_do_grupo` / :func:`pagina_por_arquivo` servem à página
   ``Visão Geral``, aos testes e a qualquer atalho de navegação.
 
@@ -39,6 +40,7 @@ Regras:
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -64,6 +66,16 @@ GRUPOS: tuple[str, ...] = (
     GRUPO_CADASTROS,
     GRUPO_UTILITARIOS,
 )
+
+#: Ícones das áreas, compartilhados pelo menu lateral e pela Visão Geral.
+ICONES_GRUPOS: dict[str, str] = {
+    GRUPO_VISAO_GERAL: "🧭",
+    GRUPO_PERFORMANCE: "📈",
+    GRUPO_CAMPO: "🗺️",
+    GRUPO_SLA: "⏱️",
+    GRUPO_CADASTROS: "🗂️",
+    GRUPO_UTILITARIOS: "🧰",
+}
 
 #: Uma linha de contexto por seção (usada na página Visão Geral).
 DESCRICAO_GRUPOS: dict[str, str] = {
@@ -257,6 +269,41 @@ def pagina_por_arquivo(arquivo: str) -> PaginaPortal | None:
     return next((p for p in PAGINAS if p.arquivo == nome), None)
 
 
+def _normalizar_texto_busca(texto: str) -> str:
+    """Normaliza caixa e acentos para a busca funcionar sem diacríticos."""
+    decomposicao = unicodedata.normalize("NFKD", str(texto or "").casefold())
+    return "".join(caractere for caractere in decomposicao if not unicodedata.combining(caractere))
+
+
+def filtrar_paginas(termo: str = "") -> list[PaginaPortal]:
+    """Busca páginas visíveis por título, área, descrição ou nome do arquivo.
+
+    Todos os termos digitados precisam aparecer em algum ponto do conteúdo
+    pesquisável, sem diferenciar maiúsculas/minúsculas nem acentos (``producao``
+    encontra ``Produção``). Uma busca vazia devolve todas as páginas visíveis.
+    """
+    paginas_visiveis = [pagina for pagina in PAGINAS if pagina.visivel]
+    termos = _normalizar_texto_busca(termo).split()
+    if not termos:
+        return paginas_visiveis
+
+    resultado: list[PaginaPortal] = []
+    for pagina in paginas_visiveis:
+        texto = _normalizar_texto_busca(
+            " ".join(
+                (
+                    pagina.titulo,
+                    pagina.grupo,
+                    pagina.descricao,
+                    pagina.arquivo.removesuffix(".py"),
+                )
+            )
+        )
+        if all(item in texto for item in termos):
+            resultado.append(pagina)
+    return resultado
+
+
 def grupos_ordenados() -> list[str]:
     """Seções que possuem ao menos uma página (na ordem do menu)."""
     presentes = {p.grupo for p in PAGINAS}
@@ -290,6 +337,7 @@ def mapa_de_navegacao() -> dict[str, list["st.Page"]]:
 __all__ = [
     "DASHBOARDS_PADRONIZADOS",
     "DESCRICAO_GRUPOS",
+    "ICONES_GRUPOS",
     "GRUPO_CADASTROS",
     "GRUPO_CAMPO",
     "GRUPO_PERFORMANCE",
@@ -300,6 +348,7 @@ __all__ = [
     "PAGINAS",
     "PaginaPortal",
     "VERSAO_NAVEGACAO",
+    "filtrar_paginas",
     "grupos_ordenados",
     "mapa_de_navegacao",
     "mapa_de_paginas",
