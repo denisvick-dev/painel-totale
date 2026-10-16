@@ -3,7 +3,9 @@
 ## Visão Geral
 
 O módulo `components/sidebar.py` concentra o CSS dos temas, o seletor de tema persistente e os
-componentes corporativos da sidebar do portal. Ele substitui o CSS que antes ficava acoplado ao
+componentes corporativos da sidebar do portal. O entrypoint monta a navegação com busca por nome,
+área e descrição, e grupos recolhíveis; isso mantém todos os painéis acessíveis sem deixar os
+links ocupando a tela ao mesmo tempo. Ele substitui o CSS que antes ficava acoplado ao
 `streamlit_app.py`, evitando duplicação entre o entrypoint e as páginas. O robô local fica no corpo da Central de Atualização (`pages/envio_excel.py`),
 fora da sidebar. O monitor roda enquanto essa página está aberta; os dados carregados
 continuam compartilhados na sessão para consumo pelas outras páginas.
@@ -48,6 +50,22 @@ inválidos caem no tema padrão em vez de quebrar o widget.
 | `_totale_sidebar_theme_select` | Chave do widget `selectbox` do seletor |
 | `_totale_root_navigation_shell` | Marcado pelo entrypoint quando o shell raiz está ativo |
 | `_totale_css_head_tema` | Tema sincronizado pelo `aplicar_sidebar_corp()` do Design System |
+| `_totale_sidebar_navigation_search` | Termo atual da busca no menu lateral (preservado entre páginas) |
+
+---
+
+## 🧭 Navegação lateral
+
+O menu visível é renderizado pelo shell em `streamlit_app.py` usando `st.page_link`; o router de
+páginas continua registrado via `st.navigation(..., position="hidden")`. Assim, a navegação nativa
+não duplica os links e cada área pode ser recolhida para reduzir a rolagem.
+
+- A busca encontra termos no título, na área, na descrição e no nome do arquivo; ignora acentos e
+  caixa (`producao` também encontra “Produção”). Todos os termos digitados precisam coincidir.
+- A seção da página atual abre por padrão. Ao pesquisar, abrem somente as áreas com resultados.
+- A descrição do painel aparece como ajuda ao passar o cursor sobre o link.
+- A contagem de registros do cartão de status usa o número de linhas das abas, não a quantidade de
+  chaves de um dicionário de planilhas. Bases carregadas sem linhas são identificadas separadamente.
 
 ---
 
