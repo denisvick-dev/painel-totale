@@ -261,6 +261,21 @@ _CSS_SIDEBAR = r"""
     box-shadow: 0 1px 2px rgba(15, 23, 42, .06) !important;
     transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
 }
+/* Number input: os controles de incremento também acompanham a paleta ativa. */
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button {
+    color: var(--totale-sb-input-text) !important;
+    background: var(--totale-sb-button-bg) !important;
+    border-color: var(--totale-sb-input-border) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button:hover {
+    background: var(--totale-sb-button-hover-bg) !important;
+    color: var(--totale-sb-button-hover-text) !important;
+}
+/* Selectbox mantém texto/ícone legíveis nos markups BaseWeb e React Aria. */
+[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    background: var(--totale-sb-input-bg) !important;
+    border-color: var(--totale-sb-input-border) !important;
+}
 [data-testid="stSidebar"] div[data-baseweb="select"] span,
 [data-testid="stSidebar"] [data-testid="stSelectbox"] input[role="combobox"],
 [data-testid="stSidebar"] [data-testid="stSelectbox"] [role="group"] input[role="combobox"] {
@@ -309,8 +324,51 @@ _CSS_SIDEBAR = r"""
     background: var(--totale-sb-card) !important;
     border: 1px solid var(--totale-sb-card-border) !important;
     border-radius: 10px !important;
+    overflow: hidden;
 }
-[data-testid="stSidebar"] [data-testid="stExpander"] summary { color: var(--totale-sb-primary) !important; }
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    color: var(--totale-sb-primary) !important;
+    background: var(--totale-sb-card) !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
+    background: var(--totale-sb-nav-hover-bg) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] [data-baseweb="slider"] [role="slider"] {
+    background: var(--totale-sb-input-focus) !important;
+    border-color: var(--totale-sb-input-focus) !important;
+    box-shadow: 0 1px 5px var(--totale-sb-input-focus-ring) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] [data-baseweb="slider"] div[style*="width"] {
+    background: var(--totale-sb-input-focus) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] [data-baseweb="slider"] div[role="presentation"] {
+    background: var(--totale-sb-input-border);
+}
+/* O dropzone e o botão de upload usam os mesmos tokens de input/ação. */
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+    background: var(--totale-sb-input-bg) !important;
+    border: 1.5px dashed var(--totale-sb-input-border) !important;
+    border-radius: 10px !important;
+    color: var(--totale-sb-input-text) !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--totale-sb-input-focus) !important;
+    background: var(--totale-sb-nav-hover-bg) !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+    color: var(--totale-sb-button-text) !important;
+    background: var(--totale-sb-button-bg) !important;
+    border: 1px solid var(--totale-sb-input-border) !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button:hover {
+    color: var(--totale-sb-button-hover-text) !important;
+    background: var(--totale-sb-button-hover-bg) !important;
+}
+[data-testid="stSidebar"] [data-testid="stFileUploader"] [data-testid="stFileUploaderFile"] {
+    background: var(--totale-sb-card) !important;
+    border-color: var(--totale-sb-card-border) !important;
+    color: var(--totale-sb-secondary) !important;
+}
 [data-testid="stSidebar"] hr { border-color: var(--totale-sb-card-border) !important; }
 [data-testid="stSidebar"] *::-webkit-scrollbar { width: 8px; height: 8px; }
 [data-testid="stSidebar"] *::-webkit-scrollbar-track { background: transparent; }
