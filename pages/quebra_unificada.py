@@ -1802,23 +1802,47 @@ def main() -> None:
         p_pess = st.slider("Pessimista (%)", 0, 100, 50, 5, key=f"ppess_{segmento}") / 100.0
         if not (p_ot <= p_base <= p_pess):
             st.warning("Ajuste recomendado: Otimista ≤ Base ≤ Pessimista")
+
+        valores_padrao = {
+            f"sla_v_{segmento}": float(conf["sla_default"] * 100),
+            f"minaloc_{segmento}": 1,
+            f"topn_{segmento}": 50,
+        }
+        for chave, valor_padrao in valores_padrao.items():
+            if chave not in st.session_state or st.session_state[chave] is None:
+                st.session_state[chave] = valor_padrao
+
         st.divider()
         sla_meta = (
             st.number_input(
                 "Meta SLA (%)",
                 0.0,
                 100.0,
-                float(conf["sla_default"] * 100),
-                0.5,
+                value=float(st.session_state[f"sla_v_{segmento}"] or 0.0),
+                step=0.5,
                 key=f"sla_v_{segmento}",
             )
             / 100.0
         )
         min_aloc = float(
-            st.number_input("Mínimo de OS por técnico", 1, 500, 1, 1, key=f"minaloc_{segmento}")
+            st.number_input(
+                "Mínimo de OS por técnico",
+                min_value=1,
+                max_value=500,
+                value=st.session_state[f"minaloc_{segmento}"],
+                step=1,
+                key=f"minaloc_{segmento}",
+            )
         )
         top_n = int(
-            st.number_input("Quantidade de técnicos", 5, 1000, 50, 5, key=f"topn_{segmento}")
+            st.number_input(
+                "Quantidade de técnicos",
+                min_value=5,
+                max_value=1000,
+                value=st.session_state[f"topn_{segmento}"],
+                step=5,
+                key=f"topn_{segmento}",
+            )
         )
         st.divider()
         with st.expander("Sistema", expanded=False):

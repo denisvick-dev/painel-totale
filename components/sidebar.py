@@ -67,6 +67,8 @@ _TEMAS: dict[str, dict[str, str]] = {
         "input_fundo": "#FFFFFF",
         "input_texto": "#102A43",
         "input_borda": "#718096",
+        "numero_fundo": "#F1F5F9",
+        "numero_borda": "#52657D",
         "input_focus": "#C2410C",
         "input_focus_ring": "rgba(194, 65, 12, 0.24)",
         "accent_topo": "linear-gradient(90deg, #012869 0%, #0A48AA 65%, #F37C04 100%)",
@@ -98,6 +100,8 @@ _TEMAS: dict[str, dict[str, str]] = {
         "input_fundo": "rgba(255, 255, 255, 0.06)",
         "input_texto": "#FFFFFF",
         "input_borda": "rgba(255, 255, 255, 0.48)",
+        "numero_fundo": "#112B4A",
+        "numero_borda": "#AFC5DC",
         "input_focus": "#FDBA74",
         "input_focus_ring": "rgba(253, 186, 116, 0.28)",
         "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FDBA74 100%)",
@@ -129,6 +133,8 @@ _TEMAS: dict[str, dict[str, str]] = {
         "input_fundo": "rgba(0, 0, 0, 0.22)",
         "input_texto": "#FFFFFF",
         "input_borda": "rgba(255, 255, 255, 0.52)",
+        "numero_fundo": "#5A260F",
+        "numero_borda": "#FFD09A",
         "input_focus": "#FFD09A",
         "input_focus_ring": "rgba(255, 208, 154, 0.28)",
         "accent_topo": "linear-gradient(90deg, #F37C04 0%, #FFD09A 60%, #FFF9F3 100%)",
@@ -161,6 +167,8 @@ _CSS_SIDEBAR = r"""
     --totale-sb-input-bg: @@INPUT_FUNDO@@;
     --totale-sb-input-text: @@INPUT_TEXTO@@;
     --totale-sb-input-border: @@INPUT_BORDA@@;
+    --totale-sb-number-bg: @@NUMERO_FUNDO@@;
+    --totale-sb-number-border: @@NUMERO_BORDA@@;
     --totale-sb-input-focus: @@INPUT_FOCUS@@;
     --totale-sb-input-focus-ring: @@INPUT_FOCUS_RING@@;
     position: relative;
@@ -262,12 +270,45 @@ _CSS_SIDEBAR = r"""
     transition: border-color .15s ease, box-shadow .15s ease, background .15s ease !important;
 }
 /* Number input: os controles de incremento também acompanham a paleta ativa. */
-[data-testid="stSidebar"] [data-testid="stNumberInput"] button {
-    color: var(--totale-sb-input-text) !important;
-    background: var(--totale-sb-button-bg) !important;
-    border-color: var(--totale-sb-input-border) !important;
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="input"],
+[data-testid="stSidebar"] [data-testid="stNumberInput"] div[data-baseweb="input"] > div {
+    background-color: var(--totale-sb-number-bg) !important;
+    border: 1px solid var(--totale-sb-number-border) !important;
+    border-radius: 9px !important;
 }
-[data-testid="stSidebar"] [data-testid="stNumberInput"] button:hover {
+[data-testid="stSidebar"] [data-testid="stNumberInput"] > div,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] [data-baseweb="input"] > div {
+    background-color: var(--totale-sb-number-bg) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input[type="number"] {
+    background-color: var(--totale-sb-number-bg) !important;
+    color: var(--totale-sb-input-text) !important;
+    -webkit-text-fill-color: var(--totale-sb-input-text) !important;
+    caret-color: var(--totale-sb-input-focus) !important;
+    font-weight: 700 !important;
+    opacity: 1 !important;
+    border: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] [role="button"] {
+    width: 1.5rem !important;
+    min-width: 1.5rem !important;
+    flex: 0 0 1.5rem !important;
+    padding-inline: 0 !important;
+    color: var(--totale-sb-input-text) !important;
+    -webkit-text-fill-color: var(--totale-sb-input-text) !important;
+    background-color: var(--totale-sb-number-bg) !important;
+    border-color: var(--totale-sb-number-border) !important;
+    opacity: 1 !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button *,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] [role="button"] * {
+    color: var(--totale-sb-input-text) !important;
+    fill: var(--totale-sb-input-text) !important;
+    stroke: var(--totale-sb-input-text) !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button:hover,
+[data-testid="stSidebar"] [data-testid="stNumberInput"] [role="button"]:hover {
     background: var(--totale-sb-button-hover-bg) !important;
     color: var(--totale-sb-button-hover-text) !important;
 }
@@ -477,6 +518,8 @@ _CSS_PLACEHOLDERS: dict[str, str] = {
     "INPUT_FUNDO": "input_fundo",
     "INPUT_TEXTO": "input_texto",
     "INPUT_BORDA": "input_borda",
+    "NUMERO_FUNDO": "numero_fundo",
+    "NUMERO_BORDA": "numero_borda",
     "INPUT_FOCUS": "input_focus",
     "INPUT_FOCUS_RING": "input_focus_ring",
     "ACCENT_TOPO": "accent_topo",

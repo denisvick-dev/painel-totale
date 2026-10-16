@@ -183,6 +183,32 @@ def test_widgets_da_sidebar_herdam_a_paleta_escolhida() -> None:
         assert "var(--totale-sb-nav-hover-bg)" in css
 
 
+def test_campos_numericos_tem_fundo_opaco_e_contraste_por_tema() -> None:
+    fundos = {
+        "claro": "#F1F5F9",
+        "azul": "#112B4A",
+        "laranja": "#5A260F",
+    }
+    bordas = {
+        "claro": "#52657D",
+        "azul": "#AFC5DC",
+        "laranja": "#FFD09A",
+    }
+    for tema, fundo in fundos.items():
+        css = CSSInjector._build_css(tema)
+        assert f"--totale-sb-number-bg: {fundo};" in css
+        assert f"--totale-sb-number-border: {bordas[tema]};" in css
+        assert '[data-testid="stNumberInput"] div[data-baseweb="input"]' in css
+        assert '[data-testid="stNumberInput"] > div' in css
+        assert '[data-testid="stNumberInput"] input[type="number"]' in css
+        assert '[data-testid="stNumberInput"] [role="button"]' in css
+        assert "width: 1.5rem !important;" in css
+        assert "flex: 0 0 1.5rem !important;" in css
+        assert "background-color: var(--totale-sb-number-bg) !important;" in css
+        assert "fill: var(--totale-sb-input-text) !important;" in css
+        assert "-webkit-text-fill-color: var(--totale-sb-input-text) !important;" in css
+
+
 def test_pagina_preserva_tema_da_sessao() -> None:
     """Página que chama aplicar_estilo() sem argumento mantém o tema escolhido."""
     for tema in ("claro", "azul", "laranja"):
