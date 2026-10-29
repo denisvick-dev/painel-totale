@@ -1,4 +1,9 @@
 {
     "python.analysis.typeCheckingMode": "basic",
-    "python.analysis.ignore": ["pandas", "numpy", "gdown"]
+    "python.analysis.ignore": [
+        "pandas",
+        "numpy",
+        "gdown"
+    ],
+    "python.terminal.useEnvFile": true
 }
