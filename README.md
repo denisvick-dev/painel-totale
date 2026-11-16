@@ -42,6 +42,13 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
 
+### 🗓️ Prévia Diária
+- **Fluxo em três etapas** (`pages/previa_totale.py`): upload e cruzamento (ANIEL × TOA × Consultivo), dados operacionais por base (equipe, Rota Inicial e metas) e apresentação executiva
+- **Regras em camada pura** (`services/previa_diaria.py`): classificação de O.S./quebra, métricas de produtividade, ND, GPON, migração, retorno WO e PME por contrato único, calendário sem domingos e projeções — testadas sem Streamlit
+- **Parados sem digitação manual**: o e-mail `.msg` é lido e preenche os parados por supervisor (`extract-msg` é opcional; sem ela o corpo é varrido por expressão regular)
+- **Histórico na planilha**: ao sincronizar, grava `Historico_OS`, `Historico_Consultivo`, `Config_Equipe`, `Historico_Equipe` e `Previas_Diarias`, permitindo reabrir qualquer prévia anterior
+- **Apresentação fiel à diretoria**: tabela de 33 colunas com totais ponderados e detalhamento por base/supervisor, além do download da ANIEL tratada
+
 ### 🎛️ Design System & Desempenho (v3.6.0)
 
 Versão atual: **3.6.0** — veja [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) para o guia de uso dos componentes.
@@ -304,6 +311,7 @@ painel-totale/
 │   ├── planilhas.py              # Leitura de uploads/bytes e exportação Excel/CSV padronizada
 │   ├── hierarquia.py             # Hierarquia LOGIN → TÉCNICO/MONITOR/BASE com cache
 │   ├── dados_sessao.py           # Chaves e leitores da base carregada na sessão
+│   ├── previa_diaria.py          # Regras da Prévia Diária (consultivo, métricas, MSG e projeções)
 │   ├── cache_dados.py            # Cache em disco, pool HTTP e retry
 │   └── google_drive_client.py    # Clientes Google Drive/Sheets (CSV, gviz, download)
 ├── pages/                        # Somente páginas ativas do mapa de navegação

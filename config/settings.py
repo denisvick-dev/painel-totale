@@ -31,6 +31,8 @@ _DEFAULT_SHEET_ID_ATIVOS = "1LQKDcLshC6XSXLBVWaEYSpxrro6uydyU9pwDLc38pEg"
 _DEFAULT_SHEET_ID_PROD = "11Dp9WdZYUrT_LBvfo07Mi8muKXZykU7v"
 _DEFAULT_DRIVE_ID_CONS = "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
 _DEFAULT_DRIVE_ID_INDICADORES = "1k6NrvdZzdSV_sGOQkMKIssEhh7p7wyO0"
+# Planilha operacional da Prévia Diária (histórico, equipe e prévias arquivadas).
+_DEFAULT_SHEET_ID_PREVIA = "1bF7cQaoEkj-UuKCGmJ4PThoy-CdSPlVg8i3XEB6cu58"
 
 
 def obter_secret(chave: str, default: str = "") -> str:
@@ -110,6 +112,11 @@ def obter_drive_id_indicadores() -> str:
     return obter_secret("DRIVE_FILE_ID", _DEFAULT_DRIVE_ID_INDICADORES)
 
 
+def obter_sheet_id_previa() -> str:
+    """ID da planilha da Prévia Diária (``SHEET_ID_PREVIA`` em secrets/ambiente)."""
+    return obter_secret("SHEET_ID_PREVIA", _DEFAULT_SHEET_ID_PREVIA)
+
+
 def obter_versao_portal() -> str:
     """Versão publicada do portal (``TOTALE_VERSAO`` em secrets/ambiente)."""
     return obter_secret("TOTALE_VERSAO", VERSAO_PORTAL_PADRAO)
@@ -125,6 +132,7 @@ SHEET_ID_ATIVOS: str = obter_sheet_id_ativos()
 SHEET_ID_PROD: str = obter_sheet_id_prod()
 DRIVE_ID_CONS: str = obter_drive_id_cons()
 DRIVE_ID_INDICADORES: str = obter_drive_id_indicadores()
+SHEET_ID_PREVIA: str = obter_sheet_id_previa()
 
 SHEET_ABA_ATIVOS: str = "lista_ativos"
 SHEET_ABA_PROD: str = "Prod"
@@ -134,6 +142,7 @@ URL_ATIVOS_BASE: str = url_gsheets_base(SHEET_ID_ATIVOS)
 URL_ATIVOS_CSV: str = url_gsheets_export(SHEET_ID_ATIVOS, fmt="csv")
 URL_PROD_XLSX: str = url_gsheets_export(SHEET_ID_PROD, fmt="xlsx")
 URL_CONS_DOWNLOAD: str = url_drive_download(DRIVE_ID_CONS)
+URL_PREVIA_DIARIA: str = url_gsheets_edit(SHEET_ID_PREVIA)
 
 VERSAO_PORTAL: str = obter_versao_portal()
 AMBIENTE_PORTAL: str = obter_ambiente_portal()
@@ -166,12 +175,14 @@ __all__ = [
     "SHEET_ABA_PROD",
     "SHEET_ID_ATIVOS",
     "SHEET_ID_PROD",
+    "SHEET_ID_PREVIA",
     "TIMEOUT_HTTP_PADRAO",
     "URL_ATIVOS_BASE",
     "URL_ATIVOS_CSV",
     "URL_ATIVOS_EDIT",
     "URL_CONS_DOWNLOAD",
     "ICON_PATH_PORTAL",
+    "URL_PREVIA_DIARIA",
     "URL_PROD_XLSX",
     "VERSAO_PORTAL",
     "VERSAO_PORTAL_PADRAO",
@@ -181,6 +192,7 @@ __all__ = [
     "obter_drive_id_indicadores",
     "obter_secret",
     "obter_sheet_id_ativos",
+    "obter_sheet_id_previa",
     "obter_sheet_id_prod",
     "obter_versao_portal",
     "url_drive_download",
