@@ -51,7 +51,7 @@ from services.texto import escapar_html
 
 st.set_page_config(
     page_title="Prévia Diária | TOTALE",
-    page_icon="🗓️",
+    page_icon="📆",
     layout="wide",
 )
 
@@ -1534,7 +1534,7 @@ def main() -> None:
         valor_destaque=st.session_state.get("previa_data_ref") or "—",
         label_destaque="DATA DE REFERÊNCIA",
         badge="DIRETORIA",
-        icone="🗓️",
+        icone="📆",
     )
 
     passo = st.radio(

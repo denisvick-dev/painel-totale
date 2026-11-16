@@ -27,6 +27,28 @@ Este módulo entrega **uma** hierarquia para o portal inteiro:
   certas** e registra o motivo, em vez de derrubar a página;
 * :func:`hierarquia_da_sessao` guarda o resultado em ``st.session_state`` para
   todas as páginas do rerun compartilharem a mesma leitura.
+* :func:`normalizar_lista_ativos` / :func:`lista_ativos_da_sessao` entregam a
+  mesma lista **com a ``SITUAÇÃO``** de cada técnico (coluna que a hierarquia
+  de quatro colunas descarta) — é a fonte do painel de Absenteísmo;
+* :func:`resumir_absenteismo` / :func:`agrupar_absenteismo` concentram a regra
+  de negócio do absenteísmo derivado da ``lista_ativos`` (ver abaixo), para a
+  página não reimplementar classificação de situação.
+
+Regra do absenteísmo (retrato cadastral)
+----------------------------------------
+A ``lista_ativos`` é um **retrato atual** do quadro: não traz faltas, dias
+ausentes nem histórico. O absenteísmo do portal é, portanto, derivado da
+``Situação`` de cada registro, espelhando as listas oficiais de
+``pages/gestao_ativos.py`` (``SITS_ATIVAS``/``SITS_SAIDA``):
+
+* **quadro** — ``ATIVO``, ``FÉRIAS``, ``INOPERANTE``, ``ETN`` e ``AFASTADO``;
+* **presentes** — ``ATIVO``;
+* **ausentes** — ``FÉRIAS``, ``AFASTADO`` e ``INOPERANTE``;
+* **fora do quadro** — ``DESLIGADO`` e ``INATIVO`` (não entram nas taxas);
+* ``ETN`` conta no quadro, mas não é presente nem ausência (situação
+  operacional distinta), por isso aparece separada nos agrupamentos.
+
+Taxa de absenteísmo = ausentes ÷ quadro; disponibilidade = presentes ÷ quadro.
 """
 
 from __future__ import annotations
@@ -46,8 +68,38 @@ VERSAO_HIERARQUIA = "1.0.0"
 #: Chave da hierarquia compartilhada em ``st.session_state``.
 CHAVE_SESSAO_HIERARQUIA = "totale_hierarquia"
 
+#: Chave da lista de ativos completa (com ``SITUAÇÃO``) em ``st.session_state``.
+CHAVE_SESSAO_LISTA_ATIVOS = "totale_lista_ativos"
+
 #: Colunas canônicas devolvidas por :func:`normalizar_hierarquia`.
 COLUNAS_CANONICAS: tuple[str, ...] = ("LOGIN", "TÉCNICO", "MONITOR", "BASE")
+
+#: Colunas devolvidas por :func:`normalizar_lista_ativos` (hierarquia + situação).
+COLUNAS_LISTA_ATIVOS: tuple[str, ...] = (*COLUNAS_CANONICAS, "SITUAÇÃO")
+
+#: Aliases da situação cadastral na ``lista_ativos``.
+ALIASES_SITUACAO: tuple[str, ...] = (
+    "SITUAÇÃO",
+    "SITUACAO",
+    "STATUS",
+    "SITUAÇÃO ATUAL",
+    "SITUACAO ATUAL",
+)
+
+#: Rótulo usado quando a ``lista_ativos`` não informa a situação do técnico.
+SITUACAO_NAO_INFORMADA = "NÃO INFORMADO"
+
+#: Situações de quem está no quadro ativo (espelha ``SITS_ATIVAS`` da Gestão de Ativos).
+SITUACOES_QUADRO: tuple[str, ...] = ("ATIVO", "FÉRIAS", "INOPERANTE", "ETN", "AFASTADO")
+
+#: Situação de quem está disponível para operar hoje.
+SITUACOES_PRESENTES: tuple[str, ...] = ("ATIVO",)
+
+#: Situações contadas como ausência no retrato cadastral.
+SITUACOES_AUSENCIAS: tuple[str, ...] = ("FÉRIAS", "AFASTADO", "INOPERANTE")
+
+#: Situações de saída: fora do quadro, fora das taxas (espelha ``SITS_SAIDA``).
+SITUACOES_SAIDA: tuple[str, ...] = ("DESLIGADO", "INATIVO")
 
 #: Aliases oficiais de cada campo nas planilhas do portal.
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -107,13 +159,29 @@ def _limpar_nome(valor: Any) -> str:
 
 __all__ = [
     "ALIASES",
+    "ALIASES_SITUACAO",
     "CHAVE_SESSAO_HIERARQUIA",
+    "CHAVE_SESSAO_LISTA_ATIVOS",
     "COLUNAS_CANONICAS",
+    "COLUNAS_LISTA_ATIVOS",
+    "SITUACOES_AUSENCIAS",
+    "SITUACOES_PRESENTES",
+    "SITUACOES_QUADRO",
+    "SITUACOES_SAIDA",
+    "SITUACAO_NAO_INFORMADA",
     "VERSAO_HIERARQUIA",
+    "agrupar_absenteismo",
     "carregar_hierarquia",
+    "carregar_lista_ativos",
+    "classificar_situacao",
     "hierarquia_da_sessao",
     "hierarquia_vazia",
+    "lista_ativos_da_sessao",
+    "lista_ativos_vazia",
     "normalizar_hierarquia",
+    "normalizar_lista_ativos",
+    "normalizar_situacao",
+    "resumir_absenteismo",
 ]
 
 
@@ -160,6 +228,178 @@ def normalizar_hierarquia(bruto: pd.DataFrame | None) -> pd.DataFrame:
     return resultado.drop_duplicates(subset=["LOGIN"], keep="last").reset_index(drop=True)
 
 
+def normalizar_situacao(valor: Any) -> str:
+    """Situação cadastral comparável: caixa alta, sem espaços duplicados.
+
+    Valores vazios/ausentes viram :data:`SITUACAO_NAO_INFORMADA` — nunca
+    ``""``/``"NAN"``, para o agrupamento não criar uma categoria fantasma.
+    """
+    texto = _RE_ESPACOS.sub(" ", str(valor or "").strip()).upper()
+    return SITUACAO_NAO_INFORMADA if texto in VALORES_AUSENTES else texto
+
+
+def classificar_situacao(situacao: Any) -> str:
+    """Categoria de absenteísmo de uma situação da ``lista_ativos``.
+
+    Devolve ``"Presente"``, ``"Ausente"``, ``"Fora do quadro"``,
+    ``"No quadro (outra situação)"`` (ex.: ``ETN`` e situações novas ainda não
+    mapeadas) ou ``"Não informado"``.
+    """
+    texto = normalizar_situacao(situacao)
+    if texto == SITUACAO_NAO_INFORMADA:
+        return "Não informado"
+    if texto in SITUACOES_PRESENTES:
+        return "Presente"
+    if texto in SITUACOES_AUSENCIAS:
+        return "Ausente"
+    if texto in SITUACOES_SAIDA:
+        return "Fora do quadro"
+    return "No quadro (outra situação)"
+
+
+def lista_ativos_vazia() -> pd.DataFrame:
+    """DataFrame sem linhas, mas com as colunas da lista completa (com situação)."""
+    return pd.DataFrame({coluna: pd.Series(dtype="object") for coluna in COLUNAS_LISTA_ATIVOS})
+
+
+def normalizar_lista_ativos(bruto: pd.DataFrame | None) -> pd.DataFrame:
+    """``lista_ativos`` completa: hierarquia canônica + ``SITUAÇÃO`` normalizada.
+
+    Reaproveita :func:`normalizar_hierarquia` para as quatro colunas de
+    identidade (mesmos aliases, mesmo login, mesma deduplicação pela última
+    ocorrência) e anexa a situação da **mesma** linha vencedora — por isso a
+    deduplicação é refeita aqui sobre login + situação antes do recorte.
+    Sem coluna de login devolve :func:`lista_ativos_vazia`; sem coluna de
+    situação, todos ficam como :data:`SITUACAO_NAO_INFORMADA`.
+    """
+    if bruto is None or not isinstance(bruto, pd.DataFrame) or bruto.empty:
+        return lista_ativos_vazia()
+
+    base = bruto.copy()
+    base.columns = base.columns.astype(str).str.strip()
+    coluna_situacao = buscar_coluna(base, ALIASES_SITUACAO)
+
+    hierarquia = normalizar_hierarquia(base)
+    if hierarquia.empty:
+        return lista_ativos_vazia()
+    if coluna_situacao is None:
+        hierarquia["SITUAÇÃO"] = SITUACAO_NAO_INFORMADA
+        return hierarquia[list(COLUNAS_LISTA_ATIVOS)]
+
+    # Situação por login, resolvida pela última ocorrência (mesma regra da
+    # hierarquia): alinhar pelo índice pós-dedup perderia a linha vencedora.
+    coluna_login = buscar_coluna(base, ALIASES["LOGIN"])
+    if coluna_login is None:  # normalizar_hierarquia já garantiu que existe
+        hierarquia["SITUAÇÃO"] = SITUACAO_NAO_INFORMADA
+        return hierarquia[list(COLUNAS_LISTA_ATIVOS)]
+    mapa_situacao = (
+        pd.DataFrame(
+            {
+                "LOGIN": base[coluna_login].map(normalizar_login),
+                "SITUAÇÃO": base[coluna_situacao].map(normalizar_situacao),
+            }
+        )
+        .loc[lambda df: ~df["LOGIN"].isin(VALORES_AUSENTES)]
+        .drop_duplicates(subset=["LOGIN"], keep="last")
+    )
+    resultado = hierarquia.merge(mapa_situacao, on="LOGIN", how="left")
+    resultado["SITUAÇÃO"] = resultado["SITUAÇÃO"].fillna(SITUACAO_NAO_INFORMADA)
+    return resultado[list(COLUNAS_LISTA_ATIVOS)].reset_index(drop=True)
+
+
+def _situacoes_de(df: pd.DataFrame | None) -> pd.Series:
+    """Série de situações normalizadas (vazia quando a base não tem a coluna)."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or "SITUAÇÃO" not in df.columns:
+        return pd.Series(dtype="object")
+    return df["SITUAÇÃO"].map(normalizar_situacao)
+
+
+def resumir_absenteismo(df: pd.DataFrame | None) -> dict[str, Any]:
+    """Totais do retrato de absenteísmo de uma lista de ativos normalizada.
+
+    Espera o formato de :func:`normalizar_lista_ativos`. As taxas são frações
+    (``0.0``–``1.0``) sobre o **quadro**; fora do quadro e não informados ficam
+    fora do denominador, mas são devolvidos para auditoria do recorte.
+    """
+    situacoes = _situacoes_de(df)
+    total = int(len(situacoes))
+    quadro = int(situacoes.isin(SITUACOES_QUADRO).sum())
+    presentes = int(situacoes.isin(SITUACOES_PRESENTES).sum())
+    ausentes = int(situacoes.isin(SITUACOES_AUSENCIAS).sum())
+    fora_do_quadro = int(situacoes.isin(SITUACOES_SAIDA).sum())
+    return {
+        "total": total,
+        "quadro": quadro,
+        "presentes": presentes,
+        "ausentes": ausentes,
+        "ferias": int((situacoes == "FÉRIAS").sum()),
+        "afastados": int((situacoes == "AFASTADO").sum()),
+        "inoperantes": int((situacoes == "INOPERANTE").sum()),
+        "outras_no_quadro": quadro - presentes - ausentes,
+        "fora_do_quadro": fora_do_quadro,
+        "nao_informados": total - quadro - fora_do_quadro,
+        "taxa_absenteismo": (ausentes / quadro) if quadro else 0.0,
+        "taxa_disponibilidade": (presentes / quadro) if quadro else 0.0,
+    }
+
+
+def agrupar_absenteismo(df: pd.DataFrame | None, coluna: str) -> pd.DataFrame:
+    """Absenteísmo por ``BASE``/``MONITOR``/``SITUAÇÃO`` (uma linha por grupo).
+
+    Devolve contagens por categoria e as taxas em percentual (``0``–``100``),
+    ordenado pela taxa de absenteísmo (maior primeiro). Grupos vazios viram
+    ``"Não informado"`` para não sumirem do ranking.
+    """
+    colunas = [
+        coluna,
+        "Quadro",
+        "Presentes",
+        "Ausentes",
+        "Outras no quadro",
+        "Fora do quadro",
+        "Taxa de Absenteísmo (%)",
+        "Disponibilidade (%)",
+    ]
+    if (
+        df is None
+        or not isinstance(df, pd.DataFrame)
+        or df.empty
+        or coluna not in df.columns
+        or "SITUAÇÃO" not in df.columns
+    ):
+        return pd.DataFrame(columns=colunas)
+
+    dados = df.copy()
+    dados[coluna] = dados[coluna].map(_limpar_nome).replace("", "Não informado")
+    dados["_situacao"] = dados["SITUAÇÃO"].map(normalizar_situacao)
+    dados["_quadro"] = dados["_situacao"].isin(SITUACOES_QUADRO).astype(int)
+    dados["_presentes"] = dados["_situacao"].isin(SITUACOES_PRESENTES).astype(int)
+    dados["_ausentes"] = dados["_situacao"].isin(SITUACOES_AUSENCIAS).astype(int)
+    dados["_fora"] = dados["_situacao"].isin(SITUACOES_SAIDA).astype(int)
+
+    agrupado = (
+        dados.groupby(coluna, as_index=False)
+        .agg(
+            Quadro=("_quadro", "sum"),
+            Presentes=("_presentes", "sum"),
+            Ausentes=("_ausentes", "sum"),
+            **{"Fora do quadro": ("_fora", "sum")},
+        )
+        .assign(**{"Outras no quadro": lambda d: d["Quadro"] - d["Presentes"] - d["Ausentes"]})
+    )
+    denominador = agrupado["Quadro"].replace(0, pd.NA)
+    agrupado["Taxa de Absenteísmo (%)"] = (agrupado["Ausentes"] / denominador * 100).fillna(0.0)
+    agrupado["Disponibilidade (%)"] = (agrupado["Presentes"] / denominador * 100).fillna(0.0)
+    return (
+        agrupado[colunas]
+        .sort_values(
+            ["Taxa de Absenteísmo (%)", "Ausentes", "Quadro"],
+            ascending=[False, False, False],
+        )
+        .reset_index(drop=True)
+    )
+
+
 def _ler_via_conexao_streamlit(sheet_id: str, aba: str | None) -> pd.DataFrame:
     """Caminho de contingência: ``st.connection('gsheets')`` (precisa de secrets)."""
     try:
@@ -181,6 +421,38 @@ def _ler_via_conexao_streamlit(sheet_id: str, aba: str | None) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _carregar_bruto_ativos(
+    sheet_id: str | None,
+    aba: str | None,
+    *,
+    ttl: int,
+    usar_cache: bool,
+) -> pd.DataFrame:
+    """Baixa a ``lista_ativos`` bruta (CSV do Sheets → ``GSheetsConnection``).
+
+    Compartilhado por :func:`carregar_hierarquia` e
+    :func:`carregar_lista_ativos`: a fonte e a degradação são as mesmas, só
+    muda a normalização aplicada depois.
+    """
+    from config.settings import obter_sheet_id_ativos
+    from services.google_drive_client import carregar_planilha_gsheets_csv
+
+    sid = str(sheet_id or obter_sheet_id_ativos() or "").strip()
+    if not sid:
+        logger.warning("Sheet de ativos não configurado; lista de ativos vazia.")
+        return pd.DataFrame()
+    try:
+        bruto = carregar_planilha_gsheets_csv(
+            sid, aba, usar_cache=usar_cache, ttl=ttl, usar_conexao_streamlit=False
+        )
+    except Exception:
+        logger.warning("Falha ao baixar a lista de ativos (%s).", sid, exc_info=True)
+        bruto = pd.DataFrame()
+    if bruto is None or bruto.empty:
+        bruto = _ler_via_conexao_streamlit(sid, aba)
+    return bruto if isinstance(bruto, pd.DataFrame) else pd.DataFrame()
+
+
 def carregar_hierarquia(
     sheet_id: str | None = None,
     aba: str | None = None,
@@ -196,26 +468,32 @@ def carregar_hierarquia(
     :func:`hierarquia_vazia` — o dashboard continua funcionando, apenas sem o
     enriquecimento cadastral.
     """
-    from config.settings import obter_sheet_id_ativos
-    from services.google_drive_client import carregar_planilha_gsheets_csv
-
-    sid = str(sheet_id or obter_sheet_id_ativos() or "").strip()
-    if not sid:
-        logger.warning("Sheet de ativos não configurado; hierarquia vazia.")
-        return hierarquia_vazia()
-    try:
-        bruto = carregar_planilha_gsheets_csv(
-            sid, aba, usar_cache=usar_cache, ttl=ttl, usar_conexao_streamlit=False
-        )
-    except Exception:
-        logger.warning("Falha ao baixar a lista de ativos (%s).", sid, exc_info=True)
-        bruto = pd.DataFrame()
-    if bruto is None or bruto.empty:
-        bruto = _ler_via_conexao_streamlit(sid, aba)
-    hierarquia = normalizar_hierarquia(bruto)
+    hierarquia = normalizar_hierarquia(
+        _carregar_bruto_ativos(sheet_id, aba, ttl=ttl, usar_cache=usar_cache)
+    )
     if hierarquia.empty:
-        logger.warning("Hierarquia de ativos vazia após normalização (sheet %s).", sid)
+        logger.warning("Hierarquia de ativos vazia após normalização.")
     return hierarquia
+
+
+def carregar_lista_ativos(
+    sheet_id: str | None = None,
+    aba: str | None = None,
+    *,
+    ttl: int = 300,
+    usar_cache: bool = True,
+) -> pd.DataFrame:
+    """``lista_ativos`` completa (hierarquia + ``SITUAÇÃO``), mesma fonte da hierarquia.
+
+    Sem fonte disponível devolve :func:`lista_ativos_vazia` — quem consome
+    (painel de Absenteísmo) mostra o estado vazio em vez de quebrar.
+    """
+    lista = normalizar_lista_ativos(
+        _carregar_bruto_ativos(sheet_id, aba, ttl=ttl, usar_cache=usar_cache)
+    )
+    if lista.empty:
+        logger.warning("Lista de ativos vazia após normalização.")
+    return lista
 
 
 def hierarquia_da_sessao(
@@ -236,4 +514,25 @@ def hierarquia_da_sessao(
     if forcar or not isinstance(atual, pd.DataFrame) or atual.empty:
         atual = carregar_hierarquia(sheet_id, aba, ttl=ttl)
         st.session_state[CHAVE_SESSAO_HIERARQUIA] = atual
+    return atual
+
+
+def lista_ativos_da_sessao(
+    sheet_id: str | None = None,
+    aba: str | None = None,
+    *,
+    ttl: int = 300,
+    forcar: bool = False,
+) -> pd.DataFrame:
+    """Lista de ativos completa compartilhada via ``st.session_state``.
+
+    Chave própria (:data:`CHAVE_SESSAO_LISTA_ATIVOS`): a hierarquia de quatro
+    colunas continua servindo os demais painéis sem carregar a situação.
+    """
+    import streamlit as st
+
+    atual = st.session_state.get(CHAVE_SESSAO_LISTA_ATIVOS)
+    if forcar or not isinstance(atual, pd.DataFrame) or atual.empty:
+        atual = carregar_lista_ativos(sheet_id, aba, ttl=ttl)
+        st.session_state[CHAVE_SESSAO_LISTA_ATIVOS] = atual
     return atual

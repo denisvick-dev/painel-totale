@@ -170,9 +170,16 @@ PAGINAS: tuple[PaginaPortal, ...] = (
     PaginaPortal(
         arquivo="previa_totale.py",
         titulo="Prévia Diária",
-        icone="🗓️",
+        icone="📆",
         grupo=GRUPO_PERFORMANCE,
         descricao="Fechamento do dia para a diretoria: O.S., consultivo, quebras e equipe.",
+    ),
+    PaginaPortal(
+        arquivo="absenteismo.py",
+        titulo="Absenteísmo",
+        icone="🗓️",
+        grupo=GRUPO_PERFORMANCE,
+        descricao="Controle de faltas, folgas, férias e afastamentos do quadro.",
     ),
     # ── Rotas & Campo ────────────────────────────────────────────────────
     PaginaPortal(
@@ -255,6 +262,7 @@ DASHBOARDS_PADRONIZADOS: tuple[str, ...] = (
     "consultivo.py",
     "dashboard_meta.py",
     "indicadores.py",
+    "absenteismo.py",
     "rota_inicial.py",
     "rota_geral.py",
     "volumetria.py",
