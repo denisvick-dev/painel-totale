@@ -168,6 +168,13 @@ PAGINAS: tuple[PaginaPortal, ...] = (
         descricao="Painel consolidado de indicadores por período, base e categoria.",
     ),
     PaginaPortal(
+        arquivo="previa_totale.py",
+        titulo="Prévia Diária",
+        icone="📆",
+        grupo=GRUPO_PERFORMANCE,
+        descricao="Fechamento do dia para a diretoria: O.S., consultivo, quebras e equipe.",
+    ),
+    PaginaPortal(
         arquivo="absenteismo.py",
         titulo="Absenteísmo",
         icone="🗓️",

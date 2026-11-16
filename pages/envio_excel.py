@@ -109,11 +109,7 @@ def _kpi_row_fb(specs: object, **_k: object) -> None:
 
 
 def _tabela_fb(df: object, **_k: object) -> None:
-    try:
-        st.dataframe(df, width="stretch")
-    except TypeError:
-        # Streamlit < 1.38 não aceita width="stretch"
-        st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width="stretch")
 
 
 def _hero_fb(**k: object) -> None:
@@ -1285,10 +1281,7 @@ def _painel_saida_robo_local() -> None:
         return
 
     st.success(f"Dados carregados via {fonte}")
-    try:
-        st.dataframe(dados.head(), width="stretch")
-    except TypeError:
-        st.dataframe(dados.head(), use_container_width=True)
+    st.dataframe(dados.head(), width="stretch")
 
 
 def _rodar() -> None:
