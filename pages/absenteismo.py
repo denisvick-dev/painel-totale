@@ -3,9 +3,12 @@ absenteismo.py
 ==============
 Controle de Absenteísmo — Portal TOTALE.
 
-É o **controle de ausências** do quadro: faltas, folgas, férias, atestados,
-afastamentos, licenças, suspensões e treinamentos, com data de início/fim e
-contagem em **dias corridos** e **dias úteis** (seg–sex).
+É o **controle de ausências** do quadro no formato da planilha operacional:
+uma grade com **RE, Login, Técnico, Monitor, Base, U.N.** e **uma coluna por
+dia do mês** (``1/nov.``, ``2/nov.``…). Cada célula recebe o código do tipo
+(``F``, ``FE``, ``AT``…) e a linha em branco significa presença. Abaixo do
+mapa continuam as análises e os lançamentos por período, com contagem em
+**dias corridos** e **dias úteis** (seg–sex).
 
 Fontes (camada compartilhada, nenhuma leitura própria nesta página):
 
@@ -15,7 +18,9 @@ Fontes (camada compartilhada, nenhuma leitura própria nesta página):
 * **os registros de ausência** — aba ``controle_absenteismo`` da mesma
   planilha, via :mod:`services.absenteismo` (leitura compartilhada; gravação
   com ``gspread``/conta de serviço, o mesmo padrão da Gestão de Ativos; a aba
-  é criada com o cabeçalho oficial no primeiro lançamento).
+  é criada com o cabeçalho oficial no primeiro lançamento). A leitura aceita
+  dois formatos: registros (oficial) ou a própria **grade mensal** — nesse
+  caso a aba é somente leitura, para a gravação não apagar as colunas de dias.
 
 Regras do controle (detalhes em :mod:`services.absenteismo`):
 
@@ -26,12 +31,13 @@ Regras do controle (detalhes em :mod:`services.absenteismo`):
   como salvo na planilha.
 
 A página segue o padrão do portal (``components.dashboards`` +
-``components.layout_pagina``): hero → chips → sumário → indicadores →
-lançamento → análises → registros → exportação → rodapé.
+``components.layout_pagina``): hero → chips → sumário → **mapa mensal** →
+indicadores → lançamento → análises → registros → exportação → rodapé.
 """
 
 from __future__ import annotations
 
+import io
 import logging
 import uuid
 from datetime import date, datetime, timedelta
@@ -53,7 +59,10 @@ from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
 from config.settings import SHEET_ABA_ABSENTEISMO, SHEET_ABA_ATIVOS
 from services.absenteismo import (
+    ABREVIACOES_AUSENCIA,
+    DIAS_SEMANA_ABREVIADOS,
     JUSTIFICATIVAS,
+    MESES_ABREVIADOS,
     STATUS_ATIVO,
     STATUS_CANCELADO,
     TIPOS_AUSENCIA,
@@ -62,7 +71,9 @@ from services.absenteismo import (
     fase_do_registro,
     filtrar_registros_periodo,
     gravar_registros,
+    montar_matriz_ausencias,
     normalizar_registros,
+    origem_grade_da_sessao,
     registrar_ausencia,
     registros_da_sessao,
     resumir_controle,
@@ -70,12 +81,13 @@ from services.absenteismo import (
 )
 from services.dados_sessao import resumir_carga, ultima_atualizacao
 from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
-from services.texto import formatar_inteiro, formatar_percentual
+from services.texto import escapar_html, formatar_inteiro, formatar_percentual
 
 logger = logging.getLogger(__name__)
 
 #: Seções ancoradas do sumário (mesmos títulos usados em ``secao()``).
 SECOES_PAGINA: tuple[str, ...] = (
+    "Mapa Mensal de Ausências",
     "Indicadores do Período",
     "Registrar Ausência",
     "Ausências por Tipo",
@@ -131,6 +143,9 @@ def _carregar_registros() -> tuple[pd.DataFrame, int]:
 
 def _persistir(registros: pd.DataFrame) -> bool:
     """Grava a aba inteira; em sucesso, limpa pendências e relê da planilha."""
+    if origem_grade:
+        logger.warning("Gravação bloqueada: controle no formato de grade mensal.")
+        return False
     ok, motivo = gravar_registros(registros)
     if ok:
         st.session_state.pop(CHAVE_PENDENTES, None)
@@ -149,6 +164,7 @@ def _primeiro_e_ultimo_dia_mes(hoje: date) -> tuple[date, date]:
 
 lista_ativos = lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600)
 registros, qtd_pendentes = _carregar_registros()
+origem_grade = origem_grade_da_sessao()
 hoje = date.today()
 mes_inicio, mes_fim = _primeiro_e_ultimo_dia_mes(hoje)
 
@@ -201,18 +217,22 @@ with st.sidebar:
     periodo_fim = st.date_input("Fim do período", value=mes_fim, key="absenteismo_periodo_fim")
     if periodo_fim < periodo_inicio:
         periodo_inicio, periodo_fim = periodo_fim, periodo_inicio
+    bases_disponiveis = sorted(
+        set(registros["Base"].replace("", "Não informado"))
+        | set(quadro_df["BASE"].replace("", "Não informado"))
+    )
+    monitores_disponiveis = sorted(
+        set(registros["Monitor"].replace("", "Não informado"))
+        | set(quadro_df["MONITOR"].replace("", "Não informado"))
+    )
     bases_sel = st.multiselect(
         "Base",
-        sorted(registros["Base"].replace("", "Não informado").unique())
-        if not registros.empty
-        else [],
+        bases_disponiveis,
         key="absenteismo_filtro_base",
     )
     monitores_sel = st.multiselect(
         "Monitor",
-        sorted(registros["Monitor"].replace("", "Não informado").unique())
-        if not registros.empty
-        else [],
+        monitores_disponiveis,
         key="absenteismo_filtro_monitor",
     )
     tipos_sel = st.multiselect("Tipo de ausência", list(TIPOS_AUSENCIA), key="absenteismo_filtro_tipo")
@@ -272,26 +292,359 @@ taxa_periodo = (
 )
 
 
+def _cadastro_por_login(coluna: str) -> dict[str, str]:
+    """Coluna de cadastro (RE/U.N.) do quadro indexada pelo login."""
+    if quadro_df.empty or coluna not in quadro_df.columns:
+        return {}
+    return dict(zip(quadro_df["LOGIN"], quadro_df[coluna].fillna("").astype(str)))
+
+
+CADASTRO_RE = _cadastro_por_login("RE")
+CADASTRO_UN = _cadastro_por_login("U.N.")
+
+
 def _tabela_exibicao(df: pd.DataFrame) -> pd.DataFrame:
-    """Registros para leitura/exportação (datas BR, fase calculada, sem auxiliares)."""
+    """Registros para leitura/exportação (identidade + datas BR + fase)."""
+    colunas = [
+        "RE", "Login", "Técnico", "Monitor", "Base", "U.N.", "Tipo", "Início", "Fim",
+        "Dias Corridos", "Dias Úteis", "Justificativa", "Motivo", "Fase",
+        "Status", "Registrado em",
+    ]
     if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "Login", "Técnico", "Monitor", "Base", "Tipo", "Início", "Fim",
-                "Dias Corridos", "Dias Úteis", "Justificativa", "Motivo", "Fase",
-                "Status", "Registrado em",
-            ]
-        )
+        return pd.DataFrame(columns=colunas)
     tabela = df.copy()
     tabela["Início"] = tabela["_inicio"].dt.strftime("%d/%m/%Y")
     tabela["Fim"] = tabela["_fim"].dt.strftime("%d/%m/%Y")
     tabela["Fase"] = [fase_do_registro(linha, hoje) for linha in tabela.to_dict("records")]
-    colunas = [
-        "Login", "Técnico", "Monitor", "Base", "Tipo", "Início", "Fim",
-        "Dias Corridos", "Dias Úteis", "Justificativa", "Motivo", "Fase",
-        "Status", "Registrado em",
-    ]
+    tabela["RE"] = tabela["Login"].map(CADASTRO_RE).fillna("")
+    tabela["U.N."] = tabela["Login"].map(CADASTRO_UN).fillna("")
     return tabela[colunas].sort_values(["Início", "Técnico"]).reset_index(drop=True)
+
+
+# ============================================================
+# MAPA MENSAL (TÉCNICO × DIA) — MESMO FORMATO DA PLANILHA
+# ============================================================
+#: Cores de cada código na célula (fundo, texto) — legenda abaixo do mapa.
+_CORES_MAPA: dict[str, tuple[str, str]] = {
+    "F": ("#FEE2E2", "#991B1B"),
+    "FO": ("#DBEAFE", "#1E40AF"),
+    "FE": ("#FEF3C7", "#92400E"),
+    "AT": ("#EDE9FE", "#5B21B6"),
+    "AF": ("#E5E7EB", "#374151"),
+    "LI": ("#CCFBF1", "#115E59"),
+    "SU": ("#FCE7F3", "#9D174D"),
+    "TR": ("#DCFCE7", "#166534"),
+    "OUT": ("#F1F5F9", "#334155"),
+}
+
+
+def _injetar_css_mapa() -> None:
+    """CSS local do mapa mensal (tabela densa com cabeçalho/colunas fixas)."""
+    st.markdown(
+        """
+        <style>
+        .abs-mapa-wrap {
+            background: #fff; color-scheme: light; border: 1px solid #E6EDF5;
+            border-radius: 14px; box-shadow: 0 8px 24px rgba(15,23,42,0.04);
+            overflow: hidden; margin: 8px 0 10px;
+        }
+        .abs-mapa-scroll { max-height: 620px; overflow: auto; scrollbar-width: thin; }
+        .abs-mapa {
+            border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 11px;
+        }
+        .abs-mapa th, .abs-mapa td {
+            border-right: 1px solid #EDF2F7; border-bottom: 1px solid #EDF2F7;
+            padding: 4px 6px; text-align: center; white-space: nowrap; background: #fff;
+        }
+        .abs-mapa thead th {
+            position: sticky; top: 0; z-index: 3; background: #F8FAFC; color: #012869;
+            font-weight: 800; font-size: 10px; letter-spacing: .02em; line-height: 1.15;
+            border-bottom: 1px solid #D8E2EE;
+        }
+        .abs-mapa thead th span {
+            display: block; font-size: 8.5px; font-weight: 700; color: #94A3B8;
+            text-transform: uppercase; margin-top: 1px;
+        }
+        .abs-mapa td { height: 27px; color: #1E293B; }
+        .abs-mapa td.abs-cel { width: 30px; min-width: 30px; padding: 2px; font-size: 10px; font-weight: 800; }
+        .abs-mapa td.abs-vazia { background: #fff; }
+        .abs-mapa th.abs-fds { background: #F1F5F9 !important; }
+        .abs-mapa td.abs-fds.abs-vazia { background: #F1F5F9 !important; }
+        .abs-mapa th.abs-hoje { box-shadow: inset 0 -3px 0 #F37C04; color: #9A3412; }
+        .abs-mapa td.abs-hoje { box-shadow: inset 0 0 0 1.5px #F37C04; }
+        .abs-mapa td.abs-nome, .abs-mapa th.abs-nome { text-align: left; }
+        .abs-mapa td.abs-nome {
+            text-transform: uppercase; font-size: 10.5px; font-weight: 700; color: #1E293B;
+            max-width: 210px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .abs-mapa td.abs-dim {
+            text-align: left; text-transform: uppercase; font-size: 9.5px; color: #475569;
+            max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+        }
+        .abs-mapa td.abs-re { font-weight: 800; color: #012869; font-variant-numeric: tabular-nums; }
+        .abs-mapa td.abs-login { color: #475569; font-variant-numeric: tabular-nums; }
+        .abs-mapa th.col-re, .abs-mapa td.col-re {
+            position: sticky; left: 0; z-index: 2; width: 56px; min-width: 56px; max-width: 56px;
+        }
+        .abs-mapa th.col-login, .abs-mapa td.col-login {
+            position: sticky; left: 56px; z-index: 2; width: 86px; min-width: 86px; max-width: 86px;
+        }
+        .abs-mapa th.col-tec, .abs-mapa td.col-tec {
+            position: sticky; left: 142px; z-index: 2; width: 210px; min-width: 210px;
+            max-width: 210px;
+        }
+        .abs-mapa td.col-tec { box-shadow: 2px 0 5px rgba(15,23,42,.06); }
+        .abs-mapa thead th.col-re, .abs-mapa thead th.col-login,
+        .abs-mapa thead th.col-tec { z-index: 5; }
+        .abs-mapa th.col-total, .abs-mapa td.col-total {
+            position: sticky; right: 0; z-index: 2; width: 50px; min-width: 50px;
+            background: #FFF7ED; color: #9A3412; font-weight: 900;
+        }
+        .abs-mapa thead th.col-total { z-index: 5; }
+        .abs-mapa tr.abs-nova-base td { border-top: 2px solid #CBD5E1; }
+        .abs-mapa tfoot td {
+            position: sticky; bottom: 0; z-index: 2; background: #F8FAFC;
+            color: #012869; font-weight: 800; font-size: 10px;
+        }
+        .abs-mapa tfoot td.abs-rodape-rotulo { text-align: left; letter-spacing: .03em; }
+        .abs-legenda { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 4px 0 10px; }
+        .abs-legenda-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #475569; }
+        .abs-legenda-codigo {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 26px; height: 19px; padding: 0 4px; border-radius: 5px;
+            font-size: 9.5px; font-weight: 800;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _rotulo_dia(dia: date) -> str:
+    """Cabeçalho da coluna como na planilha: ``1/nov.``."""
+    return f"{dia.day}/{MESES_ABREVIADOS[dia.month - 1]}"
+
+
+def _truncar_mapa(valor: object, limite: int) -> str:
+    """Texto curto para a célula (o valor completo fica no ``title``)."""
+    texto = str(valor or "").strip()
+    return texto if len(texto) <= limite else f"{texto[: limite - 1]}…"
+
+
+def _colunas_dia_mapa(matriz: pd.DataFrame) -> list[date]:
+    """Colunas de dia da matriz (objetos ``date``), na ordem do DataFrame."""
+    dias: list[date] = []
+    for coluna in matriz.columns:
+        if isinstance(coluna, (date, datetime, pd.Timestamp)):
+            dias.append(pd.Timestamp(coluna).date())
+    return dias
+
+
+def _celula_mapa(valor: object) -> str:
+    """``<td>`` de um dia: vazia (presente) ou com o código e a cor do tipo."""
+    codigo = str(valor or "").strip()
+    if not codigo:
+        return '<td class="abs-cel abs-vazia"></td>'
+    primeiro = codigo.split("/")[0].strip().upper()
+    fundo, cor = _CORES_MAPA.get(primeiro, _CORES_MAPA["OUT"])
+    titulo = escapar_html(codigo, aspas=True)
+    return (
+        f'<td class="abs-cel" style="background:{fundo};color:{cor}" title="{titulo}">'
+        f"{escapar_html(codigo)}</td>"
+    )
+
+
+def _mapa_para_excel(matriz: pd.DataFrame) -> bytes:
+    """Matriz com os dias no cabeçalho da planilha (``1/nov.``) em xlsx."""
+    exportar = matriz.copy()
+    exportar = exportar.rename(
+        columns={dia: _rotulo_dia(dia) for dia in _colunas_dia_mapa(matriz)}
+    )
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        exportar.to_excel(writer, index=False, sheet_name="Mapa")
+    return buffer.getvalue()
+
+
+def _render_mapa_mensal(
+    matriz: pd.DataFrame, inicio: date, fim: date, origem_grade: bool
+) -> None:
+    """Renderiza a grade mensal com legenda, totais e download do xlsx."""
+    dias = _colunas_dia_mapa(matriz)
+    _injetar_css_mapa()
+
+    if origem_grade:
+        st.caption(
+            "Fonte: aba `controle_absenteismo` no formato de grade mensal — "
+            "alterações são feitas direto na planilha (o painel não regrava essa aba)."
+        )
+    st.caption(
+        f"Período do mapa: **{_rotulo_dia(inicio)} a {_rotulo_dia(fim)}** "
+        f"({len(dias)} dias) · usa o mês do início do período · "
+        "célula vazia = **sem ausência no recorte** · "
+        "passe o mouse na célula para ver o tipo completo."
+    )
+
+    ths = [
+        '<th class="col-re" scope="col">RE</th>',
+        '<th class="col-login" scope="col">Login</th>',
+        '<th class="col-tec abs-nome" scope="col">Técnico</th>',
+        '<th class="abs-nome" scope="col">Monitor</th>',
+        '<th class="abs-nome" scope="col">Base</th>',
+        '<th class="abs-nome" scope="col">U.N.</th>',
+    ]
+    hoje = date.today()
+    for dia in dias:
+        classes = ["abs-dia"]
+        if dia.weekday() >= 5:
+            classes.append("abs-fds")
+        if dia == hoje:
+            classes.append("abs-hoje")
+        ths.append(
+            f'<th class="{" ".join(classes)}" scope="col" '
+            f'title="{DIAS_SEMANA_ABREVIADOS[dia.weekday()]}">{_rotulo_dia(dia)}'
+            f"<span>{DIAS_SEMANA_ABREVIADOS[dia.weekday()]}</span></th>"
+        )
+    ths.append('<th class="col-total" scope="col">Dias</th>')
+
+    linhas_html: list[str] = []
+    base_anterior = ""
+    for _, pessoa in matriz.iterrows():
+        base_atual = str(pessoa.get("Base", ""))
+        nova_base = bool(base_anterior) and base_atual != base_anterior
+        base_anterior = base_atual
+        tds = [
+            f'<td class="col-re abs-re">{escapar_html(pessoa.get("RE", ""))}</td>',
+            f'<td class="col-login abs-login">{escapar_html(pessoa.get("Login", ""))}</td>',
+            f'<td class="col-tec abs-nome" title="{escapar_html(pessoa.get("Técnico", ""), aspas=True)}">'
+            f'{escapar_html(_truncar_mapa(pessoa.get("Técnico", ""), 30))}</td>',
+            f'<td class="abs-dim" title="{escapar_html(pessoa.get("Monitor", ""), aspas=True)}">'
+            f'{escapar_html(_truncar_mapa(pessoa.get("Monitor", ""), 22))}</td>',
+            f'<td class="abs-dim" title="{escapar_html(pessoa.get("Base", ""), aspas=True)}">'
+            f'{escapar_html(_truncar_mapa(pessoa.get("Base", ""), 16))}</td>',
+            f'<td class="abs-dim" title="{escapar_html(pessoa.get("U.N.", ""), aspas=True)}">'
+            f'{escapar_html(_truncar_mapa(pessoa.get("U.N.", ""), 14))}</td>',
+        ]
+        for dia in dias:
+            classe_extra = ""
+            if dia.weekday() >= 5:
+                classe_extra = " abs-fds"
+            if dia == hoje:
+                classe_extra += " abs-hoje"
+            celula = _celula_mapa(pessoa.get(dia, ""))
+            if classe_extra:
+                celula = celula.replace('class="abs-cel', f'class="abs-cel{classe_extra}', 1)
+            tds.append(celula)
+        total_bruto = pessoa.get("Total", 0)
+        total = 0 if pd.isna(total_bruto) else int(total_bruto)
+        tds.append(f'<td class="col-total">{total if total else ""}</td>')
+        linhas_html.append(
+            f'<tr class="abs-nova-base">{"".join(tds)}</tr>'
+            if nova_base
+            else f"<tr>{''.join(tds)}</tr>"
+        )
+
+    totais_dia = [
+        int((matriz[dia].fillna("").astype(str).str.strip() != "").sum())
+        if dia in matriz
+        else 0
+        for dia in dias
+    ]
+    total_geral = sum(totais_dia)
+    rodape = (
+        '<tr><td class="abs-rodape-rotulo" colspan="6">TOTAL DE AUSÊNCIAS '
+        "(técnicos/dia)</td>"
+        + "".join(f"<td>{valor if valor else ''}</td>" for valor in totais_dia)
+        + f'<td class="col-total">{total_geral if total_geral else ""}</td></tr>'
+    )
+
+    st.markdown(
+        '<div class="abs-mapa-wrap"><div class="abs-mapa-scroll">'
+        '<table class="abs-mapa"><thead><tr>'
+        + "".join(ths)
+        + "</tr></thead><tbody>"
+        + "".join(linhas_html)
+        + "</tbody><tfoot>"
+        + rodape
+        + "</tfoot></table></div></div>",
+        unsafe_allow_html=True,
+    )
+
+    st.caption(
+        "Para editar, altere a grade direto na planilha."
+        if origem_grade
+        else "Para lançar uma ausência, use **Registrar Ausência** abaixo — o mapa atualiza na hora."
+    )
+
+    legenda = "".join(
+        f'<span class="abs-legenda-item">'
+        f'<span class="abs-legenda-codigo" style="background:{_CORES_MAPA.get(codigo, _CORES_MAPA["OUT"])[0]};'
+        f'color:{_CORES_MAPA.get(codigo, _CORES_MAPA["OUT"])[1]}">{codigo}</span>'
+        f"{escapar_html(tipo)}</span>"
+        for tipo, codigo in ABREVIACOES_AUSENCIA.items()
+    )
+    st.markdown(f'<div class="abs-legenda">{legenda}</div>', unsafe_allow_html=True)
+
+    coluna_download, _ = st.columns([1, 3])
+    with coluna_download:
+        st.download_button(
+            "⬇️ Baixar mapa em Excel",
+            data=_mapa_para_excel(matriz),
+            file_name=f"mapa_absenteismo_{inicio:%Y_%m}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="absenteismo_mapa_download",
+            width="stretch",
+            help="Baixa a grade exatamente como está na tela (códigos por dia).",
+        )
+
+
+# Quadro do mapa: mesmo recorte de base/monitor/busca da página.
+quadro_mapa = quadro_df.copy()
+if bases_sel:
+    quadro_mapa = quadro_mapa[
+        quadro_mapa["BASE"].replace("", "Não informado").isin(bases_sel)
+    ]
+if monitores_sel:
+    quadro_mapa = quadro_mapa[
+        quadro_mapa["MONITOR"].replace("", "Não informado").isin(monitores_sel)
+    ]
+if busca.strip():
+    _termo_mapa = busca.strip().casefold()
+    quadro_mapa = quadro_mapa[
+        (
+            quadro_mapa["TÉCNICO"].str.casefold()
+            + " "
+            + quadro_mapa["LOGIN"].str.casefold()
+        ).str.contains(_termo_mapa, regex=False)
+    ]
+
+mapa_inicio = periodo_inicio.replace(day=1)
+mapa_fim = (mapa_inicio + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+matriz_mapa = montar_matriz_ausencias(
+    registros_recorte, quadro_mapa, inicio=mapa_inicio, fim=mapa_fim
+)
+
+with secao(
+    "Mapa Mensal de Ausências",
+    icone="calendar_view_month",
+    subtitulo=(
+        f"{mapa_inicio:%m/%Y} · uma coluna por dia, do mesmo jeito da planilha "
+        "de controle (RE, Login, Técnico, Monitor, Base, U.N.)."
+    ),
+    badge=f"{formatar_inteiro(len(matriz_mapa))} técnicos",
+):
+    if matriz_mapa.empty:
+        render_empty_state(
+            tipo="dados",
+            titulo="Nenhum técnico no recorte",
+            descricao=(
+                "A lista_ativos não está disponível e não há registros no período. "
+                "Ajuste os filtros ou atualize a planilha."
+            ),
+        )
+    else:
+        _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
 
 
 # ============================================================
@@ -350,11 +703,8 @@ with secao(
 # ============================================================
 # REGISTRAR AUSÊNCIA
 # ============================================================
-with secao(
-    "Registrar Ausência",
-    icone="edit_calendar",
-    subtitulo="O lançamento grava na aba controle_absenteismo da planilha da lista_ativos.",
-):
+def _render_formulario_ausencia() -> None:
+    """Formulário de lançamento (aba no formato de registros)."""
     opcoes_tecnicos: dict[str, pd.Series] = {}
     if not quadro_df.empty:
         ordenado = quadro_df.sort_values(["BASE", "MONITOR", "TÉCNICO"])
@@ -443,6 +793,25 @@ with secao(
                 )
             st.session_state["absenteismo_flash"] = mensagens
             st.rerun()
+
+
+with secao(
+    "Registrar Ausência",
+    icone="edit_calendar",
+    subtitulo="O lançamento grava na aba controle_absenteismo da planilha da lista_ativos.",
+):
+    if origem_grade:
+        render_insight(
+            "A aba `controle_absenteismo` está **no formato de grade mensal** "
+            "(uma coluna por dia). Para não apagar as colunas de dias, o painel "
+            "não regrava essa aba: registre ou ajuste a ausência direto na planilha. "
+            "O mapa acima já reflete o que está lá.",
+            tipo="info",
+            titulo="Controle em grade mensal (somente leitura)",
+        )
+    else:
+        _render_formulario_ausencia()
+
 
 # ============================================================
 # AUSÊNCIAS POR TIPO / CALENDÁRIO / RANKINGS
@@ -583,7 +952,12 @@ with secao(
         st.dataframe(_tabela_exibicao(exibidos), width="stretch", hide_index=True)
 
         ativos_exibidos = exibidos[exibidos["Status"] == STATUS_ATIVO]
-        if not ativos_exibidos.empty:
+        if origem_grade:
+            st.caption(
+                "Registros derivados da grade mensal: cancele/edite direto na "
+                "planilha para não perder as colunas de dias."
+            )
+        elif not ativos_exibidos.empty:
             rotulos_cancelar = {
                 f"{linha['Técnico']} · {linha['Tipo']} · {linha['_inicio']:%d/%m/%Y} a "
                 f"{linha['_fim']:%d/%m/%Y} (Login {linha['Login']})": str(linha["ID"])

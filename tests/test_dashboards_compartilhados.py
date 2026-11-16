@@ -246,6 +246,30 @@ def test_normalizar_lista_ativos_preserva_situacao_da_linha_vencedora() -> None:
     assert vencedor["SITUAÇÃO"] == "FÉRIAS"  # caixa normalizada
 
 
+def test_normalizar_lista_ativos_preserva_re_e_unidade() -> None:
+    """RE e U.N. acompanham a hierarquia (identidade da grade de absenteísmo)."""
+    bruto = pd.DataFrame(
+        {
+            "RE": [8368.0, 8496],
+            "Login": ["Z641759", "Z663524"],
+            "Técnico": ["Alex Bernardes da Silva", "Alex de Jesus Freire"],
+            "Monitor": ["Edson Marco Pinheiro", "Edson Marco Pinheiro"],
+            "U.N.": ["NET-ABCDM", "NET-ABCDM"],
+            "Base": ["ABCDM-TOTALE", "ABCDM-TOTALE"],
+            "Situação": ["ATIVO", "FÉRIAS"],
+        }
+    )
+    lista = normalizar_lista_ativos(bruto)
+
+    assert lista["RE"].tolist() == ["8368", "8496"]
+    assert lista["U.N."].tolist() == ["NET-ABCDM", "NET-ABCDM"]
+    assert list(lista.columns) == list(COLUNAS_LISTA_ATIVOS)
+
+    sem_cadastro = normalizar_lista_ativos(pd.DataFrame({"Login": ["1"], "Técnico": ["Ana"]}))
+    assert sem_cadastro.loc[0, "RE"] == ""
+    assert sem_cadastro.loc[0, "U.N."] == ""
+
+
 def test_normalizar_lista_ativos_sem_situacao_ou_login() -> None:
     sem_situacao = normalizar_lista_ativos(pd.DataFrame({"Login": ["1"], "Técnico": ["Ana"]}))
     assert sem_situacao["SITUAÇÃO"].tolist() == ["NÃO INFORMADO"]

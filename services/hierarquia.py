@@ -28,8 +28,9 @@ Este módulo entrega **uma** hierarquia para o portal inteiro:
 * :func:`hierarquia_da_sessao` guarda o resultado em ``st.session_state`` para
   todas as páginas do rerun compartilharem a mesma leitura.
 * :func:`normalizar_lista_ativos` / :func:`lista_ativos_da_sessao` entregam a
-  mesma lista **com a ``SITUAÇÃO``** de cada técnico (coluna que a hierarquia
-  de quatro colunas descarta) — é a fonte do painel de Absenteísmo;
+  mesma lista **com a ``SITUAÇÃO``, o ``RE`` e a ``U.N.``** de cada técnico
+  (colunas que a hierarquia de quatro colunas descarta) — é a fonte do painel
+  de Absenteísmo e da grade mensal (técnico × dia);
 * :func:`resumir_absenteismo` / :func:`agrupar_absenteismo` concentram a regra
   de negócio do absenteísmo derivado da ``lista_ativos`` (ver abaixo), para a
   página não reimplementar classificação de situação.
@@ -74,8 +75,21 @@ CHAVE_SESSAO_LISTA_ATIVOS = "totale_lista_ativos"
 #: Colunas canônicas devolvidas por :func:`normalizar_hierarquia`.
 COLUNAS_CANONICAS: tuple[str, ...] = ("LOGIN", "TÉCNICO", "MONITOR", "BASE")
 
-#: Colunas devolvidas por :func:`normalizar_lista_ativos` (hierarquia + situação).
-COLUNAS_LISTA_ATIVOS: tuple[str, ...] = (*COLUNAS_CANONICAS, "SITUAÇÃO")
+#: Colunas devolvidas por :func:`normalizar_lista_ativos` (hierarquia + cadastro).
+COLUNAS_LISTA_ATIVOS: tuple[str, ...] = (*COLUNAS_CANONICAS, "SITUAÇÃO", "RE", "U.N.")
+
+#: Aliases das colunas de cadastro que acompanham a hierarquia (RE e unidade).
+ALIASES_LISTA_EXTRAS: dict[str, tuple[str, ...]] = {
+    "RE": ("RE", "MATRÍCULA", "MATRICULA"),
+    "U.N.": (
+        "U.N.",
+        "UN",
+        "UNIDADE",
+        "UNIDADE DE NEGÓCIO",
+        "UNIDADE DE NEGOCIO",
+        "UNIDADE_NEGOCIO",
+    ),
+}
 
 #: Aliases da situação cadastral na ``lista_ativos``.
 ALIASES_SITUACAO: tuple[str, ...] = (
@@ -143,6 +157,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 _RE_ESPACOS = re.compile(r"\s+")
+_RE_DECIMAL_INTEIRO = re.compile(r"\d+\.0")
 
 
 def _limpar_nome(valor: Any) -> str:
@@ -157,8 +172,15 @@ def _limpar_nome(valor: Any) -> str:
     return _RE_ESPACOS.sub(" ", str(valor).strip())
 
 
+def _identificador(valor: Any) -> str:
+    """Código de cadastro (RE): texto sem o ``.0`` que o Sheets acrescenta."""
+    texto = _limpar_nome(valor)
+    return texto[:-2] if _RE_DECIMAL_INTEIRO.fullmatch(texto) else texto
+
+
 __all__ = [
     "ALIASES",
+    "ALIASES_LISTA_EXTRAS",
     "ALIASES_SITUACAO",
     "CHAVE_SESSAO_HIERARQUIA",
     "CHAVE_SESSAO_LISTA_ATIVOS",
@@ -263,14 +285,15 @@ def lista_ativos_vazia() -> pd.DataFrame:
 
 
 def normalizar_lista_ativos(bruto: pd.DataFrame | None) -> pd.DataFrame:
-    """``lista_ativos`` completa: hierarquia canônica + ``SITUAÇÃO`` normalizada.
+    """``lista_ativos`` completa: hierarquia canônica + cadastro (situação/RE/U.N.).
 
     Reaproveita :func:`normalizar_hierarquia` para as quatro colunas de
     identidade (mesmos aliases, mesmo login, mesma deduplicação pela última
-    ocorrência) e anexa a situação da **mesma** linha vencedora — por isso a
-    deduplicação é refeita aqui sobre login + situação antes do recorte.
+    ocorrência) e anexa situação, RE e U.N. da **mesma** linha vencedora — por
+    isso a deduplicação é refeita aqui sobre login + cadastro antes do recorte.
     Sem coluna de login devolve :func:`lista_ativos_vazia`; sem coluna de
-    situação, todos ficam como :data:`SITUACAO_NAO_INFORMADA`.
+    situação, todos ficam como :data:`SITUACAO_NAO_INFORMADA`; sem RE/U.N.,
+    as colunas existem vazias (o consumidor não quebra).
     """
     if bruto is None or not isinstance(bruto, pd.DataFrame) or bruto.empty:
         return lista_ativos_vazia()
@@ -282,28 +305,38 @@ def normalizar_lista_ativos(bruto: pd.DataFrame | None) -> pd.DataFrame:
     hierarquia = normalizar_hierarquia(base)
     if hierarquia.empty:
         return lista_ativos_vazia()
-    if coluna_situacao is None:
-        hierarquia["SITUAÇÃO"] = SITUACAO_NAO_INFORMADA
-        return hierarquia[list(COLUNAS_LISTA_ATIVOS)]
 
-    # Situação por login, resolvida pela última ocorrência (mesma regra da
+    # Cadastro por login, resolvido pela última ocorrência (mesma regra da
     # hierarquia): alinhar pelo índice pós-dedup perderia a linha vencedora.
     coluna_login = buscar_coluna(base, ALIASES["LOGIN"])
     if coluna_login is None:  # normalizar_hierarquia já garantiu que existe
         hierarquia["SITUAÇÃO"] = SITUACAO_NAO_INFORMADA
+        for coluna in ("RE", "U.N."):
+            hierarquia[coluna] = ""
         return hierarquia[list(COLUNAS_LISTA_ATIVOS)]
-    mapa_situacao = (
-        pd.DataFrame(
-            {
-                "LOGIN": base[coluna_login].map(normalizar_login),
-                "SITUAÇÃO": base[coluna_situacao].map(normalizar_situacao),
-            }
-        )
-        .loc[lambda df: ~df["LOGIN"].isin(VALORES_AUSENTES)]
+
+    mapa_cadastro = pd.DataFrame({"LOGIN": base[coluna_login].map(normalizar_login)})
+    mapa_cadastro["SITUAÇÃO"] = (
+        base[coluna_situacao].map(normalizar_situacao)
+        if coluna_situacao is not None
+        else SITUACAO_NAO_INFORMADA
+    )
+    for destino, aliases in ALIASES_LISTA_EXTRAS.items():
+        coluna = buscar_coluna(base, aliases)
+        if coluna is None:
+            mapa_cadastro[destino] = ""
+            continue
+        normalizador = _identificador if destino == "RE" else _limpar_nome
+        mapa_cadastro[destino] = base[coluna].map(normalizador)
+
+    mapa_cadastro = (
+        mapa_cadastro.loc[~mapa_cadastro["LOGIN"].isin(VALORES_AUSENTES)]
         .drop_duplicates(subset=["LOGIN"], keep="last")
     )
-    resultado = hierarquia.merge(mapa_situacao, on="LOGIN", how="left")
+    resultado = hierarquia.merge(mapa_cadastro, on="LOGIN", how="left")
     resultado["SITUAÇÃO"] = resultado["SITUAÇÃO"].fillna(SITUACAO_NAO_INFORMADA)
+    for coluna in ("RE", "U.N."):
+        resultado[coluna] = resultado[coluna].fillna("").astype(str)
     return resultado[list(COLUNAS_LISTA_ATIVOS)].reset_index(drop=True)
 
 
