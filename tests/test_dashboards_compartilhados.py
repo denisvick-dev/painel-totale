@@ -28,7 +28,17 @@ from services.dados_sessao import (
     obter_base,
     resumir_carga,
 )
-from services.hierarquia import COLUNAS_CANONICAS, hierarquia_vazia, normalizar_hierarquia
+from services.hierarquia import (
+    COLUNAS_CANONICAS,
+    COLUNAS_LISTA_ATIVOS,
+    agrupar_absenteismo,
+    classificar_situacao,
+    hierarquia_vazia,
+    lista_ativos_vazia,
+    normalizar_hierarquia,
+    normalizar_lista_ativos,
+    resumir_absenteismo,
+)
 from services.planilhas import (
     gerar_csv,
     gerar_excel,
@@ -202,6 +212,84 @@ def test_normalizar_hierarquia_remove_duplicados_pelo_ultimo() -> None:
     hierarquia = normalizar_hierarquia(bruto)
     assert len(hierarquia) == 1
     assert hierarquia.loc[0, "TÉCNICO"] == "Atual"
+
+
+def _lista_ativos_bruta() -> pd.DataFrame:
+    """Retrato mínimo da ``lista_ativos`` (RE/Login, Técnico, Monitor, Base, Situação)."""
+    return pd.DataFrame(
+        {
+            "RE": [1, 2, 3, 4, 5, 6, 2],
+            "Técnico": [
+                "ana souza",
+                "JOSÉ LIMA",
+                "Carlos",
+                "Duda",
+                "Eva",
+                "Fabio",
+                "José Lima Atualizado",
+            ],
+            "Monitor": ["Monitor A"] * 2 + ["Monitor B"] * 2 + ["Monitor A", "Monitor B", "Monitor A"],
+            "Base": ["SPO", "SPO", "Campinas", "Campinas", "SPO", "Campinas", "SPO"],
+            "Situação": ["ATIVO", "FÉRIAS", "AFASTADO", "INOPERANTE", "DESLIGADO", "ETN", "férias"],
+        }
+    )
+
+
+def test_normalizar_lista_ativos_preserva_situacao_da_linha_vencedora() -> None:
+    """A lista completa mantém a Situação — e a do último registro do login."""
+    lista = normalizar_lista_ativos(_lista_ativos_bruta())
+
+    assert list(lista.columns) == list(COLUNAS_LISTA_ATIVOS)
+    assert len(lista) == 6  # login 2 duplicado: vale a última ocorrência
+    vencedor = lista.loc[lista["LOGIN"] == "2"].iloc[0]
+    assert vencedor["TÉCNICO"] == "José Lima Atualizado"
+    assert vencedor["SITUAÇÃO"] == "FÉRIAS"  # caixa normalizada
+
+
+def test_normalizar_lista_ativos_sem_situacao_ou_login() -> None:
+    sem_situacao = normalizar_lista_ativos(pd.DataFrame({"Login": ["1"], "Técnico": ["Ana"]}))
+    assert sem_situacao["SITUAÇÃO"].tolist() == ["NÃO INFORMADO"]
+
+    assert normalizar_lista_ativos(pd.DataFrame({"X": [1]})).empty
+    assert list(lista_ativos_vazia().columns) == list(COLUNAS_LISTA_ATIVOS)
+    assert normalizar_lista_ativos(None).empty
+
+
+def test_resumir_absenteismo_deriva_taxas_da_situacao() -> None:
+    """Quadro = SITS_ATIVAS; ausentes = FÉRIAS/AFASTADO/INOPERANTE; saída fica fora."""
+    resumo = resumir_absenteismo(normalizar_lista_ativos(_lista_ativos_bruta()))
+
+    assert resumo["total"] == 6
+    assert resumo["quadro"] == 5  # ATIVO, FÉRIAS, AFASTADO, INOPERANTE, ETN
+    assert resumo["presentes"] == 1
+    assert resumo["ausentes"] == 3
+    assert (resumo["ferias"], resumo["afastados"], resumo["inoperantes"]) == (1, 1, 1)
+    assert resumo["outras_no_quadro"] == 1  # ETN: no quadro, nem presente nem ausente
+    assert resumo["fora_do_quadro"] == 1  # DESLIGADO
+    assert resumo["taxa_absenteismo"] == 3 / 5
+    assert resumo["taxa_disponibilidade"] == 1 / 5
+
+    vazio = resumir_absenteismo(lista_ativos_vazia())
+    assert vazio["quadro"] == 0
+    assert vazio["taxa_absenteismo"] == 0.0
+
+
+def test_agrupar_absenteismo_por_base_e_classificacao() -> None:
+    lista = normalizar_lista_ativos(_lista_ativos_bruta())
+    por_base = agrupar_absenteismo(lista, "BASE")
+
+    campinas = por_base.loc[por_base["BASE"] == "Campinas"].iloc[0]
+    assert (campinas["Quadro"], campinas["Ausentes"], campinas["Presentes"]) == (3, 2, 0)
+    assert campinas["Taxa de Absenteísmo (%)"] == 2 / 3 * 100
+    # Ordenado pela maior taxa: Campinas (66,7%) antes de Spo (50%).
+    assert por_base.iloc[0]["BASE"] == "Campinas"
+
+    assert agrupar_absenteismo(lista, "COLUNA_QUE_NAO_EXISTE").empty
+    assert classificar_situacao("ativo") == "Presente"
+    assert classificar_situacao("Afastado") == "Ausente"
+    assert classificar_situacao("DESLIGADO") == "Fora do quadro"
+    assert classificar_situacao("ETN") == "No quadro (outra situação)"
+    assert classificar_situacao("") == "Não informado"
 
 
 # ====================================================

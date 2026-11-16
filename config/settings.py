@@ -127,6 +127,9 @@ DRIVE_ID_CONS: str = obter_drive_id_cons()
 DRIVE_ID_INDICADORES: str = obter_drive_id_indicadores()
 
 SHEET_ABA_ATIVOS: str = "lista_ativos"
+#: Aba de controle de ausências (faltas, folgas, férias...) na mesma planilha
+#: da ``lista_ativos`` — lida/gravada por ``services.absenteismo``.
+SHEET_ABA_ABSENTEISMO: str = "controle_absenteismo"
 SHEET_ABA_PROD: str = "Prod"
 
 URL_ATIVOS_EDIT: str = url_gsheets_edit(SHEET_ID_ATIVOS)
@@ -162,6 +165,7 @@ __all__ = [
     "DRIVE_ID_CONS",
     "DRIVE_ID_INDICADORES",
     "FUSO_BR",
+    "SHEET_ABA_ABSENTEISMO",
     "SHEET_ABA_ATIVOS",
     "SHEET_ABA_PROD",
     "SHEET_ID_ATIVOS",

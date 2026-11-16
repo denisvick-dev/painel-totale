@@ -20,6 +20,21 @@ Módulo                             Responsabilidade
 =================================  ==========================================================
 """
 
+from .absenteismo import (
+    agrupar_registros as agrupar_registros_absenteismo,
+)
+from .absenteismo import (
+    calcular_dias,
+)
+from .absenteismo import (
+    carregar_registros as carregar_registros_absenteismo,
+)
+from .absenteismo import (
+    normalizar_registros as normalizar_registros_absenteismo,
+)
+from .absenteismo import (
+    resumir_controle as resumir_controle_absenteismo,
+)
 from .cache_dados import (
     TTL_PADRAO,
     EspecificacaoFonte,
@@ -70,10 +85,18 @@ from .hierarquia import (
     ALIASES as ALIASES_HIERARQUIA,
 )
 from .hierarquia import (
+    agrupar_absenteismo,
     carregar_hierarquia,
+    carregar_lista_ativos,
+    classificar_situacao,
     hierarquia_da_sessao,
     hierarquia_vazia,
+    lista_ativos_da_sessao,
+    lista_ativos_vazia,
     normalizar_hierarquia,
+    normalizar_lista_ativos,
+    normalizar_situacao,
+    resumir_absenteismo,
 )
 from .planilhas import (
     botao_download_csv,
@@ -111,7 +134,13 @@ __all__ = [
     "botao_download_csv",
     "botao_download_planilha",
     "buscar_coluna",
+    "agrupar_absenteismo",
+    "agrupar_registros_absenteismo",
+    "calcular_dias",
     "carregar_hierarquia",
+    "carregar_registros_absenteismo",
+    "carregar_lista_ativos",
+    "classificar_situacao",
     "coletar_dataframes",
     "colunas_presentes",
     "concatenar_abas",
@@ -126,13 +155,20 @@ __all__ = [
     "hierarquia_da_sessao",
     "hierarquia_vazia",
     "ler_bytes",
+    "lista_ativos_da_sessao",
+    "lista_ativos_vazia",
     "ler_upload",
     "nome_com_carimbo",
     "normalizar_chave",
     "normalizar_hierarquia",
+    "normalizar_lista_ativos",
     "normalizar_login",
+    "normalizar_registros_absenteismo",
+    "normalizar_situacao",
     "normalizar_texto",
     "obter_base",
+    "resumir_absenteismo",
+    "resumir_controle_absenteismo",
     "resumir_carga",
     "valor_nan",
     "valor_vazio",
