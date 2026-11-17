@@ -4,7 +4,9 @@ from datetime import date
 import pandas as pd
 
 from services.absenteismo import (
-    ABREVIACOES_AUSENCIA, STATUS_CANCELADO, montar_matriz_ausencias,
+    ABREVIACOES_AUSENCIA,
+    STATUS_CANCELADO,
+    montar_matriz_ausencias,
 )
 from services.absenteismo_grade import registros_do_preenchimento
 
@@ -29,6 +31,16 @@ def montar_lista_presenca(registros, quadro, inicio: date, fim: date) -> pd.Data
         # Ausência sobreposta tem precedência; não ocultar conflito operacional.
         matriz.loc[matriz["Login"].isin(logins) & matriz[dia].eq(""), dia] = "P"
         matriz[dia] = matriz[dia].map(lambda v: CODIGOS.get(v, v) if v else "Não preenchido")
+    # Situações operacionais da grade são exibidas por extenso e não viram
+    # falta ou presença por inferência.
+    operacionais = registros.loc[
+        registros["Tipo"].str.upper().isin(["DUPLADO", "BAIXA DE KIT"])
+        & registros["Status"].ne(STATUS_CANCELADO)
+    ]
+    for dia in dias:
+        no_dia = operacionais.loc[(operacionais["_inicio"].dt.date <= dia) & (operacionais["_fim"].dt.date >= dia)]
+        for _, linha in no_dia.iterrows():
+            matriz.loc[matriz["Login"].eq(linha["Login"]), dia] = linha["Tipo"]
     matriz["Total"] = matriz[dias].ne("Não preenchido").sum(axis=1)
     return matriz
 
@@ -48,8 +60,12 @@ def registros_da_presenca(original, editada):
 
 def resumo_presenca(matriz, dia):
     valores = matriz[dia].fillna("Não preenchido")
-    return {
+    operacionais = valores.str.upper().isin(["DUPLADO", "BAIXA DE KIT"])
+    resultado = {
         "Presentes": int(valores.eq("Presente").sum()),
-        "Ausentes": int((~valores.isin(["Presente", "Não preenchido"])).sum()),
+        "Ausentes": int((~valores.isin(["Presente", "Não preenchido"]) & ~operacionais).sum()),
         "Pendentes": int(valores.eq("Não preenchido").sum()),
     }
+    if operacionais.any():
+        resultado["Situação operacional"] = int(operacionais.sum())
+    return resultado
