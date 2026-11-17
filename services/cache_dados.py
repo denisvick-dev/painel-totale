@@ -13,7 +13,7 @@ Etapa                                      Antes       Com esta camada
 =========================================  ==========  =========================
 Download da planilha a cada cache miss     ~2–8 s      304 Not Modified (~0,1 s)
 Leitura do CSV (parse ``dtype=str``)       ~0,28 s     ~0,04 s (Parquet em disco)
-Padronização do DataFrame (robô)           ~0,82 s     ~0,13 s (vetorizado)
+Padronização do DataFrame (upload)           ~0,82 s     ~0,13 s (vetorizado)
 Conversão de datas (9 formatos em série)   ~0,09 s+    1 formato detectado
 Sessão HTTP por chamada                    nova TCP/TLS  pool reutilizado
 CSS global reenviado a cada rerun          ~40 KB      1 injeção por sessão
@@ -41,7 +41,7 @@ O que este módulo entrega:
    :func:`render_painel_desempenho` mostram ao usuário onde o tempo foi gasto.
 
 Nada aqui depende de estar dentro de um script Streamlit: as funções puras
-podem ser usadas em testes e no robô local.
+podem ser usadas em testes e no processamento local.
 """
 
 from __future__ import annotations

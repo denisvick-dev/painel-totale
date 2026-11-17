@@ -104,33 +104,3 @@ def test_matriz_executiva_calcula_e_exibe_percentuais_com_escala_consistente(mon
     assert "0,8%" in html
     assert "25,0%" in html
     assert "337" in html
-
-
-def test_etl_da_pagina_usa_saida_bruta_do_robo_global_uma_vez(monkeypatch) -> None:
-    bruto = pd.DataFrame({"Login do Técnico": [123]})
-    processado = pd.DataFrame({"TÉCNICO": ["EXEMPLO"]})
-    estado: dict[str, object] = {
-        "origem_dados": "Robô Local (1 arquivo)",
-        "df_memoria_raw": bruto,
-        "robo_processado_sig": (("Atividades-SPO.csv", 1.0, 10),),
-    }
-    chamadas: list[tuple[pd.DataFrame, pd.DataFrame]] = []
-
-    def aplicar_etl(df_raw: pd.DataFrame, df_ativos: pd.DataFrame) -> pd.DataFrame:
-        chamadas.append((df_raw, df_ativos))
-        estado["df_memoria"] = processado
-        estado["origem_dados"] = "Robô (Atividades-SPO.csv)"
-        return processado
-
-    monkeypatch.setattr(quebra_geral, "st", SimpleNamespace(session_state=estado))
-    monkeypatch.setattr(DataLoader, "callback_robo_etl", staticmethod(aplicar_etl))
-    ativos = pd.DataFrame({"LOGIN": [123]})
-
-    quebra_geral._aplicar_etl_robo_global(ativos)
-    quebra_geral._aplicar_etl_robo_global(ativos)
-
-    assert len(chamadas) == 1
-    assert chamadas[0][0] is bruto
-    assert chamadas[0][1] is ativos
-    assert estado["df_memoria_raw"] is bruto
-    assert estado["df_memoria"] is processado

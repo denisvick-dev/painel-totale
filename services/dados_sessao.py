@@ -8,8 +8,7 @@ Autor: TOTALE Tecnologia
 
 Motivo deste módulo
 -------------------
-A carga de dados é feita uma única vez (``Atualização de Dados`` ou o robô
-local) e consumida por todos os dashboards através de ``st.session_state``.
+A carga de dados é feita uma única vez (``Atualização de Dados`` ou upload manual) e consumida por todos os dashboards através de ``st.session_state``.
 Cada página, porém, reimplementava a mesma guarda de entrada — ler
 ``dados_prod``, aceitar ``DataFrame`` **ou** ``dict`` de abas, avisar quando
 estivesse vazio e parar com ``st.stop()``. Onze cópias com mensagens quase
@@ -28,7 +27,7 @@ Este módulo fixa o contrato:
   o padrão de onze dashboards em uma chamada.
 
 As chaves de sessão oficiais são ``dados_prod`` (produção consolidada),
-``dados_cons`` (consultivos), ``df_memoria`` (saída bruta do robô) e
+``dados_cons`` (consultivos), ``df_memoria`` (base compartilhada) e
 ``ultima_atualizacao``.
 """
 
@@ -52,7 +51,7 @@ CHAVE_PRODUCAO = "dados_prod"
 #: Chave da base de consultivos (Drive/CSV de consultivos).
 CHAVE_CONSULTIVO = "dados_cons"
 
-#: Chave da saída bruta/processada do robô local.
+#: Chave da base compartilhada de uploads.
 CHAVE_MEMORIA = "df_memoria"
 
 #: Chave do carimbo da última atualização bem-sucedida.
@@ -62,8 +61,8 @@ CHAVE_ATUALIZACAO = "ultima_atualizacao"
 ABAS_PREFERENCIAIS: tuple[str, ...] = ("Prod", "Produção", "Producao", "Gpon", "GPON")
 
 MENSAGEM_SEM_DADOS = (
-    "Nenhuma base carregada na sessão. Use **Atualização de Dados** (ou o robô "
-    "local, na barra lateral) para sincronizar as planilhas antes de abrir este painel."
+    "Nenhuma base carregada na sessão. Use **Atualização de Dados** para sincronizar "
+    "as planilhas ou envie um arquivo na página de análise que oferece upload."
 )
 
 __all__ = [

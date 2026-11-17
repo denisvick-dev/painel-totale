@@ -1,6 +1,6 @@
 """Guarda contra módulos órfãos: testes sozinhos não são consumidores do app.
 
-Parte do entrypoint, da CLI do robô e das páginas registradas no menu. Segue
+Parte do entrypoint, das páginas registradas no menu. Segue
 imports locais (inclusive relativos e lazy declarados para TYPE_CHECKING),
 sem executar as páginas nem acessar serviços externos.
 """
@@ -17,7 +17,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 
 
 def _modulos_do_app() -> dict[str, Path]:
-    arquivos = [RAIZ / "streamlit_app.py", RAIZ / "robo.py"]
+    arquivos = [RAIZ / "streamlit_app.py"]
     for pasta in ("components", "services", "config", "pages"):
         arquivos.extend((RAIZ / pasta).rglob("*.py"))
     return {
@@ -53,7 +53,7 @@ def _importacoes_locais(modulo: str, caminho: Path, modulos: dict[str, Path]) ->
 
 def test_todo_modulo_tem_ligacao_com_uma_entrada_do_app() -> None:
     modulos = _modulos_do_app()
-    pendentes = {"streamlit_app", "robo"}
+    pendentes = {"streamlit_app"}
     pendentes.update(f"pages.{Path(p.arquivo).stem}" for p in PAGINAS)
     visitados: set[str] = set()
     while pendentes:

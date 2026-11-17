@@ -6,11 +6,7 @@ import ast
 import re
 from pathlib import Path
 
-import pandas as pd
-
 import config.settings as cfg
-import pages.envio_excel as envio_excel
-import robo
 import services.google_drive_client as drive_client
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -43,58 +39,6 @@ def test_requirements_possui_versoes_minimas_fixadas() -> None:
     assert linhas
     sem_piso = [ln for ln in linhas if not re.search(r">=\s*\d+", ln)]
     assert not sem_piso, f"Pacotes sem versão mínima em requirements.txt: {sem_piso}"
-
-
-def test_robo_em_um_unico_arquivo() -> None:
-    """Motor, monitor e CLI usam o mesmo módulo, sem submódulos duplicados."""
-    assert (RAIZ / "robo.py").is_file()
-    assert not list((RAIZ / "robo").glob("*.py"))  # robo/dados legada é permitida
-    assert Path(robo.__file__).resolve() == RAIZ / "robo.py"
-    for nome in robo.__all__:
-        assert hasattr(robo, nome), nome
-    for nome in ("processar_candidatos", "executar_ciclo_headless", "renderizar_robo_local"):
-        assert getattr(robo, nome).__module__ == "robo"
-
-
-def test_robo_local_exclusivo_na_pagina_envio_excel() -> None:
-    """Os controles ficam no corpo da Central, não no shell ou em outras páginas."""
-    codigo_app = (RAIZ / "streamlit_app.py").read_text(encoding="utf-8")
-    assert "renderizar_robo_local" not in codigo_app
-
-    codigo_envio = (RAIZ / "pages" / "envio_excel.py").read_text(encoding="utf-8")
-    arvore_envio = ast.parse(codigo_envio)
-    chamadas_robo = [
-        no
-        for no in ast.walk(arvore_envio)
-        if isinstance(no, ast.Call)
-        and isinstance(no.func, ast.Name)
-        and no.func.id == "renderizar_robo_local"
-    ]
-    assert "from robo import renderizar_robo_local" in codigo_envio
-    assert len(chamadas_robo) == 1
-    for pagina in ("volumetria.py", "quebra_geral.py", "quebra_unificada.py"):
-        codigo_pagina = (RAIZ / "pages" / pagina).read_text(encoding="utf-8")
-        assert "renderizar_robo_local(" not in codigo_pagina
-    assert "_aplicar_etl_robo_global" in (RAIZ / "pages" / "quebra_unificada.py").read_text(
-        encoding="utf-8"
-    )
-    assert "df_memoria_raw" in (RAIZ / "robo.py").read_text(encoding="utf-8")
-
-
-def test_saida_robo_preserva_os_dois_contratos_de_sessao(monkeypatch) -> None:
-    """O resultado local conserva `dados_totale` e `df_memoria` para consumidores."""
-    from types import SimpleNamespace
-
-    estado: dict[str, object] = {}
-    monkeypatch.setattr(envio_excel, "st", SimpleNamespace(session_state=estado))
-    original = pd.DataFrame({" nome ": ["Técnico"], " os ": [42]})
-
-    resultado = envio_excel._pipeline_robo_local(original, pd.DataFrame())
-
-    assert resultado.columns.tolist() == ["NOME", "OS"]
-    assert original.columns.tolist() == [" nome ", " os "]
-    assert estado["dados_totale"] is resultado
-    assert estado["df_memoria"] is resultado
 
 
 def test_config_e_services_centralizam_google_drive_e_sheets() -> None:

@@ -21,7 +21,7 @@ Aqui vive **uma** implementação, vetorial quando importa (``normalizar_serie``
 
 Regras do módulo:
 
-* nenhuma dependência de Streamlit — pode ser importado em testes, no robô e na
+* nenhuma dependência de Streamlit — pode ser importado em testes, nos serviços e na
   camada de serviços;
 * nada de exceção por valor estranho: ``None``, ``NaN`` e objetos viram ``""``;
 * ``normalizar_login`` é a função canônica de identidade de técnico no portal —

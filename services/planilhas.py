@@ -143,7 +143,7 @@ def ler_bytes(
 ) -> pd.DataFrame:
     """Lê o conteúdo bruto de um arquivo (mesma semântica de :func:`ler_upload`).
 
-    Útil quando os bytes já estão em memória — robô, cache ou download.
+    Útil quando os bytes já estão em memória — upload, cache ou download.
     """
     if not conteudo:
         raise ValueError("O arquivo enviado está vazio.")
@@ -217,7 +217,7 @@ def larguras_colunas(df: pd.DataFrame, *, maxima: int = 60) -> list[int]:
     """
     larguras: list[int] = []
     for coluna in df.columns:
-        comprimentos = df[coluna].head(200).fillna("").astype(str).str.len().dropna()
+        comprimentos = df[coluna].head(200).astype("string").fillna("").str.len().dropna()
         maior = comprimentos.max() if not comprimentos.empty else 10
         try:
             maior_int = int(maior)

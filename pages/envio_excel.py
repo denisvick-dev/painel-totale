@@ -50,7 +50,6 @@ from config.settings import (
     URL_CONS_DOWNLOAD,
     URL_PROD_XLSX,
 )
-from robo import renderizar_robo_local
 from services.cache_dados import (
     formatar_bytes,
     memoria_dataframe,
@@ -1200,17 +1199,6 @@ def _painel_fragmento() -> None:
     _painel_dados(_intervalo_da_sidebar())
 
 
-def _pipeline_robo_local(
-    df_local: pd.DataFrame,
-    _df_gsheets: pd.DataFrame,
-) -> pd.DataFrame:
-    df = df_local.copy()
-    df.columns = [str(col).strip().upper() for col in df.columns]
-    st.session_state["dados_totale"] = df
-    st.session_state["df_memoria"] = df
-    return df
-
-
 def _linhas_desempenho_fontes() -> list[dict[str, Any]]:
     """Monta as linhas do painel de desempenho (duração, linhas, memória, tentativas)."""
     tempos = st.session_state.get(_CHAVE_TEMPOS_FONTES) or {}
@@ -1260,30 +1248,6 @@ def _render_painel_desempenho_sync() -> None:
     )
 
 
-def _painel_saida_robo_local() -> None:
-    render_section_header(
-        titulo="Robô local",
-        icone="🤖",
-        subtitulo="Saída do arquivo mais recente na pasta monitorada",
-    )
-    fonte = str(st.session_state.get("origem_dados", ""))
-    if not fonte.casefold().startswith("robô"):
-        st.info("Aguardando a detecção e o processamento de um arquivo local.")
-        return
-
-    dados = st.session_state.get("df_memoria_raw")
-    if not isinstance(dados, pd.DataFrame):
-        dados = st.session_state.get("df_memoria")
-    if not isinstance(dados, pd.DataFrame):
-        dados = st.session_state.get("dados_totale")
-    if not isinstance(dados, pd.DataFrame):
-        st.info("Aguardando a detecção e o processamento de um arquivo local.")
-        return
-
-    st.success(f"Dados carregados via {fonte}")
-    st.dataframe(dados.head(), width="stretch")
-
-
 def _rodar() -> None:
     st.set_page_config(
         page_title="Atualização de Dados | TOTALE",
@@ -1312,7 +1276,7 @@ def _rodar() -> None:
     render_hero_totale_1(
         titulo="🔁 Central de Atualização",
         subtitulo=(
-            "Sincronização de Produção, Consultivos e Ativos, com monitoramento de arquivos locais"
+            "Sincronização de Produção, Consultivos e Ativos, com status e diagnóstico por fonte"
         ),
     )
 
@@ -1326,10 +1290,6 @@ def _rodar() -> None:
             "alerta",
         )
         _painel_dados(intervalo_seg)
-
-    with st.container(border=True):
-        renderizar_robo_local(mostrar_toggle=True, mostrar_config=True)
-        _painel_saida_robo_local()
 
 
 if __name__ == "__main__":

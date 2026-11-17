@@ -21,7 +21,6 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
@@ -887,26 +886,6 @@ class DataLoader:
         )
         return base
 
-    @staticmethod
-    def callback_robo_etl(df_raw: pd.DataFrame, df_gs: pd.DataFrame) -> pd.DataFrame:
-        caminho = st.session_state.get(
-            "robo_ultimo_processado_path", st.session_state.get("robo_candidato_path", "")
-        )
-        nome = Path(str(caminho)).name if caminho else "Arquivo_Robo"
-        df_proc = DataLoader.preparar_base(df_raw, df_gs, filename=nome)
-        st.session_state.update(
-            {
-                "_robo_df_pronto": df_proc,
-                "_robo_nome_arquivo": nome,
-                "_robo_dados_disponiveis": not df_proc.empty,
-                "df_memoria_raw": df_raw,
-                "df_memoria": df_proc,
-                "origem_dados": f"Robô ({nome})",
-                "robo_hora_sucesso": datetime.now(),
-            }
-        )
-        return df_proc
-
 
 class Motor:
     @staticmethod
@@ -1255,7 +1234,7 @@ def render_matriz_executiva(df: pd.DataFrame, meta_geral: float = Config.SLA_QUE
 
 def render_bloco_importacao(dados_prontos: bool = False) -> bool:
     st.markdown(
-        """<div style="margin-top:6px;margin-bottom:4px"><span class="import-header-title">Importação de Dados</span><span class="import-header-badge">EXCEL, CSV OU AUTO</span></div><div class="import-header-sub">Envie a base consolidada de O.S. ou aguarde o robô detectar o arquivo automaticamente.</div><div class="import-header-line"></div>""",
+        """<div style="margin-top:6px;margin-bottom:4px"><span class="import-header-title">Importação de Dados</span><span class="import-header-badge">EXCEL OU CSV</span></div><div class="import-header-sub">Envie a base consolidada de O.S. pelo upload abaixo.</div><div class="import-header-line"></div>""",
         unsafe_allow_html=True,
     )
     if not dados_prontos:
@@ -1573,31 +1552,13 @@ _CHAVES_SESSAO: Final[tuple[str, ...]] = (
     "df_memoria_raw",
     "arquivo_processado",
     "origem_dados",
-    "_robo_df_pronto",
-    "_robo_nome_arquivo",
-    "_robo_dados_disponiveis",
-    "robo_hora_sucesso",
-    "_quebra_robo_processado_sig",
-)
-_CHAVES_ROBO: Final[tuple[str, ...]] = (
-    "robo_processado_sig",
-    "robo_candidato_sig",
-    "robo_candidato_stable",
-    "robo_ultimo_processado_path",
-    "robo_ultimo_processado_mtime",
-    "robo_arquivos_processados",
-    "robo_bases_carregadas",
-    "robo_base_detectada",
-    "robo_motores",
-    "robo_duplicatas_removidas",
-    "_robo_aguardando_lock",
 )
 _CHAVES_ATIVOS: Final[tuple[str, ...]] = ("df_gs_manual", "arquivo_ativos_processado")
 
 
 def limpar_sessao(incluir_ativos: bool = True) -> None:
     for k in (
-        list(_CHAVES_SESSAO) + list(_CHAVES_ROBO) + (list(_CHAVES_ATIVOS) if incluir_ativos else [])
+        list(_CHAVES_SESSAO) + (list(_CHAVES_ATIVOS) if incluir_ativos else [])
     ):
         st.session_state.pop(k, None)
     st.session_state["upload_nonce"] = int(st.session_state.get("upload_nonce", 0)) + 1
@@ -1652,31 +1613,6 @@ def _sidebar_filtros() -> tuple[float, float, float, float]:
     return p_ot, p_base, p_pess, min_aloc
 
 
-def _aplicar_etl_robo_global(df_ativos: pd.DataFrame) -> None:
-    """Aplica o ETL da página sobre a saída bruta do robô global, uma vez por arquivo."""
-    origem = str(st.session_state.get("origem_dados", ""))
-    if not origem.startswith("Robô Local"):
-        return
-
-    df_raw = df_sessao("df_memoria_raw")
-    if df_raw is None or df_raw.empty:
-        df_raw = df_sessao("df_memoria")
-    if df_raw is None or df_raw.empty:
-        return
-
-    assinatura = st.session_state.get("robo_processado_sig")
-    if assinatura is None:
-        assinatura = (
-            st.session_state.get("robo_ultimo_processado_path"),
-            st.session_state.get("robo_ultimo_processado_mtime"),
-        )
-    if st.session_state.get("_quebra_robo_processado_sig") == assinatura:
-        return
-
-    DataLoader.callback_robo_etl(df_raw, df_ativos)
-    st.session_state["_quebra_robo_processado_sig"] = assinatura
-
-
 def _processar_upload(upload: Any, df_ativos: pd.DataFrame) -> None:
     if not upload:
         return
@@ -1696,7 +1632,6 @@ def _processar_upload(upload: Any, df_ativos: pd.DataFrame) -> None:
                     "df_memoria": base,
                     "arquivo_processado": hid,
                     "origem_dados": f"Upload ({upload.name})",
-                    "_robo_dados_disponiveis": True,
                     "mensagem_flash": "Base processada com sucesso.",
                 }
             )
@@ -1755,7 +1690,6 @@ def main() -> None:
         st.sidebar.warning(
             "Lista de ativos indisponível. Utilize o upload manual nas configurações."
         )
-    _aplicar_etl_robo_global(df_ativos)
 
     df_atual = df_sessao("df_memoria")
     dados_prontos = df_atual is not None and not df_atual.empty
@@ -1768,8 +1702,7 @@ def main() -> None:
     df = df_sessao("df_memoria")
     if df is None or df.empty:
         render_insight(
-            "Carregue uma base de O.S. para iniciar a análise — use o robô local "
-            "(barra lateral) ou o upload manual acima.",
+            "Carregue uma base de O.S. pelo upload acima para iniciar a análise.",
             tipo="alerta",
             titulo="Sem base carregada",
         )

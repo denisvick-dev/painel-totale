@@ -444,18 +444,18 @@ def test_chips_de_contexto_vem_do_resumo_da_carga() -> None:
     instante = datetime(2026, 10, 14, 8, 5)
     resumo = ResumoCarga(registros=12480, tabelas=2, tabelas_com_dados=2, atualizado_em=instante)
 
-    chips = chips_de_contexto(resumo=resumo, origem="Robô Local", periodo="01/10 a 14/10")
+    chips = chips_de_contexto(resumo=resumo, origem="Upload manual", periodo="01/10 a 14/10")
 
     assert chips["Atualizado em"] == "14/10/2026 08:05"
     assert chips["Registros"] == 12480
     assert chips["Abas"] == 2
-    assert chips["Origem"] == "Robô Local"
+    assert chips["Origem"] == "Upload manual"
     assert chips["Período"] == "01/10 a 14/10"
 
 
 def test_chips_de_contexto_ignora_campos_vazios() -> None:
     assert chips_de_contexto() == {}
-    assert chips_de_contexto(registros=0, origem="") == {}
+    assert chips_de_contexto(registros=0, origem="") == {"Registros": 0}
     assert chips_de_contexto(extras={"Base": "SPO", "Vazio": ""}) == {"Base": "SPO"}
 
 

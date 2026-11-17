@@ -59,8 +59,7 @@ Versão atual: **3.6.0** — veja [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.m
 - **CSS global dos componentes nativos** (`components/css_global.py`): botões, inputs, selects, abas, tabelas, alertas, upload, progresso e tooltips padronizados — injeção única por sessão (~40 KB a menos por rerun)
 - **Organização de página** (`components/layout_pagina.py`): cabeçalho com contexto, sumário de âncoras, filtros fixos no topo ao rolar, seções, painéis com altura controlada, barra de ações e rodapé — ordem canônica em `ORDEM_PADRAO`
 - **Carga de dados até 3× mais rápida** (`services/cache_dados.py`): requisições condicionais (ETag/`If-Modified-Since` → `304` sem reparse), cache Parquet em disco fora do repositório, downloads paralelos por fonte, sessão HTTP com pool e retry, leitura de CSV com detecção de separador/encoding
-- **Robô local unificado**: um único monitor no corpo da Central de Atualização (`pages/envio_excel.py`) acompanha a pasta configurada enquanto essa página está aberta; a leitura bruta é compartilhada e cada painel aplica seu ETL específico sem duplicar o monitor
-- **Processamento Pandas otimizado**: normalização vetorial de colunas no robô (1,03 s → 0,22 s para 120 mil linhas, ~4,7×) e `otimizar_dtypes` com downcast numérico, texto→número sem perdas e categóricas opcionais (−81% de memória no caso medido)
+- **Processamento Pandas otimizado**: normalização vetorial de colunas (1,03 s → 0,22 s para 120 mil linhas, ~4,7×) e `otimizar_dtypes` com downcast numérico, texto→número sem perdas e categóricas opcionais (−81% de memória no caso medido)
 - **Diagnóstico de desempenho** (`render_painel_desempenho`): tempos por fonte, origem do dado (rede/cache/`304`), linhas, memória e estado do cache em disco
 
 ### 🚀 Dashboards Aprimorados (v3.5.0)
@@ -215,25 +214,12 @@ streamlit run streamlit_app.py
 
 Acesse: **http://localhost:8501**
 
-### Robô local (`robo.py`)
+### Entrada de dados
 
-O monitor na Central de Atualização (`pages/envio_excel.py`) examina a pasta configurada a cada 5 segundos e processa **somente o
-arquivo válido mais recente** (por data de modificação). Aceita `.csv`, `.xlsx`, `.xlsm` e
-`.xls`; reconhece os marcadores `SPO`, `GRS` e `ABCDM` no nome para completar a coluna `BASE`.
-Arquivos temporários do Excel/download e arquivos vazios não são processados. A leitura bruta
-fica em `df_memoria_raw` para as páginas aplicarem seus ETLs; erros aparecem no próprio painel e o
-arquivo pode ser tentado novamente. O robô lê **o disco da máquina que executa o Streamlit**:
-em um deploy remoto, ele não tem acesso direto à pasta Downloads do navegador do usuário.
-
-Também é possível executar um ciclo isolado pelo terminal, sem abrir o portal:
-
-```bash
-python robo.py /caminho/da/pasta /caminho/saida.csv
-```
-
-O resultado é CSV com `;` e codificação UTF-8 com BOM. Sem argumentos, o robô procura
-`robo/dados/` (instalações antigas), `dados/`, `~/robo/` ou `~/Downloads/` e grava
-`_robo_cache.csv` na pasta encontrada. A CLI retorna código 1 se não houver arquivo válido.
+Use a **Central de Atualização** para sincronizar Produção, Consultivos e Ativos.
+Para bases de O.S., use o upload Excel/CSV nas páginas Quebra ou Volumetria.
+Os arquivos são selecionados explicitamente; não há monitoramento de pastas locais.
+A base enviada em Quebra fica compartilhada na sessão para os painéis compatíveis.
 
 ### Testes
 
@@ -315,7 +301,6 @@ painel-totale/
 │   ├── cache_dados.py            # Cache em disco, pool HTTP e retry
 │   └── google_drive_client.py    # Clientes Google Drive/Sheets (CSV, gviz, download)
 ├── pages/                        # Somente páginas ativas do mapa de navegação
-├── robo.py                       # Motor, sincronismo Streamlit e CLI em um único arquivo
 ├── tests/                        # Testes de regressão e guardas estáticas
 ├── assets/                       # Ícones, imagens e marca usados pelo app
 ├── fonts/                        # Fontes corporativas
