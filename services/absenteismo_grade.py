@@ -43,3 +43,25 @@ def registros_do_preenchimento(original: pd.DataFrame, editada: pd.DataFrame) ->
                 "Registrado em": datetime.now().strftime("%d/%m/%Y %H:%M"),
             })
     return novos
+
+
+def recortar_grade(original: pd.DataFrame, dias: list[date]) -> pd.DataFrame:
+    """Seleciona dias sem perder a identidade e recalcula o total visível."""
+    selecionados = [c for c in original.columns if isinstance(c, date) and c in dias]
+    identidade = [c for c in original.columns if not isinstance(c, date) and c != "Total"]
+    recorte = original[[*identidade, *selecionados]].copy()
+    recorte["Total"] = recorte[selecionados].fillna("").astype(str).apply(
+        lambda coluna: coluna.str.strip().ne("")
+    ).sum(axis=1).astype(int)
+    return recorte
+
+
+def resumir_grade(matriz: pd.DataFrame) -> dict[str, int]:
+    """Indicadores do mapa: dias marcados, não quantidade de códigos."""
+    dias = [c for c in matriz.columns if isinstance(c, date)]
+    marcas = matriz[dias].fillna("").astype(str).apply(lambda coluna: coluna.str.strip().ne(""))
+    return {
+        "tecnicos": len(matriz),
+        "com_ausencia": int(marcas.any(axis=1).sum()),
+        "dias_marcados": int(marcas.sum().sum()),
+    }
