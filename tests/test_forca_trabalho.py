@@ -37,3 +37,32 @@ def test_fora_da_data_e_dados_de_grupo_ausentes():
     assert resumo.iloc[0]["Base"] == "Não informado"
     assert resumo.iloc[0]["Disponíveis estimados"] == 1
     assert detalhes.iloc[0]["Situação no dia"] == "Disponível estimado"
+
+
+def test_visao_agregada_usa_taxa_ponderada():
+    from components.forca_trabalho import agrupar_visao
+    resumo = pd.DataFrame({
+        "Base": ["ABC", "ABC"], "Monitor": ["A", "B"],
+        "Quadro": [2, 8], "Ausentes": [2, 0],
+        "Disponíveis estimados": [0, 8], "Disponibilidade (%)": [0.0, 100.0],
+    })
+    agregado = agrupar_visao(resumo, "Base")
+    assert agregado.iloc[0]["Disponibilidade (%)"] == 80.0
+    assert agregado.iloc[0]["Quadro"] == 10
+
+
+def test_exportacao_profissional_tem_data_filtros_e_cabecalho():
+    import io
+
+    from openpyxl import load_workbook
+
+    from components.forca_trabalho import excel_forca_trabalho
+    quadro = pd.DataFrame({"LOGIN": ["Z1"], "TÉCNICO": ["A"]})
+    resumo, detalhes = calcular_forca_trabalho(quadro, normalizar_registros(None), date(2026, 11, 18))
+    arquivo = excel_forca_trabalho(resumo, detalhes, date(2026, 11, 18))
+    livro = load_workbook(io.BytesIO(arquivo))
+    assert livro.sheetnames == ["Resumo", "Técnicos"]
+    assert livro["Resumo"].freeze_panes == "C2"
+    assert livro["Resumo"].auto_filter.ref
+    assert livro["Resumo"].cell(2, livro["Resumo"].max_column).value == "18/11/2026"
+    assert livro["Resumo"]["A1"].font.bold

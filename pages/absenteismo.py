@@ -48,6 +48,7 @@ import streamlit as st
 
 from components.componentes import aplicar_estilo, render_empty_state, render_insight
 from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.forca_trabalho import render_forca_trabalho
 from components.graficos import (
     grafico_barras,
     grafico_calendario,
@@ -945,12 +946,15 @@ with secao(
     icone="groups",
     subtitulo="Disponibilidade estimada do quadro por base e monitor na data escolhida.",
 ):
-    data_forca = st.date_input("Data da força de trabalho", value=hoje, key="absenteismo_data_forca")
-    st.caption(
-        "Considera os filtros de base, monitor e busca. O filtro de tipo de ausência "
-        "não é aplicado aqui: todos os tipos reduzem a disponibilidade. "
-        "Disponível estimado = pessoa do quadro sem ausência registrada; não confirma presença ou escala."
-    )
+    with st.container(border=True):
+        col_referencia, col_contexto = st.columns([1, 2])
+        with col_referencia:
+            data_forca = st.date_input("Data da força de trabalho", value=hoje, key="absenteismo_data_forca")
+        with col_contexto:
+            st.markdown("**Panorama da capacidade operacional**")
+            st.caption("Equipe do recorte atual de base, monitor e busca. Todos os tipos de ausência são considerados.")
+    with st.expander("Como interpretar esta visão"):
+        st.caption("Disponível estimado é o integrante do quadro sem ausência registrada na data, inclusive quem ainda não teve a presença preenchida. Não confirma presença ou escala. Feriados, jornadas e plantões não são aplicados. O filtro de tipo de ausência não altera esta visão.")
     if data_forca.weekday() >= 5:
         st.info("Fim de semana: confira a escala. Este cálculo não aplica jornadas, feriados ou plantões.")
     if qtd_pendentes:
@@ -962,27 +966,7 @@ with secao(
             descricao="Confira a lista_ativos ou ajuste base, monitor e busca.",
         )
     else:
-        total_forca = int(resumo_forca["Quadro"].sum())
-        ausentes_forca = int(resumo_forca["Ausentes"].sum())
-        disponiveis_forca = total_forca - ausentes_forca
-        c_quadro, c_ausentes, c_disponiveis, c_taxa = st.columns(4)
-        c_quadro.metric("Quadro cadastrado", total_forca)
-        c_ausentes.metric("Com ausência registrada", ausentes_forca)
-        c_disponiveis.metric("Disponíveis estimados", disponiveis_forca)
-        c_taxa.metric("Disponibilidade estimada", f"{disponiveis_forca / total_forca:.1%}")
-        st.dataframe(resumo_forca, width="stretch", hide_index=True)
-        with st.expander("Consultar técnicos e códigos do dia"):
-            st.dataframe(detalhes_forca, width="stretch", hide_index=True)
-        buffer_forca = io.BytesIO()
-        with pd.ExcelWriter(buffer_forca, engine="openpyxl") as writer:
-            resumo_forca.to_excel(writer, index=False, sheet_name="Resumo")
-            detalhes_forca.to_excel(writer, index=False, sheet_name="Técnicos")
-        st.download_button(
-            "Baixar força de trabalho em Excel", data=buffer_forca.getvalue(),
-            file_name=f"forca_trabalho_{data_forca:%Y_%m_%d}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="absenteismo_forca_download",
-        )
+        render_forca_trabalho(resumo_forca, detalhes_forca, data_forca)
 
 
 with secao(
