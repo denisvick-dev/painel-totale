@@ -44,14 +44,12 @@ from services.absenteismo import (
     calcular_dias,
     fase_do_registro,
     filtrar_registros_periodo,
-    montar_matriz_ausencias,
     normalizar_registros,
     resumir_controle,
     serie_diaria_ausencias,
 )
 from services.absenteismo_grade import (
     filtrar_grade_preenchimento,
-    resumir_grade,
 )
 from services.dados_sessao import resumir_carga, ultima_atualizacao
 from services.forca_trabalho import calcular_forca_trabalho
@@ -246,7 +244,7 @@ if qtd_pendentes:
 # ============================================================
 with st.sidebar:
     st.markdown("### Filtros da equipe")
-    st.caption("Base, monitor e busca afetam todas as áreas. Período e tipo delimitam mapas e análises.")
+    st.caption("Base, monitor e busca afetam todas as áreas. O período define o mês do mapa. O filtro de tipo afeta apenas análises e histórico.")
     periodo_inicio = st.date_input(
         "Início do período de análise", value=mes_inicio, key="absenteismo_periodo_inicio"
     )
@@ -361,7 +359,11 @@ def _tabela_exibicao(df: pd.DataFrame) -> pd.DataFrame:
 # MAPA MENSAL (TÉCNICO × DIA) — MESMO FORMATO DA PLANILHA
 # ============================================================
 #: Cores de cada código na célula (fundo, texto) — legenda abaixo do mapa.
+_CODIGOS_MAPA = {**ABREVIACOES_AUSENCIA, "Presente": "P", "Não preenchido": "NP"}
+
 _CORES_MAPA: dict[str, tuple[str, str]] = {
+    "P": ("#DCFCE7", "#166534"),
+    "NP": ("#F8FAFC", "#64748B"),
     "F": ("#FEE2E2", "#991B1B"),
     "FO": ("#DBEAFE", "#1E40AF"),
     "FE": ("#FEF3C7", "#92400E"),
@@ -478,13 +480,14 @@ def _colunas_dia_mapa(matriz: pd.DataFrame) -> list[date]:
 
 
 def _celula_mapa(valor: object) -> str:
-    """``<td>`` de um dia: vazia (presente) ou com o código e a cor do tipo."""
+    """Célula com código e descrição; ausência de marca nunca implica presença."""
     codigo = str(valor or "").strip()
     if not codigo:
         return '<td class="abs-cel abs-vazia"></td>'
     primeiro = codigo.split("/")[0].strip().upper()
     fundo, cor = _CORES_MAPA.get(primeiro, _CORES_MAPA["OUT"])
-    titulo = escapar_html(codigo, aspas=True)
+    descricoes = {v: k for k, v in _CODIGOS_MAPA.items()}
+    titulo = escapar_html(" / ".join(descricoes.get(c, c) for c in codigo.split("/")), aspas=True)
     return (
         f'<td class="abs-cel" style="background:{fundo};color:{cor}" title="{titulo}">'
         f"{escapar_html(codigo)}</td>"
@@ -510,11 +513,11 @@ def _render_mapa_mensal(
     dias = _colunas_dia_mapa(matriz)
     _injetar_css_mapa()
 
-    st.caption("Fonte: grade absenteismo. Use Preencher para editar; apenas as células alteradas são gravadas.")
+    st.caption("Fonte: grade absenteismo. Para editar, use a área Chamada diária.")
     st.caption(
         f"Período do mapa: **{_rotulo_dia(inicio)} a {_rotulo_dia(fim)}** "
         f"({len(dias)} dias) · usa o mês do início do período · "
-        "célula vazia = **sem ausência no recorte** · "
+        "P = **Presente** · NP = **Não preenchido**, nunca presença presumida · "
         "passe o mouse na célula para ver o tipo completo."
     )
 
@@ -578,14 +581,14 @@ def _render_mapa_mensal(
         )
 
     totais_dia = [
-        int((matriz[dia].fillna("").astype(str).str.strip() != "").sum())
+        int((~matriz[dia].fillna("").astype(str).str.strip().isin(["", "NP"])).sum())
         if dia in matriz
         else 0
         for dia in dias
     ]
     total_geral = sum(totais_dia)
     rodape = (
-        '<tr><td class="abs-rodape-rotulo" colspan="6">TOTAL DE AUSÊNCIAS '
+        '<tr><td class="abs-rodape-rotulo" colspan="6">TOTAL DE MARCAÇÕES '
         "(técnicos/dia)</td>"
         + "".join(f"<td>{valor if valor else ''}</td>" for valor in totais_dia)
         + f'<td class="col-total">{total_geral if total_geral else ""}</td></tr>'
@@ -604,7 +607,7 @@ def _render_mapa_mensal(
     )
 
     st.caption(
-        "Para editar, use **Preencher**. O mapa de ausências não trata células vazias como presença."
+        "Para editar, use **Chamada diária**. Totais contam dias preenchidos, incluindo presença e situações operacionais; NP não entra na contagem."
     )
 
     legenda = "".join(
@@ -612,7 +615,7 @@ def _render_mapa_mensal(
         f'<span class="abs-legenda-codigo" style="background:{_CORES_MAPA.get(codigo, _CORES_MAPA["OUT"])[0]};'
         f'color:{_CORES_MAPA.get(codigo, _CORES_MAPA["OUT"])[1]}">{codigo}</span>'
         f"{escapar_html(tipo)}</span>"
-        for tipo, codigo in ABREVIACOES_AUSENCIA.items()
+        for tipo, codigo in _CODIGOS_MAPA.items()
     )
     st.markdown(f'<div class="abs-legenda">{legenda}</div>', unsafe_allow_html=True)
 
@@ -966,11 +969,13 @@ def _render_forca():
 
 
 def _render_mapa():
-    matriz_mapa = montar_matriz_ausencias(
-        registros_recorte, quadro_mapa, inicio=mapa_inicio, fim=mapa_fim
-    )
+    # Tipos não filtram a grade: esconder presença transformaria marcações em falsas pendências.
+    matriz_mapa = _lista_presenca_em_cache(registros, quadro_mapa, mapa_inicio, mapa_fim)
+    dias_mapa = _colunas_dia_mapa(matriz_mapa)
+    for dia in dias_mapa:
+        matriz_mapa[dia] = matriz_mapa[dia].map(lambda valor: _CODIGOS_MAPA.get(valor, valor))
     with secao(
-        "Mapa Mensal de Ausências",
+        "Mapa Mensal de Presença",
         icone="calendar_view_month",
         subtitulo=(
             f"{mapa_inicio:%m/%Y} · uma coluna por dia, do mesmo jeito da planilha "
@@ -988,12 +993,12 @@ def _render_mapa():
                 ),
             )
         else:
-            resumo_mapa = resumir_grade(matriz_mapa)
-            col_quadro, col_ausentes, col_dias = st.columns(3)
-            col_quadro.metric("Técnicos no mapa", resumo_mapa["tecnicos"])
-            col_ausentes.metric("Com ausência no mês", resumo_mapa["com_ausencia"])
-            col_dias.metric("Dias marcados", resumo_mapa["dias_marcados"])
-            st.caption("Resumo do mês e dos filtros atuais. Dois códigos no mesmo dia contam como um dia marcado.")
+            marcadas = ~matriz_mapa[dias_mapa].isin(["", "NP"])
+            col_quadro, col_marcadas, col_pendentes = st.columns(3)
+            col_quadro.metric("Técnicos no mapa", len(matriz_mapa))
+            col_marcadas.metric("Dias preenchidos", int(marcadas.sum().sum()))
+            col_pendentes.metric("Dias não preenchidos", int((~marcadas).sum().sum()))
+            st.caption("Mapa completo da equipe no mês: presença, ausências e situações operacionais. O filtro de tipo não oculta marcações nesta visão.")
             ultima_sync = st.session_state.get("absenteismo_ultima_sync")
             if qtd_pendentes:
                 st.warning(f"{qtd_pendentes} lançamento(s) somente nesta sessão — sincronização pendente.")

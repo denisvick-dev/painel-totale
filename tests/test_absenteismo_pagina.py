@@ -213,3 +213,31 @@ def test_voltar_a_chamada_apos_consultar_mapa() -> None:
     app.radio(key="presenca_area").set_value("Chamada diária").run()
     assert not app.exception
     assert any(s.label == "Data da chamada" for s in app.selectbox)
+
+
+def test_mapa_mensal_inclui_presenca_operacional_e_pendencias_sem_filtro_de_tipo():
+    app = _rodar(origem_grade=True)
+    snapshot = app.session_state["presenca_grade_snapshot"]
+    extras = pd.DataFrame([
+        {"ID": "presenca", "Login": "Z663524", "Técnico": "Alex De Jesus Freire",
+         "Tipo": "Presente", "Data Início": "01/11/2026", "Data Fim": "01/11/2026", "Status": "Ativo"},
+        {"ID": "operacional", "Login": "Z663524", "Técnico": "Alex De Jesus Freire",
+         "Tipo": "DUPLADO", "Data Início": "02/11/2026", "Data Fim": "02/11/2026", "Status": "Ativo"},
+    ])
+    snapshot["registros"] = normalizar_registros(pd.concat([_registros(), extras], ignore_index=True))
+    app.session_state["presenca_grade_snapshot"] = snapshot
+    app.radio(key="presenca_area").set_value("Mapa mensal").run()
+    app.multiselect(key="absenteismo_filtro_tipo").set_value(["Férias"]).run()
+    assert not app.exception
+    html = "\n".join(e.value for e in app.markdown)
+    assert ">P</td>" in html
+    assert ">NP</td>" in html
+    assert ">duplado</td>" in html.casefold()
+    assert ">AT/FE</td>" in html  # filtro não apaga atestado sobreposto
+    assert 'title="Presente"' in html
+    assert 'title="Não preenchido"' in html
+    assert "TOTAL DE MARCAÇÕES" in html
+    assert "TOTAL DE AUSÊNCIAS" not in html
+    valores = {m.label: m.value for m in app.metric}
+    assert valores["Dias preenchidos"] == "5"
+    assert valores["Dias não preenchidos"] == "85"
