@@ -53,7 +53,7 @@ def render_forca_trabalho(resumo: pd.DataFrame, detalhes: pd.DataFrame, dia: dat
          "sub": "Sem ausência registrada no dia", "tema": "verde"},
         {"label": "Ausências registradas", "valor": formatar_inteiro(ausentes), "icone": "event_busy",
          "sub": "Todos os tipos · sem duplicidade", "tema": "laranja"},
-        {"label": "Disponibilidade estimada", "valor": formatar_percentual(taxa), "icone": "donut_large",
+        {"label": "Disponibilidade estimada", "valor": formatar_percentual(taxa, ja_e_pct=False), "icone": "donut_large",
          "sub": f"Referência: {dia:%d/%m/%Y}", "tema": "azul", "progresso": (disponiveis, total),
          "ajuda": "Não confirma presença ou escala. Pessoas sem lançamento também entram nesta estimativa."},
     ])

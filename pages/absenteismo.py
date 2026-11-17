@@ -79,19 +79,8 @@ from services.texto import escapar_html, formatar_inteiro, formatar_percentual
 
 logger = logging.getLogger(__name__)
 
-#: Seções ancoradas do sumário (mesmos títulos usados em ``secao()``).
-SECOES_PAGINA: tuple[str, ...] = (
-    "Força de Trabalho",
-    "Mapa Mensal de Ausências",
-    "Indicadores do Período",
-    "Registrar Ausência",
-    "Ausências por Tipo",
-    "Calendário de Ausências",
-    "Ranking por Base e Monitor",
-    "Ausentes Hoje e Próximas Ausências",
-    "Registros do Controle",
-    "Exportação",
-)
+#: Áreas de trabalho em ordem operacional, sem navegação para âncoras ocultas.
+AREAS_PAGINA = ("Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados")
 
 CHAVES_FILTRO: tuple[str, ...] = (
     "absenteismo_periodo_inicio",
@@ -195,7 +184,7 @@ abrir_dashboard(
         "— leitura e preenchimento direto na aba absenteismo."
     ),
     icone="🗓️",
-    secoes=SECOES_PAGINA,
+    secoes=(),
     resumo=resumir_carga(registros, atualizado_em=ultima_atualizacao()),
     origem="absenteismo (grade mensal) · cadastro auxiliar: lista_ativos",
 )
@@ -205,21 +194,23 @@ st.caption(
     "Presente é gravado como ATIVO. Somente células alteradas são atualizadas; cadastros, fórmulas e formatação permanecem intactos."
 )
 
-qualidade_origem = lista_ativos.attrs.get("qualidade_origem")
-if qualidade_origem:
-    with st.expander("Qualidade da lista de ativos", expanded=bool(qualidade_origem["ocorrencias"])):
-        c_origem, c_validos, c_pendencias = st.columns(3)
-        c_origem.metric("Linhas na origem", qualidade_origem["linhas_origem"])
-        c_validos.metric("Logins únicos preenchidos", qualidade_origem["logins_validos"])
-        c_pendencias.metric("Ocorrências para revisar", len(qualidade_origem["ocorrencias"]))
-        st.caption("Diagnóstico da carga completa, antes dos filtros e da deduplicação. Uma linha pode ter mais de uma ocorrência; o número de logins não representa o quadro ativo.")
-        if qualidade_origem["ocorrencias"]:
-            st.warning("Há cadastros para revisar na planilha. Linhas sem login não entram na lista; RE repetido não une técnicos automaticamente.")
-            st.dataframe(pd.DataFrame(qualidade_origem["ocorrencias"]), hide_index=True, width="stretch")
-        else:
-            st.success("Nenhuma inconsistência detectada nas verificações cadastrais.")
-        if qualidade_origem["ultima_modificacao_cadastral"]:
-            st.caption("Maior data informada em Ultima_Modificacao: " + qualidade_origem["ultima_modificacao_cadastral"] + ". Esse campo é cadastral e não confirma a data da última presença.")
+def _render_qualidade_origem() -> None:
+    qualidade_origem = lista_ativos.attrs.get("qualidade_origem")
+    if qualidade_origem:
+        with st.expander("Qualidade da lista de ativos", expanded=bool(qualidade_origem["ocorrencias"])):
+            c_origem, c_validos, c_pendencias = st.columns(3)
+            c_origem.metric("Linhas na origem", qualidade_origem["linhas_origem"])
+            c_validos.metric("Logins únicos preenchidos", qualidade_origem["logins_validos"])
+            c_pendencias.metric("Ocorrências para revisar", len(qualidade_origem["ocorrencias"]))
+            st.caption("Diagnóstico da carga completa, antes dos filtros e da deduplicação. Uma linha pode ter mais de uma ocorrência; o número de logins não representa o quadro ativo.")
+            if qualidade_origem["ocorrencias"]:
+                st.warning("Há cadastros para revisar na planilha. Linhas sem login não entram na lista; RE repetido não une técnicos automaticamente.")
+                st.dataframe(pd.DataFrame(qualidade_origem["ocorrencias"]), hide_index=True, width="stretch")
+            else:
+                st.success("Nenhuma inconsistência detectada nas verificações cadastrais.")
+            if qualidade_origem["ultima_modificacao_cadastral"]:
+                st.caption("Maior data informada em Ultima_Modificacao: " + qualidade_origem["ultima_modificacao_cadastral"] + ". Esse campo é cadastral e não confirma a data da última presença.")
+
 
 for tipo_flash, texto_flash in st.session_state.pop("absenteismo_flash", []):
     if tipo_flash == "sucesso":
@@ -254,11 +245,12 @@ if qtd_pendentes:
 # FILTROS (SIDEBAR)
 # ============================================================
 with st.sidebar:
-    st.markdown("### 🗓️ Filtros — Lista de Presença")
+    st.markdown("### Filtros da equipe")
+    st.caption("Base, monitor e busca afetam todas as áreas. Período e tipo delimitam mapas e análises.")
     periodo_inicio = st.date_input(
-        "Início do período", value=mes_inicio, key="absenteismo_periodo_inicio"
+        "Início do período de análise", value=mes_inicio, key="absenteismo_periodo_inicio"
     )
-    periodo_fim = st.date_input("Fim do período", value=mes_fim, key="absenteismo_periodo_fim")
+    periodo_fim = st.date_input("Fim do período de análise", value=mes_fim, key="absenteismo_periodo_fim")
     if periodo_fim < periodo_inicio:
         periodo_inicio, periodo_fim = periodo_fim, periodo_inicio
     bases_disponiveis = sorted(
@@ -830,7 +822,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         concluidos / len(matriz),
         text=f"Chamada de {dia_resumo:%d/%m} · {concluidos} de {len(matriz)} técnicos preenchidos",
     )
-    _render_acoes_presenca(matriz, dia_resumo)
+    matriz_acoes = matriz.copy()
     col_pendentes, col_detalhes, col_link = st.columns([1.3, 1.3, 1])
     with col_pendentes:
         somente_pendentes = st.toggle("Somente pendentes", key="presenca_so_pendentes")
@@ -842,6 +834,8 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         matriz = matriz.loc[matriz[dias_visiveis].eq("Não preenchido").any(axis=1)].copy()
     if matriz.empty:
         st.success("Chamada concluída para os dias exibidos. Nenhum técnico pendente neste recorte.")
+        with st.expander("Exportar, corrigir ou concluir chamada"):
+            _render_acoes_presenca(matriz_acoes, dia_resumo)
         return
     matriz = filtrar_grade_preenchimento(matriz, dias_visiveis)
     dias = _colunas_dia_mapa(matriz)
@@ -879,6 +873,8 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         height=min(600, 40 + len(matriz) * 35), width="stretch",
         key=f"absenteismo_grade_editor_{versao}",
     ).rename(columns={nome: dia for dia, nome in nomes_dias.items()})
+    with st.expander("Ações da chamada · lote, correção, fechamento e Excel"):
+        _render_acoes_presenca(matriz_acoes, dia_resumo)
     with st.expander("Como preencher e corrigir marcações"):
         st.markdown("**Não preenchido** é uma pendência. Selecione **Presente** para confirmar a presença ou escolha o motivo da ausência.")
         st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. A auditoria preserva o valor anterior. Em falha de envio, os dados ficam apenas nesta sessão.")
@@ -943,136 +939,124 @@ matriz_mapa = montar_matriz_ausencias(
     registros_recorte, quadro_mapa, inicio=mapa_inicio, fim=mapa_fim
 )
 
-with secao(
-    "Força de Trabalho",
-    icone="groups",
-    subtitulo="Disponibilidade estimada do quadro por base e monitor na data escolhida.",
-):
-    with st.container(border=True):
-        col_referencia, col_contexto = st.columns([1, 2])
-        with col_referencia:
-            data_forca = st.date_input("Data da força de trabalho", value=hoje, key="absenteismo_data_forca")
-        with col_contexto:
-            st.markdown("**Panorama da capacidade operacional**")
-            st.caption("Equipe do recorte atual de base, monitor e busca. Todos os tipos de ausência são considerados.")
-    with st.expander("Como interpretar esta visão"):
-        st.caption("Disponível estimado é o integrante do quadro sem ausência registrada na data, inclusive quem ainda não teve a presença preenchida. Não confirma presença ou escala. Feriados, jornadas e plantões não são aplicados. O filtro de tipo de ausência não altera esta visão.")
-    if data_forca.weekday() >= 5:
-        st.info("Fim de semana: confira a escala. Este cálculo não aplica jornadas, feriados ou plantões.")
-    if qtd_pendentes:
-        st.warning("A força de trabalho inclui lançamentos ainda não sincronizados desta sessão.")
-    resumo_forca, detalhes_forca = calcular_forca_trabalho(quadro_mapa, registros, data_forca)
-    if detalhes_forca.empty:
-        render_empty_state(
-            tipo="dados", titulo="Nenhum integrante do quadro no recorte",
-            descricao="Confira a lista_ativos ou ajuste base, monitor e busca.",
-        )
-    else:
-        render_forca_trabalho(resumo_forca, detalhes_forca, data_forca)
-
-
-with secao(
-    "Mapa Mensal de Ausências",
-    icone="calendar_view_month",
-    subtitulo=(
-        f"{mapa_inicio:%m/%Y} · uma coluna por dia, do mesmo jeito da planilha "
-        "de controle (RE, Login, Técnico, Monitor, Base, U.N.)."
-    ),
-    badge=f"{formatar_inteiro(len(matriz_mapa))} técnicos",
-):
-    if matriz_mapa.empty:
-        render_empty_state(
-            tipo="dados",
-            titulo="Nenhum técnico no recorte",
-            descricao=(
-                "A lista_ativos não está disponível e não há registros no período. "
-                "Ajuste os filtros ou atualize a planilha."
-            ),
-        )
-    else:
-        resumo_mapa = resumir_grade(matriz_mapa)
-        col_quadro, col_ausentes, col_dias = st.columns(3)
-        col_quadro.metric("Técnicos no mapa", resumo_mapa["tecnicos"])
-        col_ausentes.metric("Com ausência no mês", resumo_mapa["com_ausencia"])
-        col_dias.metric("Dias marcados", resumo_mapa["dias_marcados"])
-        st.caption("Resumo do mês e dos filtros atuais. Dois códigos no mesmo dia contam como um dia marcado.")
-        ultima_sync = st.session_state.get("absenteismo_ultima_sync")
+def _render_forca():
+    with secao(
+        "Força de Trabalho",
+        icone="groups",
+        subtitulo="Disponibilidade estimada do quadro por base e monitor na data escolhida.",
+    ):
+        with st.container(border=True):
+            col_referencia, col_contexto = st.columns([1, 2])
+            with col_referencia:
+                data_forca = st.date_input("Data da força de trabalho", value=hoje, key="absenteismo_data_forca")
+            with col_contexto:
+                st.markdown("**Panorama da capacidade operacional**")
+                st.caption("Equipe do recorte atual de base, monitor e busca. Todos os tipos de ausência são considerados.")
+        with st.expander("Como interpretar esta visão"):
+            st.caption("Disponível estimado é o integrante do quadro sem ausência registrada na data, inclusive quem ainda não teve a presença preenchida. Não confirma presença ou escala. Feriados, jornadas e plantões não são aplicados. O filtro de tipo de ausência não altera esta visão.")
+        if data_forca.weekday() >= 5:
+            st.info("Fim de semana: confira a escala. Este cálculo não aplica jornadas, feriados ou plantões.")
         if qtd_pendentes:
-            st.warning(f"{qtd_pendentes} lançamento(s) somente nesta sessão — sincronização pendente.")
-        elif ultima_sync and ultima_sync["ok"]:
-            st.caption(f"Última gravação confirmada no Drive: {ultima_sync['horario']}")
-        elif ultima_sync:
-            st.warning(f"Última tentativa sem confirmação: {ultima_sync['horario']}. Confira as pendências antes de fechar a sessão.")
-        preencher = st.toggle(
-            "Preencher lista de presença", value=True,
-            help="Edita as células dos técnicos e dias que já existem na aba absenteismo.",
-            key="absenteismo_preencher_grade",
-        )
-        if preencher:
-            aba_edicao, aba_visualizacao = st.tabs(["Preencher", "Visualizar e exportar"])
-            with aba_edicao:
-                lista_presenca = montar_lista_presenca(
-                    registros, quadro_mapa, mapa_inicio, mapa_fim
-                )
-                _render_preenchimento_mapa(lista_presenca)
-            with aba_visualizacao:
-                _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim)
+            st.warning("A força de trabalho inclui lançamentos ainda não sincronizados desta sessão.")
+        resumo_forca, detalhes_forca = calcular_forca_trabalho(quadro_mapa, registros, data_forca)
+        if detalhes_forca.empty:
+            render_empty_state(
+                tipo="dados", titulo="Nenhum integrante do quadro no recorte",
+                descricao="Confira a lista_ativos ou ajuste base, monitor e busca.",
+            )
         else:
+            render_forca_trabalho(resumo_forca, detalhes_forca, data_forca)
+
+
+def _render_mapa():
+    with secao(
+        "Mapa Mensal de Ausências",
+        icone="calendar_view_month",
+        subtitulo=(
+            f"{mapa_inicio:%m/%Y} · uma coluna por dia, do mesmo jeito da planilha "
+            "de controle (RE, Login, Técnico, Monitor, Base, U.N.)."
+        ),
+        badge=f"{formatar_inteiro(len(matriz_mapa))} técnicos",
+    ):
+        if matriz_mapa.empty:
+            render_empty_state(
+                tipo="dados",
+                titulo="Nenhum técnico no recorte",
+                descricao=(
+                    "A lista_ativos não está disponível e não há registros no período. "
+                    "Ajuste os filtros ou atualize a planilha."
+                ),
+            )
+        else:
+            resumo_mapa = resumir_grade(matriz_mapa)
+            col_quadro, col_ausentes, col_dias = st.columns(3)
+            col_quadro.metric("Técnicos no mapa", resumo_mapa["tecnicos"])
+            col_ausentes.metric("Com ausência no mês", resumo_mapa["com_ausencia"])
+            col_dias.metric("Dias marcados", resumo_mapa["dias_marcados"])
+            st.caption("Resumo do mês e dos filtros atuais. Dois códigos no mesmo dia contam como um dia marcado.")
+            ultima_sync = st.session_state.get("absenteismo_ultima_sync")
+            if qtd_pendentes:
+                st.warning(f"{qtd_pendentes} lançamento(s) somente nesta sessão — sincronização pendente.")
+            elif ultima_sync and ultima_sync["ok"]:
+                st.caption(f"Última gravação confirmada no Drive: {ultima_sync['horario']}")
+            elif ultima_sync:
+                st.warning(f"Última tentativa sem confirmação: {ultima_sync['horario']}. Confira as pendências antes de fechar a sessão.")
             _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim)
 
 
 # ============================================================
 # INDICADORES DO PERÍODO
 # ============================================================
-with secao(
-    "Indicadores do Período",
-    icone="monitoring",
-    subtitulo=f"{periodo_inicio:%d/%m/%Y} a {periodo_fim:%d/%m/%Y} · dias úteis contam seg–sex (sem feriados).",
-    badge=f"{formatar_inteiro(qtd_quadro)} técnicos no quadro",
-):
-    specs: list[SpecKPIAvancado] = [
-        {
-            "label": "Ausentes hoje",
-            "valor": formatar_inteiro(resumo["ausentes_hoje"]),
-            "sub": f"{formatar_inteiro(resumo['registros_hoje'])} registro(s) cobrindo hoje",
-            "icone": "🗓️",
-            "tema": "vermelho",
-        },
-        {
-            "label": "Técnicos ausentes no período",
-            "valor": formatar_inteiro(resumo["tecnicos_periodo"]),
-            "sub": f"{formatar_inteiro(resumo['registros_periodo'])} registro(s) no período",
-            "icone": "👷",
-            "tema": "azul",
-        },
-        {
-            "label": "Dias úteis de ausência",
-            "valor": formatar_inteiro(resumo["dias_uteis_periodo"]),
-            "sub": f"{formatar_inteiro(resumo['dias_corridos_periodo'])} dias corridos",
-            "icone": "📆",
-            "tema": "laranja",
-            "ajuda": "Soma dos dias úteis de cada registro, só na interseção com o período.",
-        },
-        {
-            "label": "Taxa de absenteísmo",
-            "valor": formatar_percentual(taxa_periodo * 100),
-            "sub": "Dias úteis ausentes ÷ (quadro × dias úteis do período)",
-            "icone": "📉",
-            "tema": "roxo",
-            "progresso": min(taxa_periodo * 100, 100.0),
-            "ajuda": f"Quadro do recorte: {formatar_inteiro(qtd_quadro)} técnicos · {dias_uteis_no_periodo} dias úteis no período.",
-        },
-    ]
-    render_kpi_row(specs, colunas=4)
-    render_insight(
-        f"No período: **{formatar_inteiro(resumo['faltas_periodo'])}** falta(s), "
-        f"**{formatar_inteiro(resumo['ferias_periodo'])}** férias e "
-        f"**{formatar_inteiro(resumo['programadas'])}** ausência(s) programadas "
-        f"(férias/folgas/treinamentos futuros). Total histórico do controle: "
-        f"**{formatar_inteiro(resumo['registros_total'])}** registro(s) ativos"
-        f" e **{formatar_inteiro(resumo['cancelados'])}** cancelado(s).",
-        tipo="info",
-    )
+def _render_indicadores():
+    with secao(
+        "Indicadores do Período",
+        icone="monitoring",
+        subtitulo=f"{periodo_inicio:%d/%m/%Y} a {periodo_fim:%d/%m/%Y} · dias úteis contam seg–sex (sem feriados).",
+        badge=f"{formatar_inteiro(qtd_quadro)} técnicos no quadro",
+    ):
+        specs: list[SpecKPIAvancado] = [
+            {
+                "label": "Ausentes hoje",
+                "valor": formatar_inteiro(resumo["ausentes_hoje"]),
+                "sub": f"{formatar_inteiro(resumo['registros_hoje'])} registro(s) cobrindo hoje",
+                "icone": "🗓️",
+                "tema": "vermelho",
+            },
+            {
+                "label": "Técnicos ausentes no período",
+                "valor": formatar_inteiro(resumo["tecnicos_periodo"]),
+                "sub": f"{formatar_inteiro(resumo['registros_periodo'])} registro(s) no período",
+                "icone": "👷",
+                "tema": "azul",
+            },
+            {
+                "label": "Dias úteis de ausência",
+                "valor": formatar_inteiro(resumo["dias_uteis_periodo"]),
+                "sub": f"{formatar_inteiro(resumo['dias_corridos_periodo'])} dias corridos",
+                "icone": "📆",
+                "tema": "laranja",
+                "ajuda": "Soma dos dias úteis de cada registro, só na interseção com o período.",
+            },
+            {
+                "label": "Taxa de absenteísmo",
+                "valor": formatar_percentual(taxa_periodo * 100),
+                "sub": "Dias úteis ausentes ÷ (quadro × dias úteis do período)",
+                "icone": "📉",
+                "tema": "roxo",
+                "progresso": min(taxa_periodo * 100, 100.0),
+                "ajuda": f"Quadro do recorte: {formatar_inteiro(qtd_quadro)} técnicos · {dias_uteis_no_periodo} dias úteis no período.",
+            },
+        ]
+        render_kpi_row(specs, colunas=4)
+        render_insight(
+            f"No período: **{formatar_inteiro(resumo['faltas_periodo'])}** falta(s), "
+            f"**{formatar_inteiro(resumo['ferias_periodo'])}** férias e "
+            f"**{formatar_inteiro(resumo['programadas'])}** ausência(s) programadas "
+            f"(férias/folgas/treinamentos futuros). Total histórico do controle: "
+            f"**{formatar_inteiro(resumo['registros_total'])}** registro(s) ativos"
+            f" e **{formatar_inteiro(resumo['cancelados'])}** cancelado(s).",
+            tipo="info",
+        )
 
 # ============================================================
 # REGISTRAR AUSÊNCIA
@@ -1173,188 +1157,231 @@ def _render_formulario_ausencia() -> None:
             st.rerun()
 
 
-with secao(
-    "Registrar Ausência",
-    icone="edit_calendar",
-    subtitulo="O lançamento preenche somente dias e técnicos já cadastrados na grade absenteismo.",
-):
-    _render_formulario_ausencia()
+def _render_lancamento():
+    with secao(
+        "Registrar Ausência",
+        icone="edit_calendar",
+        subtitulo="O lançamento preenche somente dias e técnicos já cadastrados na grade absenteismo.",
+    ):
+        _render_formulario_ausencia()
 
 
 # ============================================================
 # AUSÊNCIAS POR TIPO / CALENDÁRIO / RANKINGS
 # ============================================================
-with secao(
-    "Ausências por Tipo",
-    icone="pie_chart",
-    subtitulo="Dias úteis e registros de cada tipo dentro do período filtrado.",
-):
-    por_tipo = agrupar_registros(
-        registros_recorte, "Tipo", periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
-    )
-    if por_tipo.empty:
-        render_empty_state(
-            tipo="dados",
-            titulo="Nenhuma ausência no período",
-            descricao="Lance a primeira ausência em Registrar Ausência ou amplie o período.",
-        )
-    else:
-        colunas_graficos = st.columns(2)
-        with colunas_graficos[0]:
-            render_grafico(
-                grafico_donut(por_tipo, "Tipo", "Dias Úteis", titulo="Dias úteis por tipo", altura=340),
-                chave="absenteismo_donut_tipo",
-            )
-        with colunas_graficos[1]:
-            render_grafico(
-                grafico_barras(
-                    por_tipo, "Tipo", "Registros", titulo="Registros por tipo",
-                    altura=340, mostrar_valores=True,
-                ),
-                chave="absenteismo_barras_tipo",
-            )
-        st.dataframe(por_tipo, width="stretch", hide_index=True)
-
-with secao(
-    "Calendário de Ausências",
-    icone="calendar_month",
-    subtitulo="Técnicos ausentes por dia no período (seg–sex úteis e fins de semana).",
-):
-    serie = serie_diaria_ausencias(
-        registros_recorte, periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
-    )
-    if serie.empty:
-        render_empty_state(tipo="dados", titulo="Sem dias com ausência no período.")
-    else:
-        render_grafico(
-            grafico_calendario(
-                serie, col_data="Data", col_valor="Técnicos",
-                titulo="Técnicos ausentes por dia", altura=300, mostrar_valores=True,
-            ),
-            chave="absenteismo_calendario",
-        )
-
-with secao(
-    "Ranking por Base e Monitor",
-    icone="leaderboard",
-    subtitulo="Onde estão concentrados os dias úteis de ausência do período.",
-):
-    colunas_ranking = st.columns(2)
-    for coluna, dimensao, chave_grafico in (
-        (colunas_ranking[0], "Base", "absenteismo_ranking_base"),
-        (colunas_ranking[1], "Monitor", "absenteismo_ranking_monitor"),
+def _render_por_tipo():
+    with secao(
+        "Ausências por Tipo",
+        icone="pie_chart",
+        subtitulo="Dias úteis e registros de cada tipo dentro do período filtrado.",
     ):
-        agrupado = agrupar_registros(
-            registros_recorte, dimensao, periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
+        por_tipo = agrupar_registros(
+            registros_recorte, "Tipo", periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
         )
-        with coluna:
-            if agrupado.empty:
-                render_empty_state(tipo="dados", titulo=f"Sem dados por {dimensao.lower()}.")
-            else:
+        if por_tipo.empty:
+            render_empty_state(
+                tipo="dados",
+                titulo="Nenhuma ausência no período",
+                descricao="Lance a primeira ausência em Registrar Ausência ou amplie o período.",
+            )
+        else:
+            colunas_graficos = st.columns(2)
+            with colunas_graficos[0]:
                 render_grafico(
-                    grafico_ranking(
-                        agrupado, dimensao, "Dias Úteis",
-                        titulo=f"Dias úteis de ausência por {dimensao.lower()}", top=10,
-                    ),
-                    chave=chave_grafico,
+                    grafico_donut(por_tipo, "Tipo", "Dias Úteis", titulo="Dias úteis por tipo", altura=340),
+                    chave="absenteismo_donut_tipo",
                 )
-                st.dataframe(agrupado, width="stretch", hide_index=True)
+            with colunas_graficos[1]:
+                render_grafico(
+                    grafico_barras(
+                        por_tipo, "Tipo", "Registros", titulo="Registros por tipo",
+                        altura=340, mostrar_valores=True,
+                    ),
+                    chave="absenteismo_barras_tipo",
+                )
+            st.dataframe(por_tipo, width="stretch", hide_index=True)
+
+def _render_calendario():
+    with secao(
+        "Calendário de Ausências",
+        icone="calendar_month",
+        subtitulo="Técnicos ausentes por dia no período (seg–sex úteis e fins de semana).",
+    ):
+        serie = serie_diaria_ausencias(
+            registros_recorte, periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
+        )
+        if serie.empty:
+            render_empty_state(tipo="dados", titulo="Sem dias com ausência no período.")
+        else:
+            render_grafico(
+                grafico_calendario(
+                    serie, col_data="Data", col_valor="Técnicos",
+                    titulo="Técnicos ausentes por dia", altura=300, mostrar_valores=True,
+                ),
+                chave="absenteismo_calendario",
+            )
+
+def _render_ranking():
+    with secao(
+        "Ranking por Base e Monitor",
+        icone="leaderboard",
+        subtitulo="Onde estão concentrados os dias úteis de ausência do período.",
+    ):
+        colunas_ranking = st.columns(2)
+        for coluna, dimensao, chave_grafico in (
+            (colunas_ranking[0], "Base", "absenteismo_ranking_base"),
+            (colunas_ranking[1], "Monitor", "absenteismo_ranking_monitor"),
+        ):
+            agrupado = agrupar_registros(
+                registros_recorte, dimensao, periodo_inicio=periodo_inicio, periodo_fim=periodo_fim
+            )
+            with coluna:
+                if agrupado.empty:
+                    render_empty_state(tipo="dados", titulo=f"Sem dados por {dimensao.lower()}.")
+                else:
+                    render_grafico(
+                        grafico_ranking(
+                            agrupado, dimensao, "Dias Úteis",
+                            titulo=f"Dias úteis de ausência por {dimensao.lower()}", top=10,
+                        ),
+                        chave=chave_grafico,
+                    )
+                    st.dataframe(agrupado, width="stretch", hide_index=True)
 
 # ============================================================
 # AUSENTES HOJE E PRÓXIMAS AUSÊNCIAS
 # ============================================================
-with secao(
-    "Ausentes Hoje e Próximas Ausências",
-    icone="upcoming",
-    subtitulo="Quem está fora hoje e o que vem nos próximos 30 dias.",
-):
-    ativos = registros_recorte[registros_recorte["Status"] == STATUS_ATIVO]
-    if ativos.empty:
-        render_empty_state(tipo="dados", titulo="Nenhum registro ativo no recorte.")
-    else:
-        de_hoje = ativos[
-            (ativos["_inicio"].dt.date <= hoje) & (ativos["_fim"].dt.date >= hoje)
-        ]
-        proximas = ativos[
-            (ativos["_inicio"].dt.date > hoje)
-            & (ativos["_inicio"].dt.date <= hoje + timedelta(days=30))
-        ]
-        colunas_listas = st.columns(2)
-        with colunas_listas[0]:
-            st.markdown(f"**Ausentes hoje ({hoje:%d/%m/%Y})** — {len(de_hoje)} registro(s)")
-            if de_hoje.empty:
-                st.caption("Ninguém ausente hoje neste recorte.")
-            else:
-                st.dataframe(_tabela_exibicao(de_hoje), width="stretch", hide_index=True)
-        with colunas_listas[1]:
-            st.markdown(f"**Próximas ausências (30 dias)** — {len(proximas)} registro(s)")
-            if proximas.empty:
-                st.caption("Nada programado para os próximos 30 dias neste recorte.")
-            else:
-                st.dataframe(_tabela_exibicao(proximas), width="stretch", hide_index=True)
+def _render_agenda():
+    with secao(
+        "Ausentes Hoje e Próximas Ausências",
+        icone="upcoming",
+        subtitulo="Quem está fora hoje e o que vem nos próximos 30 dias.",
+    ):
+        ativos = registros_recorte[registros_recorte["Status"] == STATUS_ATIVO]
+        if ativos.empty:
+            render_empty_state(tipo="dados", titulo="Nenhum registro ativo no recorte.")
+        else:
+            de_hoje = ativos[
+                (ativos["_inicio"].dt.date <= hoje) & (ativos["_fim"].dt.date >= hoje)
+            ]
+            proximas = ativos[
+                (ativos["_inicio"].dt.date > hoje)
+                & (ativos["_inicio"].dt.date <= hoje + timedelta(days=30))
+            ]
+            colunas_listas = st.columns(2)
+            with colunas_listas[0]:
+                st.markdown(f"**Ausentes hoje ({hoje:%d/%m/%Y})** — {len(de_hoje)} registro(s)")
+                if de_hoje.empty:
+                    st.caption("Ninguém ausente hoje neste recorte.")
+                else:
+                    st.dataframe(_tabela_exibicao(de_hoje), width="stretch", hide_index=True)
+            with colunas_listas[1]:
+                st.markdown(f"**Próximas ausências (30 dias)** — {len(proximas)} registro(s)")
+                if proximas.empty:
+                    st.caption("Nada programado para os próximos 30 dias neste recorte.")
+                else:
+                    st.dataframe(_tabela_exibicao(proximas), width="stretch", hide_index=True)
 
 # ============================================================
 # REGISTROS DO CONTROLE (DETALHAMENTO + CANCELAMENTO)
 # ============================================================
-with secao(
-    "Registros do Controle",
-    icone="list_alt",
-    subtitulo="Marcações atuais da grade. Cancelar limpa a célula e registra o valor anterior em auditoria_presenca.",
-    badge=f"{formatar_inteiro(len(registros_recorte))} no recorte",
-):
-    if incluir_cancelados:
-        exibidos = registros_recorte[
-            (registros_recorte["_inicio"] <= pd.Timestamp(periodo_fim))
-            & (registros_recorte["_fim"] >= pd.Timestamp(periodo_inicio))
-        ]
-    else:
-        # Só ativos cobrindo o período (cancelados ficam fora da lista).
-        exibidos = filtrar_registros_periodo(registros_recorte, periodo_inicio, periodo_fim)
-    if exibidos.empty:
-        render_empty_state(
-            tipo="filtro",
-            titulo="Nenhum registro no recorte atual",
-            descricao="Ajuste o período/filtros ou lance uma nova ausência.",
-        )
-    else:
-        st.dataframe(_tabela_exibicao(exibidos), width="stretch", hide_index=True)
+def _render_registros():
+    with secao(
+        "Registros do Controle",
+        icone="list_alt",
+        subtitulo="Marcações atuais da grade. Cancelar limpa a célula e registra o valor anterior em auditoria_presenca.",
+        badge=f"{formatar_inteiro(len(registros_recorte))} no recorte",
+    ):
+        if incluir_cancelados:
+            exibidos = registros_recorte[
+                (registros_recorte["_inicio"] <= pd.Timestamp(periodo_fim))
+                & (registros_recorte["_fim"] >= pd.Timestamp(periodo_inicio))
+            ]
+        else:
+            # Só ativos cobrindo o período (cancelados ficam fora da lista).
+            exibidos = filtrar_registros_periodo(registros_recorte, periodo_inicio, periodo_fim)
+        if exibidos.empty:
+            render_empty_state(
+                tipo="filtro",
+                titulo="Nenhum registro no recorte atual",
+                descricao="Ajuste o período/filtros ou lance uma nova ausência.",
+            )
+        else:
+            st.dataframe(_tabela_exibicao(exibidos), width="stretch", hide_index=True)
 
-        ativos_exibidos = exibidos[exibidos["Status"] == STATUS_ATIVO]
-        if not ativos_exibidos.empty:
-            rotulos_cancelar = {
-                f"{linha['Técnico']} · {linha['Tipo']} · {linha['_inicio']:%d/%m/%Y} a "
-                f"{linha['_fim']:%d/%m/%Y} (Login {linha['Login']})": str(linha["ID"])
-                for _, linha in ativos_exibidos.iterrows()
-            }
-            col_cancelar_a, col_cancelar_b = st.columns([3, 1])
-            with col_cancelar_a:
-                escolha = st.selectbox(
-                    "Registro para cancelar", list(rotulos_cancelar), key="absenteismo_cancelar_sel"
-                )
-            with col_cancelar_b:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("🚫 Cancelar registro", key="absenteismo_cancelar_btn"):
-                    id_escolhido = rotulos_cancelar[escolha]
-                    atualizados = registros.copy()
-                    atualizados.loc[atualizados["ID"] == id_escolhido, "Status"] = STATUS_CANCELADO
-                    atualizados.loc[atualizados["ID"] == id_escolhido, "Motivo"] = "Cancelamento via Registros do Controle"
-                    if _persistir(atualizados):
-                        st.session_state["absenteismo_flash"] = [
-                            ("sucesso", "Registro cancelado e gravado na planilha.")
-                        ]
-                    else:
-                        st.session_state["absenteismo_flash"] = [
-                            ("alerta", "Cancelamento não confirmado. A marcação anterior foi mantida; confira o status de sincronização.")
-                        ]
-                    st.rerun()
+            ativos_exibidos = exibidos[exibidos["Status"] == STATUS_ATIVO]
+            if not ativos_exibidos.empty:
+                rotulos_cancelar = {
+                    f"{linha['Técnico']} · {linha['Tipo']} · {linha['_inicio']:%d/%m/%Y} a "
+                    f"{linha['_fim']:%d/%m/%Y} (Login {linha['Login']})": str(linha["ID"])
+                    for _, linha in ativos_exibidos.iterrows()
+                }
+                col_cancelar_a, col_cancelar_b = st.columns([3, 1])
+                with col_cancelar_a:
+                    escolha = st.selectbox(
+                        "Registro para cancelar", list(rotulos_cancelar), key="absenteismo_cancelar_sel"
+                    )
+                with col_cancelar_b:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("🚫 Cancelar registro", key="absenteismo_cancelar_btn"):
+                        id_escolhido = rotulos_cancelar[escolha]
+                        atualizados = registros.copy()
+                        atualizados.loc[atualizados["ID"] == id_escolhido, "Status"] = STATUS_CANCELADO
+                        atualizados.loc[atualizados["ID"] == id_escolhido, "Motivo"] = "Cancelamento via Registros do Controle"
+                        if _persistir(atualizados):
+                            st.session_state["absenteismo_flash"] = [
+                                ("sucesso", "Registro cancelado e gravado na planilha.")
+                            ]
+                        else:
+                            st.session_state["absenteismo_flash"] = [
+                                ("alerta", "Cancelamento não confirmado. A marcação anterior foi mantida; confira o status de sincronização.")
+                            ]
+                        st.rerun()
+    return exibidos
 
 # ============================================================
 # EXPORTAÇÃO
 # ============================================================
-secao_exportacao(
-    _tabela_exibicao(exibidos if not exibidos.empty else registros_recorte),
-    nome_arquivo="presenca_grade_absenteismo",
-    chave="absenteismo",
-)
+def _render_chamada_diaria() -> None:
+    st.caption("01 · Selecione a data e a equipe → 02 · Registre as situações → 03 · Confira e conclua a chamada")
+    st.info("A chamada considera todos os tipos de situação. Os filtros de tipo e período da lateral são usados nas análises; a data da chamada é escolhida abaixo.")
+    lista = montar_lista_presenca(registros, quadro_mapa, min(datas_grade), max(datas_grade))
+    if lista.empty:
+        render_empty_state(tipo="filtro", titulo="Nenhum técnico neste recorte", descricao="Ajuste os filtros de base, monitor ou busca na lateral.")
+        return
+    _render_preenchimento_mapa(lista)
+    with st.expander("Registrar ausência por período"):
+        _render_lancamento()
+
+
+# Navegação principal: operação primeiro; análises e diagnóstico em áreas próprias.
+aba_chamada, aba_forca, aba_mapa, aba_analises, aba_historico = st.tabs(AREAS_PAGINA)
+with aba_chamada:
+    _render_chamada_diaria()
+with aba_forca:
+    _render_forca()
+with aba_mapa:
+    _render_mapa()
+with aba_analises:
+    _render_indicadores()
+    tipo_analise = st.radio(
+        "Explorar análises", ["Tipos de ausência", "Calendário", "Bases e monitores", "Hoje e próximas"],
+        horizontal=True, key="presenca_tipo_analise",
+    )
+    if tipo_analise == "Tipos de ausência":
+        _render_por_tipo()
+    elif tipo_analise == "Calendário":
+        _render_calendario()
+    elif tipo_analise == "Bases e monitores":
+        _render_ranking()
+    else:
+        _render_agenda()
+with aba_historico:
+    _render_qualidade_origem()
+    exibidos = _render_registros()
+    secao_exportacao(
+        _tabela_exibicao(exibidos if not exibidos.empty else registros_recorte),
+        nome_arquivo="presenca_grade_absenteismo", chave="absenteismo",
+    )
 
 fechar_dashboard()
