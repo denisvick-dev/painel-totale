@@ -471,7 +471,7 @@ def _ativos(df: pd.DataFrame | None) -> pd.DataFrame:
         return registros_vazios()
     if "Status" not in df.columns or "_inicio" not in df.columns:
         return registros_vazios()
-    return df.loc[df["Status"].ne(STATUS_CANCELADO) & df["Tipo"].ne("Presente")].copy()
+    return df.loc[df["Status"].ne(STATUS_CANCELADO) & ~df["Tipo"].str.upper().isin(["PRESENTE", "DUPLADO", "BAIXA DE KIT"])].copy()
 
 
 def filtrar_registros_periodo(

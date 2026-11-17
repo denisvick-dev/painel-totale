@@ -1,38 +1,9 @@
-"""
-absenteismo.py
-==============
-Controle de Absenteísmo — Portal TOTALE.
+"""Lista de Presença — leitura e escrita localizada na grade absenteismo.
 
-É o **controle de ausências** do quadro no formato da planilha operacional:
-uma grade com **RE, Login, Técnico, Monitor, Base, U.N.** e **uma coluna por
-dia do mês** (``1/nov.``, ``2/nov.``…). Cada célula recebe o código do tipo
-(``F``, ``FE``, ``AT``…) e a linha em branco significa presença. Abaixo do
-mapa continuam as análises e os lançamentos por período, com contagem em
-**dias corridos** e **dias úteis** (seg–sex).
-
-Fontes (camada compartilhada, nenhuma leitura própria nesta página):
-
-* **quem é o quadro** — aba ``lista_ativos`` via
-  :func:`services.hierarquia.lista_ativos_da_sessao` (técnico, monitor e base
-  do formulário e dos recortes);
-* **os registros de ausência** — aba ``controle_absenteismo`` da mesma
-  planilha, via :mod:`services.absenteismo` (leitura compartilhada; gravação
-  com ``gspread``/conta de serviço, o mesmo padrão da Gestão de Ativos; a aba
-  é criada com o cabeçalho oficial no primeiro lançamento). A leitura aceita
-  dois formatos: registros (oficial) ou a própria **grade mensal** — nesse
-  caso a aba é somente leitura, para a gravação não apagar as colunas de dias.
-
-Regras do controle (detalhes em :mod:`services.absenteismo`):
-
-* dias no período são contados só na interseção com o período filtrado;
-* cancelar não apaga — o registro fica ``Cancelado`` e auditável;
-* sem credencial de escrita (``[gcp_service_account]`` nos secrets), o
-  lançamento fica **somente na sessão** e a página avisa: nada é fingido
-  como salvo na planilha.
-
-A página segue o padrão do portal (``components.dashboards`` +
-``components.layout_pagina``): hero → chips → sumário → **mapa mensal** →
-indicadores → lançamento → análises → registros → exportação → rodapé.
+A grade é a fonte principal. A camada de análise usa registros virtuais por
+login/dia. Nenhum fluxo desta página substitui a aba por registros longos.
+As alterações são conferidas contra o snapshot remoto e enviadas por célula,
+com auditoria no mesmo batchUpdate. Controle otimista não é CAS distribuído.
 """
 
 from __future__ import annotations
@@ -56,11 +27,10 @@ from components.graficos import (
     grafico_ranking,
     render_grafico,
 )
-from components.importacao_presenca import render_importacao_presenca
 from components.kpi_cards import SpecKPIAvancado, render_kpi_row
 from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
-from config.settings import SHEET_ABA_ABSENTEISMO, SHEET_ABA_ATIVOS, obter_sheet_id_ativos
+from config.settings import SHEET_ABA_ATIVOS, obter_sheet_id_ativos
 from services.absenteismo import (
     ABREVIACOES_AUSENCIA,
     CHAVE_SESSAO_REGISTROS,
@@ -76,8 +46,6 @@ from services.absenteismo import (
     filtrar_registros_periodo,
     montar_matriz_ausencias,
     normalizar_registros,
-    origem_grade_da_sessao,
-    registros_da_sessao,
     resumir_controle,
     serie_diaria_ausencias,
 )
@@ -87,12 +55,18 @@ from services.absenteismo_grade import (
 )
 from services.dados_sessao import resumir_carga, ultima_atualizacao
 from services.forca_trabalho import calcular_forca_trabalho
-from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
+from services.hierarquia import lista_ativos_da_sessao
 from services.lista_presenca import (
     OPCOES_PRESENCA,
     montar_lista_presenca,
     registros_da_presenca,
     resumo_presenca,
+)
+from services.presenca_grade import (
+    CHAVE_SNAPSHOT,
+    carregar_grade_sessao,
+    consultar_auditoria_grade,
+    salvar_grade,
 )
 from services.presenca_operacoes import (
     assinatura,
@@ -100,7 +74,6 @@ from services.presenca_operacoes import (
     corrigir_dia,
     fechar_chamada,
     preparar_lote,
-    salvar_conferindo,
 )
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual
 
@@ -131,9 +104,9 @@ CHAVES_FILTRO: tuple[str, ...] = (
 )
 
 #: Registros lançados sem persistência (sem credencial de escrita) nesta sessão.
-CHAVE_PENDENTES = "absenteismo_registros_pendentes"
+CHAVE_PENDENTES = "presenca_grade_registros_pendentes"
 #: IDs cancelados sem persistência nesta sessão (override sobre a leitura).
-CHAVE_CANCELADOS_PENDENTES = "absenteismo_cancelados_pendentes"
+CHAVE_CANCELADOS_PENDENTES = "presenca_grade_cancelados_pendentes"
 
 st.set_page_config(page_title="Lista de Presença | TOTALE", page_icon="🗓️", layout="wide")
 
@@ -142,11 +115,15 @@ render_page_sidebar_theme_selector()
 
 
 # ============================================================
-# CARGA: QUADRO (lista_ativos) + REGISTROS (controle_absenteismo)
+# CARGA: GRADE absenteismo + CADASTRO AUXILIAR lista_ativos
 # ============================================================
 def _carregar_registros() -> tuple[pd.DataFrame, int]:
-    """Registros da planilha + pendentes da sessão, com cancelamentos aplicados."""
-    base = registros_da_sessao(aba=SHEET_ABA_ABSENTEISMO, ttl=300)
+    """Marcações da grade + pendentes desta sessão."""
+    try:
+        base = carregar_grade_sessao()
+    except Exception as exc:
+        st.error(f"Não foi possível ler a aba absenteismo: {exc}. Confira a conta de serviço e a permissão da planilha. Nenhum dado vazio será tratado como presença.")
+        st.stop()
     pendentes: list[dict] = st.session_state.get(CHAVE_PENDENTES, [])
     cancelados: set[str] = st.session_state.get(CHAVE_CANCELADOS_PENDENTES, set())
 
@@ -165,11 +142,12 @@ def _carregar_registros() -> tuple[pd.DataFrame, int]:
 
 def _persistir(registros: pd.DataFrame) -> bool:
     """Grava e mantém na sessão a versão confirmada, sem reler cache antigo."""
-    if origem_grade:
-        logger.warning("Gravação bloqueada: controle no formato de grade mensal.")
-        return False
     base_confirmada = st.session_state.get(CHAVE_SESSAO_REGISTROS, normalizar_registros(None))
-    ok, motivo, confirmados = salvar_conferindo(base_confirmada, registros)
+    snapshot = st.session_state.get(CHAVE_SNAPSHOT)
+    if snapshot is None:
+        st.error("Atualize a grade antes de salvar.")
+        return False
+    ok, motivo, confirmado = salvar_grade(snapshot, base_confirmada, registros)
     st.session_state["absenteismo_ultima_sync"] = {
         "ok": ok,
         "horario": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
@@ -178,7 +156,8 @@ def _persistir(registros: pd.DataFrame) -> bool:
     if ok:
         st.session_state.pop(CHAVE_PENDENTES, None)
         st.session_state.pop(CHAVE_CANCELADOS_PENDENTES, None)
-        st.session_state[CHAVE_SESSAO_REGISTROS] = confirmados.copy()
+        st.session_state[CHAVE_SNAPSHOT] = confirmado
+        st.session_state[CHAVE_SESSAO_REGISTROS] = confirmado["registros"].copy()
     else:
         logger.warning("Controle de absenteísmo sem persistência: %s", motivo)
     return ok
@@ -192,30 +171,31 @@ def _primeiro_e_ultimo_dia_mes(hoje: date) -> tuple[date, date]:
 
 lista_ativos = lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600)
 registros, qtd_pendentes = _carregar_registros()
-origem_grade = origem_grade_da_sessao()
 hoje = date.today()
-mes_inicio, mes_fim = _primeiro_e_ultimo_dia_mes(hoje)
+datas_grade = st.session_state[CHAVE_SNAPSHOT]["dias"]
+mes_inicio, mes_fim = _primeiro_e_ultimo_dia_mes(hoje if hoje in datas_grade else min(datas_grade))
 
-# Técnicos do quadro (sem desligados/inativos) para o formulário e recortes.
-quadro_df = (
-    lista_ativos[lista_ativos["SITUAÇÃO"].isin(SITUACOES_QUADRO)].copy()
-    if not lista_ativos.empty
-    else lista_ativos
-)
+# A lista da própria grade é o quadro da chamada; não cria linhas implicitamente.
+quadro_df = st.session_state[CHAVE_SNAPSHOT]["pessoas"].rename(columns={
+    "Login": "LOGIN", "Técnico": "TÉCNICO", "Monitor": "MONITOR", "Base": "BASE",
+}).copy()
 
 abrir_dashboard(
     "Lista de Presença",
     subtitulo=(
         "Presença diária, faltas, folgas, férias e afastamentos do quadro "
-        "— registros na aba controle_absenteismo, técnicos da lista_ativos."
+        "— leitura e preenchimento direto na aba absenteismo."
     ),
     icone="🗓️",
     secoes=SECOES_PAGINA,
     resumo=resumir_carga(registros, atualizado_em=ultima_atualizacao()),
-    origem=f"controle_absenteismo + lista_ativos ({SHEET_ABA_ATIVOS})",
+    origem="absenteismo (grade mensal) · cadastro auxiliar: lista_ativos",
 )
 
-render_importacao_presenca(registros, _persistir, bloqueado=origem_grade)
+st.caption(
+    f"Fonte principal: aba absenteismo · datas de {min(datas_grade):%d/%m/%Y} a {max(datas_grade):%d/%m/%Y}. "
+    "Presente é gravado como ATIVO. Somente células alteradas são atualizadas; cadastros, fórmulas e formatação permanecem intactos."
+)
 
 qualidade_origem = lista_ativos.attrs.get("qualidade_origem")
 if qualidade_origem:
@@ -252,7 +232,7 @@ if qtd_pendentes:
         titulo="Lançamentos não sincronizados",
     )
 
-if qtd_pendentes and not origem_grade:
+if qtd_pendentes:
     if st.button("Tentar sincronizar pendências com o Drive", key="absenteismo_sincronizar"):
         if _persistir(registros):
             st.session_state["absenteismo_flash"] = [
@@ -296,14 +276,14 @@ with st.sidebar:
         "Buscar técnico ou login", key="absenteismo_busca", placeholder="Nome ou login…"
     )
     incluir_cancelados = st.checkbox(
-        "Incluir registros cancelados na lista", key="absenteismo_incluir_cancelados"
+        "Exibir também presenças e situações operacionais", key="absenteismo_incluir_cancelados"
     )
     if st.button("Limpar filtros", key="absenteismo_limpar_filtros"):
         for chave in CHAVES_FILTRO:
             st.session_state.pop(chave, None)
         st.rerun()
     if st.button("🔄 Atualizar registros e quadro", key="absenteismo_atualizar"):
-        registros_da_sessao(aba=SHEET_ABA_ABSENTEISMO, ttl=300, forcar=True)
+        carregar_grade_sessao(forcar=True)
         lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600, forcar=True)
         st.rerun()
 
@@ -524,17 +504,13 @@ def _mapa_para_excel(matriz: pd.DataFrame) -> bytes:
 
 
 def _render_mapa_mensal(
-    matriz: pd.DataFrame, inicio: date, fim: date, origem_grade: bool
+    matriz: pd.DataFrame, inicio: date, fim: date
 ) -> None:
     """Renderiza a grade mensal com legenda, totais e download do xlsx."""
     dias = _colunas_dia_mapa(matriz)
     _injetar_css_mapa()
 
-    if origem_grade:
-        st.caption(
-            "Fonte: aba `controle_absenteismo` no formato de grade mensal — "
-            "alterações são feitas direto na planilha (o painel não regrava essa aba)."
-        )
+    st.caption("Fonte: grade absenteismo. Use Preencher para editar; apenas as células alteradas são gravadas.")
     st.caption(
         f"Período do mapa: **{_rotulo_dia(inicio)} a {_rotulo_dia(fim)}** "
         f"({len(dias)} dias) · usa o mês do início do período · "
@@ -628,9 +604,7 @@ def _render_mapa_mensal(
     )
 
     st.caption(
-        "Para editar, altere a grade direto na planilha."
-        if origem_grade
-        else "Para lançar uma ausência, use **Registrar Ausência** abaixo — o mapa atualiza na hora."
+        "Para editar, use **Preencher**. O mapa de ausências não trata células vazias como presença."
     )
 
     legenda = "".join(
@@ -725,23 +699,24 @@ def _render_acoes_presenca(matriz: pd.DataFrame, dia: date) -> None:
                 with st.spinner("Conferindo e gravando correção…"):
                     ok = _persistir(alterados)
                 if ok:
-                    st.session_state["absenteismo_flash"] = [("sucesso", "Correção salva; o registro anterior permanece cancelado no histórico.")]
+                    st.session_state["absenteismo_flash"] = [("sucesso", "Correção salva na grade; valores anterior e novo registrados em auditoria_presenca.")]
                     st.rerun()
                 else:
                     st.error("Correção não confirmada. Confira o status de sincronização; o histórico local não foi alterado.")
             except ValueError as exc:
                 st.error(str(exc))
-        st.caption("Registros anteriores são cancelados, não apagados. Em lançamentos por período, os demais dias são preservados.")
-        with st.expander("Histórico dos técnicos deste recorte"):
-            historico_correcao = registros.loc[
-                registros["Login"].isin(diario["Login"])
-                & registros["_inicio"].le(pd.Timestamp(dia))
-                & registros["_fim"].ge(pd.Timestamp(dia))
-            ]
-            st.dataframe(
-                historico_correcao[["ID", "Login", "Técnico", "Tipo", "Status", "Motivo", "Registrado em"]],
-                hide_index=True, width="stretch",
-            )
+        st.caption("A célula é corrigida na grade. O valor anterior, novo valor e motivo ficam em auditoria_presenca; os demais dias são preservados.")
+        with st.expander("Histórico de alterações da grade"):
+            st.caption("Consulta os valores anteriores e novos registrados em auditoria_presenca para o dia e a equipe selecionados.")
+            if st.button("Consultar auditoria da grade", key="presenca_auditoria_grade"):
+                try:
+                    historico = consultar_auditoria_grade(dia, diario["Login"].tolist())
+                    if historico.empty:
+                        st.info("Nenhuma alteração pelo painel foi registrada neste recorte.")
+                    else:
+                        st.dataframe(historico, hide_index=True, width="stretch")
+                except Exception as exc:
+                    st.error(f"Não foi possível consultar a auditoria: {exc}")
     with fechamento:
         resumo_fechamento = resumo_presenca(diario, dia)
         st.write(f"{dia:%d/%m/%Y} · {len(diario)} técnicos · " + " · ".join(f"{k}: {v}" for k, v in resumo_fechamento.items()))
@@ -759,7 +734,7 @@ def _render_acoes_presenca(matriz: pd.DataFrame, dia: date) -> None:
                 if qtd_pendentes:
                     raise ValueError("Sincronize os lançamentos pendentes antes de fechar.")
                 with st.spinner("Conferindo dados remotos e registrando fechamento…"):
-                    evento = fechar_chamada(diario, dia, responsavel_fecha, confirma_pendencias)
+                    evento = fechar_chamada(diario, dia, responsavel_fecha, confirma_pendencias, fonte_grade=True)
                 st.session_state["presenca_ultimo_fechamento"] = evento
             except Exception as exc:
                 st.error(f"Fechamento não confirmado: {exc}")
@@ -839,7 +814,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         st.info("Nenhum técnico encontrado. Ajuste a unidade, o monitor ou a busca.")
         return
     resumo_dia = resumo_presenca(matriz, dia_resumo)
-    colunas_resumo = st.columns(3)
+    colunas_resumo = st.columns(len(resumo_dia))
     for coluna, (rotulo, valor) in zip(colunas_resumo, resumo_dia.items()):
         coluna.metric(rotulo, valor)
     concluidos = len(matriz) - resumo_dia["Pendentes"]
@@ -898,7 +873,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     ).rename(columns={nome: dia for dia, nome in nomes_dias.items()})
     with st.expander("Como preencher e corrigir marcações"):
         st.markdown("**Não preenchido** é uma pendência. Selecione **Presente** para confirmar a presença ou escolha o motivo da ausência.")
-        st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. Em falha de envio, os dados ficam apenas nesta sessão.")
+        st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. A auditoria preserva o valor anterior. Em falha de envio, os dados ficam apenas nesta sessão.")
     try:
         novos = registros_da_presenca(matriz, editada)
     except ValueError as erro:
@@ -924,7 +899,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     with st.spinner("Salvando preenchimento no Google Sheets…"):
         sincronizou = _persistir(atualizados)
     if sincronizou:
-        mensagem = ("sucesso", f"{len(novos)} dia(s) salvo(s) automaticamente no Drive (aba controle_absenteismo).")
+        mensagem = ("sucesso", f"{len(novos)} dia(s) salvo(s) automaticamente no Drive (aba absenteismo).")
     else:
         st.session_state[CHAVE_PENDENTES] = [
             *st.session_state.get(CHAVE_PENDENTES, []), *novos,
@@ -1021,11 +996,11 @@ with secao(
         elif ultima_sync:
             st.warning(f"Última tentativa sem confirmação: {ultima_sync['horario']}. Confira as pendências antes de fechar a sessão.")
         preencher = st.toggle(
-            "Preencher lista de presença", value=not origem_grade, disabled=origem_grade,
-            help="Disponível quando o controle está no formato de registros.",
+            "Preencher lista de presença", value=True,
+            help="Edita as células dos técnicos e dias que já existem na aba absenteismo.",
             key="absenteismo_preencher_grade",
         )
-        if preencher and not origem_grade:
+        if preencher:
             aba_edicao, aba_visualizacao = st.tabs(["Preencher", "Visualizar e exportar"])
             with aba_edicao:
                 lista_presenca = montar_lista_presenca(
@@ -1033,9 +1008,9 @@ with secao(
                 )
                 _render_preenchimento_mapa(lista_presenca)
             with aba_visualizacao:
-                _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
+                _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim)
         else:
-            _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
+            _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim)
 
 
 # ============================================================
@@ -1193,19 +1168,9 @@ def _render_formulario_ausencia() -> None:
 with secao(
     "Registrar Ausência",
     icone="edit_calendar",
-    subtitulo="O lançamento grava na aba controle_absenteismo da planilha da lista_ativos.",
+    subtitulo="O lançamento preenche somente dias e técnicos já cadastrados na grade absenteismo.",
 ):
-    if origem_grade:
-        render_insight(
-            "A aba `controle_absenteismo` está **no formato de grade mensal** "
-            "(uma coluna por dia). Para não apagar as colunas de dias, o painel "
-            "não regrava essa aba: registre ou ajuste a ausência direto na planilha. "
-            "O mapa acima já reflete o que está lá.",
-            tipo="info",
-            titulo="Controle em grade mensal (somente leitura)",
-        )
-    else:
-        _render_formulario_ausencia()
+    _render_formulario_ausencia()
 
 
 # ============================================================
@@ -1326,7 +1291,7 @@ with secao(
 with secao(
     "Registros do Controle",
     icone="list_alt",
-    subtitulo="Todos os lançamentos do período. Cancelar mantém o registro auditável.",
+    subtitulo="Marcações atuais da grade. Cancelar limpa a célula e registra o valor anterior em auditoria_presenca.",
     badge=f"{formatar_inteiro(len(registros_recorte))} no recorte",
 ):
     if incluir_cancelados:
@@ -1347,12 +1312,7 @@ with secao(
         st.dataframe(_tabela_exibicao(exibidos), width="stretch", hide_index=True)
 
         ativos_exibidos = exibidos[exibidos["Status"] == STATUS_ATIVO]
-        if origem_grade:
-            st.caption(
-                "Registros derivados da grade mensal: cancele/edite direto na "
-                "planilha para não perder as colunas de dias."
-            )
-        elif not ativos_exibidos.empty:
+        if not ativos_exibidos.empty:
             rotulos_cancelar = {
                 f"{linha['Técnico']} · {linha['Tipo']} · {linha['_inicio']:%d/%m/%Y} a "
                 f"{linha['_fim']:%d/%m/%Y} (Login {linha['Login']})": str(linha["ID"])
@@ -1369,25 +1329,14 @@ with secao(
                     id_escolhido = rotulos_cancelar[escolha]
                     atualizados = registros.copy()
                     atualizados.loc[atualizados["ID"] == id_escolhido, "Status"] = STATUS_CANCELADO
+                    atualizados.loc[atualizados["ID"] == id_escolhido, "Motivo"] = "Cancelamento via Registros do Controle"
                     if _persistir(atualizados):
                         st.session_state["absenteismo_flash"] = [
                             ("sucesso", "Registro cancelado e gravado na planilha.")
                         ]
                     else:
-                        pendentes = [
-                            r for r in st.session_state.get(CHAVE_PENDENTES, [])
-                            if str(r.get("ID")) != id_escolhido
-                        ]
-                        st.session_state[CHAVE_PENDENTES] = pendentes
-                        cancelados = st.session_state.get(CHAVE_CANCELADOS_PENDENTES, set())
-                        cancelados.add(id_escolhido)
-                        st.session_state[CHAVE_CANCELADOS_PENDENTES] = cancelados
                         st.session_state["absenteismo_flash"] = [
-                            (
-                                "alerta",
-                                "Cancelamento aplicado **somente nesta sessão** "
-                                "(gravação na planilha indisponível).",
-                            )
+                            ("alerta", "Cancelamento não confirmado. A marcação anterior foi mantida; confira o status de sincronização.")
                         ]
                     st.rerun()
 
@@ -1396,7 +1345,7 @@ with secao(
 # ============================================================
 secao_exportacao(
     _tabela_exibicao(exibidos if not exibidos.empty else registros_recorte),
-    nome_arquivo="controle_absenteismo",
+    nome_arquivo="presenca_grade_absenteismo",
     chave="absenteismo",
 )
 

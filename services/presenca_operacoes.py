@@ -145,7 +145,7 @@ def salvar_conferindo(base, local):
         return False, str(exc), local
 
 
-def fechar_chamada(detalhes, dia, responsavel, confirmar_pendencias):
+def fechar_chamada(detalhes, dia, responsavel, confirmar_pendencias, fonte_grade=False):
     from gspread.exceptions import WorksheetNotFound
     if not responsavel.strip():
         raise ValueError("Informe o responsável pelo fechamento.")
@@ -154,7 +154,11 @@ def fechar_chamada(detalhes, dia, responsavel, confirmar_pendencias):
         raise ValueError("Confirme o fechamento com pendências.")
     with _LOCK:
         planilha = _abrir()
-        _, remoto = _ler_controle(planilha)
+        if fonte_grade:
+            from services.presenca_grade import ler_snapshot
+            remoto = ler_snapshot(planilha)["registros"]
+        else:
+            _, remoto = _ler_controle(planilha)
         from services.lista_presenca import montar_lista_presenca
         atual = montar_lista_presenca(remoto, detalhes, dia, dia).set_index("Login")
         for _, pessoa in detalhes.iterrows():
@@ -164,7 +168,7 @@ def fechar_chamada(detalhes, dia, responsavel, confirmar_pendencias):
                   "Horário": datetime.now().isoformat(timespec="seconds"),
                   "Técnicos": len(detalhes), "Pendentes": pendentes,
                   "Presentes": int(detalhes[dia].eq("Presente").sum()),
-                  "Ausentes": int((~detalhes[dia].isin(["Presente", "Não preenchido"])).sum()),
+                  "Ausentes": int((~detalhes[dia].isin(["Presente", "Não preenchido"]) & ~detalhes[dia].str.upper().isin(["DUPLADO", "BAIXA DE KIT"])).sum()),
                   "Recorte": json.dumps(detalhes[["Login", "U.N.", "Monitor"]].to_dict("records"), ensure_ascii=False),
                   "Assinatura": assinatura(detalhes[["Login", dia]])}
         try:
