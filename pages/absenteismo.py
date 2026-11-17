@@ -635,7 +635,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         num_rows="fixed",
         disabled=[c for c in matriz.columns if c not in dias],
         column_config={
-            dia: st.column_config.SelectboxColumn(
+            str(dia): st.column_config.SelectboxColumn(
                 f"{_rotulo_dia(dia)} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
                 options=opcoes,
                 width="small",
