@@ -521,9 +521,11 @@ def carregar_lista_ativos(
     Sem fonte disponível devolve :func:`lista_ativos_vazia` — quem consome
     (painel de Absenteísmo) mostra o estado vazio em vez de quebrar.
     """
-    lista = normalizar_lista_ativos(
-        _carregar_bruto_ativos(sheet_id, aba, ttl=ttl, usar_cache=usar_cache)
-    )
+    from services.qualidade_ativos import diagnosticar_ativos
+
+    bruto = _carregar_bruto_ativos(sheet_id, aba, ttl=ttl, usar_cache=usar_cache)
+    lista = normalizar_lista_ativos(bruto)
+    lista.attrs["qualidade_origem"] = diagnosticar_ativos(bruto)
     if lista.empty:
         logger.warning("Lista de ativos vazia após normalização.")
     return lista
