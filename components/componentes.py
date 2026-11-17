@@ -1769,7 +1769,7 @@ def render_table_html(
     colunas: Sequence[str] | None = None,
     alinhamentos: dict[str, Literal["left", "center", "right"]] | None = None,
     striped: bool = True,
-    max_rows: int = 100,
+    max_rows: int | None = 100,
     fmt: FmtDict | None = None,
     color_rules: dict[str, Any] | None = None,
     colunas_num: Sequence[str] | None = None,
@@ -1781,6 +1781,12 @@ def render_table_html(
     exportar_excel: bool = False,
     nome_arquivo: str = "relatorio_totale",
 ) -> None:
+    """Tabela corporativa com prévia declarada e exportação do total.
+
+    ``max_rows`` limita apenas o HTML renderizado: quando há corte, a tabela
+    avisa “Exibindo X de N” e o botão de Excel baixa ``df_completo``. Use
+    ``max_rows=None`` para renderizar todas as linhas.
+    """
     if color_rules is None and condicoes_colunas is not None:
         color_rules = condicoes_colunas
     if not isinstance(df, pd.DataFrame) or df.empty:
@@ -1793,8 +1799,13 @@ def render_table_html(
         df_display = df_clean[cols_validas].copy() if cols_validas else df_clean.copy()
     else:
         df_display = df_clean.copy()
-    if len(df_display) > max_rows:
-        df_display = df_display.head(max_rows)
+    total_linhas = len(df_display)
+    limite = int(max_rows) if max_rows is not None else 0
+    exibidas = total_linhas if limite <= 0 else min(total_linhas, limite)
+    # A exportação leva o conjunto completo; a tabela é uma prévia navegável.
+    df_completo = df_display.copy()
+    if exibidas < total_linhas:
+        df_display = df_display.head(exibidas)
 
     alinhamentos = dict(alinhamentos or {})
     if colunas_num:
@@ -1906,6 +1917,18 @@ def render_table_html(
         if caption
         else ""
     )
+    truncamento_html = ""
+    if exibidas < total_linhas:
+        percentual = exibidas / total_linhas * 100.0 if total_linhas else 0.0
+        truncamento_html = (
+            '<div role="status" style="font-size:11px;color:#92400E;background:#FFFBEB;'
+            'border:1px solid #FDE68A;border-radius:8px;padding:6px 10px;margin-top:8px;">'
+            f"Exibindo <strong>{formatar_numero_br(exibidas)}</strong> de "
+            f"<strong>{formatar_numero_br(total_linhas)}</strong> linhas "
+            f"({formatar_numero_br(percentual, 1)}%). "
+            "A exportação abaixo inclui o conjunto completo."
+            "</div>"
+        )
     data_html = (
         '<div style="font-size:11px;color:#94A3B8;margin-top:6px;text-align:right;">Atualizado em '
         f"{_agora_br().strftime('%d/%m/%Y %H:%M')}</div>"
@@ -1919,13 +1942,13 @@ def render_table_html(
         f'<div class="table-premium-scroll" style="{height_style}">'
         '<table class="totale-table-pro"><thead><tr>'
         f"{th_html}</tr></thead><tbody>{''.join(tr_parts)}</tbody></table></div></div>"
-        f"{caption_html}{data_html}</div>"
+        f"{truncamento_html}{caption_html}{data_html}</div>"
     )
-    if exportar_excel and not df_display.empty:
+    if exportar_excel and not df_completo.empty:
         buffer = io.BytesIO()
         try:
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df_display.to_excel(writer, index=False, sheet_name="Dados")
+                df_completo.to_excel(writer, index=False, sheet_name="Dados")
             _, c2 = st.columns([4, 1])
             with c2:
                 st.download_button(
@@ -1934,7 +1957,7 @@ def render_table_html(
                     file_name=f"{nome_arquivo}_{_agora_br().strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     width="stretch",
-                    help="Exportar relatório atual",
+                    help="Exportar o conjunto completo, não só a prévia exibida",
                 )
         except Exception as exc:
             logger.error("Falha na exportação de planilha: %s", exc)

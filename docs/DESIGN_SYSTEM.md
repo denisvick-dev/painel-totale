@@ -1,4 +1,4 @@
-# 🎨 Design System TOTALE — v3.6.0
+# 🎨 Design System TOTALE — v3.8.0
 
 Guia de uso dos componentes de interface e da camada de desempenho do Painel
 TOTALE. Tudo aqui já está instalado e testado; **prefira estas funções a escrever
@@ -177,7 +177,7 @@ with painel("Prévia dos dados", altura=260):  # altura controlada, com scroll
 with render_barra_acoes():
     st.download_button("Exportar CSV", dados, "producao.csv")
 
-render_rodape_pagina(versao="3.6.0", ambiente="produção")
+render_rodape_pagina(versao="3.8.0", ambiente="produção")
 ```
 
 Detalhes que evitam bugs:
@@ -235,6 +235,12 @@ Detalhes:
   com carimbo de data) — nunca monte o `download_button` à mão.
 - Caminhos de saída antecipada (`return`, página sem base) devem chamar
   `fechar_dashboard()` para o rodapé não sumir.
+- `abrir_dashboard` também desenha a **faixa de frescor** (`components/frescor_fontes.py`)
+  com a idade de cada fonte e o SLO de `config/slo_fontes.py`. Desligue com
+  `mostrar_frescor=False` só quando a própria página já exibir o status completo.
+- Tabelas longas usam `render_table_html(..., max_rows=100)`: a prévia avisa
+  “Exibindo X de N” e o Excel baixa o conjunto completo. `max_rows=None` mostra
+  todas as linhas.
 
 ---
 

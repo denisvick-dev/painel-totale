@@ -50,10 +50,17 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from components.frescor_fontes import render_faixa_frescor
 from components.layout_pagina import (
     render_chips,
     render_rodape_pagina,
     render_sumario,
+)
+from config.settings import (
+    AMBIENTE_PORTAL_PADRAO,
+    VERSAO_PORTAL_PADRAO,
+    obter_ambiente_portal,
+    obter_versao_portal,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,21 +92,10 @@ def versao_do_portal() -> tuple[str, str]:
     ``TOTALE_AMBIENTE`` em ``st.secrets``/variáveis de ambiente. O entrypoint lê
     os mesmos valores, então rodapé e ``Sobre`` nunca divergem.
     """
-    try:
-        from config.settings import (
-            AMBIENTE_PORTAL_PADRAO,
-            VERSAO_PORTAL_PADRAO,
-            obter_ambiente_portal,
-            obter_versao_portal,
-        )
-
-        return (
-            obter_versao_portal() or VERSAO_PORTAL_PADRAO,
-            obter_ambiente_portal() or AMBIENTE_PORTAL_PADRAO,
-        )
-    except Exception:  # pragma: no cover - config indisponível
-        logger.debug("config.settings indisponível; usando fallback fixo.", exc_info=True)
-        return ("3.7.0", "Produção")
+    return (
+        obter_versao_portal() or VERSAO_PORTAL_PADRAO,
+        obter_ambiente_portal() or AMBIENTE_PORTAL_PADRAO,
+    )
 
 
 def _texto_horario(valor: Any) -> str:
@@ -173,6 +169,7 @@ def abrir_dashboard(
     hero_kwargs: Mapping[str, Any] | None = None,
     titulo_sumario: str = "Nesta página",
     mostrar_sumario: bool = True,
+    mostrar_frescor: bool = True,
 ) -> dict[str, Any]:
     """Abre um dashboard no padrão do portal: hero → contexto → sumário.
 
@@ -181,6 +178,8 @@ def abrir_dashboard(
       cabeçalho padrão do Design System é usado.
     * ``secoes`` alimenta o sumário de âncoras — os nomes precisam ser os mesmos
       passados a :func:`components.layout_pagina.secao` para os links funcionarem.
+    * ``mostrar_frescor`` liga a faixa global de idade/SLO (padrão); desligue
+      apenas quando a página já trouxer o status completo, como a Home.
     * devolve os chips efetivamente exibidos (útil em testes e diagnósticos).
     """
     if hero is not None:
@@ -205,6 +204,11 @@ def abrir_dashboard(
     )
     if chips_contexto:
         render_chips(chips_contexto)
+
+    if mostrar_frescor:
+        # A idade da fonte e o estado contra o SLO aparecem em todo dashboard;
+        # a página pode desligar quando ela mesma já expõe o status completo.
+        render_faixa_frescor()
 
     if mostrar_sumario and secoes:
         rotulos = [s[0] if isinstance(s, (tuple, list)) else s for s in secoes]

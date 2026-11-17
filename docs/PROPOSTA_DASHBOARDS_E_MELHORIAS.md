@@ -503,6 +503,14 @@ fonte com teste.
 **Pronto quando:** renomear uma coluna crítica produz erro claro, não número zerado.
 
 ### B2. SLO de frescor por fonte e banner global (P0 · P)
+
+> **Status (17/11/2026): parcialmente implementado.** Faixa global em
+> `components/frescor_fontes.py` (renderizada por `abrir_dashboard`), limites
+> por fonte em `config/slo_fontes.py` e regra pura em `services/frescor.py`.
+> Pendente: página de status com histórico, SLO de Indicadores/Prévia ligado às
+> cargas próprias dessas páginas e janela comercial (hoje o cálculo é em tempo
+> corrido).
+
 **Problema:** `avaliar_frescor` usa limites genéricos e só a Home consome.
 **Ação:** declarar SLO (ex.: Produção 15 min em horário comercial; Ativos e Indicadores
 24 h; Prévia D-1 até 09h), exibir faixa global discreta e página de status com histórico.
@@ -574,6 +582,12 @@ demanda; `st.cache_resource` para clientes; invalidar cache por versão de esque
 calcula as outras.
 
 ### C4. Tabelas: truncamento silencioso e duas linguagens visuais (P1 · M)
+
+> **Status (17/11/2026): parcialmente implementado.** `render_table_html` avisa
+> “Exibindo X de N”, aceita `max_rows=None` e exporta o conjunto completo.
+> Pendente: paginação/busca no componente e substituição das tabelas que ainda
+> caem para `st.dataframe`.
+
 **Problema:** `render_table_html` corta em `max_rows=100` por padrão
 (`components/componentes.py:1772`) e **não avisa**; a página que precisa do total cai
 para `st.dataframe`, criando dois padrões visuais. O HTML é montado inteiro no servidor.
@@ -629,6 +643,11 @@ com coluna ausente; golden files para exportações.
 **Pronto quando:** toda página tem ao menos um teste de fumaça.
 
 ### ARQ6. Versão, changelog e ADRs (P2 · P)
+
+> **Status (17/11/2026): implementado na parte de versão/changelog.** Fonte única
+> em `config.settings`, `CHANGELOG.md` e teste `tests/test_versao_portal.py`.
+> ADRs continuam no backlog.
+
 **Problema:** `config/settings.py` diz 3.7.0; README e `docs/DESIGN_SYSTEM.md` dizem 3.6.0;
 não há changelog.
 **Ação:** fonte única de versão, `CHANGELOG.md` (Keep a Changelog), teste que compara
