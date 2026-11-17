@@ -41,3 +41,12 @@ def test_rejeita_sobrescrita_e_dados_invalidos(coluna, valor):
     editada.at[0, coluna] = valor
     with pytest.raises(ValueError):
         registros_do_preenchimento(original, editada)
+
+
+def test_recorte_recalcula_total_e_nao_altera_original():
+    from services.absenteismo_grade import recortar_grade, resumir_grade
+    original = _grade()
+    recorte = recortar_grade(original, [date(2026, 11, 1)])
+    assert recorte.iloc[0]["Total"] == 0
+    assert original.iloc[0]["Total"] == 1
+    assert resumir_grade(original) == {"tecnicos": 1, "com_ausencia": 1, "dias_marcados": 1}

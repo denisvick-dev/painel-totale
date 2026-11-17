@@ -61,6 +61,7 @@ from components.sidebar import render_page_sidebar_theme_selector
 from config.settings import SHEET_ABA_ABSENTEISMO, SHEET_ABA_ATIVOS, obter_sheet_id_ativos
 from services.absenteismo import (
     ABREVIACOES_AUSENCIA,
+    CHAVE_SESSAO_REGISTROS,
     DIAS_SEMANA_ABREVIADOS,
     JUSTIFICATIVAS,
     MESES_ABREVIADOS,
@@ -80,8 +81,9 @@ from services.absenteismo import (
     resumir_controle,
     serie_diaria_ausencias,
 )
-from services.absenteismo_grade import registros_do_preenchimento
+from services.absenteismo_grade import recortar_grade, registros_do_preenchimento, resumir_grade
 from services.dados_sessao import resumir_carga, ultima_atualizacao
+from services.forca_trabalho import calcular_forca_trabalho
 from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual
 
@@ -89,6 +91,7 @@ logger = logging.getLogger(__name__)
 
 #: Seções ancoradas do sumário (mesmos títulos usados em ``secao()``).
 SECOES_PAGINA: tuple[str, ...] = (
+    "Força de Trabalho",
     "Mapa Mensal de Ausências",
     "Indicadores do Período",
     "Registrar Ausência",
@@ -144,15 +147,20 @@ def _carregar_registros() -> tuple[pd.DataFrame, int]:
 
 
 def _persistir(registros: pd.DataFrame) -> bool:
-    """Grava a aba inteira; em sucesso, limpa pendências e relê da planilha."""
+    """Grava e mantém na sessão a versão confirmada, sem reler cache antigo."""
     if origem_grade:
         logger.warning("Gravação bloqueada: controle no formato de grade mensal.")
         return False
     ok, motivo = gravar_registros(registros)
+    st.session_state["absenteismo_ultima_sync"] = {
+        "ok": ok,
+        "horario": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "motivo": motivo if not ok else "",
+    }
     if ok:
         st.session_state.pop(CHAVE_PENDENTES, None)
         st.session_state.pop(CHAVE_CANCELADOS_PENDENTES, None)
-        registros_da_sessao(aba=SHEET_ABA_ABSENTEISMO, ttl=300, forcar=True)
+        st.session_state[CHAVE_SESSAO_REGISTROS] = registros.copy()
     else:
         logger.warning("Controle de absenteísmo sem persistência: %s", motivo)
     return ok
@@ -623,6 +631,19 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     # Preserva também células com tipos sobrepostos (ex.: AT/FE).
     existentes = {str(v) for dia in dias for v in matriz[dia].dropna() if str(v)}
     opcoes += sorted(existentes - set(opcoes))
+    with st.expander("Códigos disponíveis e orientação de preenchimento"):
+        st.markdown(" · ".join(f"**{codigo}** — {tipo}" for tipo, codigo in ABREVIACOES_AUSENCIA.items()))
+        st.caption("Códigos combinados indicam registros sobrepostos; não podem ser alterados neste editor.")
+    semanas: dict[str, list[date]] = {"Mês completo": dias}
+    for dia in dias:
+        segunda = dia - timedelta(days=dia.weekday())
+        fim_semana = segunda + timedelta(days=6)
+        rotulo = f"Semana de {max(segunda, dias[0]):%d/%m} a {min(fim_semana, dias[-1]):%d/%m}"
+        semanas.setdefault(rotulo, []).append(dia)
+    janela = st.selectbox("Dias exibidos no editor", list(semanas), key="absenteismo_grade_janela")
+    matriz = recortar_grade(matriz, semanas[janela])
+    dias = _colunas_dia_mapa(matriz)
+    st.caption("Dias = total de dias marcados na janela exibida. O mapa de consulta mantém o mês completo.")
     versao = hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:16]
     st.caption("Salvamento automático ativado · destino: aba controle_absenteismo.")
     st.link_button(
@@ -665,7 +686,9 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         [registros.drop(columns=["_inicio", "_fim"], errors="ignore"), pd.DataFrame(novos)],
         ignore_index=True,
     ))
-    if _persistir(atualizados):
+    with st.spinner("Salvando preenchimento no Google Sheets…"):
+        sincronizou = _persistir(atualizados)
+    if sincronizou:
         mensagem = ("sucesso", f"{len(novos)} dia(s) salvo(s) automaticamente no Drive (aba controle_absenteismo).")
     else:
         st.session_state[CHAVE_PENDENTES] = [
@@ -703,6 +726,51 @@ matriz_mapa = montar_matriz_ausencias(
 )
 
 with secao(
+    "Força de Trabalho",
+    icone="groups",
+    subtitulo="Disponibilidade estimada do quadro por base e monitor na data escolhida.",
+):
+    data_forca = st.date_input("Data da força de trabalho", value=hoje, key="absenteismo_data_forca")
+    st.caption(
+        "Considera os filtros de base, monitor e busca. O filtro de tipo de ausência "
+        "não é aplicado aqui: todos os tipos reduzem a disponibilidade. "
+        "Disponível estimado = pessoa do quadro sem ausência registrada; não confirma presença ou escala."
+    )
+    if data_forca.weekday() >= 5:
+        st.info("Fim de semana: confira a escala. Este cálculo não aplica jornadas, feriados ou plantões.")
+    if qtd_pendentes:
+        st.warning("A força de trabalho inclui lançamentos ainda não sincronizados desta sessão.")
+    resumo_forca, detalhes_forca = calcular_forca_trabalho(quadro_mapa, registros, data_forca)
+    if detalhes_forca.empty:
+        render_empty_state(
+            tipo="dados", titulo="Nenhum integrante do quadro no recorte",
+            descricao="Confira a lista_ativos ou ajuste base, monitor e busca.",
+        )
+    else:
+        total_forca = int(resumo_forca["Quadro"].sum())
+        ausentes_forca = int(resumo_forca["Ausentes"].sum())
+        disponiveis_forca = total_forca - ausentes_forca
+        c_quadro, c_ausentes, c_disponiveis, c_taxa = st.columns(4)
+        c_quadro.metric("Quadro cadastrado", total_forca)
+        c_ausentes.metric("Com ausência registrada", ausentes_forca)
+        c_disponiveis.metric("Disponíveis estimados", disponiveis_forca)
+        c_taxa.metric("Disponibilidade estimada", f"{disponiveis_forca / total_forca:.1%}")
+        st.dataframe(resumo_forca, width="stretch", hide_index=True)
+        with st.expander("Consultar técnicos e códigos do dia"):
+            st.dataframe(detalhes_forca, width="stretch", hide_index=True)
+        buffer_forca = io.BytesIO()
+        with pd.ExcelWriter(buffer_forca, engine="openpyxl") as writer:
+            resumo_forca.to_excel(writer, index=False, sheet_name="Resumo")
+            detalhes_forca.to_excel(writer, index=False, sheet_name="Técnicos")
+        st.download_button(
+            "Baixar força de trabalho em Excel", data=buffer_forca.getvalue(),
+            file_name=f"forca_trabalho_{data_forca:%Y_%m_%d}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="absenteismo_forca_download",
+        )
+
+
+with secao(
     "Mapa Mensal de Ausências",
     icone="calendar_view_month",
     subtitulo=(
@@ -721,6 +789,19 @@ with secao(
             ),
         )
     else:
+        resumo_mapa = resumir_grade(matriz_mapa)
+        col_quadro, col_ausentes, col_dias = st.columns(3)
+        col_quadro.metric("Técnicos no mapa", resumo_mapa["tecnicos"])
+        col_ausentes.metric("Com ausência no mês", resumo_mapa["com_ausencia"])
+        col_dias.metric("Dias marcados", resumo_mapa["dias_marcados"])
+        st.caption("Resumo do mês e dos filtros atuais. Dois códigos no mesmo dia contam como um dia marcado.")
+        ultima_sync = st.session_state.get("absenteismo_ultima_sync")
+        if qtd_pendentes:
+            st.warning(f"{qtd_pendentes} lançamento(s) somente nesta sessão — sincronização pendente.")
+        elif ultima_sync and ultima_sync["ok"]:
+            st.caption(f"Última gravação confirmada no Drive: {ultima_sync['horario']}")
+        elif ultima_sync:
+            st.warning(f"Última tentativa sem confirmação: {ultima_sync['horario']}. Confira as pendências antes de fechar a sessão.")
         preencher = st.toggle(
             "Preencher com selectbox", disabled=origem_grade,
             help="Disponível quando o controle está no formato de registros.",
