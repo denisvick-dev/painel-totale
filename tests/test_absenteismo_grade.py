@@ -50,3 +50,25 @@ def test_recorte_recalcula_total_e_nao_altera_original():
     assert recorte.iloc[0]["Total"] == 0
     assert original.iloc[0]["Total"] == 1
     assert resumir_grade(original) == {"tecnicos": 1, "com_ausencia": 1, "dias_marcados": 1}
+
+
+def test_filtros_editor_combinam_dia_unidade_monitor_sem_alterar_origem():
+    from services.absenteismo_grade import filtrar_grade_preenchimento
+    original = pd.concat([_grade(), _grade()], ignore_index=True)
+    original["U.N."] = ["ABC", "LESTE"]
+    original["Monitor"] = ["Edson", "Alan"]
+    recorte = filtrar_grade_preenchimento(original, [date(2026, 11, 2)], ["LESTE"], ["Alan"])
+    assert recorte.index.tolist() == [1]
+    assert recorte.iloc[0]["Total"] == 1
+    assert date(2026, 11, 1) not in recorte.columns
+    assert len(original) == 2
+    assert date(2026, 11, 1) in original.columns
+
+
+def test_filtros_editor_aceitam_nao_informado_e_recorte_vazio():
+    from services.absenteismo_grade import filtrar_grade_preenchimento
+    original = _grade()
+    original["U.N."] = None
+    original["Monitor"] = " "
+    assert len(filtrar_grade_preenchimento(original, [date(2026, 11, 1)], ["Não informado"], ["Não informado"])) == 1
+    assert filtrar_grade_preenchimento(original, [], ["OUTRA"]).empty

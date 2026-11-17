@@ -176,7 +176,7 @@ PAGINAS: tuple[PaginaPortal, ...] = (
     ),
     PaginaPortal(
         arquivo="absenteismo.py",
-        titulo="Absenteísmo",
+        titulo="Lista de Presença",
         icone="🗓️",
         grupo=GRUPO_PERFORMANCE,
         descricao="Controle de faltas, folgas, férias e afastamentos do quadro.",
