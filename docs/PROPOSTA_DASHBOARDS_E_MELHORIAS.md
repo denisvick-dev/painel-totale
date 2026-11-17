@@ -220,6 +220,15 @@ considerados; filtros por base/período/segmento persistem na URL.
 
 ## D3. Produtividade × Disponibilidade (eficiência real da equipe) — *Onda 2*
 
+> **Status (17/11/2026): implementado.** Página
+> `pages/produtividade_disponibilidade.py`, regra pura em
+> `services/produtividade.py` e testes em
+> `tests/test_produtividade_disponibilidade.py`. Entregues: dispersão
+> absenteísmo × produtividade, ranking de O.S./técnico-dia, barras empilhadas
+> por tipo, treemap base → supervisor, donut de composição, combinado semanal e
+> calendário diário de ausências. O detalhe é sempre agregado por
+> supervisor/base; a página não expõe login, motivo ou atestado individual.
+
 **Pergunta:** “Quanta produção perdemos por ausência e como isso varia por equipe e base?”
 **Para quem:** gerência de operações e RH/planejamento.
 

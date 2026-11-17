@@ -41,6 +41,7 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Filtros dinâmicos por Base, Monitor e Situação
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
+- **Produtividade & Disponibilidade** (`pages/produtividade_disponibilidade.py`): cruza O.S. com o controle de presença e a lista de ativos para calcular técnico-dia disponível, produtividade relativa, composição das ausências e impacto estimado — sempre agregado por supervisor/base, sem ranking individual de saúde
 
 ### 🗓️ Prévia Diária
 - **Fluxo em três etapas** (`pages/previa_totale.py`): upload e cruzamento (ANIEL × TOA × Consultivo), dados operacionais por base (equipe, Rota Inicial e metas) e apresentação executiva
