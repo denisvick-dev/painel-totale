@@ -12,6 +12,7 @@ from services.absenteismo import ABREVIACOES_AUSENCIA, STATUS_ATIVO
 def registros_do_preenchimento(original: pd.DataFrame, editada: pd.DataFrame) -> list[dict]:
     """Converte apenas células vazias preenchidas; nunca sobrescreve ausências."""
     tipos = {codigo: tipo for tipo, codigo in ABREVIACOES_AUSENCIA.items()}
+    tipos["P"] = "Presente"
     if not original.index.equals(editada.index) or list(original.columns) != list(editada.columns):
         raise ValueError("A estrutura da tabela foi alterada. Reabra o preenchimento.")
     novos = []
@@ -65,3 +66,18 @@ def resumir_grade(matriz: pd.DataFrame) -> dict[str, int]:
         "com_ausencia": int(marcas.any(axis=1).sum()),
         "dias_marcados": int(marcas.sum().sum()),
     }
+
+
+def filtrar_grade_preenchimento(
+    matriz: pd.DataFrame,
+    dias: list[date],
+    unidades: list[str] | None = None,
+    monitores: list[str] | None = None,
+) -> pd.DataFrame:
+    """Recorte exclusivo do editor, preservando índices para validar os lançamentos."""
+    recorte = matriz.copy()
+    for coluna, valores in (("U.N.", unidades), ("Monitor", monitores)):
+        if valores:
+            rotulos = recorte[coluna].fillna("").astype(str).str.strip().replace("", "Não informado")
+            recorte = recorte.loc[rotulos.isin(valores)]
+    return recortar_grade(recorte, dias)

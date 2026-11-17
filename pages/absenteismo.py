@@ -81,8 +81,13 @@ from services.absenteismo import (
     resumir_controle,
     serie_diaria_ausencias,
 )
-from services.absenteismo_grade import recortar_grade, registros_do_preenchimento, resumir_grade
+from services.absenteismo_grade import (
+    filtrar_grade_preenchimento, resumir_grade,
+)
 from services.dados_sessao import resumir_carga, ultima_atualizacao
+from services.lista_presenca import (
+    OPCOES_PRESENCA, montar_lista_presenca, registros_da_presenca, resumo_presenca,
+)
 from services.forca_trabalho import calcular_forca_trabalho
 from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual
@@ -118,7 +123,7 @@ CHAVE_PENDENTES = "absenteismo_registros_pendentes"
 #: IDs cancelados sem persistência nesta sessão (override sobre a leitura).
 CHAVE_CANCELADOS_PENDENTES = "absenteismo_cancelados_pendentes"
 
-st.set_page_config(page_title="Absenteísmo | TOTALE", page_icon="🗓️", layout="wide")
+st.set_page_config(page_title="Lista de Presença | TOTALE", page_icon="🗓️", layout="wide")
 
 aplicar_estilo()
 render_page_sidebar_theme_selector()
@@ -186,9 +191,9 @@ quadro_df = (
 )
 
 abrir_dashboard(
-    "Absenteísmo",
+    "Lista de Presença",
     subtitulo=(
-        "Controle de faltas, folgas, férias, atestados e afastamentos do quadro "
+        "Presença diária, faltas, folgas, férias e afastamentos do quadro "
         "— registros na aba controle_absenteismo, técnicos da lista_ativos."
     ),
     icone="🗓️",
@@ -230,7 +235,7 @@ if qtd_pendentes and not origem_grade:
 # FILTROS (SIDEBAR)
 # ============================================================
 with st.sidebar:
-    st.markdown("### 🗓️ Filtros — Absenteísmo")
+    st.markdown("### 🗓️ Filtros — Lista de Presença")
     periodo_inicio = st.date_input(
         "Início do período", value=mes_inicio, key="absenteismo_periodo_inicio"
     )
@@ -622,17 +627,17 @@ def _render_mapa_mensal(
 def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     """Editor com identidade protegida e salvamento automático por seleção."""
     st.caption(
-        "Selecione uma célula de dia e escolha o código. Vazio = sem ausência. "
-        "Este modo preenche apenas dias vazios; para corrigir ausências existentes, "
+        "Selecione o dia e registre a situação de cada técnico. Não preenchido não confirma presença. "
+        "Este modo preenche apenas dias pendentes; para corrigir marcações existentes, "
         "cancele o registro primeiro. Cada seleção é enviada automaticamente à planilha."
     )
     dias = _colunas_dia_mapa(matriz)
-    opcoes = ["", *ABREVIACOES_AUSENCIA.values()]
+    opcoes = list(OPCOES_PRESENCA)
     # Preserva também células com tipos sobrepostos (ex.: AT/FE).
     existentes = {str(v) for dia in dias for v in matriz[dia].dropna() if str(v)}
     opcoes += sorted(existentes - set(opcoes))
-    with st.expander("Códigos disponíveis e orientação de preenchimento"):
-        st.markdown(" · ".join(f"**{codigo}** — {tipo}" for tipo, codigo in ABREVIACOES_AUSENCIA.items()))
+    with st.expander("Situações disponíveis e orientação de preenchimento"):
+        st.markdown(" · ".join(f"**{situacao}**" for situacao in OPCOES_PRESENCA))
         st.caption("Códigos combinados indicam registros sobrepostos; não podem ser alterados neste editor.")
     semanas: dict[str, list[date]] = {"Mês completo": dias}
     for dia in dias:
@@ -641,9 +646,44 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         rotulo = f"Semana de {max(segunda, dias[0]):%d/%m} a {min(fim_semana, dias[-1]):%d/%m}"
         semanas.setdefault(rotulo, []).append(dia)
     janela = st.selectbox("Dias exibidos no editor", list(semanas), key="absenteismo_grade_janela")
-    matriz = recortar_grade(matriz, semanas[janela])
+    col_dia, col_unidade, col_monitor = st.columns(3)
+    with col_dia:
+        dias_selecionados = st.multiselect(
+            "Dia do preenchimento", dias,
+            format_func=lambda dia: f"{dia:%d/%m/%Y} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
+            placeholder="Todos os dias da janela",
+            key=f"absenteismo_grade_dias_{dias[0]:%Y_%m}",
+            help="A seleção é combinada com a janela de mês ou semana acima.",
+        )
+    with col_unidade:
+        unidades = st.multiselect(
+            "U.N. do preenchimento",
+            sorted(matriz["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+            placeholder="Todas as unidades", key="absenteismo_grade_unidades",
+        )
+    with col_monitor:
+        monitores = st.multiselect(
+            "Monitor do preenchimento",
+            sorted(matriz["Monitor"].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+            placeholder="Todos os monitores", key="absenteismo_grade_monitores",
+        )
+    dias_visiveis = [dia for dia in semanas[janela] if not dias_selecionados or dia in dias_selecionados]
+    matriz = filtrar_grade_preenchimento(matriz, dias_visiveis, unidades, monitores)
+    matriz["Total"] = matriz[dias_visiveis].ne("Não preenchido").sum(axis=1)
+    st.caption("Filtros exclusivos do preenchimento, combinados com os filtros da lateral. Deixe as seleções vazias para exibir todos.")
+    if not dias_visiveis:
+        st.info("Os dias selecionados estão fora da semana exibida. Ajuste os dias ou escolha Mês completo.")
+        return
+    if matriz.empty:
+        st.info("Nenhum técnico corresponde aos filtros de preenchimento. Ajuste U.N., monitor ou os filtros da lateral.")
+        return
+    st.caption(f"{len(matriz)} técnico(s) · {len(dias_visiveis)} dia(s) no preenchimento.")
     dias = _colunas_dia_mapa(matriz)
-    st.caption("Dias = total de dias marcados na janela exibida. O mapa de consulta mantém o mês completo.")
+    st.caption("Total = dias com situação preenchida na janela. Ausências anteriores também aparecem na lista.")
+    dia_resumo = st.selectbox("Resumo da presença no dia", dias, format_func=lambda d: f"{d:%d/%m/%Y}", key="presenca_dia_resumo")
+    colunas_resumo = st.columns(3)
+    for coluna, (rotulo, valor) in zip(colunas_resumo, resumo_presenca(matriz, dia_resumo).items()):
+        coluna.metric(rotulo, valor)
     versao = hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:16]
     st.caption("Salvamento automático ativado · destino: aba controle_absenteismo.")
     st.link_button(
@@ -660,7 +700,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
                 f"{_rotulo_dia(dia)} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
                 options=opcoes,
                 width="small",
-                help="Escolha o código de ausência. Preencha somente dias vazios.",
+                help="Selecione a situação. Não preenchido é uma pendência, não presença.",
             )
             for dia in dias
         },
@@ -669,7 +709,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         key=f"absenteismo_grade_editor_{versao}",
     )
     try:
-        novos = registros_do_preenchimento(matriz, editada)
+        novos = registros_da_presenca(matriz, editada)
     except ValueError as erro:
         st.error(str(erro))
         return
@@ -678,7 +718,11 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     # Confere contra todos os registros, inclusive os ocultos pelo filtro de tipo.
     for novo in novos:
         dia = date.fromisoformat(novo["Data Início"])
-        existentes_dia = filtrar_registros_periodo(registros, dia, dia)
+        existentes_dia = registros.loc[
+            registros["Status"].ne(STATUS_CANCELADO)
+            & (registros["_inicio"].dt.date <= dia)
+            & (registros["_fim"].dt.date >= dia)
+        ]
         if existentes_dia["Login"].eq(novo["Login"]).any():
             st.error("Um dos dias já tem ausência. Remova o filtro de tipo e confira o mapa antes de salvar.")
             return
@@ -803,14 +847,17 @@ with secao(
         elif ultima_sync:
             st.warning(f"Última tentativa sem confirmação: {ultima_sync['horario']}. Confira as pendências antes de fechar a sessão.")
         preencher = st.toggle(
-            "Preencher com selectbox", disabled=origem_grade,
+            "Preencher lista de presença", value=not origem_grade, disabled=origem_grade,
             help="Disponível quando o controle está no formato de registros.",
             key="absenteismo_preencher_grade",
         )
         if preencher and not origem_grade:
             aba_edicao, aba_visualizacao = st.tabs(["Preencher", "Visualizar e exportar"])
             with aba_edicao:
-                _render_preenchimento_mapa(matriz_mapa)
+                lista_presenca = montar_lista_presenca(
+                    registros, quadro_mapa, mapa_inicio, mapa_fim
+                )
+                _render_preenchimento_mapa(lista_presenca)
             with aba_visualizacao:
                 _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
         else:
