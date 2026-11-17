@@ -72,24 +72,34 @@ from services.absenteismo import (
     calcular_dias,
     fase_do_registro,
     filtrar_registros_periodo,
-    gravar_registros,
     montar_matriz_ausencias,
     normalizar_registros,
     origem_grade_da_sessao,
-    registrar_ausencia,
     registros_da_sessao,
     resumir_controle,
     serie_diaria_ausencias,
 )
 from services.absenteismo_grade import (
-    filtrar_grade_preenchimento, resumir_grade,
+    filtrar_grade_preenchimento,
+    resumir_grade,
 )
 from services.dados_sessao import resumir_carga, ultima_atualizacao
-from services.lista_presenca import (
-    OPCOES_PRESENCA, montar_lista_presenca, registros_da_presenca, resumo_presenca,
-)
 from services.forca_trabalho import calcular_forca_trabalho
 from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
+from services.lista_presenca import (
+    OPCOES_PRESENCA,
+    montar_lista_presenca,
+    registros_da_presenca,
+    resumo_presenca,
+)
+from services.presenca_operacoes import (
+    assinatura,
+    consultar_fechamentos,
+    corrigir_dia,
+    fechar_chamada,
+    preparar_lote,
+    salvar_conferindo,
+)
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual
 
 logger = logging.getLogger(__name__)
@@ -156,7 +166,8 @@ def _persistir(registros: pd.DataFrame) -> bool:
     if origem_grade:
         logger.warning("Gravação bloqueada: controle no formato de grade mensal.")
         return False
-    ok, motivo = gravar_registros(registros)
+    base_confirmada = st.session_state.get(CHAVE_SESSAO_REGISTROS, normalizar_registros(None))
+    ok, motivo, confirmados = salvar_conferindo(base_confirmada, registros)
     st.session_state["absenteismo_ultima_sync"] = {
         "ok": ok,
         "horario": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
@@ -165,7 +176,7 @@ def _persistir(registros: pd.DataFrame) -> bool:
     if ok:
         st.session_state.pop(CHAVE_PENDENTES, None)
         st.session_state.pop(CHAVE_CANCELADOS_PENDENTES, None)
-        st.session_state[CHAVE_SESSAO_REGISTROS] = registros.copy()
+        st.session_state[CHAVE_SESSAO_REGISTROS] = confirmados.copy()
     else:
         logger.warning("Controle de absenteísmo sem persistência: %s", motivo)
     return ok
@@ -624,90 +635,250 @@ def _render_mapa_mensal(
         )
 
 
+def _render_acoes_presenca(matriz: pd.DataFrame, dia: date) -> None:
+    """Ações explícitas sobre o recorte diário, antes do filtro só pendentes."""
+    diario = filtrar_grade_preenchimento(matriz, [dia])
+    diario["Total"] = diario[dia].ne("Não preenchido").astype(int)
+    diario_exportar = diario.rename(columns={dia: "Situação"}).drop(columns="Total")
+    diario_exportar["Data"] = dia.strftime("%d/%m/%Y")
+    diario_exportar["Gerado em"] = datetime.now().isoformat(timespec="seconds")
+    arquivo = io.BytesIO()
+    with pd.ExcelWriter(arquivo, engine="openpyxl") as writer:
+        diario_exportar.to_excel(writer, index=False, sheet_name="Chamada diária")
+    st.download_button(
+        "Baixar lista diária em Excel", arquivo.getvalue(),
+        file_name=f"lista_presenca_{dia:%Y_%m_%d}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="presenca_exportar_dia", help="Data, U.N., monitor e busca atuais; inclui todas as situações do recorte.",
+    )
+    sync = st.session_state.get("absenteismo_ultima_sync")
+    if qtd_pendentes:
+        st.warning(f"Pendente de sincronização · {qtd_pendentes} lançamento(s) apenas nesta sessão.")
+    elif sync:
+        if sync["ok"]:
+            st.success(f"Salvo no Drive · {sync['horario']}")
+        else:
+            st.error(f"Envio não confirmado · {sync['horario']} · {sync['motivo']}")
+    else:
+        st.caption("Nenhum envio realizado nesta sessão. As marcações exibidas não confirmam atualização em tempo real.")
+    lote, correcao, fechamento = st.tabs(["Preencher em lote", "Corrigir com histórico", "Fechar chamada"])
+    with lote:
+        pendentes = diario.loc[diario[dia].eq("Não preenchido")]
+        rotulos = dict(zip(pendentes["Login"], pendentes["Técnico"]))
+        with st.form("presenca_lote_form"):
+            selecionados = st.multiselect("Técnicos pendentes", list(rotulos), format_func=lambda x: f"{rotulos[x]} · {x}")
+            situacao = st.selectbox("Situação para o lote", OPCOES_PRESENCA[1:])
+            autor = st.text_input("Responsável pelo lote")
+            confirmar = st.checkbox(f"Confirmo aplicar a situação escolhida aos técnicos selecionados em {dia:%d/%m/%Y}")
+            enviar = st.form_submit_button("Confirmar lote")
+        if enviar:
+            try:
+                if not confirmar or not autor.strip():
+                    raise ValueError("Informe o responsável e confirme o lote.")
+                novos = preparar_lote(diario, dia, selecionados, situacao)
+                for novo in novos:
+                    novo["Motivo"] = f"Lote por {autor.strip()}"
+                atualizados = normalizar_registros(pd.concat([
+                    registros.drop(columns=["_inicio", "_fim"], errors="ignore"), pd.DataFrame(novos)
+                ], ignore_index=True))
+                with st.spinner("Conferindo e salvando lote…"):
+                    ok = _persistir(atualizados)
+                if ok:
+                    st.session_state["absenteismo_flash"] = [("sucesso", f"Lote de {len(novos)} marcações salvo.")]
+                    st.rerun()
+                else:
+                    st.error("Lote não confirmado. Nenhuma seleção foi assumida como salva; confira o status e tente novamente.")
+            except ValueError as exc:
+                st.error(str(exc))
+    with correcao:
+        marcados = diario.loc[diario[dia].ne("Não preenchido")]
+        rotulos_correcao = {r["Login"]: f"{r['Técnico']} · {r[dia]}" for _, r in marcados.iterrows()}
+        with st.form("presenca_correcao_form"):
+            login = st.selectbox("Marcação para corrigir", list(rotulos_correcao), format_func=lambda x: rotulos_correcao[x])
+            nova = st.selectbox("Nova situação", OPCOES_PRESENCA[1:])
+            responsavel = st.text_input("Responsável pela correção")
+            motivo = st.text_area("Motivo obrigatório")
+            corrigir = st.form_submit_button("Salvar correção com histórico", disabled=marcados.empty)
+        if corrigir:
+            try:
+                alterados = corrigir_dia(registros, login, dia, nova, motivo, responsavel)
+                with st.spinner("Conferindo e gravando correção…"):
+                    ok = _persistir(alterados)
+                if ok:
+                    st.session_state["absenteismo_flash"] = [("sucesso", "Correção salva; o registro anterior permanece cancelado no histórico.")]
+                    st.rerun()
+                else:
+                    st.error("Correção não confirmada. Confira o status de sincronização; o histórico local não foi alterado.")
+            except ValueError as exc:
+                st.error(str(exc))
+        st.caption("Registros anteriores são cancelados, não apagados. Em lançamentos por período, os demais dias são preservados.")
+        with st.expander("Histórico dos técnicos deste recorte"):
+            historico_correcao = registros.loc[
+                registros["Login"].isin(diario["Login"])
+                & registros["_inicio"].le(pd.Timestamp(dia))
+                & registros["_fim"].ge(pd.Timestamp(dia))
+            ]
+            st.dataframe(
+                historico_correcao[["ID", "Login", "Técnico", "Tipo", "Status", "Motivo", "Registrado em"]],
+                hide_index=True, width="stretch",
+            )
+    with fechamento:
+        resumo_fechamento = resumo_presenca(diario, dia)
+        st.write(f"{dia:%d/%m/%Y} · {len(diario)} técnicos · " + " · ".join(f"{k}: {v}" for k, v in resumo_fechamento.items()))
+        st.caption("U.N.: " + ", ".join(sorted(diario["U.N."].replace("", "Não informado").unique())) + " · Monitor: " + ", ".join(sorted(diario["Monitor"].replace("", "Não informado").unique())))
+        st.caption("O fechamento registra um retrato deste recorte no Drive, sem bloquear futuras correções. Responsável informado é declaratório, não autenticação.")
+        with st.form("presenca_fechar_form"):
+            responsavel_fecha = st.text_input("Responsável pelo fechamento")
+            confirma_pendencias = st.checkbox("Confirmo concluir mesmo com pendências")
+            confirma_fecha = st.checkbox("Conferi a data, a equipe e os totais acima")
+            concluir = st.form_submit_button("Concluir chamada")
+        if concluir:
+            try:
+                if not confirma_fecha:
+                    raise ValueError("Confirme a conferência da chamada.")
+                if qtd_pendentes:
+                    raise ValueError("Sincronize os lançamentos pendentes antes de fechar.")
+                with st.spinner("Conferindo dados remotos e registrando fechamento…"):
+                    evento = fechar_chamada(diario, dia, responsavel_fecha, confirma_pendencias)
+                st.session_state["presenca_ultimo_fechamento"] = evento
+            except Exception as exc:
+                st.error(f"Fechamento não confirmado: {exc}")
+        ultimo = st.session_state.get("presenca_ultimo_fechamento")
+        if ultimo and ultimo["Data"] == dia.isoformat():
+            if ultimo["Assinatura"] == assinatura(diario[["Login", dia]]):
+                st.success(f"Fechamento registrado no Drive por {ultimo['Responsável']} às {ultimo['Horário']}.")
+            else:
+                st.warning("O recorte ou as marcações mudaram desde o último fechamento. Conclua novamente para registrar a nova versão.")
+        if st.button("Consultar fechamentos desta data no Drive", key="presenca_consultar_fechamentos"):
+            try:
+                with st.spinner("Consultando histórico de fechamentos…"):
+                    historico = consultar_fechamentos(dia)
+                if historico.empty:
+                    st.info("Nenhum fechamento encontrado para esta data.")
+                else:
+                    st.dataframe(historico, hide_index=True, width="stretch")
+            except Exception as exc:
+                st.error(f"Não foi possível consultar os fechamentos: {exc}")
+
+
 def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     """Editor com identidade protegida e salvamento automático por seleção."""
-    st.caption(
-        "Selecione o dia e registre a situação de cada técnico. Não preenchido não confirma presença. "
-        "Este modo preenche apenas dias pendentes; para corrigir marcações existentes, "
-        "cancele o registro primeiro. Cada seleção é enviada automaticamente à planilha."
+    st.markdown("#### Chamada da equipe")
+    st.caption("Escolha a data, localize sua equipe e registre a situação. Cada seleção é salva automaticamente.")
+    dias_mes = _colunas_dia_mapa(matriz)
+    hoje_editor = date.today()
+    dia_padrao = hoje_editor if hoje_editor in dias_mes else dias_mes[0]
+    with st.container(border=True):
+        col_data, col_unidade, col_monitor = st.columns([1, 1.4, 1.4])
+        with col_data:
+            dia_resumo = st.selectbox(
+                "Data da chamada", dias_mes, index=dias_mes.index(dia_padrao),
+                format_func=lambda d: f"{d:%d/%m/%Y} · {DIAS_SEMANA_ABREVIADOS[d.weekday()]}",
+                key=f"presenca_data_{dias_mes[0]:%Y_%m}",
+            )
+        with col_unidade:
+            unidades = st.multiselect(
+                "Unidade de negócio",
+                sorted(matriz["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+                placeholder="Todas as unidades", key="absenteismo_grade_unidades",
+            )
+        with col_monitor:
+            monitores = st.multiselect(
+                "Monitor",
+                sorted(matriz["Monitor"].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+                placeholder="Todos os monitores", key="absenteismo_grade_monitores",
+            )
+        col_busca, col_visual = st.columns([2, 1])
+        with col_busca:
+            busca_editor = st.text_input(
+                "Localizar técnico", placeholder="Digite nome ou login…", key="presenca_busca_editor",
+            )
+        with col_visual:
+            visualizacao = st.selectbox(
+                "Visualização", ["Chamada do dia", "Preenchimento por período"], key="presenca_visualizacao",
+            )
+        dias_visiveis = [dia_resumo]
+        if visualizacao == "Preenchimento por período":
+            dias_visiveis = st.multiselect(
+                "Dias do período", dias_mes, default=[dia_padrao],
+                format_func=lambda d: f"{d:%d/%m} · {DIAS_SEMANA_ABREVIADOS[d.weekday()]}",
+                key=f"presenca_periodo_{dias_mes[0]:%Y_%m}",
+                help="Selecione poucos dias para manter as situações legíveis.",
+            )
+        st.caption("Estes filtros afetam somente o preenchimento e são combinados com os filtros da lateral.")
+    if not dias_visiveis:
+        st.info("Selecione ao menos um dia para preencher a lista.")
+        return
+    # Resumo sempre corresponde à data da chamada, mesmo no modo por período.
+    dias_calculo = sorted(set([*dias_visiveis, dia_resumo]))
+    matriz = filtrar_grade_preenchimento(matriz, dias_calculo, unidades, monitores)
+    if busca_editor.strip():
+        alvo = matriz["Técnico"].fillna("") + " " + matriz["Login"].fillna("")
+        matriz = matriz.loc[alvo.str.casefold().str.contains(busca_editor.strip().casefold(), regex=False)].copy()
+    if matriz.empty:
+        st.info("Nenhum técnico encontrado. Ajuste a unidade, o monitor ou a busca.")
+        return
+    resumo_dia = resumo_presenca(matriz, dia_resumo)
+    colunas_resumo = st.columns(3)
+    for coluna, (rotulo, valor) in zip(colunas_resumo, resumo_dia.items()):
+        coluna.metric(rotulo, valor)
+    concluidos = len(matriz) - resumo_dia["Pendentes"]
+    st.progress(
+        concluidos / len(matriz),
+        text=f"Chamada de {dia_resumo:%d/%m} · {concluidos} de {len(matriz)} técnicos preenchidos",
     )
+    _render_acoes_presenca(matriz, dia_resumo)
+    col_pendentes, col_detalhes, col_link = st.columns([1.3, 1.3, 1])
+    with col_pendentes:
+        somente_pendentes = st.toggle("Somente pendentes", key="presenca_so_pendentes")
+    with col_detalhes:
+        mostrar_detalhes = st.toggle("Exibir dados cadastrais", key="presenca_dados_cadastrais")
+    with col_link:
+        st.link_button("Abrir no Drive ↗", f"https://docs.google.com/spreadsheets/d/{obter_sheet_id_ativos()}/edit")
+    if somente_pendentes:
+        matriz = matriz.loc[matriz[dias_visiveis].eq("Não preenchido").any(axis=1)].copy()
+    if matriz.empty:
+        st.success("Chamada concluída para os dias exibidos. Nenhum técnico pendente neste recorte.")
+        return
+    matriz = filtrar_grade_preenchimento(matriz, dias_visiveis)
     dias = _colunas_dia_mapa(matriz)
+    matriz["Total"] = matriz[dias].ne("Não preenchido").sum(axis=1)
     opcoes = list(OPCOES_PRESENCA)
-    # Preserva também células com tipos sobrepostos (ex.: AT/FE).
     existentes = {str(v) for dia in dias for v in matriz[dia].dropna() if str(v)}
     opcoes += sorted(existentes - set(opcoes))
-    with st.expander("Situações disponíveis e orientação de preenchimento"):
-        st.markdown(" · ".join(f"**{situacao}**" for situacao in OPCOES_PRESENCA))
-        st.caption("Códigos combinados indicam registros sobrepostos; não podem ser alterados neste editor.")
-    semanas: dict[str, list[date]] = {"Mês completo": dias}
-    for dia in dias:
-        segunda = dia - timedelta(days=dia.weekday())
-        fim_semana = segunda + timedelta(days=6)
-        rotulo = f"Semana de {max(segunda, dias[0]):%d/%m} a {min(fim_semana, dias[-1]):%d/%m}"
-        semanas.setdefault(rotulo, []).append(dia)
-    janela = st.selectbox("Dias exibidos no editor", list(semanas), key="absenteismo_grade_janela")
-    col_dia, col_unidade, col_monitor = st.columns(3)
-    with col_dia:
-        dias_selecionados = st.multiselect(
-            "Dia do preenchimento", dias,
-            format_func=lambda dia: f"{dia:%d/%m/%Y} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
-            placeholder="Todos os dias da janela",
-            key=f"absenteismo_grade_dias_{dias[0]:%Y_%m}",
-            help="A seleção é combinada com a janela de mês ou semana acima.",
-        )
-    with col_unidade:
-        unidades = st.multiselect(
-            "U.N. do preenchimento",
-            sorted(matriz["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
-            placeholder="Todas as unidades", key="absenteismo_grade_unidades",
-        )
-    with col_monitor:
-        monitores = st.multiselect(
-            "Monitor do preenchimento",
-            sorted(matriz["Monitor"].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
-            placeholder="Todos os monitores", key="absenteismo_grade_monitores",
-        )
-    dias_visiveis = [dia for dia in semanas[janela] if not dias_selecionados or dia in dias_selecionados]
-    matriz = filtrar_grade_preenchimento(matriz, dias_visiveis, unidades, monitores)
-    matriz["Total"] = matriz[dias_visiveis].ne("Não preenchido").sum(axis=1)
-    st.caption("Filtros exclusivos do preenchimento, combinados com os filtros da lateral. Deixe as seleções vazias para exibir todos.")
-    if not dias_visiveis:
-        st.info("Os dias selecionados estão fora da semana exibida. Ajuste os dias ou escolha Mês completo.")
-        return
-    if matriz.empty:
-        st.info("Nenhum técnico corresponde aos filtros de preenchimento. Ajuste U.N., monitor ou os filtros da lateral.")
-        return
-    st.caption(f"{len(matriz)} técnico(s) · {len(dias_visiveis)} dia(s) no preenchimento.")
-    dias = _colunas_dia_mapa(matriz)
-    st.caption("Total = dias com situação preenchida na janela. Ausências anteriores também aparecem na lista.")
-    dia_resumo = st.selectbox("Resumo da presença no dia", dias, format_func=lambda d: f"{d:%d/%m/%Y}", key="presenca_dia_resumo")
-    colunas_resumo = st.columns(3)
-    for coluna, (rotulo, valor) in zip(colunas_resumo, resumo_presenca(matriz, dia_resumo).items()):
-        coluna.metric(rotulo, valor)
+    # O editor recebe chaves de texto explícitas para aplicar corretamente o
+    # SelectboxColumn; a conversão de volta preserva a validação por data.
+    nomes_dias = {dia: dia.isoformat() for dia in dias}
+    tabela_editor = matriz.rename(columns=nomes_dias)
+    configuracao = {
+        "Técnico": st.column_config.TextColumn("Técnico", width="large"),
+        "Login": st.column_config.TextColumn("Login", width="small"),
+        "Monitor": st.column_config.TextColumn("Monitor", width="medium"),
+        "RE": st.column_config.TextColumn("RE", width="small"),
+        "Total": None,
+    }
+    configuracao.update({
+        nomes_dias[dia]: st.column_config.SelectboxColumn(
+            "Situação do dia" if len(dias) == 1 else f"{dia:%d/%m} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
+            options=opcoes, width="medium",
+            help="Não preenchido é pendência, nunca presença. Marcações existentes são preservadas.",
+        ) for dia in dias
+    })
+    ordem = ["Login", "Técnico", *nomes_dias.values()]
+    if mostrar_detalhes:
+        ordem = ["RE", "Login", "Técnico", "Monitor", "Base", "U.N.", *nomes_dias.values()]
     versao = hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:16]
-    st.caption("Salvamento automático ativado · destino: aba controle_absenteismo.")
-    st.link_button(
-        "Abrir planilha no Drive",
-        f"https://docs.google.com/spreadsheets/d/{obter_sheet_id_ativos()}/edit",
-    )
+    st.caption(f"{len(matriz)} técnico(s) na lista · selecione a situação na célula · salvamento automático")
     editada = st.data_editor(
-        matriz,
-        hide_index=True,
-        num_rows="fixed",
-        disabled=[c for c in matriz.columns if c not in dias],
-        column_config={
-            str(dia): st.column_config.SelectboxColumn(
-                f"{_rotulo_dia(dia)} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
-                options=opcoes,
-                width="small",
-                help="Selecione a situação. Não preenchido é uma pendência, não presença.",
-            )
-            for dia in dias
-        },
-        height=550,
-        width="stretch",
+        tabela_editor, hide_index=True, num_rows="fixed",
+        disabled=[c for c in tabela_editor.columns if c not in nomes_dias.values()],
+        column_config=configuracao, column_order=ordem,
+        height=min(600, 40 + len(matriz) * 35), width="stretch",
         key=f"absenteismo_grade_editor_{versao}",
-    )
+    ).rename(columns={nome: dia for dia, nome in nomes_dias.items()})
+    with st.expander("Como preencher e corrigir marcações"):
+        st.markdown("**Não preenchido** é uma pendência. Selecione **Presente** para confirmar a presença ou escolha o motivo da ausência.")
+        st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. Em falha de envio, os dados ficam apenas nesta sessão.")
     try:
         novos = registros_da_presenca(matriz, editada)
     except ValueError as erro:
@@ -979,7 +1150,11 @@ def _render_formulario_ausencia() -> None:
             }
             sobrepostos = filtrar_registros_periodo(registros, data_inicio, data_fim)
             sobrepostos = sobrepostos[sobrepostos["Login"] == login_novo]
-            _novo_df, persistiu, motivo_falha = registrar_ausencia(registros, registro)
+            _novo_df = normalizar_registros(pd.concat([
+                registros.drop(columns=["_inicio", "_fim"], errors="ignore"), pd.DataFrame([registro])
+            ], ignore_index=True))
+            persistiu = _persistir(_novo_df)
+            motivo_falha = st.session_state.get("absenteismo_ultima_sync", {}).get("motivo", "")
             mensagens: list[tuple[str, str]] = []
             if persistiu:
                 mensagens.append(

@@ -1099,8 +1099,8 @@ def _df_para_planilha(df: pd.DataFrame) -> list[list[str]]:
         if coluna not in saida.columns:
             saida[coluna] = ""
     saida = saida[list(COLUNAS_REGISTROS)]
-    saida["Data Início"] = pd.to_datetime(saida["_inicio"], errors="coerce").dt.strftime("%Y-%m-%d")
-    saida["Data Fim"] = pd.to_datetime(saida["_fim"], errors="coerce").dt.strftime("%Y-%m-%d")
+    saida["Data Início"] = pd.to_datetime(df["_inicio"], errors="coerce").dt.strftime("%Y-%m-%d")
+    saida["Data Fim"] = pd.to_datetime(df["_fim"], errors="coerce").dt.strftime("%Y-%m-%d")
     saida = saida.fillna("")
     linhas = [[_sanitizar_celula(c) for c in saida.columns]]
     linhas.extend([_sanitizar_celula(v) for v in linha] for linha in saida.itertuples(index=False))
