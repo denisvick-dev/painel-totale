@@ -660,6 +660,7 @@ def test_sincronizacao_sem_credencial_avisa_e_abre_a_previa() -> None:
 def _roteiro_falha_leitura_sync() -> None:
     import pandas as pd
     import streamlit as st
+
     from pages import previa_totale as pagina
 
     escritas = []

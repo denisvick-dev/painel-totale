@@ -81,9 +81,15 @@ A migração não foi executada. Não substituir o conteúdo inteiro da planilha
 por CSV nem renomear a grade para a aba de registros: isso não converte o
 formato e pode destruir histórico.
 
-## Assistente implementado
+## Assistente de importação (histórico, removido)
 
-A página agora oferece **Criar Lista de Presença a partir da aba absenteismo**.
+**Fluxo descontinuado:** a página atual lê e grava diretamente na grade
+`absenteismo`, sem copiar os dados para `controle_absenteismo`. Os módulos
+órfãos do assistente e seus testes exclusivos foram removidos. As proteções
+de conflito, fórmulas e auditoria são mantidas em `services/presenca_grade.py`.
+Consulte `PRESENCA_GRADE_DIRETA.md` para o fluxo vigente.
+
+Na implementação anterior, a página oferecia **Criar Lista de Presença a partir da aba absenteismo**.
 O botão de leitura usa a conta de serviço do aplicativo, não as credenciais da
 conversa. O operador confirma a referência dos cabeçalhos abreviados, escolhe o
 tratamento de códigos desconhecidos, revisa as linhas e informa o responsável.

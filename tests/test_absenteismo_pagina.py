@@ -87,6 +87,7 @@ def _rodar(origem_grade: bool) -> AppTest:
 
 def test_pagina_absenteismo_renderiza_o_mapa_mensal() -> None:
     app = _rodar(origem_grade=False)
+    app.radio(key="presenca_area").set_value("Mapa mensal").run()
 
     assert not app.exception
     html = "\n".join(elemento.value for elemento in app.markdown)
@@ -97,7 +98,7 @@ def test_pagina_absenteismo_renderiza_o_mapa_mensal() -> None:
     assert "NET-ABCDM" in html
     assert ">FE</td>" in html  # férias de 03 a 05/11
     assert ">AT/FE</td>" in html  # atestado + férias em 04/11
-    assert len(app.get("form")) >= 1  # controle em registros: formulário disponível
+    assert len(app.get("form")) == 0  # mapa somente leitura; editor fica na chamada
 
 
 def test_pagina_absenteismo_com_grade_oferece_edicao_direta() -> None:
@@ -145,6 +146,7 @@ def test_acoes_diarias_exigem_confirmacao_antes_de_enviar():
 
 def test_forca_trabalho_tem_agrupamento_e_consulta_independente():
     app = _rodar(origem_grade=False)
+    app.radio(key="presenca_area").set_value("Força de Trabalho").run()
     assert not app.exception
     agrupamento = next(s for s in app.selectbox if s.label == "Agrupar força de trabalho por")
     agrupamento.select("Monitor").run()
@@ -158,17 +160,20 @@ def test_forca_trabalho_tem_agrupamento_e_consulta_independente():
 def test_navegacao_prioriza_chamada_e_separa_areas() -> None:
     app = _rodar(origem_grade=True)
     assert not app.exception
-    assert [aba.label for aba in app.tabs if aba.label in {"Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados"}] == [
+    navegacao = app.radio(key="presenca_area")
+    assert navegacao.options == [
         "Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados",
     ]
-    chamada = app.tabs[0]
-    assert len(chamada.selectbox) > 0
-    assert any(e.label == "Ações da chamada · lote, correção, fechamento e Excel" for e in chamada.expander)
+    assert navegacao.value == "Chamada diária"
+    assert any(e.label == "Ações da chamada · lote, correção, fechamento e Excel" for e in app.expander)
+    assert not any('<table class="abs-mapa"' in e.value for e in app.markdown)
+    assert not any(s.label == "Agrupar força de trabalho por" for s in app.selectbox)
     assert not any(e.key == "absenteismo_preencher_grade" for e in app.toggle)
 
 
 def test_todas_as_visoes_de_analise_renderizam() -> None:
     app = _rodar(origem_grade=True)
+    app.radio(key="presenca_area").set_value("Análises").run()
     for visao in ["Calendário", "Bases e monitores", "Hoje e próximas", "Tipos de ausência"]:
         app.radio(key="presenca_tipo_analise").set_value(visao).run()
         assert not app.exception
@@ -182,3 +187,29 @@ def test_periodo_de_analise_nao_remove_datas_da_chamada() -> None:
     assert not app.exception
     datas = next(s for s in app.selectbox if s.label == "Data da chamada")
     assert len(datas.options) == 30
+
+
+def test_chamada_nao_carrega_cadastro_auxiliar_nem_mapa_oculto(monkeypatch) -> None:
+    import services.absenteismo as ausencias
+    import services.hierarquia as hierarquia
+
+    def nao_deveria_executar(*args, **kwargs):
+        raise AssertionError("Carga oculta desnecessária durante a chamada")
+
+    monkeypatch.setattr(hierarquia, "lista_ativos_da_sessao", nao_deveria_executar)
+    # A lista diária usa a implementação importada em services.lista_presenca;
+    # a página não deve construir também o mapa mensal oculto.
+    monkeypatch.setattr(ausencias, "montar_matriz_ausencias", nao_deveria_executar)
+    app = _rodar(origem_grade=True)
+    assert not app.exception
+    assert any(s.label == "Data da chamada" for s in app.selectbox)
+
+
+def test_voltar_a_chamada_apos_consultar_mapa() -> None:
+    app = _rodar(origem_grade=True)
+    app.radio(key="presenca_area").set_value("Mapa mensal").run()
+    assert not app.exception
+    assert not any(s.label == "Data da chamada" for s in app.selectbox)
+    app.radio(key="presenca_area").set_value("Chamada diária").run()
+    assert not app.exception
+    assert any(s.label == "Data da chamada" for s in app.selectbox)

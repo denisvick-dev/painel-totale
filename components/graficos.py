@@ -1366,9 +1366,9 @@ def grafico_calendario(
         return figura_vazia(titulo)
 
     dados["data"] = dados["data"].dt.normalize()
-    dados["dia_semana"] = dados["data"].dt.weekday
+    dados["dia_semana"] = dados["data"].dt.day_of_week
     # Início da semana (segunda-feira) calculado de forma vetorial — sem .apply.
-    dados["semana"] = dados["data"] - pd.to_timedelta(dados["data"].dt.weekday, unit="D")
+    dados["semana"] = dados["data"] - pd.to_timedelta(dados["data"].dt.day_of_week, unit="D")
     matriz = dados.pivot_table(index="dia_semana", columns="semana", values="valor", aggfunc="sum")
     if matriz.empty:
         return figura_vazia(titulo)

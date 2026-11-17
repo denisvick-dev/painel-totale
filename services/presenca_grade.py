@@ -87,7 +87,10 @@ def interpretar_valores(valores: list[list], referencia: date | None = None, for
 
 def _abrir():
     from config.settings import obter_sheet_id_ativos
-    return _cliente_gspread().open_by_key(obter_sheet_id_ativos())
+    cliente = _cliente_gspread()
+    # Evita espera de rede sem limite durante leitura e salvamento da chamada.
+    cliente.set_timeout((5, 20))
+    return cliente.open_by_key(obter_sheet_id_ativos())
 
 
 def ler_snapshot(planilha=None):

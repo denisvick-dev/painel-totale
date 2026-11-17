@@ -293,6 +293,7 @@ MAPA_ALIAS_PROJETO: dict[str, str] = {
 }
 
 
+from config.metas_operacionais import METAS_PRODUCAO_OS_GERAL, metas_os_da_base
 from config.settings import (
     FUSO_BR,
     URL_ATIVOS_BASE,
@@ -331,9 +332,7 @@ class Configuracoes:
 CFG = Configuracoes()
 BASES_PRIORITARIAS = ("NET-ABCDM", "NET-LESTE", "NET-GUARULHOS")
 PROJETOS_NET = ("NET-ABCDM", "NET-LESTE", "NET-LESTE VT", "NET-GUARULHOS", "NET-GRU VT")
-METAS_PRODUCAO_OS_BASE = {"minima": 10_000, "meta_base": 11_000, "alta_perf": 12_000}
 METAS_CONSULTIVO_BASE = {"minima": 400, "meta_base": 525, "alta_perf": 600}
-METAS_PRODUCAO_OS_GERAL = {"minima": 30_000, "meta_base": 33_000, "alta_perf": 36_000}
 METAS_CONSULTIVO_GERAL = {"minima": 1_200, "meta_base": 1_575, "alta_perf": 1_800}
 
 
@@ -1303,7 +1302,7 @@ def coletar_alertas(
             if normalizar_texto(nome) not in acompanhados:
                 continue
             for real_col, proj_col, metas, indicador in (
-                ("OS_Volume", "O.S. Projetadas", METAS_PRODUCAO_OS_BASE, "O.S."),
+                ("OS_Volume", "O.S. Projetadas", metas_os_da_base(nome), "O.S."),
                 (
                     "Cons_Volume",
                     "Consultivos Projetados",
@@ -1832,9 +1831,10 @@ def processar_resumo_agrupado(
         )
     m["O.S. Projetadas"] = (m["OS_Volume"] * ft_os).astype(int)
     m["Consultivos Projetados"] = (m["Cons_Volume"] * ft_cons).astype(int)
+    metas_os = m["Agrupamento"].map(lambda base: metas_os_da_base(base)["meta_base"])
     m["O.S. Faltantes"] = np.where(
         m["OS_Volume"] > 0,
-        (METAS_PRODUCAO_OS_BASE["meta_base"] - m["OS_Volume"]).clip(lower=0),
+        (metas_os - m["OS_Volume"]).clip(lower=0),
         0,
     ).astype(int)
     m["Cons. Faltantes"] = np.where(
@@ -1842,14 +1842,13 @@ def processar_resumo_agrupado(
         (METAS_CONSULTIVO_BASE["meta_base"] - m["Cons_Volume"]).clip(lower=0),
         0,
     ).astype(int)
-    m["% Meta O.S. (Proj)"] = calcular_atingimento_series(
-        m["O.S. Projetadas"], float(METAS_PRODUCAO_OS_BASE["meta_base"])
-    ).round(1)
+    m["% Meta O.S. (Proj)"] = (m["O.S. Projetadas"] / metas_os * 100).round(1)
     m["% Meta Cons. (Proj)"] = calcular_atingimento_series(
         m["Consultivos Projetados"], float(METAS_CONSULTIVO_BASE["meta_base"])
     ).round(1)
-    m["Status O.S."] = m["O.S. Projetadas"].apply(
-        lambda v: classificar_semaforo(v, METAS_PRODUCAO_OS_BASE)
+    m["Status O.S."] = m.apply(
+        lambda row: classificar_semaforo(row["O.S. Projetadas"], metas_os_da_base(row["Agrupamento"])),
+        axis=1,
     )
     m["Status Consultivos"] = m["Consultivos Projetados"].apply(
         lambda v: classificar_semaforo(v, METAS_CONSULTIVO_BASE)
@@ -1987,8 +1986,8 @@ with tab_bases:
     render_chips(
         [
             (
-                "Meta O.S. / Base",
-                _fmt_int(METAS_PRODUCAO_OS_BASE["meta_base"]),
+                "Metas O.S. / Base",
+                "ABCDM: 10.000 · Guarulhos: 10.700 · Leste: 10.300",
             ),
             (
                 "Meta Consultivos / Base",
@@ -2131,7 +2130,8 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
         except (IndexError, KeyError, ValueError, TypeError) as exc:
             render_insight(f"Erro: {exc}", tipo="critico")
             return
-        meta_os = float(METAS_PRODUCAO_OS_BASE["meta_base"])
+        metas_os_base = metas_os_da_base(base_nome)
+        meta_os = float(metas_os_base["meta_base"])
         meta_cons_base = float(METAS_CONSULTIVO_BASE["meta_base"])
         c1, c2 = st.columns([1, 2], gap="large")
         with c1:
@@ -2177,7 +2177,7 @@ def render_aba_projecao_base(tab: DeltaGenerator, base_nome: str) -> None:
                 label_projetado="O.S. PROJETADAS",
                 label_meta="META DE O.S.",
                 label_faltantes="O.S. FALTANTES",
-                metas=METAS_PRODUCAO_OS_BASE,
+                metas=metas_os_base,
                 tecnico_dia=(os_media_diaria / tecnicos_ativos if tecnicos_ativos > 0 else 0),
                 ancora=ancora_os if os_real > 0 else None,
             )
