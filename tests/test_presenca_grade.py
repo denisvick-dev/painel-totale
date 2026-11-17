@@ -164,3 +164,16 @@ def test_falha_de_escrita_nao_confirma_snapshot(monkeypatch):
     assert not ok and "sem permissão" in motivo
     assert retorno is snapshot
     assert retorno["celulas"][("Z2", DIA)]["texto"] == ""
+
+
+def test_acesso_grade_define_timeout_de_rede(monkeypatch):
+    import services.presenca_grade as grade
+    chamadas = []
+    planilha = object()
+    cliente = SimpleNamespace(
+        set_timeout=lambda valor: chamadas.append(valor),
+        open_by_key=lambda chave: planilha,
+    )
+    monkeypatch.setattr(grade, "_cliente_gspread", lambda: cliente)
+    assert grade._abrir() is planilha
+    assert chamadas == [(5, 20)]

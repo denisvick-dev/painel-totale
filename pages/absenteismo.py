@@ -166,7 +166,6 @@ def _primeiro_e_ultimo_dia_mes(hoje: date) -> tuple[date, date]:
     return inicio, fim
 
 
-lista_ativos = lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600)
 registros, qtd_pendentes = _carregar_registros()
 hoje = date.today()
 datas_grade = st.session_state[CHAVE_SNAPSHOT]["dias"]
@@ -195,6 +194,7 @@ st.caption(
 )
 
 def _render_qualidade_origem() -> None:
+    lista_ativos = lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600)
     qualidade_origem = lista_ativos.attrs.get("qualidade_origem")
     if qualidade_origem:
         with st.expander("Qualidade da lista de ativos", expanded=bool(qualidade_origem["ocorrencias"])):
@@ -284,7 +284,7 @@ with st.sidebar:
         st.rerun()
     if st.button("🔄 Atualizar registros e quadro", key="absenteismo_atualizar"):
         carregar_grade_sessao(forcar=True)
-        lista_ativos_da_sessao(aba=SHEET_ABA_ATIVOS, ttl=600, forcar=True)
+        st.session_state.pop("totale_lista_ativos", None)
         st.rerun()
 
 
@@ -935,9 +935,6 @@ if busca.strip():
 
 mapa_inicio = periodo_inicio.replace(day=1)
 mapa_fim = (mapa_inicio + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-matriz_mapa = montar_matriz_ausencias(
-    registros_recorte, quadro_mapa, inicio=mapa_inicio, fim=mapa_fim
-)
 
 def _render_forca():
     with secao(
@@ -969,6 +966,9 @@ def _render_forca():
 
 
 def _render_mapa():
+    matriz_mapa = montar_matriz_ausencias(
+        registros_recorte, quadro_mapa, inicio=mapa_inicio, fim=mapa_fim
+    )
     with secao(
         "Mapa Mensal de Ausências",
         icone="calendar_view_month",
@@ -1342,10 +1342,16 @@ def _render_registros():
 # ============================================================
 # EXPORTAÇÃO
 # ============================================================
+@st.cache_data(show_spinner=False, max_entries=4, ttl=120)
+def _lista_presenca_em_cache(registros, quadro, inicio, fim):
+    """Reutiliza a transformação da grade nos reruns dos filtros e do editor."""
+    return montar_lista_presenca(registros, quadro, inicio, fim)
+
+
 def _render_chamada_diaria() -> None:
     st.caption("01 · Selecione a data e a equipe → 02 · Registre as situações → 03 · Confira e conclua a chamada")
     st.info("A chamada considera todos os tipos de situação. Os filtros de tipo e período da lateral são usados nas análises; a data da chamada é escolhida abaixo.")
-    lista = montar_lista_presenca(registros, quadro_mapa, min(datas_grade), max(datas_grade))
+    lista = _lista_presenca_em_cache(registros, quadro_mapa, min(datas_grade), max(datas_grade))
     if lista.empty:
         render_empty_state(tipo="filtro", titulo="Nenhum técnico neste recorte", descricao="Ajuste os filtros de base, monitor ou busca na lateral.")
         return
@@ -1354,15 +1360,15 @@ def _render_chamada_diaria() -> None:
         _render_lancamento()
 
 
-# Navegação principal: operação primeiro; análises e diagnóstico em áreas próprias.
-aba_chamada, aba_forca, aba_mapa, aba_analises, aba_historico = st.tabs(AREAS_PAGINA)
-with aba_chamada:
+# Executar só a área visível: st.tabs executava também gráficos, mapa e Excel ocultos.
+area = st.radio("Área de trabalho", AREAS_PAGINA, horizontal=True, key="presenca_area")
+if area == "Chamada diária":
     _render_chamada_diaria()
-with aba_forca:
+elif area == "Força de Trabalho":
     _render_forca()
-with aba_mapa:
+elif area == "Mapa mensal":
     _render_mapa()
-with aba_analises:
+elif area == "Análises":
     _render_indicadores()
     tipo_analise = st.radio(
         "Explorar análises", ["Tipos de ausência", "Calendário", "Bases e monitores", "Hoje e próximas"],
@@ -1376,7 +1382,7 @@ with aba_analises:
         _render_ranking()
     else:
         _render_agenda()
-with aba_historico:
+else:
     _render_qualidade_origem()
     exibidos = _render_registros()
     secao_exportacao(
