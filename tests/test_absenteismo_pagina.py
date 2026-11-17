@@ -153,3 +153,32 @@ def test_forca_trabalho_tem_agrupamento_e_consulta_independente():
     consulta.input("tecnico-inexistente-xyz").run()
     assert not app.exception
     assert any("Nenhum técnico encontrado. Ajuste o nome" in i.value for i in app.info)
+
+
+def test_navegacao_prioriza_chamada_e_separa_areas() -> None:
+    app = _rodar(origem_grade=True)
+    assert not app.exception
+    assert [aba.label for aba in app.tabs if aba.label in {"Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados"}] == [
+        "Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados",
+    ]
+    chamada = app.tabs[0]
+    assert len(chamada.selectbox) > 0
+    assert any(e.label == "Ações da chamada · lote, correção, fechamento e Excel" for e in chamada.expander)
+    assert not any(e.key == "absenteismo_preencher_grade" for e in app.toggle)
+
+
+def test_todas_as_visoes_de_analise_renderizam() -> None:
+    app = _rodar(origem_grade=True)
+    for visao in ["Calendário", "Bases e monitores", "Hoje e próximas", "Tipos de ausência"]:
+        app.radio(key="presenca_tipo_analise").set_value(visao).run()
+        assert not app.exception
+
+
+def test_periodo_de_analise_nao_remove_datas_da_chamada() -> None:
+    app = _rodar(origem_grade=True)
+    app.date_input(key="absenteismo_periodo_inicio").set_value(date(2026, 11, 10))
+    app.date_input(key="absenteismo_periodo_fim").set_value(date(2026, 11, 12))
+    app.run()
+    assert not app.exception
+    datas = next(s for s in app.selectbox if s.label == "Data da chamada")
+    assert len(datas.options) == 30
