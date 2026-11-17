@@ -132,3 +132,15 @@ def test_acoes_diarias_exigem_confirmacao_antes_de_enviar():
     assert any(t.label == "Preencher em lote" for t in app.tabs)
     assert any(t.label == "Corrigir com histórico" for t in app.tabs)
     assert any(t.label == "Fechar chamada" for t in app.tabs)
+
+
+def test_forca_trabalho_tem_agrupamento_e_consulta_independente():
+    app = _rodar(origem_grade=False)
+    assert not app.exception
+    agrupamento = next(s for s in app.selectbox if s.label == "Agrupar força de trabalho por")
+    agrupamento.select("Monitor").run()
+    assert not app.exception
+    consulta = next(t for t in app.text_input if t.label == "Buscar na força de trabalho")
+    consulta.input("tecnico-inexistente-xyz").run()
+    assert not app.exception
+    assert any("Nenhum técnico encontrado. Ajuste o nome" in i.value for i in app.info)
