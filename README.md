@@ -41,6 +41,7 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Filtros dinâmicos por Base, Monitor e Situação
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
+- **Produtividade & Disponibilidade** (`pages/produtividade_disponibilidade.py`): cruza O.S. com o controle de presença e a lista de ativos para calcular técnico-dia disponível, produtividade relativa, composição das ausências e impacto estimado — sempre agregado por supervisor/base, sem ranking individual de saúde
 
 ### 🗓️ Prévia Diária
 - **Fluxo em três etapas** (`pages/previa_totale.py`): upload e cruzamento (ANIEL × TOA × Consultivo), dados operacionais por base (equipe, Rota Inicial e metas) e apresentação executiva
@@ -314,8 +315,10 @@ painel-totale/
 
 - `pages/` contém somente telas registradas em `config/navegacao.py`.
 - Regras de dados e integrações ficam em `services/`; componentes visuais, em `components/`.
-- Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md) e
-  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md). O README é o ponto de entrada.
+- Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md),
+  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md) e
+  [Proposta de dashboards e melhorias](docs/PROPOSTA_DASHBOARDS_E_MELHORIAS.md).
+  O README é o ponto de entrada.
 - `pages/login.py` (tela standalone não integrada ao portal) e
   `components/alertas_automaticos.py` (sem consumidores no app) foram removidos.
   A autenticação própria da Gestão de Ativos continua preservada.
