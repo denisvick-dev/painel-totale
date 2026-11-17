@@ -314,8 +314,10 @@ painel-totale/
 
 - `pages/` contém somente telas registradas em `config/navegacao.py`.
 - Regras de dados e integrações ficam em `services/`; componentes visuais, em `components/`.
-- Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md) e
-  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md). O README é o ponto de entrada.
+- Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md),
+  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md) e
+  [Proposta de dashboards e melhorias](docs/PROPOSTA_DASHBOARDS_E_MELHORIAS.md).
+  O README é o ponto de entrada.
 - `pages/login.py` (tela standalone não integrada ao portal) e
   `components/alertas_automaticos.py` (sem consumidores no app) foram removidos.
   A autenticação própria da Gestão de Ativos continua preservada.
