@@ -98,3 +98,37 @@ def test_pagina_absenteismo_com_grade_nao_oferece_gravacao() -> None:
     assert len(app.get("form")) == 0
     textos = "\n".join(elemento.value for elemento in app.caption)
     assert "direto na planilha" in textos.lower()  # aviso de fonte em grade
+
+
+def test_chamada_diaria_e_padrao_e_periodo_e_opcional() -> None:
+    app = _rodar(origem_grade=False)
+    assert not app.exception
+    visualizacao = next(s for s in app.selectbox if s.label == "Visualização")
+    assert visualizacao.value == "Chamada do dia"
+    assert any(s.label == "Data da chamada" for s in app.selectbox)
+    assert any(t.label == "Somente pendentes" for t in app.toggle)
+    assert any(t.label == "Exibir dados cadastrais" for t in app.toggle)
+    assert not any(s.label == "Dias do período" for s in app.multiselect)
+    visualizacao.select("Preenchimento por período").run()
+    assert not app.exception
+    assert any(s.label == "Dias do período" for s in app.multiselect)
+
+
+def test_busca_local_sem_resultados_mostra_orientacao() -> None:
+    app = _rodar(origem_grade=False)
+    busca = next(t for t in app.text_input if t.label == "Localizar técnico")
+    busca.input("tecnico-inexistente-xyz").run()
+    assert not app.exception
+    assert any("Nenhum técnico encontrado" in aviso.value for aviso in app.info)
+
+
+def test_acoes_diarias_exigem_confirmacao_antes_de_enviar():
+    app = _rodar(origem_grade=False)
+    assert not app.exception
+    botao = next(b for b in app.button if b.label == "Confirmar lote")
+    botao.click().run()
+    assert not app.exception
+    assert any("Informe o responsável e confirme" in erro.value for erro in app.error)
+    assert any(t.label == "Preencher em lote" for t in app.tabs)
+    assert any(t.label == "Corrigir com histórico" for t in app.tabs)
+    assert any(t.label == "Fechar chamada" for t in app.tabs)
