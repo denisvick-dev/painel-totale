@@ -49,7 +49,7 @@ from services.texto import sem_acento
 
 logger = logging.getLogger(__name__)
 
-#: Chave da saída bruta do robô global (a base processada fica em ``base_data``).
+#: Chave da base compartilhada (a base processada fica em ``base_data``).
 CHAVE_MEMORIA_RAW = "df_memoria_raw"
 
 #: Seções ancoradas do sumário (títulos usados em ``secao()``).
@@ -1351,6 +1351,12 @@ def plot_comparativo(vol_esc, vol_mon):
 # ==========================================================
 # MAIN
 # ==========================================================
+def _limpar_filtros_volumetria() -> None:
+    """Remove as seleções antes da recriação dos widgets no próximo rerun."""
+    for chave in ("vol_filtro_monitor", "vol_filtro_regiao", "vol_filtro_tecnico", "vol_filtro_status"):
+        st.session_state.pop(chave, None)
+
+
 def main():
     # Estilos: primeiro o global (componentes), depois o específico da página
     aplicar_estilo_corp()
@@ -1413,7 +1419,7 @@ def main():
             st.write(f"🗑️ **Vazios:** {diag.get('Removidos por contrato vazio', 0)}")
             st.write(f"📈 **Processadas:** {diag.get('Final', 0)}")
 
-    # ── CARREGAR DADOS (ROBÔ OU UPLOAD MANUAL) ───────────────────────────────
+    # ── CARREGAR DADOS (BASE COMPARTILHADA OU UPLOAD) ───────────────────────────────
     if st.session_state.base_data is None:
         abrir_dashboard(
             "Gestão de Volumetria",
@@ -1423,39 +1429,30 @@ def main():
                 "titulo": "📊 Gestão de Volumetria",
                 "subtitulo": "Análise executiva de performance e projeções operacionais",
             },
-            chips={"Fonte": "Robô local ou upload"},
+            chips={"Fonte": "Base compartilhada ou upload"},
         )
         render_section_header(
             titulo="Importação de Dados",
-            subtitulo="Envie a base consolidada de O.S. do dia ou aguarde o robô detectar automaticamente.",
+            subtitulo="Envie a base consolidada de O.S. do dia pelo upload abaixo.",
             icone="📥",
-            badge="Excel, CSV ou Auto",
+            badge="Excel ou CSV",
             badge_tipo="info",
         )
 
-        # Cada página aplica seu próprio ETL sobre a mesma saída bruta do robô,
+        # Cada página aplica seu próprio ETL sobre a mesma base compartilhada,
         # lida pela camada compartilhada (services.dados_sessao).
-        df_robo = obter_dataframe(CHAVE_MEMORIA_RAW)
-        if not isinstance(df_robo, pd.DataFrame) or df_robo.empty:
-            df_robo = obter_dataframe(CHAVE_MEMORIA)
+        df_compartilhado = obter_dataframe(CHAVE_MEMORIA_RAW)
+        if not isinstance(df_compartilhado, pd.DataFrame) or df_compartilhado.empty:
+            df_compartilhado = obter_dataframe(CHAVE_MEMORIA)
 
-        if isinstance(df_robo, pd.DataFrame) and not df_robo.empty:
-            origem_robo = str(st.session_state.get("origem_dados", ""))
-            origem_robo = origem_robo.casefold().startswith("robô")
-            mensagem = (
-                "✅ **Dados carregados automaticamente pelo robô!**"
-                if origem_robo
-                else "✅ **Base compartilhada disponível na sessão.**"
-            )
-            rotulo_botao = (
-                "🚀 Processar Dados do Robô" if origem_robo else "🚀 Processar Base Compartilhada"
-            )
-            st.success(mensagem)
+        if isinstance(df_compartilhado, pd.DataFrame) and not df_compartilhado.empty:
+            st.success("Base compartilhada disponível na sessão.")
+            rotulo_botao = "Processar base compartilhada"
             if st.button(rotulo_botao, width="stretch", type="primary"):
                 try:
                     with st.spinner("Processando base..."):
                         st.session_state.base_data = DataLoader.preparar_base(
-                            df_robo,
+                            df_compartilhado,
                             DataLoader.buscar_hierarquia_gsheets(),
                         )
                         st.rerun()
@@ -1493,18 +1490,17 @@ def main():
     with st.sidebar:
         st.header("🔍 Filtros")
         mons = sorted(df_full[Config.COL_MONITOR].dropna().astype(str).unique())
-        sel_m = st.multiselect("Monitor", mons, default=mons)
+        sel_m = st.multiselect("Monitor", mons, default=mons, key="vol_filtro_monitor")
         regs = sorted(df_full[Config.COL_REGIAO].dropna().astype(str).unique())
-        sel_r = st.multiselect("Região", regs, default=regs)
+        sel_r = st.multiselect("Região", regs, default=regs, key="vol_filtro_regiao")
 
         tecnicos = sorted(df_full[Config.COL_TECNICO].dropna().astype(str).unique())
-        sel_t = st.multiselect("Técnico", tecnicos, default=tecnicos)
+        sel_t = st.multiselect("Técnico", tecnicos, default=tecnicos, key="vol_filtro_tecnico")
 
         statuses = Config.STATUS_ORDEM
-        sel_s = st.multiselect("Status", statuses, default=statuses)
+        sel_s = st.multiselect("Status", statuses, default=statuses, key="vol_filtro_status")
 
-        if st.button("↩️ Limpar filtros", width="stretch"):
-            st.rerun()
+        st.button("↩️ Limpar filtros", width="stretch", on_click=_limpar_filtros_volumetria)
 
     df = df_full[
         df_full[Config.COL_MONITOR].isin(sel_m)
@@ -1516,6 +1512,12 @@ def main():
         render_insight("Nenhum dado selecionado com os filtros atuais.", "alerta")
         fechar_dashboard()
         return
+
+    st.caption(
+        f"Recorte atual: {len(df):,} de {len(df_full):,} registros · "
+        f"{df[Config.COL_TECNICO].nunique():,} técnicos. "
+        "Use os filtros laterais para comparar equipes; Limpar filtros restaura a visão completa."
+    )
 
     n_escalados = int(df.loc[df[Config.COL_TOTAL] >= 1, Config.COL_TECNICO].nunique())
     n_montados = int(total_montados_fixo)

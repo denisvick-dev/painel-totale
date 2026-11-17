@@ -171,7 +171,7 @@ with barra_filtros("volumetria", colunas=3) as (c1, c2, c3):  # barra fixa no to
 with secao("KPIs", icone="monitoring", subtitulo="Recorte atual"):
     render_kpi_row(specs, colunas=4)
 
-with painel("Saída do robô", altura=260):  # altura controlada, com scroll
+with painel("Prévia dos dados", altura=260):  # altura controlada, com scroll
     st.dataframe(df, width="stretch")
 
 with render_barra_acoes():
@@ -304,7 +304,7 @@ Como a velocidade é obtida:
 | `carregar_varias(max_workers=4)` | Fontes baixadas em paralelo (0,9 s → 0,31 s medidos) |
 | `ler_csv_rapido` (engine C + detecção de separador/encoding) | Sem custo de inferência de tipos |
 | `otimizar_dtypes(numericas=True, categoricas=True)` | −81% de memória no caso medido |
-| Normalização vetorial no robô (`robo.py`) | 1,03 s → 0,22 s em 120 mil linhas |
+| Normalização vetorial de dados | 1,03 s → 0,22 s em 120 mil linhas |
 | `datas_normalizadas` / `agregar_com_cache` (memoizadas por conteúdo) | Reexecuções não reparsam nem reagregam |
 | CSS injetado uma vez por sessão | ~40 KB a menos por *rerun* |
 

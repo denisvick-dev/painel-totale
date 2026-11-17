@@ -139,7 +139,7 @@ def chips_de_contexto(
         chips["Período"] = periodo
     if atualizado_em:
         chips["Atualizado em"] = _texto_horario(atualizado_em)
-    if registros:
+    if registros is not None:
         chips["Registros"] = int(registros)
     if abas:
         chips["Abas"] = int(abas)
