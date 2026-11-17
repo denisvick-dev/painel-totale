@@ -123,6 +123,14 @@ def _carregar_registros() -> tuple[pd.DataFrame, int]:
         base = carregar_grade_sessao()
     except Exception as exc:
         st.error(f"Não foi possível ler a aba absenteismo: {exc}. Confira a conta de serviço e a permissão da planilha. Nenhum dado vazio será tratado como presença.")
+        with st.expander("Configurar acesso local ao Google Sheets", expanded=True):
+            st.markdown("**1.** Na raiz do projeto, crie o arquivo de configuração a partir do modelo:")
+            st.code(r'if (!(Test-Path .streamlit\secrets.toml)) { Copy-Item .streamlit\secrets.example.toml .streamlit\secrets.toml }', language="powershell")
+            st.markdown("**2.** No arquivo local, preencha a seção `[gcp_service_account]` com os dados do JSON da conta de serviço. Não cole essas credenciais no chat nem versione o arquivo.")
+            st.markdown("**3.** Compartilhe a planilha com o `client_email` da conta de serviço como **Editor** e habilite a API Google Sheets no projeto Google Cloud.")
+            st.markdown("**4.** Reinicie o Streamlit a partir da raiz do projeto:")
+            st.code("streamlit run streamlit_app.py", language="powershell")
+            st.caption("Alternativa: defina GOOGLE_APPLICATION_CREDENTIALS com o caminho de um JSON de conta de serviço guardado fora do repositório. A conexão Drive desta conversa não configura o Streamlit local.")
         st.stop()
     pendentes: list[dict] = st.session_state.get(CHAVE_PENDENTES, [])
     cancelados: set[str] = st.session_state.get(CHAVE_CANCELADOS_PENDENTES, set())

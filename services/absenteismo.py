@@ -1058,14 +1058,24 @@ def carregar_registros(
 
 def _cliente_gspread() -> Any:
     """Cliente ``gspread`` pela conta de serviço dos secrets (import tardio)."""
-    import streamlit as st
+    import os
 
-    secret_map = getattr(st, "secrets", {}).get("gcp_service_account", {})
-    info = dict(secret_map) if isinstance(secret_map, dict) else dict(secret_map or {})
-    if not info:
+    import streamlit as st
+    from streamlit.errors import StreamlitSecretNotFoundError
+
+    try:
+        secret_map = st.secrets.get("gcp_service_account", {})
+    except StreamlitSecretNotFoundError:
+        secret_map = {}
+    info = dict(secret_map or {})
+    arquivo_credencial = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    if not info and not arquivo_credencial:
         raise RuntimeError(
-            "Credenciais de escrita não configuradas: defina [gcp_service_account] "
-            "nos secrets (mesma conta usada pela Gestão de Ativos)."
+            "Conta de serviço não configurada. Crie .streamlit/secrets.toml na raiz "
+            "do projeto com a seção [gcp_service_account], usando "
+            ".streamlit/secrets.example.toml como modelo; ou defina "
+            "GOOGLE_APPLICATION_CREDENTIALS com o caminho do JSON da conta de serviço. "
+            "Depois reinicie o Streamlit."
         )
     if "private_key" in info:
         info["private_key"] = str(info["private_key"]).replace("\\n", "\n")
@@ -1074,13 +1084,21 @@ def _cliente_gspread() -> Any:
         from google.oauth2.service_account import Credentials
     except ImportError as exc:  # pragma: no cover - ambiente sem gspread
         raise RuntimeError(f"gspread/google-auth não instalado: {exc}") from exc
-    creds = Credentials.from_service_account_info(
-        info,
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ],
-    )
+    escopos = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    if info:
+        creds = Credentials.from_service_account_info(info, scopes=escopos)
+    else:
+        try:
+            creds = Credentials.from_service_account_file(arquivo_credencial, scopes=escopos)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                "Não foi possível carregar a conta de serviço indicada por "
+                "GOOGLE_APPLICATION_CREDENTIALS. Confira o caminho, as permissões "
+                "locais e se o arquivo é um JSON de conta de serviço válido."
+            ) from exc
     return gspread.authorize(creds)
 
 
