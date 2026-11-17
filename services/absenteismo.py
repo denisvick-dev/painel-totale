@@ -1123,14 +1123,18 @@ def gravar_registros(df: pd.DataFrame, sheet_id: str | None = None) -> tuple[boo
         planilha = cliente.open_by_key(sid)
         try:
             aba_ws = planilha.worksheet(SHEET_ABA_ABSENTEISMO)
-        except Exception:
+        except Exception as exc:
+            import gspread
+
+            if not isinstance(exc, gspread.WorksheetNotFound):
+                raise
             aba_ws = planilha.add_worksheet(
                 title=SHEET_ABA_ABSENTEISMO, rows=1000, cols=len(COLUNAS_REGISTROS)
             )
         dados = _df_para_planilha(df)
-        aba_ws.clear()
-        if dados:
-            aba_ws.update(values=dados, value_input_option="RAW")
+        from services.sincronizacao import substituir_celulas_atomico
+
+        substituir_celulas_atomico(planilha, aba_ws, dados)
         return (True, "")
     except Exception as exc:  # noqa: BLE001 - motivo vai para a UI
         logger.warning("Falha ao gravar controle de absenteísmo: %s", exc)

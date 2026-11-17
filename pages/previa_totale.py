@@ -36,6 +36,8 @@ Observações de operação:
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Any
 
@@ -47,6 +49,7 @@ from components.sidebar import render_page_sidebar_theme_selector
 from config.settings import URL_PREVIA_DIARIA
 from services import previa_diaria as previa
 from services.planilhas import botao_download_planilha
+from services.sincronizacao import sincronizar_abas
 from services.texto import escapar_html
 
 st.set_page_config(
@@ -230,19 +233,25 @@ def _iniciar_estado() -> None:
 # ====================================================
 # ☁️ BLOCO 2: GOOGLE SHEETS (LEITURA/GRAVAÇÃO OPCIONAL)
 # ====================================================
+def _ler_aba_remota(aba: str) -> pd.DataFrame:
+    """Leitura estrita: uma falha nunca é interpretada como histórico vazio."""
+    from streamlit_gsheets import GSheetsConnection
+
+    conexao = st.connection("gsheets", type=GSheetsConnection)
+    df = conexao.read(spreadsheet=URL_PREVIA_DIARIA, worksheet=aba, ttl=0)
+    if not isinstance(df, pd.DataFrame):
+        raise RuntimeError(f"Resposta inválida ao ler {aba}.")
+    return df.copy()
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _ler_aba(aba: str) -> pd.DataFrame:
-    """Lê uma aba da planilha da prévia; sem credencial devolve ``DataFrame`` vazio."""
+    """Consulta opcional; sincronização usa leitura estrita e atualizada."""
     try:
-        from streamlit_gsheets import GSheetsConnection
-
-        conexao = st.connection("gsheets", type=GSheetsConnection)
-        df = conexao.read(spreadsheet=URL_PREVIA_DIARIA, worksheet=aba, ttl=0)
-    except Exception:  # noqa: BLE001 - sem biblioteca/secrets o app segue local
+        return _ler_aba_remota(aba)
+    except Exception as exc:
+        st.warning(f"Não foi possível consultar a aba {aba}: {exc}. Dados remotos indisponíveis.")
         return pd.DataFrame()
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame()
-    return df
 
 
 def _gravar_aba(aba: str, df: pd.DataFrame) -> None:
@@ -696,6 +705,11 @@ def _render_passo_2() -> None:
             _render_dados_base(base, df_valido, df_config, email_parados, data_formatada, dias_uteis)
 
     st.markdown("---")
+    st.caption(f"Conferência: data {data_formatada} · {len(df_valido)} registros processados. Revise as bases acima antes de enviar.")
+    if st.button("Gerar prévia local (sem sincronizar)", key="previa_gerar_local"):
+        st.session_state["previa_sync"] = {"ok": False, "mensagem": "Versão local, sem envio ao Google Sheets."}
+        _navegar(PASSOS[2])
+        st.rerun()
     if st.button(
         "📊 Sincronizar Google Sheets e gerar a prévia executiva",
         type="primary",
@@ -703,8 +717,9 @@ def _render_passo_2() -> None:
     ):
         with st.spinner("Gravando histórico, equipe e prévia na planilha..."):
             try:
-                _sincronizar_planilha(df_valido, data_formatada, dias_uteis)
-                st.session_state["previa_sync"] = {"ok": True, "mensagem": ""}
+                st.session_state["previa_sync"] = _sincronizar_planilha(
+                    df_valido, data_formatada, dias_uteis
+                )
             except Exception as exc:  # noqa: BLE001 - mostra o motivo real ao usuário
                 st.session_state["previa_sync"] = {"ok": False, "mensagem": str(exc)}
         _navegar(PASSOS[2])
@@ -1275,10 +1290,15 @@ def _render_detalhamento(detalhes: dict[str, Any], data_ref: str) -> None:
 # ====================================================
 # 📊 BLOCO 8: PASSO 3 — PRÉVIA EXECUTIVA
 # ====================================================
+def _assinatura_previa(linhas: list[dict]) -> str:
+    return hashlib.sha256(json.dumps(linhas, sort_keys=True, default=str).encode()).hexdigest()
+
+
 def _mostrar_feedback_sync() -> None:
-    """Mostra uma vez o resultado da última sincronização (some no rerun seguinte)."""
-    resultado = st.session_state.pop("previa_sync", None)
+    """Mantém visível o resultado da última sincronização."""
+    resultado = st.session_state.get("previa_sync")
     if not isinstance(resultado, dict):
+        st.info("Prévia local — sincronização ainda não realizada nesta sessão.")
         return
     if resultado.get("ok"):
         st.success("✅ Histórico, equipe e prévia sincronizados com o Google Sheets.")
@@ -1286,8 +1306,12 @@ def _mostrar_feedback_sync() -> None:
         st.warning(
             "Não foi possível gravar no Google Sheets "
             f"({resultado.get('mensagem', 'motivo desconhecido')}). "
-            "A prévia desta sessão continua disponível na tela."
+            "Prévia local — sincronização não concluída."
         )
+    if resultado.get("gravadas"):
+        st.caption("Abas gravadas: " + ", ".join(resultado["gravadas"]))
+    if resultado.get("pendentes"):
+        st.caption("Abas pendentes: " + ", ".join(resultado["pendentes"]))
 
 
 def _linhas_do_historico(df_previas: pd.DataFrame, data_ref: str) -> list[dict[str, Any]]:
@@ -1347,6 +1371,11 @@ def _render_passo_3() -> None:
         data_ref,
         dias_uteis,
     )
+    sincronizacao = st.session_state.get("previa_sync", {})
+    if sincronizacao.get("ok") and sincronizacao.get("assinatura") != _assinatura_previa(linhas):
+        st.warning("Dados alterados após a sincronização. Esta versão é local; sincronize novamente no Passo 2.")
+    if sincronizacao.get("atualizado_em"):
+        st.caption(f"Última tentativa de sincronização: {sincronizacao['atualizado_em']}")
     _render_tabela(linhas, data_ref, _brutos_por_base(detalhes))
     st.markdown("<hr>", unsafe_allow_html=True)
     _render_detalhamento(detalhes, data_ref)
@@ -1387,14 +1416,18 @@ def _substituir_linhas(
     return resultado
 
 
-def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: int) -> None:
+def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: int) -> dict:
     """Grava histórico, equipe e prévia do dia nas abas do Google Sheets."""
     linhas, detalhes = _montar_linhas(
         df_valido, st.session_state.get("previa_df_full"), data_ref, dias_uteis
     )
+    alteracoes: dict[str, pd.DataFrame] = {}
     consultivo = _consultivo_sessao() or {}
 
-    df_hist_os = _historico_os()
+    df_hist_os = _ler_aba_remota(ABA_HIST_OS)
+    for coluna in COLUNAS_HIST_OS:
+        if coluna not in df_hist_os.columns:
+            df_hist_os[coluna] = ""
     filtro_os = pd.Series(False, index=df_hist_os.index)
     if not df_hist_os.empty:
         bases_norm = df_hist_os["Base"].apply(previa.normalizar_nome_base).str.upper()
@@ -1415,7 +1448,7 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
     ]
     if novas_os:
         df_hist_os = _substituir_linhas(df_hist_os, filtro_os, novas_os, COLUNAS_HIST_OS)
-        _gravar_aba(ABA_HIST_OS, df_hist_os)
+        alteracoes[ABA_HIST_OS] = df_hist_os
 
     # Sem arquivo de Consultivo no dia, não se grava nada: sobrescrever com zero
     # apagaria o histórico real daquela data na planilha.
@@ -1431,7 +1464,7 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
                     {"Data": str(data_dia), "Base": base, "Qtd_Consultivo": int(quantidade)}
                 )
     if novas_consultivo:
-        df_hist_consultivo = _ler_aba(ABA_HIST_CONSULTIVO)
+        df_hist_consultivo = _ler_aba_remota(ABA_HIST_CONSULTIVO)
         for coluna in COLUNAS_HIST_CONSULTIVO:
             if coluna not in df_hist_consultivo.columns:
                 df_hist_consultivo[coluna] = ""
@@ -1445,7 +1478,7 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
         df_hist_consultivo = _substituir_linhas(
             df_hist_consultivo, filtro_consultivo, novas_consultivo, COLUNAS_HIST_CONSULTIVO
         )
-        _gravar_aba(ABA_HIST_CONSULTIVO, df_hist_consultivo)
+        alteracoes[ABA_HIST_CONSULTIVO] = df_hist_consultivo
 
     linhas_config: list[dict[str, Any]] = []
     linhas_equipe: list[dict[str, Any]] = []
@@ -1466,10 +1499,10 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
                 }
             )
     if linhas_config:
-        _gravar_aba(ABA_CONFIG_EQUIPE, pd.DataFrame(linhas_config))
+        alteracoes[ABA_CONFIG_EQUIPE] = pd.DataFrame(linhas_config)
 
     if linhas_equipe:
-        df_hist_equipe = _ler_aba(ABA_HIST_EQUIPE)
+        df_hist_equipe = _ler_aba_remota(ABA_HIST_EQUIPE)
         for coluna in COLUNAS_HIST_EQUIPE:
             if coluna not in df_hist_equipe.columns:
                 df_hist_equipe[coluna] = ""
@@ -1481,9 +1514,9 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
         df_hist_equipe = _substituir_linhas(
             df_hist_equipe, filtro_equipe, linhas_equipe, COLUNAS_HIST_EQUIPE
         )
-        _gravar_aba(ABA_HIST_EQUIPE, df_hist_equipe)
+        alteracoes[ABA_HIST_EQUIPE] = df_hist_equipe
 
-    df_previas = _ler_aba(ABA_PREVIAS)
+    df_previas = _ler_aba_remota(ABA_PREVIAS)
     for coluna in COLUNAS_PREVIA:
         if coluna not in df_previas.columns:
             df_previas[coluna] = ""
@@ -1494,9 +1527,12 @@ def _sincronizar_planilha(df_valido: pd.DataFrame, data_ref: str, dias_uteis: in
             df_previas["Data"].astype(str).str.strip() == str(data_ref).strip()
         ) & (df_previas["Base"].isin(rotulos))
     df_previas = _substituir_linhas(df_previas, filtro_previa, linhas, COLUNAS_PREVIA)
-    _gravar_aba(ABA_PREVIAS, df_previas)
+    alteracoes[ABA_PREVIAS] = df_previas
 
-    _ler_aba.clear()
+    resultado = sincronizar_abas(alteracoes, _gravar_aba, lambda aba: _ler_aba.clear(aba))
+    resultado["atualizado_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    resultado["assinatura"] = _assinatura_previa(linhas)
+    return resultado
 
 
 # ====================================================

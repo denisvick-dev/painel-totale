@@ -727,8 +727,13 @@ with secao(
             key="absenteismo_preencher_grade",
         )
         if preencher and not origem_grade:
-            _render_preenchimento_mapa(matriz_mapa)
-        _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
+            aba_edicao, aba_visualizacao = st.tabs(["Preencher", "Visualizar e exportar"])
+            with aba_edicao:
+                _render_preenchimento_mapa(matriz_mapa)
+            with aba_visualizacao:
+                _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
+        else:
+            _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
 
 
 # ============================================================
