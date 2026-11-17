@@ -537,6 +537,7 @@ def _roteiro_sincronizacao() -> None:
     st.session_state["previa_m_NET-ABCDM_MAICON"] = 12
     st.session_state["previa_data_ref"] = "10/11/2026"
 
+    pagina._ler_aba_remota = lambda aba: pd.DataFrame()  # type: ignore[assignment]
     escritas: dict[str, pd.DataFrame] = {}
     pagina._gravar_aba = lambda aba, dados: escritas.__setitem__(aba, dados.copy())  # type: ignore[assignment]
     pagina._sincronizar_planilha(df, "10/11/2026", 25)
@@ -654,3 +655,30 @@ def test_sincronizacao_sem_credencial_avisa_e_abre_a_previa() -> None:
     assert not app.exception
     assert app.radio[0].value == "3. Prévia executiva"
     assert any("Não foi possível gravar no Google Sheets" in w.value for w in app.warning)
+
+
+def _roteiro_falha_leitura_sync() -> None:
+    import pandas as pd
+    import streamlit as st
+    from pages import previa_totale as pagina
+
+    escritas = []
+    pagina._montar_linhas = lambda *args: ([], {})
+    pagina._gravar_aba = lambda aba, dados: escritas.append(aba)
+
+    def falhar(aba):
+        raise RuntimeError("Leitura negada")
+
+    pagina._ler_aba_remota = falhar
+    try:
+        pagina._sincronizar_planilha(pd.DataFrame(), "10/11/2026", 25)
+    except RuntimeError as exc:
+        st.session_state["_erro_leitura"] = str(exc)
+    st.session_state["_escritas_bloqueadas"] = escritas
+
+
+def test_falha_leitura_bloqueia_todas_as_gravacoes() -> None:
+    app = AppTest.from_function(_roteiro_falha_leitura_sync, default_timeout=120).run()
+    assert not app.exception
+    assert app.session_state["_erro_leitura"] == "Leitura negada"
+    assert app.session_state["_escritas_bloqueadas"] == []
