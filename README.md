@@ -50,9 +50,9 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - **Histórico na planilha**: ao sincronizar, grava `Historico_OS`, `Historico_Consultivo`, `Config_Equipe`, `Historico_Equipe` e `Previas_Diarias`, permitindo reabrir qualquer prévia anterior
 - **Apresentação fiel à diretoria**: tabela de 33 colunas com totais ponderados e detalhamento por base/supervisor, além do download da ANIEL tratada
 
-### 🎛️ Design System & Desempenho (v3.6.0)
+### 🎛️ Design System & Desempenho (v3.8.0)
 
-Versão atual: **3.6.0** — veja [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) para o guia de uso dos componentes.
+Versão atual: **3.8.0** — veja [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) para o guia de uso dos componentes.
 
 - **Cartões de KPI avançados** (`components/kpi_cards.py`): variação D-1/W-1 com seta e cor semântica, sparkline SVG inline, barra de progresso contra meta, ícone Material, 6 temas e 3 densidades. `render_metric` é *drop-in replacement* de `st.metric` (nenhuma página usa mais o widget nativo)
 - **Fábrica de gráficos minimalista** (`components/graficos.py`): 24 tipos (`criar_grafico("linha"|"ranking"|"cascata"|"gauge"|…)`) sobre Plotly Express com o tema `totale_min` — sem chrome, grade só no eixo Y, legenda horizontal e menu enxuto. A fábrica nunca levanta exceção: dado inválido vira figura com aviso
@@ -317,7 +317,7 @@ painel-totale/
 - Regras de dados e integrações ficam em `services/`; componentes visuais, em `components/`.
 - Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md),
   [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md) e
-  [Proposta de dashboards e melhorias](docs/PROPOSTA_DASHBOARDS_E_MELHORIAS.md).
+  [Proposta de dashboards e melhorias](docs/PROPOSTA_DASHBOARDS_E_MELHORIAS.md) · [Changelog](CHANGELOG.md).
   O README é o ponto de entrada.
 - `pages/login.py` (tela standalone não integrada ao portal) e
   `components/alertas_automaticos.py` (sem consumidores no app) foram removidos.

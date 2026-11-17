@@ -23,7 +23,7 @@ TIMEOUT_HTTP_PADRAO: int = 30
 
 # Identidade de versão do portal — fonte única (entrypoint, rodapé das páginas e
 # documentação leem daqui; nenhuma página hardcoda a versão).
-VERSAO_PORTAL_PADRAO: str = "3.7.0"
+VERSAO_PORTAL_PADRAO: str = "3.8.0"
 AMBIENTE_PORTAL_PADRAO: str = "Produção"
 
 # Valores padrão (fallbacks) dos recursos corporativos no Google Drive / Sheets

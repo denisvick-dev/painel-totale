@@ -3,7 +3,7 @@ components/__init__.py
 ======================
 Pacote de componentes reutilizáveis do portal TOTALE.
 
-Módulos do Design System v3.6.0 (carregados sob demanda via ``__getattr__``
+Módulos do Design System v3.8.0 (carregados sob demanda via ``__getattr__``
 para não importar Streamlit/Plotly em quem usa apenas :mod:`components.criterios`):
 
 =================================  ==========================================================

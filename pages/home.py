@@ -3,8 +3,8 @@ pages/home.py
 =============
 Home — Portal TOTALE de Inteligência Operacional
 
-Versão: 3.6.0 (organização da informação, cartões de KPI avançados e gráficos
-minimalistas TOTALE)
+Versão: 3.8.0 (frescor global, tabelas transparentes e dashboard de
+Produtividade & Disponibilidade)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:
@@ -48,6 +48,7 @@ from components.layout_pagina import (
     secao,
 )
 from components.sidebar import render_page_sidebar_theme_selector
+from config.settings import AMBIENTE_PORTAL_PADRAO, VERSAO_PORTAL_PADRAO
 from services.cache_dados import temporizar
 from services.dados_sessao import (
     CHAVE_ATUALIZACAO,
@@ -63,8 +64,8 @@ logger = logging.getLogger(__name__)
 # 🔧 BLOCO 1: CONFIGURAÇÕES E CONSTANTES
 # ====================================================
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
-VERSAO_SISTEMA = "3.6.0"
-AMBIENTE_SISTEMA = "Produção"
+VERSAO_SISTEMA = VERSAO_PORTAL_PADRAO
+AMBIENTE_SISTEMA = AMBIENTE_PORTAL_PADRAO
 MESES_PT_BR = (
     "janeiro",
     "fevereiro",

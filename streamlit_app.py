@@ -3,8 +3,8 @@ streamlit_app.py
 ================
 Portal TOTALE — Aplicação Principal
 
-Versão: 3.7.0 (navegação declarativa, dashboards padronizados na hierarquia de
-leitura e camada de serviços compartilhada entre as páginas)
+Versão: 3.8.0 (frescor global, tabelas transparentes e dashboard de
+Produtividade × Disponibilidade)
 Autor: TOTALE Tecnologia
 
 • Seletor da sidebar com temas Claro, Azul e Laranja.
