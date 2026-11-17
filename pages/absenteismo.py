@@ -56,6 +56,7 @@ from components.graficos import (
     grafico_ranking,
     render_grafico,
 )
+from components.importacao_presenca import render_importacao_presenca
 from components.kpi_cards import SpecKPIAvancado, render_kpi_row
 from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
@@ -213,6 +214,24 @@ abrir_dashboard(
     resumo=resumir_carga(registros, atualizado_em=ultima_atualizacao()),
     origem=f"controle_absenteismo + lista_ativos ({SHEET_ABA_ATIVOS})",
 )
+
+render_importacao_presenca(registros, _persistir, bloqueado=origem_grade)
+
+qualidade_origem = lista_ativos.attrs.get("qualidade_origem")
+if qualidade_origem:
+    with st.expander("Qualidade da lista de ativos", expanded=bool(qualidade_origem["ocorrencias"])):
+        c_origem, c_validos, c_pendencias = st.columns(3)
+        c_origem.metric("Linhas na origem", qualidade_origem["linhas_origem"])
+        c_validos.metric("Logins únicos preenchidos", qualidade_origem["logins_validos"])
+        c_pendencias.metric("Ocorrências para revisar", len(qualidade_origem["ocorrencias"]))
+        st.caption("Diagnóstico da carga completa, antes dos filtros e da deduplicação. Uma linha pode ter mais de uma ocorrência; o número de logins não representa o quadro ativo.")
+        if qualidade_origem["ocorrencias"]:
+            st.warning("Há cadastros para revisar na planilha. Linhas sem login não entram na lista; RE repetido não une técnicos automaticamente.")
+            st.dataframe(pd.DataFrame(qualidade_origem["ocorrencias"]), hide_index=True, width="stretch")
+        else:
+            st.success("Nenhuma inconsistência detectada nas verificações cadastrais.")
+        if qualidade_origem["ultima_modificacao_cadastral"]:
+            st.caption("Maior data informada em Ultima_Modificacao: " + qualidade_origem["ultima_modificacao_cadastral"] + ". Esse campo é cadastral e não confirma a data da última presença.")
 
 for tipo_flash, texto_flash in st.session_state.pop("absenteismo_flash", []):
     if tipo_flash == "sucesso":
