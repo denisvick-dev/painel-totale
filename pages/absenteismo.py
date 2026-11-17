@@ -37,6 +37,7 @@ indicadores → lançamento → análises → registros → exportação → rod
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import uuid
@@ -57,7 +58,7 @@ from components.graficos import (
 from components.kpi_cards import SpecKPIAvancado, render_kpi_row
 from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
-from config.settings import SHEET_ABA_ABSENTEISMO, SHEET_ABA_ATIVOS
+from config.settings import SHEET_ABA_ABSENTEISMO, SHEET_ABA_ATIVOS, obter_sheet_id_ativos
 from services.absenteismo import (
     ABREVIACOES_AUSENCIA,
     DIAS_SEMANA_ABREVIADOS,
@@ -79,6 +80,7 @@ from services.absenteismo import (
     resumir_controle,
     serie_diaria_ausencias,
 )
+from services.absenteismo_grade import registros_do_preenchimento
 from services.dados_sessao import resumir_carga, ultima_atualizacao
 from services.hierarquia import SITUACOES_QUADRO, lista_ativos_da_sessao
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual
@@ -205,6 +207,16 @@ if qtd_pendentes:
         tipo="alerta",
         titulo="Lançamentos não sincronizados",
     )
+
+if qtd_pendentes and not origem_grade:
+    if st.button("Tentar sincronizar pendências com o Drive", key="absenteismo_sincronizar"):
+        if _persistir(registros):
+            st.session_state["absenteismo_flash"] = [
+                ("sucesso", "Pendências gravadas na planilha do Drive.")
+            ]
+            st.rerun()
+        else:
+            st.error("Não foi possível sincronizar. Confira a conta de serviço e a permissão de edição da planilha. Os dados continuam somente nesta sessão.")
 
 # ============================================================
 # FILTROS (SIDEBAR)
@@ -599,6 +611,71 @@ def _render_mapa_mensal(
         )
 
 
+def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
+    """Editor com identidade protegida e salvamento automático por seleção."""
+    st.caption(
+        "Selecione uma célula de dia e escolha o código. Vazio = sem ausência. "
+        "Este modo preenche apenas dias vazios; para corrigir ausências existentes, "
+        "cancele o registro primeiro. Cada seleção é enviada automaticamente à planilha."
+    )
+    dias = _colunas_dia_mapa(matriz)
+    opcoes = ["", *ABREVIACOES_AUSENCIA.values()]
+    # Preserva também células com tipos sobrepostos (ex.: AT/FE).
+    existentes = {str(v) for dia in dias for v in matriz[dia].dropna() if str(v)}
+    opcoes += sorted(existentes - set(opcoes))
+    versao = hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:16]
+    st.caption("Salvamento automático ativado · destino: aba controle_absenteismo.")
+    st.link_button(
+        "Abrir planilha no Drive",
+        f"https://docs.google.com/spreadsheets/d/{obter_sheet_id_ativos()}/edit",
+    )
+    editada = st.data_editor(
+        matriz,
+        hide_index=True,
+        num_rows="fixed",
+        disabled=[c for c in matriz.columns if c not in dias],
+        column_config={
+            dia: st.column_config.SelectboxColumn(
+                f"{_rotulo_dia(dia)} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
+                options=opcoes,
+                width="small",
+                help="Escolha o código de ausência. Preencha somente dias vazios.",
+            )
+            for dia in dias
+        },
+        height=550,
+        width="stretch",
+        key=f"absenteismo_grade_editor_{versao}",
+    )
+    try:
+        novos = registros_do_preenchimento(matriz, editada)
+    except ValueError as erro:
+        st.error(str(erro))
+        return
+    if not novos:
+        return
+    # Confere contra todos os registros, inclusive os ocultos pelo filtro de tipo.
+    for novo in novos:
+        dia = date.fromisoformat(novo["Data Início"])
+        existentes_dia = filtrar_registros_periodo(registros, dia, dia)
+        if existentes_dia["Login"].eq(novo["Login"]).any():
+            st.error("Um dos dias já tem ausência. Remova o filtro de tipo e confira o mapa antes de salvar.")
+            return
+    atualizados = normalizar_registros(pd.concat(
+        [registros.drop(columns=["_inicio", "_fim"], errors="ignore"), pd.DataFrame(novos)],
+        ignore_index=True,
+    ))
+    if _persistir(atualizados):
+        mensagem = ("sucesso", f"{len(novos)} dia(s) salvo(s) automaticamente no Drive (aba controle_absenteismo).")
+    else:
+        st.session_state[CHAVE_PENDENTES] = [
+            *st.session_state.get(CHAVE_PENDENTES, []), *novos,
+        ]
+        mensagem = ("alerta", "Preenchimento mantido somente nesta sessão; não foi possível gravar na planilha. Exporte os registros para guardar.")
+    st.session_state["absenteismo_flash"] = [mensagem]
+    st.rerun()
+
+
 # Quadro do mapa: mesmo recorte de base/monitor/busca da página.
 quadro_mapa = quadro_df.copy()
 if bases_sel:
@@ -644,6 +721,13 @@ with secao(
             ),
         )
     else:
+        preencher = st.toggle(
+            "Preencher com selectbox", disabled=origem_grade,
+            help="Disponível quando o controle está no formato de registros.",
+            key="absenteismo_preencher_grade",
+        )
+        if preencher and not origem_grade:
+            _render_preenchimento_mapa(matriz_mapa)
         _render_mapa_mensal(matriz_mapa, mapa_inicio, mapa_fim, origem_grade)
 
 
