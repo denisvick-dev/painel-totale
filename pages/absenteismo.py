@@ -242,6 +242,17 @@ if qtd_pendentes:
 # ============================================================
 # FILTROS (SIDEBAR)
 # ============================================================
+bases_disponiveis = sorted(
+    set(registros["Base"].fillna("").replace("", "Não informado"))
+    | set(quadro_df["BASE"].fillna("").replace("", "Não informado"))
+)
+bases_sel = st.multiselect(
+    "Base", bases_disponiveis, key="absenteismo_filtro_base",
+    placeholder="Todas as bases",
+    help="Selecione uma ou mais bases. Sem seleção, todas as bases são exibidas. O filtro vale para todas as áreas e suas exportações.",
+)
+st.caption("Bases selecionadas: " + (", ".join(bases_sel) if bases_sel else "Todas as bases"))
+
 with st.sidebar:
     st.markdown("### Filtros da equipe")
     st.caption("Base, monitor e busca afetam todas as áreas. O período define o mês do mapa. O filtro de tipo afeta apenas análises e histórico.")
@@ -251,18 +262,9 @@ with st.sidebar:
     periodo_fim = st.date_input("Fim do período de análise", value=mes_fim, key="absenteismo_periodo_fim")
     if periodo_fim < periodo_inicio:
         periodo_inicio, periodo_fim = periodo_fim, periodo_inicio
-    bases_disponiveis = sorted(
-        set(registros["Base"].replace("", "Não informado"))
-        | set(quadro_df["BASE"].replace("", "Não informado"))
-    )
     monitores_disponiveis = sorted(
         set(registros["Monitor"].replace("", "Não informado"))
         | set(quadro_df["MONITOR"].replace("", "Não informado"))
-    )
-    bases_sel = st.multiselect(
-        "Base",
-        bases_disponiveis,
-        key="absenteismo_filtro_base",
     )
     monitores_sel = st.multiselect(
         "Monitor",
@@ -1350,7 +1352,10 @@ def _render_registros():
 @st.cache_data(show_spinner=False, max_entries=4, ttl=120)
 def _lista_presenca_em_cache(registros, quadro, inicio, fim):
     """Reutiliza a transformação da grade nos reruns dos filtros e do editor."""
-    return montar_lista_presenca(registros, quadro, inicio, fim)
+    # O construtor genérico inclui pessoas presentes só nos registros. Aqui a
+    # grade é o cadastro oficial: não reintroduzir técnicos excluídos por filtros.
+    registros_equipe = registros.loc[registros["Login"].isin(quadro["LOGIN"])]
+    return montar_lista_presenca(registros_equipe, quadro, inicio, fim)
 
 
 def _render_chamada_diaria() -> None:
@@ -1358,7 +1363,7 @@ def _render_chamada_diaria() -> None:
     st.info("A chamada considera todos os tipos de situação. Os filtros de tipo e período da lateral são usados nas análises; a data da chamada é escolhida abaixo.")
     lista = _lista_presenca_em_cache(registros, quadro_mapa, min(datas_grade), max(datas_grade))
     if lista.empty:
-        render_empty_state(tipo="filtro", titulo="Nenhum técnico neste recorte", descricao="Ajuste os filtros de base, monitor ou busca na lateral.")
+        render_empty_state(tipo="filtro", titulo="Nenhum técnico neste recorte", descricao="Ajuste o filtro Base acima ou os filtros de monitor e busca na lateral.")
         return
     _render_preenchimento_mapa(lista)
     with st.expander("Registrar ausência por período"):

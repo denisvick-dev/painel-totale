@@ -241,3 +241,30 @@ def test_mapa_mensal_inclui_presenca_operacional_e_pendencias_sem_filtro_de_tipo
     valores = {m.label: m.value for m in app.metric}
     assert valores["Dias preenchidos"] == "5"
     assert valores["Dias não preenchidos"] == "85"
+
+
+def test_filtro_base_recorta_chamada_mapa_e_exportacao():
+
+    app = _rodar(origem_grade=True)
+    filtro = app.multiselect(key="absenteismo_filtro_base")
+    assert set(filtro.options) == {"Abcdm-Totale", "Spo-Totalleste"}
+    filtro.set_value(["Spo-Totalleste"]).run()
+    assert not app.exception
+    # Alex tem registros históricos em outra base: não pode reaparecer na grade.
+    editor = app.dataframe[0].value
+    assert editor["Login"].tolist() == ["Z657046"]
+    app.radio(key="presenca_area").set_value("Mapa mensal").run()
+    assert not app.exception
+    html = "\n".join(e.value for e in app.markdown)
+    assert "Abner Makalas" in html
+    assert "Alex Bernardes Da Silva" not in html
+    # O download usa a mesma matriz filtrada exibida na tela.
+    assert any(e.key == "absenteismo_mapa_download" for e in app.get("download_button"))
+    app.multiselect(key="absenteismo_filtro_base").set_value(["Abcdm-Totale", "Spo-Totalleste"]).run()
+    assert not app.exception
+    html = "\n".join(e.value for e in app.markdown)
+    assert "Alex Bernardes Da Silva" in html
+    assert "Abner Makalas" in html
+    app.multiselect(key="absenteismo_filtro_base").set_value([]).run()
+    assert not app.exception
+    assert any("Todas as bases" in e.value for e in app.caption)
