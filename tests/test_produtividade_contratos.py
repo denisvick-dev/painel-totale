@@ -59,3 +59,94 @@ def test_pagina_sem_identificador_ou_data_avisos():
     assert not app.exception
     assert any("Nenhuma coluna de identificador" in w.value for w in app.warning)
     assert any("Sem data reconhecida" in w.value for w in app.warning)
+
+
+def test_equipes_e_distribuicao_nao_contam_dias_sem_data():
+    from services.produtividade_contratos import distribuicao_contratos, resumo_equipes
+
+    dados, _ = preparar_producao(_dados())
+    equipes = resumo_equipes(dados).set_index(["Base", "Supervisor", "Equipe"])
+    assert equipes.loc[("A", "S1", "E1"), "Equipe-dias"] == 2
+    assert equipes.loc[("A", "S1", "E1"), "O.S./equipe-dia"] == 1.5
+    distribuicao = distribuicao_contratos(dados).set_index("O.S. por contrato")
+    assert distribuicao.loc[1, "Contratos"] == 1
+    assert distribuicao.loc[2, "Contratos"] == 1
+
+
+def test_diagnostico_repeticoes_nao_remove_linhas():
+    from services.produtividade_contratos import diagnostico_os
+
+    dados = pd.DataFrame({"Número da O.S 1": ["123", "123", "456", ""]})
+    assert diagnostico_os(dados) == ("Número da O.S 1", 1, 3)
+    assert diagnostico_os(pd.DataFrame({"Contrato": ["123"]})) == (None, None, 0)
+
+
+def test_retornos_janela_filtra_status_e_descarta_coorte_incompleta():
+    from services.produtividade_contratos import analisar_retornos, preparar_retornos
+
+    prod, _ = preparar_producao(pd.DataFrame({
+        "Contrato": ["1", "2", "3"], "Data": ["01/11/2026", "10/11/2026", "28/11/2026"],
+        "Base": ["A", "A", "A"], "Supervisor": ["S", "S", "S"],
+    }))
+    retornos, qualidade = preparar_retornos(pd.DataFrame({
+        "Contrato": ["1", "1", "2", "3"],
+        "Data": ["05/11/2026", "01/11/2026", "13/11/2026", "30/11/2026"],
+        "Tipo de Atividade": ["Outra", "Outra", "Outra", "Outra"],
+        "Tipo de Atividade.1": ["Retorno Credenciada"] * 4,
+        "Status da Atividade": ["Concluída", "Concluída", "Suspensa", "Concluída"],
+        "Motivo": ["Falha", "Falha", "Falha", "Falha"],
+    }))
+    assert qualidade["selecionados"] == 3
+    coorte, eventos = analisar_retornos(prod, retornos, date(2026, 11, 1), date(2026, 11, 30), 7)
+    assert len(coorte) == 2
+    assert int(coorte["Com retorno"].sum()) == 1
+    assert len(eventos) == 1
+    assert eventos.iloc[0]["Contrato"] == "1"
+    assert eventos.iloc[0]["Data"] == pd.Timestamp("2026-11-05")
+    coorte30, _ = analisar_retornos(prod, retornos, date(2026, 11, 1), date(2026, 11, 30), 30)
+    assert coorte30.empty
+
+
+def test_retornos_exclui_atribuicao_ambigua_e_exige_colunas():
+    import pytest
+
+    from services.produtividade_contratos import analisar_retornos, preparar_retornos
+
+    with pytest.raises(ValueError, match="Status"):
+        preparar_retornos(pd.DataFrame({"Contrato": ["1"], "Data": ["01/11/2026"], "Tipo": ["Retorno"]}))
+    prod, _ = preparar_producao(pd.DataFrame({
+        "Contrato": ["1", "1"], "Data": ["01/11/2026", "01/11/2026"],
+        "Base": ["A", "B"], "Supervisor": ["S1", "S2"],
+    }))
+    retornos, _ = preparar_retornos(pd.DataFrame({
+        "Contrato": ["1"], "Data": ["05/11/2026"],
+        "Tipo de Atividade": ["Retorno Credenciada"], "Status": ["Concluído"],
+    }))
+    coorte, eventos = analisar_retornos(prod, retornos, date(2026, 11, 1), date(2026, 11, 30), 7)
+    assert coorte.empty and eventos.empty
+
+
+def test_pagina_retorno_exige_confirmacao_e_calcula_com_cobertura(monkeypatch):
+    import streamlit as st
+
+    class Arquivo:
+        name = "retornos.csv"
+
+        def getvalue(self):
+            return (
+                "Contrato;Data;Tipo de Atividade;Status;Motivo\n"
+                "001;05/11/2026;Retorno Credenciada;Concluída;Falha\n"
+            ).encode("utf-8")
+
+    monkeypatch.setattr(st, "file_uploader", lambda *args, **kwargs: Arquivo())
+    caminho = Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"
+    app = AppTest.from_file(str(caminho), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    assert not app.exception
+    assert any("Confirme a cobertura" in i.value for i in app.info)
+    app.date_input(key="retornos_cobertura_fim").set_value(date(2026, 12, 5))
+    app.checkbox(key="retornos_confirmar_cobertura").check().run()
+    assert not app.exception
+    assert app.radio(key="retornos_janela").value == 7
+    assert any("Taxa (%)" in t.value.columns for t in app.dataframe)
