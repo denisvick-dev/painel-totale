@@ -6,7 +6,12 @@ from typing import Any
 
 import pandas as pd
 
-from services.produtividade import ALIASES_PRODUCAO, NAO_INFORMADO, normalizar_producao
+from services.produtividade import (
+    ALIASES_PRODUCAO,
+    NAO_INFORMADO,
+    normalizar_producao,
+    rotulo_dimensao,
+)
 from services.texto import buscar_coluna, normalizar_chave, normalizar_texto
 
 # Somente nomes explícitos de identificador: não confundir tipo de contrato,
@@ -34,6 +39,14 @@ def preparar_producao(origem: pd.DataFrame) -> tuple[pd.DataFrame, str | None]:
     """Normaliza produção e preserva somente uma coluna explícita de contrato."""
     dados = normalizar_producao(origem)
     coluna = next((c for c in origem.columns if normalizar_chave(c) in ALIASES_CONTRATO), None)
+    # A normalização compartilhada aceita Contrato como alternativa de Projeto.
+    # Neste painel são dimensões distintas: nunca usar número de contrato ou base
+    # como projeto quando a coluna explícita não existe.
+    coluna_projeto = encontrar_coluna(origem, {"PROJETO"})
+    dados["Projeto"] = (
+        origem[coluna_projeto].map(rotulo_dimensao).reset_index(drop=True)
+        if coluna_projeto is not None else NAO_INFORMADO
+    )
     dados["Data"] = dados["Data"].dt.normalize()
     if buscar_coluna(origem, ALIASES_PRODUCAO["Pontos"]) is None:
         dados["Pontos"] = float("nan")
@@ -45,7 +58,7 @@ def resumir(dados: pd.DataFrame) -> dict[str, Any]:
     """Uma linha da carga equivale a uma O.S.; equipe-dia é produção observada."""
     validos = dados["Contrato"].dropna()
     equipe = dados.loc[dados["Equipe"].ne(NAO_INFORMADO) & dados["Data"].notna()]
-    pares = equipe.drop_duplicates(["Base", "Supervisor", "Equipe", "Data"])
+    pares = equipe.drop_duplicates(["Projeto", "Supervisor", "Equipe", "Data"])
     return {
         "os": len(dados),
         "contratos": int(validos.nunique()) if not validos.empty else None,
@@ -90,7 +103,7 @@ def diagnostico_os(origem: pd.DataFrame) -> tuple[str | None, int | None, int]:
 
 def resumo_equipes(dados: pd.DataFrame) -> pd.DataFrame:
     """Totais e produtividade observada; linhas sem data/equipe não entram na taxa."""
-    dimensoes = ["Base", "Supervisor", "Equipe"]
+    dimensoes = ["Projeto", "Supervisor", "Equipe"]
     colunas = [*dimensoes, "O.S.", "Contratos", "Equipe-dias", "O.S. com data", "O.S./equipe-dia"]
     if dados.empty:
         return pd.DataFrame(columns=colunas)
@@ -161,7 +174,7 @@ def analisar_retornos(
     base = producao.dropna(subset=["Contrato", "Data"]).sort_values("Data", kind="stable")
     ultima_data = base.groupby("Contrato")["Data"].transform("max")
     ultimos = base.loc[base["Data"].eq(ultima_data)]
-    atribuicoes = ultimos.drop_duplicates(["Contrato", "Base", "Supervisor"])
+    atribuicoes = ultimos.drop_duplicates(["Contrato", "Projeto", "Supervisor"])
     ambiguos = atribuicoes.groupby("Contrato").size()
     ambiguos = set(ambiguos[ambiguos > 1].index)
     base = base.loc[~base["Contrato"].isin(ambiguos)].drop_duplicates("Contrato", keep="last").copy()

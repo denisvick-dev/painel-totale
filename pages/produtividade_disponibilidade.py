@@ -49,17 +49,17 @@ with st.sidebar:
     else:
         inicio = fim = None
         st.warning("Sem data reconhecida: exibindo toda a carga, sem filtro por período.")
-    bases = st.multiselect("Base", sorted(dados["Base"].unique()), key="contratos_bases")
+    projetos = st.multiselect("Projeto", sorted(dados["Projeto"].unique()), key="contratos_projetos")
     supervisores = st.multiselect("Supervisor", sorted(dados["Supervisor"].unique()), key="contratos_supervisores")
     equipes = st.multiselect("Equipe", sorted(dados["Equipe"].unique()), key="contratos_equipes")
     amostra_minima = st.number_input("Mínimo de equipe-dias para comparar", min_value=1, max_value=365, value=3, key="contratos_amostra")
     if st.button("Limpar filtros", key="contratos_limpar"):
-        for chave in ("contratos_inicio", "contratos_fim", "contratos_bases", "contratos_supervisores", "contratos_equipes", "contratos_amostra"):
+        for chave in ("contratos_inicio", "contratos_fim", "contratos_projetos", "contratos_supervisores", "contratos_equipes", "contratos_amostra"):
             st.session_state.pop(chave, None)
         st.rerun()
 
 filtrado = dados.copy()
-for coluna, selecionados in (("Base", bases), ("Supervisor", supervisores), ("Equipe", equipes)):
+for coluna, selecionados in (("Projeto", projetos), ("Supervisor", supervisores), ("Equipe", equipes)):
     if selecionados:
         filtrado = filtrado.loc[filtrado[coluna].isin(selecionados)]
 recorte = filtrado.copy()
@@ -67,11 +67,11 @@ sem_data = int(recorte["Data"].isna().sum())
 if inicio is not None and fim is not None:
     recorte = recorte.loc[recorte["Data"].dt.date.between(inicio, fim)].copy()
 resumo = resumir(recorte)
-por_supervisor = agrupar(recorte, ["Base", "Supervisor"])
+por_supervisor = agrupar(recorte, ["Projeto", "Supervisor"])
 periodo = f"{inicio:%d/%m/%Y} a {fim:%d/%m/%Y}" if inicio is not None else "Toda a carga (sem data)"
 
 abrir_dashboard(
-    PAGINA, subtitulo="Produção e contratos de clientes atendidos, por base, supervisor e equipe.",
+    PAGINA, subtitulo="Produção e contratos de clientes atendidos, por projeto, supervisor e equipe.",
     icone="📊", secoes=("Indicadores", "Evolução", "Detalhe", "Produtividade por equipe", "Perfil dos contratos", "Retornos e reincidência", "Exportação"),
     resumo=resumir_carga(st.session_state.get("dados_prod")), periodo=periodo,
 )
@@ -82,6 +82,9 @@ with secao("Indicadores", icone="🎯", subtitulo="Contratos identificados e pro
         st.info("Não foi possível verificar O.S. repetidas: identificador de O.S. não reconhecido na carga.")
     else:
         st.caption(f"Qualidade da carga completa: {repetidas} repetição(ões) do identificador {coluna_os} em {os_identificadas} linha(s) identificadas. Repetições não são removidas automaticamente.")
+    projetos_nao_informados = int(recorte["Projeto"].eq("NÃO INFORMADO").sum())
+    if projetos_nao_informados:
+        st.warning(f"{projetos_nao_informados} linha(s) sem projeto reconhecido no recorte. Não usamos base ou contrato como projeto; confira a coluna Projeto da produção.")
     cobertura = resumo["os_com_contrato"] / resumo["os"] * 100 if resumo["os"] else None
     if coluna_contrato is None:
         st.warning("Nenhuma coluna de identificador de contrato reconhecida na produção. Os indicadores de contratos estão indisponíveis; O.S. não são usadas como substituto.")
@@ -90,7 +93,7 @@ with secao("Indicadores", icone="🎯", subtitulo="Contratos identificados e pro
     if recorte["Pontos"].isna().all() and not recorte.empty:
         st.info("Coluna de pontos indisponível na carga; a soma de pontos não será exibida.")
     if sem_data:
-        st.warning(f"{sem_data} linha(s) sem data nos filtros de equipe/base/supervisor " + ("foram excluídas do período." if inicio is not None else "não podem ser filtradas por período."))
+        st.warning(f"{sem_data} linha(s) sem data nos filtros de equipe/projeto/supervisor " + ("foram excluídas do período." if inicio is not None else "não podem ser filtradas por período."))
     if resumo["os"] and resumo["os_com_equipe_data"] < resumo["os"]:
         st.info("O.S./equipe-dia considera apenas linhas com equipe e data identificadas; não mede disponibilidade ou escala.")
     ncontratos = resumo["contratos"]
@@ -151,16 +154,16 @@ with secao("Evolução", icone="📈", subtitulo="Produção diária no período
                 st.info("Sem contratos identificados para a evolução semanal.")
         st.caption("Semanas começam na segunda-feira; as bordas podem ser parciais. Contratos semanais não são somáveis: o mesmo contrato pode aparecer em várias semanas.")
 
-with secao("Detalhe", icone="🧾", subtitulo="O.S., contratos identificados e pontos por base e supervisor."):
+with secao("Detalhe", icone="🧾", subtitulo="O.S., contratos identificados e pontos por projeto e supervisor."):
     if por_supervisor.empty:
         st.info("Nenhuma produção encontrada para os filtros selecionados.")
     else:
         st.dataframe(por_supervisor, hide_index=True, width="stretch")
-        st.caption("Contratos distintos por grupo não são somáveis: um mesmo contrato pode aparecer em mais de uma equipe, base ou supervisor.")
+        st.caption("Contratos distintos por grupo não são somáveis: um mesmo contrato pode aparecer em mais de uma equipe, projeto ou supervisor.")
     with st.expander("Como calculamos"):
         st.markdown("""- **O.S.**: cada linha da carga de produção é considerada uma O.S.; duplicações na origem não são removidas.
 - **Contratos atendidos**: identificadores de contratos de clientes distintos no recorte; valores vazios ou inválidos são excluídos. Sem identificador, não há estimativa.
-- **O.S./equipe-dia observado**: linhas com equipe e data ÷ combinações distintas de base, supervisor, equipe e dia com produção. Não mede quadro, presença, disponibilidade nem produtividade de equipes sem produção.
+- **O.S./equipe-dia observado**: linhas com equipe e data ÷ combinações distintas de projeto, supervisor, equipe e dia com produção. Não mede quadro, presença, disponibilidade nem produtividade de equipes sem produção.
 - **Pontos**: soma dos pontos informados na produção; confira a cobertura da origem.
 - Períodos filtram pela data da produção; linhas sem data são excluídas quando há datas reconhecidas.
 """)
@@ -175,9 +178,9 @@ with secao("Produtividade por equipe", icone="⚙️", subtitulo="Comparação d
         if comparaveis.empty:
             st.info(f"Nenhuma equipe atingiu {amostra_minima} equipe-dia(s) observados para comparação.")
         else:
-            comparaveis["Equipe exibida"] = comparaveis["Base"] + " · " + comparaveis["Supervisor"] + " · " + comparaveis["Equipe"]
+            comparaveis["Equipe exibida"] = comparaveis["Projeto"] + " · " + comparaveis["Supervisor"] + " · " + comparaveis["Equipe"]
             st.plotly_chart(px.bar(comparaveis.sort_values("O.S./equipe-dia").tail(20), x="O.S./equipe-dia", y="Equipe exibida", orientation="h", title="Produtividade das equipes comparáveis"), width="stretch")
-            st.plotly_chart(px.scatter(comparaveis, x="O.S. com data", y="O.S./equipe-dia", size="Equipe-dias", color="Base", hover_name="Equipe exibida", title="Volume × produtividade observada"), width="stretch")
+            st.plotly_chart(px.scatter(comparaveis, x="O.S. com data", y="O.S./equipe-dia", size="Equipe-dias", color="Projeto", hover_name="Equipe exibida", title="Volume × produtividade observada"), width="stretch")
         st.caption("Mínimo aplicado somente aos gráficos comparativos. O.S. com data usa apenas linhas elegíveis; equipe-dias não representam disponibilidade, escala ou equipes sem produção.")
 
 with secao("Perfil dos contratos", icone="📋", subtitulo="Frequência dos atendimentos por contrato identificado."):
@@ -240,8 +243,8 @@ with secao("Retornos e reincidência", icone="🔁", subtitulo="Coorte de contra
                             {"label": f"COM RETORNO EM {janela} DIAS", "valor": str(com_retorno)},
                             {"label": "TAXA DE CONTRATOS COM RETORNO", "valor": f"{com_retorno / total * 100:.1f}%"},
                         ], colunas=3)
-                        st.caption(f"{excluidos} contrato(s) fora do denominador por janela incompleta ou atribuição ambígua de base/supervisor no último dia. A coorte usa o último atendimento de cada contrato no recorte; o primeiro retorno posterior na janela é associado à base e supervisor desse atendimento. Não identifica dono do retorno.")
-                        por_grupo = coorte.groupby(["Base", "Supervisor"], as_index=False).agg(Contratos=("Contrato", "size"), Retornos=("Com retorno", "sum"))
+                        st.caption(f"{excluidos} contrato(s) fora do denominador por janela incompleta ou atribuição ambígua de projeto/supervisor no último dia. A coorte usa o último atendimento de cada contrato no recorte; o primeiro retorno posterior na janela é associado ao projeto e supervisor desse atendimento. Não identifica dono do retorno.")
+                        por_grupo = coorte.groupby(["Projeto", "Supervisor"], as_index=False).agg(Contratos=("Contrato", "size"), Retornos=("Com retorno", "sum"))
                         por_grupo["Taxa (%)"] = (por_grupo["Retornos"] / por_grupo["Contratos"] * 100).round(1)
                         st.dataframe(por_grupo, hide_index=True, width="stretch")
                         serie_coorte = coorte.copy()
@@ -267,5 +270,5 @@ with secao("Retornos e reincidência", icone="🔁", subtitulo="Coorte de contra
 exportacao = por_supervisor.copy()
 if not exportacao.empty:
     exportacao.insert(0, "Período", periodo)
-secao_exportacao(exportacao, nome_arquivo="produtividade_contratos", chave="produtividade_contratos", titulo="Exportação", subtitulo="Resumo agregado por base e supervisor.")
+secao_exportacao(exportacao, nome_arquivo="produtividade_contratos", chave="produtividade_contratos", titulo="Exportação", subtitulo="Resumo agregado por projeto e supervisor.")
 fechar_dashboard()

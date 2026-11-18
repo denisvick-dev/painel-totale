@@ -1,4 +1,4 @@
-# Dependências mínimas para CI/testes (ver .github/workflows/quality.yml).
+# Dependências mínimas para testes; o CI instala requirements-dev.txt para incluir execução.
 # Precisa cobrir tudo o que os testes importam: `tests/test_quebra_geral.py`
 # importa `pages/quebra_geral.py`, que usa openpyxl para formatar a planilha.
 pytest>=8,<9
