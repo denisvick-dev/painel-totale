@@ -10,7 +10,7 @@ from services.produtividade_contratos import agrupar, preparar_producao, resumir
 def _dados():
     return pd.DataFrame({
         "Contrato": ["001", "001", "002", "", None],
-        "Base": ["A", "A", "B", "A", "A"],
+        "Projeto": ["A", "A", "B", "A", "A"], "Base": ["X", "Y", "X", "X", "X"],
         "Supervisor": ["S1", "S1", "S2", "S1", "S1"],
         "Nome Equipe": ["E1", "E1", "E1", "E1", ""],
         "Data": ["01/11/2026 08:00", "01/11/2026 09:00", "01/11/2026", "02/11/2026", "02/11/2026"],
@@ -27,14 +27,14 @@ def test_contratos_unicos_e_equipe_dia_observado():
     assert resultado["equipes_dia"] == 3
     assert resultado["os_com_equipe_data"] == 4
     assert round(resultado["os_equipe_dia"], 2) == 1.33
-    assert agrupar(dados, ["Base"]).set_index("Base").loc["A", "Contratos"] == 1
+    assert agrupar(dados, ["Projeto"]).set_index("Projeto").loc["A", "Contratos"] == 1
 
 
 def test_nao_confunde_projeto_tipo_contrato_ou_os_com_identificador():
     dados, coluna = preparar_producao(pd.DataFrame({"Projeto": ["P1"], "Tipo Contrato": ["X"], "O.S.": ["1"]}))
     assert coluna is None
     assert resumir(dados)["contratos"] is None
-    assert pd.isna(agrupar(dados, ["Base"]).iloc[0]["Contratos"])
+    assert pd.isna(agrupar(dados, ["Projeto"]).iloc[0]["Contratos"])
 
 
 def test_pagina_filtra_periodo_e_nao_requer_presenca():
@@ -46,7 +46,7 @@ def test_pagina_filtra_periodo_e_nao_requer_presenca():
     app.date_input(key="contratos_inicio").set_value(date(2026, 11, 2)).run()
     assert not app.exception
     assert app.dataframe[0].value["O.S."].sum() == 2
-    app.multiselect(key="contratos_bases").set_value(["B"]).run()
+    app.multiselect(key="contratos_projetos").set_value(["B"]).run()
     assert not app.exception
     assert any("Nenhuma produção" in i.value for i in app.info)
 
@@ -65,7 +65,7 @@ def test_equipes_e_distribuicao_nao_contam_dias_sem_data():
     from services.produtividade_contratos import distribuicao_contratos, resumo_equipes
 
     dados, _ = preparar_producao(_dados())
-    equipes = resumo_equipes(dados).set_index(["Base", "Supervisor", "Equipe"])
+    equipes = resumo_equipes(dados).set_index(["Projeto", "Supervisor", "Equipe"])
     assert equipes.loc[("A", "S1", "E1"), "Equipe-dias"] == 2
     assert equipes.loc[("A", "S1", "E1"), "O.S./equipe-dia"] == 1.5
     distribuicao = distribuicao_contratos(dados).set_index("O.S. por contrato")
@@ -86,7 +86,7 @@ def test_retornos_janela_filtra_status_e_descarta_coorte_incompleta():
 
     prod, _ = preparar_producao(pd.DataFrame({
         "Contrato": ["1", "2", "3"], "Data": ["01/11/2026", "10/11/2026", "28/11/2026"],
-        "Base": ["A", "A", "A"], "Supervisor": ["S", "S", "S"],
+        "Projeto": ["A", "A", "A"], "Supervisor": ["S", "S", "S"],
     }))
     retornos, qualidade = preparar_retornos(pd.DataFrame({
         "Contrato": ["1", "1", "2", "3"],
@@ -116,7 +116,7 @@ def test_retornos_exclui_atribuicao_ambigua_e_exige_colunas():
         preparar_retornos(pd.DataFrame({"Contrato": ["1"], "Data": ["01/11/2026"], "Tipo": ["Retorno"]}))
     prod, _ = preparar_producao(pd.DataFrame({
         "Contrato": ["1", "1"], "Data": ["01/11/2026", "01/11/2026"],
-        "Base": ["A", "B"], "Supervisor": ["S1", "S2"],
+        "Projeto": ["A", "B"], "Supervisor": ["S1", "S2"],
     }))
     retornos, _ = preparar_retornos(pd.DataFrame({
         "Contrato": ["1"], "Data": ["05/11/2026"],
@@ -150,3 +150,41 @@ def test_pagina_retorno_exige_confirmacao_e_calcula_com_cobertura(monkeypatch):
     assert not app.exception
     assert app.radio(key="retornos_janela").value == 7
     assert any("Taxa (%)" in t.value.columns for t in app.dataframe)
+
+
+def test_projeto_ausente_nao_usa_contrato_nem_base():
+    dados, _ = preparar_producao(pd.DataFrame({"Contrato": ["001"], "Base": ["ABC"]}))
+    assert dados.loc[0, "Projeto"] == "NÃO INFORMADO"
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"))
+    app.session_state["dados_prod"] = pd.DataFrame({"Contrato": ["001"], "Base": ["ABC"]})
+    app.run()
+    assert not app.exception
+    assert any("sem projeto reconhecido" in warning.value for warning in app.warning)
+    assert app.multiselect(key="contratos_projetos").options == ["NÃO INFORMADO"]
+
+
+def test_painel_filtra_agrupa_e_exporta_por_projeto_nao_base():
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"))
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    assert not app.exception
+    assert set(app.multiselect(key="contratos_projetos").options) == {"A", "B"}
+    app.multiselect(key="contratos_projetos").set_value(["A"]).run()
+    assert not app.exception
+    detalhe = app.dataframe[0].value
+    assert "Projeto" in detalhe.columns and "Base" not in detalhe.columns
+    assert detalhe["O.S."].sum() == 4
+    equipes = app.dataframe[1].value
+    assert set(equipes["Projeto"]) == {"A"}
+
+
+def test_retornos_ambiguos_por_projeto_nao_por_base():
+    from services.produtividade_contratos import analisar_retornos
+
+    dados, _ = preparar_producao(pd.DataFrame({
+        "Contrato": ["123", "123"], "Projeto": ["P1", "P2"], "Base": ["X", "X"],
+        "Supervisor": ["S", "S"], "Data": ["01/11/2026", "01/11/2026"],
+    }))
+    retornos = pd.DataFrame({"Contrato": ["123"], "Data": pd.to_datetime(["2026-11-05"]), "Motivo": [""]})
+    coorte, eventos = analisar_retornos(dados, retornos, date(2026, 11, 1), date(2026, 11, 30), 7)
+    assert coorte.empty and eventos.empty
