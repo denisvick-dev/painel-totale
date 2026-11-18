@@ -33,7 +33,7 @@ import logging
 import textwrap
 from collections.abc import Sequence
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal, cast
 
 import pandas as pd
 import streamlit as st
@@ -163,7 +163,9 @@ def _rotulo_variacao(valor: float | None, *, sufixo: str = "%", casas: int = 1) 
     return f"{texto}{sufixo}"
 
 
-def _direcao(valor: float | None, *, subir_e_bom: bool) -> str:
+def _direcao(
+    valor: float | None, *, subir_e_bom: bool
+) -> Literal["up", "down", "neutral"]:
     if valor is None or pd.isna(valor) or abs(float(valor)) < 1e-9:
         return "neutral"
     positivo = float(valor) > 0
@@ -543,7 +545,10 @@ with secao(
         insights = gerar_insights(atual)
         if insights:
             for mensagem, tipo in insights:
-                render_insight(mensagem, tipo=tipo)
+                tipo_insight = cast(
+                    Literal["ok", "info", "alerta", "critico", "acao"], tipo
+                )
+                render_insight(mensagem, tipo=tipo_insight)
         else:
             render_insight(
                 "Sem leitura automática: o recorte não tem produção nem ausência suficiente.",
