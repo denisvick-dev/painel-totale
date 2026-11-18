@@ -247,8 +247,8 @@ def test_filtro_base_recorta_chamada_mapa_e_exportacao():
 
     app = _rodar(origem_grade=True)
     filtro = app.multiselect(key="absenteismo_filtro_base")
-    assert set(filtro.options) == {"Abcdm-Totale", "Spo-Totalleste"}
-    filtro.set_value(["Spo-Totalleste"]).run()
+    assert filtro.options == ["ABCDM-TOTALE", "GRS-TOTALE", "SPO-TOTALLESTE"]
+    filtro.set_value(["SPO-TOTALLESTE"]).run()
     assert not app.exception
     # Alex tem registros históricos em outra base: não pode reaparecer na grade.
     editor = app.dataframe[0].value
@@ -260,11 +260,38 @@ def test_filtro_base_recorta_chamada_mapa_e_exportacao():
     assert "Alex Bernardes Da Silva" not in html
     # O download usa a mesma matriz filtrada exibida na tela.
     assert any(e.key == "absenteismo_mapa_download" for e in app.get("download_button"))
-    app.multiselect(key="absenteismo_filtro_base").set_value(["Abcdm-Totale", "Spo-Totalleste"]).run()
+    app.multiselect(key="absenteismo_filtro_base").set_value(["ABCDM-TOTALE", "SPO-TOTALLESTE"]).run()
     assert not app.exception
     html = "\n".join(e.value for e in app.markdown)
     assert "Alex Bernardes Da Silva" in html
     assert "Abner Makalas" in html
     app.multiselect(key="absenteismo_filtro_base").set_value([]).run()
     assert not app.exception
-    assert any("Todas as bases" in e.value for e in app.caption)
+    assert any("Todas as unidades" in e.value for e in app.caption)
+
+
+def test_apenas_unidades_permitidas_em_todas_as_visoes():
+    app = _rodar(origem_grade=True)
+    snapshot = app.session_state["presenca_grade_snapshot"]
+    outra = snapshot["pessoas"].iloc[[0]].copy()
+    outra["Login"] = "OUTRA001"
+    outra["Técnico"] = "Pessoa fora do escopo"
+    outra["Base"] = "OUTRA-EMPRESA"
+    snapshot["pessoas"] = pd.concat([snapshot["pessoas"], outra], ignore_index=True)
+    app.session_state["presenca_grade_snapshot"] = snapshot
+    app.run()
+    assert not app.exception
+    assert "OUTRA001" not in app.dataframe[0].value["Login"].tolist()
+    assert "OUTRA001" in app.session_state["presenca_grade_snapshot"]["pessoas"]["Login"].tolist()
+    app.radio(key="presenca_area").set_value("Mapa mensal").run()
+    assert not app.exception
+    html = "\n".join(e.value for e in app.markdown)
+    assert "Pessoa fora do escopo" not in html
+
+
+def test_filtro_antigo_e_normalizado_e_opcoes_invalidas_removidas():
+    app = _rodar(origem_grade=True)
+    app.session_state["absenteismo_filtro_base"] = ["Abcdm-Totale", "outra"]
+    app.run()
+    assert not app.exception
+    assert app.multiselect(key="absenteismo_filtro_base").value == ["ABCDM-TOTALE"]

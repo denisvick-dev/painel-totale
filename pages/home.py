@@ -4,7 +4,7 @@ pages/home.py
 Home — Portal TOTALE de Inteligência Operacional
 
 Versão: 3.8.0 (frescor global, tabelas transparentes e dashboard de
-Produtividade & Disponibilidade)
+Produtividade & Contratos)
 Autor: TOTALE Tecnologia
 
 Evoluções desta versão:

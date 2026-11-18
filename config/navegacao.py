@@ -183,10 +183,10 @@ PAGINAS: tuple[PaginaPortal, ...] = (
     ),
     PaginaPortal(
         arquivo="produtividade_disponibilidade.py",
-        titulo="Produtividade & Disponibilidade",
+        titulo="Produtividade & Contratos",
         icone="⚖️",
         grupo=GRUPO_PERFORMANCE,
-        descricao="Produção por técnico-dia e impacto das ausências, por supervisor e base.",
+        descricao="Produção e contratos de clientes atendidos por base, supervisor e equipe.",
     ),
     # ── Rotas & Campo ────────────────────────────────────────────────────
     PaginaPortal(
