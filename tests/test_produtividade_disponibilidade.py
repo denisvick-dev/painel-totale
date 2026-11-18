@@ -246,3 +246,22 @@ def test_insights_avisam_quando_falta_quadro() -> None:
 
     assert insights
     assert any("quadro de referência" in mensagem for mensagem, _ in insights)
+
+
+def test_calendario_operacional_afeta_denominador_ausencia_e_semanas():
+    registros = normalizar_registros(pd.DataFrame({
+        "LOGIN": ["001"], "TIPO": ["Falta"],
+        "DATA INICIO": ["02/11/2026"], "DATA FIM": ["07/11/2026"],
+    }))
+    producao = pd.DataFrame({"Supervisor": ["SUP1"], "Base": ["BASE1"],
+                             "Data": ["04/11/2026"], "O.S.": [1]})
+    resultado = consolidar(
+        producao, registros, _lista_ativos(), inicio=date(2026, 11, 2),
+        fim=date(2026, 11, 7), dias_semana=(0, 1, 2, 3, 4, 5),
+        feriados=(date(2026, 11, 2),),
+    )
+    assert resultado.dias_uteis == 5
+    assert resultado.dias_ausencia == 5
+    assert resultado.dias_disponiveis == 10
+    assert resultado.serie_semanal.iloc[0]["Dias Úteis"] == 5
+    assert resultado.serie_semanal.iloc[0]["Dias Ausência"] == 5

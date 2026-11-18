@@ -28,8 +28,8 @@ Premissas explícitas (aparecem na página, em "Como calculamos")
   O quadro é o **retrato atual** da ``lista_ativos``: o portal não guarda a
   vigência histórica de base/monitor, então recortes antigos usam o quadro de
   hoje. Essa limitação é avisada, não escondida.
-* **Dias úteis** são segunda a sexta, sem calendário de feriados — a mesma
-  definição de :func:`services.absenteismo.calcular_dias`.
+* **Dias operacionais** usam segunda a sexta por padrão; dias da semana e
+  feriados podem ser informados para todo o quadro.
 * **Ausência** é dia de afastamento do técnico, não "registro": duas faltas
   sobrepostas para o mesmo login no mesmo dia contam **um** dia, com o tipo de
   maior prioridade (falta > atestado > afastamento > licença > suspensão >
@@ -52,7 +52,6 @@ import pandas as pd
 
 from services.absenteismo import (
     TIPOS_PROGRAMADOS,
-    calcular_dias,
     filtrar_registros_periodo,
     normalizar_registros,
     registros_vazios,
@@ -290,9 +289,9 @@ def _como_data(valor: Any) -> date:
     return convertido.date()
 
 
-def dias_uteis(inicio: Any, fim: Any) -> int:
-    """Dias úteis (segunda a sexta, sem feriados) do intervalo inclusivo."""
-    return int(calcular_dias(inicio, fim)[1])
+def dias_uteis(inicio: Any, fim: Any, *, dias_semana: Sequence[int] = (0, 1, 2, 3, 4), feriados: Sequence[date] = ()) -> int:
+    """Dias operacionais do intervalo inclusivo, com calendário comum."""
+    return sum(d.weekday() in dias_semana and d.date() not in feriados for d in pd.date_range(_como_data(inicio), _como_data(fim)))
 
 
 # ====================================================
@@ -426,13 +425,15 @@ def _pares_do_registro(
     fim: pd.Timestamp,
     referencia_inicio: pd.Timestamp,
     referencia_fim: pd.Timestamp,
+    dias_semana: Sequence[int] = (0, 1, 2, 3, 4),
+    feriados: Sequence[date] = (),
 ) -> pd.DatetimeIndex:
     """Dias úteis da interseção entre a ausência e o recorte."""
     ini = max(inicio.normalize(), referencia_inicio)
     limite = min(fim.normalize(), referencia_fim)
     if pd.isna(ini) or pd.isna(limite) or limite < ini:
         return pd.DatetimeIndex([])
-    return pd.bdate_range(ini, limite)
+    return pd.DatetimeIndex([d for d in pd.date_range(ini, limite) if d.weekday() in dias_semana and d.date() not in feriados])
 
 
 def pares_de_ausencia(
@@ -442,6 +443,8 @@ def pares_de_ausencia(
     inicio: Any,
     fim: Any,
     tipos: Sequence[str] | None = None,
+    dias_semana: Sequence[int] = (0, 1, 2, 3, 4),
+    feriados: Sequence[date] = (),
 ) -> pd.DataFrame:
     """Expande cada ausência ativa em pares ``(login, dia)`` úteis.
 
@@ -500,7 +503,7 @@ def pares_de_ausencia(
         tipo = rotulo_dimensao(registro.get("Tipo"))
 
         for dia in _pares_do_registro(
-            inicio_ausencia, fim_ausencia, referencia_inicio, referencia_fim
+            inicio_ausencia, fim_ausencia, referencia_inicio, referencia_fim, dias_semana, feriados
         ):
             linhas.append(
                 {
@@ -624,13 +627,15 @@ def _serie_semanal(
     headcount: int,
     inicio: date,
     fim: date,
+    dias_semana: Sequence[int] = (0, 1, 2, 3, 4),
+    feriados: Sequence[date] = (),
 ) -> pd.DataFrame:
     if "Data" not in producao.columns or producao["Data"].isna().all():
         return pd.DataFrame(columns=COLUNAS_SEMANA)
 
     linhas: list[dict[str, Any]] = []
     for inicio_semana, fim_semana in _semanas_do_periodo(inicio, fim):
-        dias = dias_uteis(inicio_semana, fim_semana)
+        dias = dias_uteis(inicio_semana, fim_semana, dias_semana=dias_semana, feriados=feriados)
         mascara_producao = (
             producao["Data"].dt.date.between(inicio_semana, fim_semana)
             if not producao.empty
@@ -722,6 +727,8 @@ def consolidar(
     tipos: Sequence[str] | None = None,
     bases: Sequence[str] | None = None,
     supervisores: Sequence[str] | None = None,
+    dias_semana: Sequence[int] = (0, 1, 2, 3, 4),
+    feriados: Sequence[date] = (),
 ) -> Consolidado:
     """Cruza produção, presença e quadro em um recorte de datas.
 
@@ -787,6 +794,7 @@ def consolidar(
         inicio=inicio_data,
         fim=fim_data,
         tipos=tipos,
+        dias_semana=dias_semana, feriados=feriados,
     )
     if not detalhe.empty and not quadro.empty:
         # Recorte de base/supervisor: a ausência de quem ficou fora do recorte
@@ -805,7 +813,7 @@ def consolidar(
 
     # Headcount e volumes ---------------------------------------------------
     headcount = int(quadro["Login"].nunique()) if not quadro.empty else 0
-    total_dias = dias_uteis(inicio_data, fim_data)
+    total_dias = dias_uteis(inicio_data, fim_data, dias_semana=dias_semana, feriados=feriados)
     nominal = headcount * total_dias
     dias_ausencia = int(len(detalhe_quadro))
     tecnicos_ausentes = int(detalhe_quadro["Login"].nunique()) if not detalhe_quadro.empty else 0
@@ -922,6 +930,7 @@ def consolidar(
             headcount=headcount,
             inicio=inicio_data,
             fim=fim_data,
+            dias_semana=dias_semana, feriados=feriados,
         ),
         serie_diaria=_serie_diaria(detalhe_quadro),
         avisos=tuple(avisos),

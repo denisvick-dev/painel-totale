@@ -203,7 +203,7 @@ def _carregar_presenca() -> tuple[pd.DataFrame, pd.DataFrame, str]:
     except Exception:  # pragma: no cover - depende de rede/credenciais
         logger.exception("Falha ao carregar a lista de ativos.")
         lista_ativos = pd.DataFrame()
-        aviso = (
+        aviso += (
             "Não foi possível ler a lista de ativos. Sem o quadro, o denominador de "
             "técnico-dia fica indisponível — a produção continua sendo exibida."
         )
@@ -242,6 +242,28 @@ inicio_padrao, fim_padrao = _periodo_padrao(producao)
 with st.sidebar:
     st.markdown("### Filtros do painel")
     st.caption("Período, base, supervisor e tipos afetam todos os blocos da página.")
+    st.markdown("#### Calendário operacional")
+    nomes_dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+    dias_selecionados = st.multiselect(
+        "Dias de operação", nomes_dias, default=nomes_dias[:5],
+        help="Calendário comum para todo o quadro; não substitui escalas individuais.",
+    )
+    feriados_texto = st.text_area(
+        "Feriados e datas não operacionais", placeholder="25/12/2026, 01/01/2027",
+        help="Informe datas separadas por vírgulas ou linhas, incluindo períodos comparados.",
+    )
+    try:
+        feriados = tuple(pd.to_datetime(item.strip(), format="%d/%m/%Y", errors="raise").date()
+                         for item in feriados_texto.replace("\n", ",").split(",") if item.strip())
+    except (ValueError, TypeError):
+        st.error("Datas inválidas. Use DD/MM/AAAA, separadas por vírgula ou linha.")
+        st.stop()
+    if not dias_selecionados:
+        st.error("Selecione pelo menos um dia de operação.")
+        st.stop()
+    dias_semana = tuple(nomes_dias.index(dia) for dia in dias_selecionados)
+    comparacao = st.selectbox("Comparar com", ["Período anterior", "Semana anterior", "Mês anterior"],
+                              help="Semana ou mês anterior desloca as duas datas do recorte.")
     inicio = st.date_input("Início do período", key="produtividade_inicio", value=inicio_padrao)
     fim = st.date_input("Fim do período", key="produtividade_fim", value=fim_padrao)
     if fim < inicio:
@@ -319,12 +341,21 @@ filtros = {
     "tipos": tipos_sel or None,
     "bases": bases_sel or None,
     "supervisores": supervisores_sel or None,
+    "dias_semana": dias_semana,
+    "feriados": feriados,
 }
 atual = consolidar(producao, registros, lista_ativos, **filtros)
 
 duracao = (fim - inicio).days + 1
 fim_anterior = inicio - timedelta(days=1)
 inicio_anterior = fim_anterior - timedelta(days=duracao - 1)
+if comparacao == "Semana anterior":
+    inicio_anterior, fim_anterior = inicio - timedelta(days=7), fim - timedelta(days=7)
+elif comparacao == "Mês anterior":
+    inicio_anterior = (pd.Timestamp(inicio) - pd.DateOffset(months=1)).date()
+    fim_anterior = (pd.Timestamp(fim) - pd.DateOffset(months=1)).date()
+    if inicio.day == 1 and fim == (pd.Timestamp(fim) + pd.offsets.MonthEnd(0)).date():
+        fim_anterior = (pd.Timestamp(fim_anterior) + pd.offsets.MonthEnd(0)).date()
 anterior = consolidar(
     producao,
     registros,
@@ -348,11 +379,26 @@ disponibilidade = 100.0 - atual.taxa_absenteismo if atual.taxa_absenteismo is no
 disponibilidade_anterior = (
     100.0 - anterior.taxa_absenteismo if anterior.taxa_absenteismo is not None else None
 )
+# Não inferir cobertura temporal completa apenas porque há datas válidas.
+datas_producao = producao["Data"].dropna()
+presenca_verificavel = not registros.empty and not aviso_fontes
+comparacao_confiavel = (
+    presenca_verificavel and not datas_producao.empty and not producao["Data"].isna().any()
+    and datas_producao.min().date() <= min(inicio, inicio_anterior)
+    and datas_producao.max().date() >= max(fim, fim_anterior)
+    and atual.cobertura_os is not None and atual.cobertura_os >= 0.9
+    and anterior.cobertura_os is not None and anterior.cobertura_os >= 0.9
+    and atual.headcount_origem == anterior.headcount_origem == "lista_ativos"
+)
 variacao_disponibilidade = _variacao_pontos(disponibilidade, disponibilidade_anterior)
 variacao_absenteismo = _variacao_pontos(atual.taxa_absenteismo, anterior.taxa_absenteismo)
 variacao_os = _variacao_percentual(float(atual.os), float(anterior.os))
 variacao_produtividade = _variacao_percentual(atual.os_por_tecnico_dia, anterior.os_por_tecnico_dia)
 variacao_impacto = _variacao_percentual(atual.os_estimadas_perdidas, anterior.os_estimadas_perdidas)
+
+if not comparacao_confiavel:
+    variacao_disponibilidade = variacao_absenteismo = variacao_os = None
+    variacao_produtividade = variacao_impacto = None
 
 sparkline_produtividade: list[float] = []
 if not atual.serie_semanal.empty:
@@ -386,10 +432,23 @@ abrir_dashboard(
     },
 )
 
+with st.container(border=True):
+    st.markdown("**Qualidade dos dados**")
+    cobertura = "—" if atual.cobertura_os is None else f"{atual.cobertura_os:.0%}"
+    sem_data = int(producao["Data"].isna().sum())
+    st.write(f"Cobertura de O.S. com quadro: {cobertura} · Linhas de produção sem data na carga: {sem_data}")
+    if not presenca_verificavel:
+        st.warning("Controle de absenteísmo vazio ou indisponível: não é possível distinguir falha de carga de ausência de registros. Disponibilidade, produtividade e impacto abaixo são estimativas com ausência zero, não presença confirmada.")
+    else:
+        st.info(f"Controle carregado com {len(registros)} registro(s); isso não comprova cobertura completa do período. Quadro: {ORIGEM_QUADRO.get(atual.headcount_origem, atual.headcount_origem)}.")
+    if avisos:
+        for aviso in avisos:
+            st.warning(aviso)
+
 with secao(
     "Indicadores",
     icone="🎯",
-    subtitulo="O recorte atual e a comparação com o período anterior de mesma duração.",
+    subtitulo="O recorte atual e a comparação selecionada.",
 ):
     render_kpi_row(
         [
@@ -474,14 +533,11 @@ with secao(
         colunas=5,
     )
     st.caption(
-        f"Comparação com {inicio_anterior:%d/%m} a {fim_anterior:%d/%m}. "
+        f"{comparacao}: {inicio_anterior:%d/%m/%Y} a {fim_anterior:%d/%m/%Y}. "
         "O quadro usado nos dois recortes é o retrato atual da lista de ativos."
     )
-    if avisos:
-        with st.expander(f"⚠️ Qualidade do recorte ({len(avisos)})", expanded=False):
-            for aviso in avisos:
-                render_insight(aviso, tipo="alerta")
-
+    if not comparacao_confiavel:
+        st.warning("Variações indisponíveis: confira as datas da produção, registros de absenteísmo, quadro e cobertura de O.S. (mínimo 90% em ambos os períodos). Datas extremas não garantem cobertura completa.")
     with st.container(border=True):
         st.markdown("**💡 Leitura automática**")
         insights = gerar_insights(atual)
@@ -576,7 +632,7 @@ with secao(
 ):
     if atual.dias_ausencia == 0:
         render_insight(
-            "Nenhuma ausência no recorte. A disponibilidade considerada é integral — "
+            "Nenhuma ausência registrada no recorte. A disponibilidade estimada é integral — "
             "confira se o controle de absenteísmo está carregado antes de comemorar.",
             tipo="info",
         )
@@ -736,8 +792,9 @@ with secao(
                 """
 **Técnico-dia disponível** = `quadro × dias úteis − dias de ausência`.
 
-- **Dias úteis**: segunda a sexta, sem calendário de feriados — a mesma regra de
-  `services.absenteismo.calcular_dias`.
+- **Calendário operacional**: dias da semana e datas excluídas informados nos filtros.
+  É comum a todo o quadro; escalas e jornadas individuais não são consideradas.
+  Feriados não são automáticos e devem incluir os períodos comparados.
 - **Quadro**: retrato atual da `lista_ativos`, contando as situações que compõem
   o quadro (ativo, férias, inoperante, ETN e afastado), deduplicadas por login.
   O portal não guarda a vigência histórica de base/monitor: recortes antigos
@@ -770,7 +827,12 @@ if not exportacao.empty:
     exportacao.insert(0, "Período", f"{atual.inicio:%d/%m/%Y} a {atual.fim:%d/%m/%Y}")
     exportacao.insert(1, "Dias Úteis", atual.dias_uteis)
     exportacao.insert(2, "Headcount do Recorte", atual.headcount)
-    exportacao.insert(3, "Cobertura de O.S. (%)", round((atual.cobertura_os or 0) * 100.0, 1))
+    exportacao.insert(3, "Cobertura de O.S. (%)", (
+        round(atual.cobertura_os * 100.0, 1) if atual.cobertura_os is not None else None
+    ))
+    exportacao.insert(4, "Dias de operação", ", ".join(dias_selecionados))
+    exportacao.insert(5, "Datas não operacionais", ", ".join(d.strftime("%d/%m/%Y") for d in feriados))
+    exportacao.insert(6, "Estado do controle", "Carregado" if presenca_verificavel else "Vazio ou indisponível")
 
 secao_exportacao(
     exportacao,
