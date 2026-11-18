@@ -64,7 +64,7 @@ for coluna, selecionados in (("Base", bases), ("Supervisor", supervisores), ("Eq
         filtrado = filtrado.loc[filtrado[coluna].isin(selecionados)]
 recorte = filtrado.copy()
 sem_data = int(recorte["Data"].isna().sum())
-if inicio is not None:
+if inicio is not None and fim is not None:
     recorte = recorte.loc[recorte["Data"].dt.date.between(inicio, fim)].copy()
 resumo = resumir(recorte)
 por_supervisor = agrupar(recorte, ["Base", "Supervisor"])
