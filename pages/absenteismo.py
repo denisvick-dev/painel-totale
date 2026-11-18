@@ -73,11 +73,13 @@ from services.presenca_operacoes import (
     fechar_chamada,
     preparar_lote,
 )
-from services.texto import escapar_html, formatar_inteiro, formatar_percentual
+from services.texto import escapar_html, formatar_inteiro, formatar_percentual, normalizar_texto
 
 logger = logging.getLogger(__name__)
 
 #: Áreas de trabalho em ordem operacional, sem navegação para âncoras ocultas.
+UNIDADES_NEGOCIO = ("ABCDM-TOTALE", "GRS-TOTALE", "SPO-TOTALLESTE")
+
 AREAS_PAGINA = ("Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados")
 
 CHAVES_FILTRO: tuple[str, ...] = (
@@ -173,6 +175,10 @@ mes_inicio, mes_fim = _primeiro_e_ultimo_dia_mes(hoje if hoje in datas_grade els
 quadro_df = st.session_state[CHAVE_SNAPSHOT]["pessoas"].rename(columns={
     "Login": "LOGIN", "Técnico": "TÉCNICO", "Monitor": "MONITOR", "Base": "BASE",
 }).copy()
+# A grade pode conter outras operações. Limitar a visão, sem alterar o
+# snapshot completo usado para comparar e gravar as células no Drive.
+quadro_df = quadro_df.loc[quadro_df["BASE"].map(normalizar_texto).isin(UNIDADES_NEGOCIO)].copy()
+logins_unidades = set(quadro_df["LOGIN"])
 
 abrir_dashboard(
     "Lista de Presença",
@@ -182,13 +188,13 @@ abrir_dashboard(
     ),
     icone="🗓️",
     secoes=(),
-    resumo=resumir_carga(registros, atualizado_em=ultima_atualizacao()),
+    resumo=resumir_carga(registros.loc[registros["Login"].isin(logins_unidades)], atualizado_em=ultima_atualizacao()),
     origem="absenteismo (grade mensal) · cadastro auxiliar: lista_ativos",
 )
 
 st.caption(
     f"Fonte principal: aba absenteismo · datas de {min(datas_grade):%d/%m/%Y} a {max(datas_grade):%d/%m/%Y}. "
-    "Presente é gravado como ATIVO. Somente células alteradas são atualizadas; cadastros, fórmulas e formatação permanecem intactos."
+    "A visão usa a base atual do cadastro para limitar as três unidades. Presente é gravado como ATIVO. Somente células alteradas são atualizadas; cadastros, fórmulas e formatação permanecem intactos."
 )
 
 def _render_qualidade_origem() -> None:
@@ -242,16 +248,20 @@ if qtd_pendentes:
 # ============================================================
 # FILTROS (SIDEBAR)
 # ============================================================
-bases_disponiveis = sorted(
-    set(registros["Base"].fillna("").replace("", "Não informado"))
-    | set(quadro_df["BASE"].fillna("").replace("", "Não informado"))
-)
+# Migra seleções de versões anteriores (inclusive diferenças de caixa) antes
+# de instanciar o widget; opções antigas não podem derrubar a página no rerun.
+if "absenteismo_filtro_base" in st.session_state:
+    st.session_state["absenteismo_filtro_base"] = [
+        valor for valor in dict.fromkeys(
+            normalizar_texto(v) for v in st.session_state["absenteismo_filtro_base"]
+        ) if valor in UNIDADES_NEGOCIO
+    ]
 bases_sel = st.multiselect(
-    "Base", bases_disponiveis, key="absenteismo_filtro_base",
-    placeholder="Todas as bases",
-    help="Selecione uma ou mais bases. Sem seleção, todas as bases são exibidas. O filtro vale para todas as áreas e suas exportações.",
+    "Unidade de negócio", UNIDADES_NEGOCIO, key="absenteismo_filtro_base",
+    placeholder="Todas as unidades",
+    help="O filtro vale para todas as áreas e suas exportações; somente as três unidades autorizadas são exibidas.",
 )
-st.caption("Bases selecionadas: " + (", ".join(bases_sel) if bases_sel else "Todas as bases"))
+st.caption("Unidades selecionadas: " + (", ".join(bases_sel) if bases_sel else "Todas as unidades"))
 
 with st.sidebar:
     st.markdown("### Filtros da equipe")
@@ -263,7 +273,7 @@ with st.sidebar:
     if periodo_fim < periodo_inicio:
         periodo_inicio, periodo_fim = periodo_fim, periodo_inicio
     monitores_disponiveis = sorted(
-        set(registros["Monitor"].replace("", "Não informado"))
+        set(registros.loc[registros["Login"].isin(logins_unidades), "Monitor"].replace("", "Não informado"))
         | set(quadro_df["MONITOR"].replace("", "Não informado"))
     )
     monitores_sel = st.multiselect(
@@ -290,9 +300,10 @@ with st.sidebar:
 
 def _aplicar_recorte(df: pd.DataFrame) -> pd.DataFrame:
     """Recorte da sidebar (base/monitor/tipo/busca) sobre os registros."""
-    recorte = df.copy()
+    recorte = df.loc[df["Login"].isin(logins_unidades)].copy()
     if bases_sel:
-        recorte = recorte[recorte["Base"].replace("", "Não informado").isin(bases_sel)]
+        logins_base = set(quadro_df.loc[quadro_df["BASE"].map(normalizar_texto).isin(bases_sel), "LOGIN"])
+        recorte = recorte[recorte["Login"].isin(logins_base)]
     if monitores_sel:
         recorte = recorte[recorte["Monitor"].replace("", "Não informado").isin(monitores_sel)]
     if tipos_sel:
@@ -313,7 +324,7 @@ resumo = resumir_controle(
 quadro_recorte = quadro_df
 if bases_sel:
     quadro_recorte = quadro_recorte[
-        quadro_recorte["BASE"].replace("", "Não informado").isin(bases_sel)
+        quadro_recorte["BASE"].map(normalizar_texto).isin(bases_sel)
     ]
 if monitores_sel:
     quadro_recorte = quadro_recorte[
@@ -778,7 +789,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
             )
         with col_unidade:
             unidades = st.multiselect(
-                "Unidade de negócio",
+                "U.N. cadastral",
                 sorted(matriz["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
                 placeholder="Todas as unidades", key="absenteismo_grade_unidades",
             )
@@ -922,7 +933,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
 quadro_mapa = quadro_df.copy()
 if bases_sel:
     quadro_mapa = quadro_mapa[
-        quadro_mapa["BASE"].replace("", "Não informado").isin(bases_sel)
+        quadro_mapa["BASE"].map(normalizar_texto).isin(bases_sel)
     ]
 if monitores_sel:
     quadro_mapa = quadro_mapa[
