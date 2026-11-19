@@ -6,6 +6,8 @@ from streamlit.testing.v1 import AppTest
 
 from services.produtividade_contratos import agrupar, preparar_producao, resumir
 
+CAMINHO_PAGINA = Path(__file__).resolve().parents[1] / "pages" / "visao_operacional.py"
+
 
 def _dados():
     return pd.DataFrame({
@@ -18,6 +20,20 @@ def _dados():
     })
 
 
+def _tabela_consolidada(app: AppTest) -> pd.DataFrame:
+    """Localiza a tabela da visão por base/supervisor pela assinatura de colunas."""
+    candidatos = [
+        elemento.value
+        for elemento in app.dataframe
+        if {"Base", "Supervisor", "O.S."}.issubset(set(elemento.value.columns))
+    ]
+    assert candidatos, "tabela consolidada por base/supervisor não encontrada"
+    return candidatos[0]
+
+
+# ====================================================
+# Regra pura de produção × contratos (inalterada)
+# ====================================================
 def test_contratos_unicos_e_equipe_dia_observado():
     dados, coluna = preparar_producao(_dados())
     resultado = resumir(dados)
@@ -35,30 +51,6 @@ def test_nao_confunde_projeto_tipo_contrato_ou_os_com_identificador():
     assert coluna is None
     assert resumir(dados)["contratos"] is None
     assert pd.isna(agrupar(dados, ["Projeto"]).iloc[0]["Contratos"])
-
-
-def test_pagina_filtra_periodo_e_nao_requer_presenca():
-    caminho = Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"
-    app = AppTest.from_file(str(caminho), default_timeout=60)
-    app.session_state["dados_prod"] = _dados()
-    app.run()
-    assert not app.exception
-    app.date_input(key="contratos_inicio").set_value(date(2026, 11, 2)).run()
-    assert not app.exception
-    assert app.dataframe[0].value["O.S."].sum() == 2
-    app.multiselect(key="contratos_projetos").set_value(["B"]).run()
-    assert not app.exception
-    assert any("Nenhuma produção" in i.value for i in app.info)
-
-
-def test_pagina_sem_identificador_ou_data_avisos():
-    caminho = Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"
-    app = AppTest.from_file(str(caminho), default_timeout=60)
-    app.session_state["dados_prod"] = pd.DataFrame({"Base": ["A"], "Nome Equipe": ["E1"]})
-    app.run()
-    assert not app.exception
-    assert any("Nenhuma coluna de identificador" in w.value for w in app.warning)
-    assert any("Sem data reconhecida" in w.value for w in app.warning)
 
 
 def test_equipes_e_distribuicao_nao_contam_dias_sem_data():
@@ -126,58 +118,6 @@ def test_retornos_exclui_atribuicao_ambigua_e_exige_colunas():
     assert coorte.empty and eventos.empty
 
 
-def test_pagina_retorno_exige_confirmacao_e_calcula_com_cobertura(monkeypatch):
-    import streamlit as st
-
-    class Arquivo:
-        name = "retornos.csv"
-
-        def getvalue(self):
-            return (
-                "Contrato;Data;Tipo de Atividade;Status;Motivo\n"
-                "001;05/11/2026;Retorno Credenciada;Concluída;Falha\n"
-            ).encode("utf-8")
-
-    monkeypatch.setattr(st, "file_uploader", lambda *args, **kwargs: Arquivo())
-    caminho = Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"
-    app = AppTest.from_file(str(caminho), default_timeout=60)
-    app.session_state["dados_prod"] = _dados()
-    app.run()
-    assert not app.exception
-    assert any("Confirme a cobertura" in i.value for i in app.info)
-    app.date_input(key="retornos_cobertura_fim").set_value(date(2026, 12, 5))
-    app.checkbox(key="retornos_confirmar_cobertura").check().run()
-    assert not app.exception
-    assert app.radio(key="retornos_janela").value == 7
-    assert any("Taxa (%)" in t.value.columns for t in app.dataframe)
-
-
-def test_projeto_ausente_nao_usa_contrato_nem_base():
-    dados, _ = preparar_producao(pd.DataFrame({"Contrato": ["001"], "Base": ["ABC"]}))
-    assert dados.loc[0, "Projeto"] == "NÃO INFORMADO"
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"))
-    app.session_state["dados_prod"] = pd.DataFrame({"Contrato": ["001"], "Base": ["ABC"]})
-    app.run()
-    assert not app.exception
-    assert any("sem projeto reconhecido" in warning.value for warning in app.warning)
-    assert app.multiselect(key="contratos_projetos").options == ["NÃO INFORMADO"]
-
-
-def test_painel_filtra_agrupa_e_exporta_por_projeto_nao_base():
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "pages" / "produtividade_disponibilidade.py"))
-    app.session_state["dados_prod"] = _dados()
-    app.run()
-    assert not app.exception
-    assert set(app.multiselect(key="contratos_projetos").options) == {"A", "B"}
-    app.multiselect(key="contratos_projetos").set_value(["A"]).run()
-    assert not app.exception
-    detalhe = app.dataframe[0].value
-    assert "Projeto" in detalhe.columns and "Base" not in detalhe.columns
-    assert detalhe["O.S."].sum() == 4
-    equipes = app.dataframe[1].value
-    assert set(equipes["Projeto"]) == {"A"}
-
-
 def test_retornos_ambiguos_por_projeto_nao_por_base():
     from services.produtividade_contratos import analisar_retornos
 
@@ -188,3 +128,80 @@ def test_retornos_ambiguos_por_projeto_nao_por_base():
     retornos = pd.DataFrame({"Contrato": ["123"], "Data": pd.to_datetime(["2026-11-05"]), "Motivo": [""]})
     coorte, eventos = analisar_retornos(dados, retornos, date(2026, 11, 1), date(2026, 11, 30), 7)
     assert coorte.empty and eventos.empty
+
+
+# ====================================================
+# Página unificada (O.S. · Contratos · Consultivos)
+# ====================================================
+def test_pagina_unificada_carrega_e_consolida_por_base_supervisor():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    assert not app.exception
+
+    # Filtros transversais herdam as dimensões da produção normalizada.
+    assert set(app.multiselect(key="unificada_projetos").options) == {"A", "B"}
+    assert set(app.multiselect(key="unificada_bases").options) == {"X", "Y"}
+    assert set(app.multiselect(key="unificada_supervisores").options) == {"S1", "S2"}
+
+    tabela = _tabela_consolidada(app)
+    assert {"Base", "Supervisor", "O.S.", "Contratos"}.issubset(tabela.columns)
+    # Recorte padrão cobre todo o período → cinco O.S. da carga inteira.
+    assert tabela["O.S."].sum() == 5
+
+
+def test_pagina_unificada_filtra_periodo():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    assert not app.exception
+
+    app.date_input(key="unificada_inicio").set_value(date(2026, 11, 2)).run()
+    assert not app.exception
+    assert _tabela_consolidada(app)["O.S."].sum() == 2
+
+
+def test_pagina_unificada_recorte_vazio_avisa():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    # Projeto B só tem produção em 01/11: restringindo a 02/11 o recorte esvazia.
+    app.date_input(key="unificada_inicio").set_value(date(2026, 11, 2)).run()
+    app.multiselect(key="unificada_projetos").set_value(["B"]).run()
+    assert not app.exception
+    assert any("Nenhum registro" in item.value for item in app.info)
+
+
+def test_pagina_sem_identificador_ou_data_avisos():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = pd.DataFrame({"Base": ["A"], "Nome Equipe": ["E1"]})
+    app.run()
+    assert not app.exception
+    assert any("Nenhuma coluna de contrato" in w.value for w in app.warning)
+    assert any("Sem data reconhecida" in w.value for w in app.warning)
+
+
+def test_pagina_projeto_ausente_vira_nao_informado():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = pd.DataFrame({"Contrato": ["001"], "Base": ["ABC"]})
+    app.run()
+    assert not app.exception
+    assert app.multiselect(key="unificada_projetos").options == ["NÃO INFORMADO"]
+
+
+def test_pagina_unificada_cruza_consultivos_quando_carregados():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.session_state["dados_cons"] = pd.DataFrame({
+        "DATA": ["01/11/2026", "02/11/2026"],
+        "QTDE_CONSULTIVO": [3, 5],
+        "QTDE_PRODUTOS": [1, 2],
+        "QTDE_MESH": [1, 0], "QTDE_TV": [0, 1], "QTDE_VIRTUA": [0, 1],
+        "LOGIN NETSALES": ["L1", "L2"],
+        "MONITOR": ["S1", "S1"], "BASE": ["X", "X"],
+    })
+    app.run()
+    assert not app.exception
+    tabela = _tabela_consolidada(app)
+    assert "Consultivos" in tabela.columns
+    assert tabela["Consultivos"].sum() == 8

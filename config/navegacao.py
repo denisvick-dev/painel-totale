@@ -182,11 +182,11 @@ PAGINAS: tuple[PaginaPortal, ...] = (
         descricao="Controle de faltas, folgas, férias e afastamentos do quadro.",
     ),
     PaginaPortal(
-        arquivo="produtividade_disponibilidade.py",
-        titulo="Produtividade & Contratos",
-        icone="⚖️",
+        arquivo="visao_operacional.py",
+        titulo="Produtividade · Contratos & Consultivos",
+        icone="🧾",
         grupo=GRUPO_PERFORMANCE,
-        descricao="Produção e contratos de clientes atendidos por projeto, supervisor e equipe.",
+        descricao="Visão unificada de O.S., contratos atendidos e consultivos por base e supervisor.",
     ),
     # ── Rotas & Campo ────────────────────────────────────────────────────
     PaginaPortal(
@@ -270,7 +270,7 @@ DASHBOARDS_PADRONIZADOS: tuple[str, ...] = (
     "dashboard_meta.py",
     "indicadores.py",
     "absenteismo.py",
-    "produtividade_disponibilidade.py",
+    "visao_operacional.py",
     "rota_inicial.py",
     "rota_geral.py",
     "volumetria.py",
