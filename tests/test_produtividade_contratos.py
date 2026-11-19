@@ -21,13 +21,13 @@ def _dados():
 
 
 def _tabela_consolidada(app: AppTest) -> pd.DataFrame:
-    """Localiza a tabela da visão por base/supervisor pela assinatura de colunas."""
+    """Localiza a tabela da visão por projeto/supervisor pela assinatura de colunas."""
     candidatos = [
         elemento.value
         for elemento in app.dataframe
-        if {"Base", "Supervisor", "O.S."}.issubset(set(elemento.value.columns))
+        if {"Projeto", "Supervisor", "O.S."}.issubset(set(elemento.value.columns))
     ]
-    assert candidatos, "tabela consolidada por base/supervisor não encontrada"
+    assert candidatos, "tabela consolidada por projeto/supervisor não encontrada"
     return candidatos[0]
 
 
@@ -133,19 +133,18 @@ def test_retornos_ambiguos_por_projeto_nao_por_base():
 # ====================================================
 # Página unificada (O.S. · Contratos · Consultivos)
 # ====================================================
-def test_pagina_unificada_carrega_e_consolida_por_base_supervisor():
+def test_pagina_unificada_carrega_e_consolida_por_projeto_supervisor():
     app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
     app.session_state["dados_prod"] = _dados()
     app.run()
     assert not app.exception
 
-    # Filtros transversais herdam as dimensões da produção normalizada.
+    # Filtros principais herdam as dimensões da produção normalizada.
     assert set(app.multiselect(key="unificada_projetos").options) == {"A", "B"}
-    assert set(app.multiselect(key="unificada_bases").options) == {"X", "Y"}
     assert set(app.multiselect(key="unificada_supervisores").options) == {"S1", "S2"}
 
     tabela = _tabela_consolidada(app)
-    assert {"Base", "Supervisor", "O.S.", "Contratos"}.issubset(tabela.columns)
+    assert {"Projeto", "Supervisor", "O.S.", "Contratos"}.issubset(tabela.columns)
     # Recorte padrão cobre todo o período → cinco O.S. da carga inteira.
     assert tabela["O.S."].sum() == 5
 
@@ -205,10 +204,11 @@ def test_pagina_unificada_cruza_consultivos_quando_carregados():
     tabela = _tabela_consolidada(app)
     assert "Consultivos" in tabela.columns
     assert tabela["Consultivos"].sum() == 8
-    # Relação consultivos × produção por base/supervisor (X/S1: 8 consultivos ÷ 3 O.S.).
+    # Relação consultivos × produção por projeto/supervisor.
+    # S1 tem projeto modal A na produção (4 O.S.); os 8 consultivos herdam A → 8 ÷ 4.
     assert "Cons./O.S. (%)" in tabela.columns
-    celula = tabela.loc[(tabela["Base"] == "X") & (tabela["Supervisor"] == "S1"), "Cons./O.S. (%)"]
-    assert len(celula) == 1 and abs(float(celula.iat[0]) - 266.7) < 0.1
+    celula = tabela.loc[(tabela["Projeto"] == "A") & (tabela["Supervisor"] == "S1"), "Cons./O.S. (%)"]
+    assert len(celula) == 1 and abs(float(celula.iat[0]) - 200.0) < 0.1
 
 
 CAMINHO_BRIEFING = Path(__file__).resolve().parents[1] / "docs" / "BRIEFING_VISAO_OPERACIONAL.md"
