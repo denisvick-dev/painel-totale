@@ -6,14 +6,14 @@ Página: `pages/visao_operacional.py` · Grupo: Performance · Ícone: 🧾
 ## Em uma frase
 Um painel único que coloca lado a lado a **produção (O.S.)**, os **contratos de
 clientes atendidos** e os **consultivos/produtos comerciais**, cruzados pelas
-dimensões operacionais comuns — **base** e **supervisor/monitor** — e pelo
+dimensões operacionais comuns — **projeto** e **supervisor/monitor** — e pelo
 **tempo**, para enxergar volume, cobertura e desempenho comercial na mesma tela.
 
 ## Por que existe
 Produção e comercial viviam em abas e painéis separados (`dados_prod` e
 `dados_cons`). Para responder "onde estamos entregando mais e vendendo mais?"
 era preciso juntar tudo à mão. Este painel consolida as três lentes em um recorte
-único de período/base/supervisor, mantendo cada fonte com sua regra própria e
+único de período/projeto/supervisor, mantendo cada fonte com sua regra própria e
 deixando explícito o que é comparável e o que não é.
 
 ## Público-alvo
@@ -37,12 +37,14 @@ consultivos sem trocar de aba.
 
 ## Como as fontes se cruzam
 Não há chave única entre produção e consultivos. O casamento é feito por:
-1. **Base** e **Supervisor/Monitor** — rótulos normalizados (caixa alta, sem acento),
+1. **Projeto** e **Supervisor/Monitor** — rótulos normalizados (caixa alta, sem acento),
    de modo que `GRS-TOTALE` e `grs totale` apontem para a mesma linha;
 2. **Tempo** — séries alinhadas por semana (segunda-feira) e pelo filtro de período.
 
-Valores presentes em apenas uma das fontes aparecem com zero na outra (junção
-externa). Nada é inventado para preencher lacuna.
+Os consultivos não trazem projeto próprio: o projeto deles é derivado do supervisor
+(projeto modal daquele supervisor na produção). É uma relação derivada e documentada,
+não uma chave nativa da base comercial. Valores presentes em apenas uma das fontes
+aparecem com zero na outra (junção externa). Nada é inventado para preencher lacuna.
 
 ## Métricas e regras de cálculo
 ### Produção / Contratos (regra em `services/produtividade_contratos.py`)
@@ -64,31 +66,32 @@ externa). Nada é inventado para preencher lacuna.
 - **Equipes com consultivo**: logins distintos com ao menos 1 consultivo.
 - **Conversão de equipes**: equipes com consultivo ÷ equipes com login identificado.
 - **% de Consultivos na Produção**: relação agregada consultivos ÷ O.S. do recorte
-  (também por base/supervisor na coluna `Cons./O.S. (%)`). Não é uma taxa por O.S.
+  (também por projeto/supervisor na coluna `Cons./O.S. (%)`). Não é uma taxa por O.S.
   individual — não existe chave única ligando cada atendimento à sua venda.
 
 ## Estrutura do painel
-**Filtros (sidebar):** período (início/fim, padrão últimos 30 dias), Base e
-Supervisor/Monitor (valem para as duas fontes), Projeto e Equipe (só produção).
+**Filtros (sidebar):** período (início/fim, padrão últimos 30 dias), Projeto e
+Supervisor/Monitor (valem para as duas fontes; o projeto dos consultivos é derivado
+do supervisor) e Equipe (filtra só a produção).
 
 | Seção | O que entrega |
 |---|---|
 | 🎯 Indicadores | KPIs de produção (O.S., contratos, cobertura, pontos) e, quando há consultivos, KPIs comerciais (consultivos, produtos, equipes com consultivo, conversão) |
 | 📈 Evolução semanal | Linhas por semana: O.S. × contratos e consultivos × produtos, lado a lado |
-| 🧭 Visão por base e supervisor | Tabela consolidada casando as três lentes + gráfico Top 20 O.S. × Consultivos |
+| 🧭 Visão por projeto e supervisor | Tabela consolidada casando as três lentes + gráfico Top 20 O.S. × Consultivos |
 | 📋 Perfil dos contratos | O.S. por contrato identificado e distribuição de frequência |
 | 📞 Consultivos e mix de produtos | Donut do mix (Mesh/TV/Virtua) e Top 15 supervisores em consultivos |
-| 📤 Exportação | Resumo consolidado por base/supervisor em XLSX |
+| 📤 Exportação | Resumo consolidado por projeto/supervisor em XLSX |
 
 ## Perguntas que o painel responde
-- Qual o volume de O.S. e a carteira de contratos no período, por base/supervisor?
+- Qual o volume de O.S. e a carteira de contratos no período, por projeto/supervisor?
 - Quão completa está a identificação de contratos (cobertura)?
 - Onde a operação entrega O.S. e também gera consultivos/produtos?
 - Como evoluem, semana a semana, produção e resultado comercial?
 - Qual o mix de produtos vendidos e quem lidera consultivos?
 
 ## Premissas e limitações (lidas junto com os números)
-- **Sem chave única**: o cruzamento por base/supervisor aproxima equipes; não prova
+- **Sem chave única**: o cruzamento por projeto/supervisor aproxima equipes; não prova
   causalidade entre produção e venda.
 - **Contratos não somáveis**: totais de contratos distintos entre grupos/semanas
   superestimam se somados diretamente.

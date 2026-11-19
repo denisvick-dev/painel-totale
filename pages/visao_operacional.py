@@ -8,10 +8,12 @@ Reúne em um único painel as três lentes que a operação acompanha separadame
   mix de produtos (Mesh / TV / Virtua).
 
 As fontes não compartilham uma chave única: o cruzamento é feito pelas
-dimensões operacionais comuns (**base** e **supervisor/monitor**) e pelo
-**tempo**. Rótulos são normalizados (caixa alta, sem acento) antes de casar,
-para que ``GRS-TOTALE`` e ``grs totale`` apontem para a mesma linha. A página é
-tolerante: sem consultivos carregados, as visões de produção continuam de pé.
+dimensões operacionais comuns (**projeto** e **supervisor/monitor**) e pelo
+**tempo**. Como os consultivos não trazem projeto próprio, o projeto deles é
+derivado do supervisor (projeto modal na produção). Rótulos são normalizados
+(caixa alta, sem acento) antes de casar, para que ``GRS-TOTALE`` e ``grs totale``
+apontem para a mesma linha. A página é tolerante: sem consultivos carregados,
+as visões de produção continuam de pé.
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ from components.kpi_cards import render_kpi_row
 from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
 from services.dados_sessao import CHAVE_CONSULTIVO, exigir_base, obter_base, resumir_carga
-from services.produtividade import rotulo_dimensao
+from services.produtividade import NAO_INFORMADO, rotulo_dimensao
 from services.produtividade_contratos import (
     agrupar,
     diagnostico_os,
@@ -125,9 +127,31 @@ def preparar_consultivos(bruto: pd.DataFrame | None) -> pd.DataFrame | None:
     return dados.reset_index(drop=True)
 
 
+def mapa_supervisor_projeto(producao: pd.DataFrame) -> dict[str, str]:
+    """Projeto modal por supervisor na produção (ignora NÃO INFORMADO).
+
+    Os consultivos não trazem projeto próprio; herdam o projeto do supervisor
+    segundo a produção para alinhar as duas fontes no mesmo eixo Projeto ×
+    Supervisor. É uma relação derivada, não uma chave nativa da base comercial.
+    """
+    valido = producao.loc[producao["Projeto"].ne(NAO_INFORMADO)]
+    if valido.empty:
+        return {}
+    moda = valido.groupby("Supervisor")["Projeto"].agg(
+        lambda serie: serie.mode().iat[0] if not serie.mode().empty else None
+    )
+    return moda.dropna().to_dict()
+
+
 origem = exigir_base(pagina=PAGINA)
 dados, coluna_contrato = preparar_producao(origem)
 consultivos = preparar_consultivos(obter_base(CHAVE_CONSULTIVO, abas=["Consultivo"]))
+
+# Consultivos herdam o projeto do supervisor (modal na produção) para casar no
+# mesmo eixo Projeto × Supervisor. Sem produção com projeto, ficam NÃO INFORMADO.
+if consultivos is not None:
+    _sup_para_projeto = mapa_supervisor_projeto(dados)
+    consultivos["Projeto"] = consultivos["Supervisor"].map(_sup_para_projeto).fillna(NAO_INFORMADO)
 
 # ── Janela de datas comum às duas fontes ────────────────────────────────
 datas_fontes = [serie for serie in (dados["Data"], *([] if consultivos is None else [consultivos["Data"]])) if serie.notna().any()]
@@ -138,7 +162,7 @@ else:
     minimo = maximo = None
 
 # ── Filtros transversais (produção + consultivos) ───────────────────────
-bases_disponiveis = sorted({*dados["Base"].unique(), *([] if consultivos is None else consultivos["Base"].unique())})
+projetos_disponiveis = sorted({*dados["Projeto"].unique(), *([] if consultivos is None else consultivos["Projeto"].unique())})
 supervisores_disponiveis = sorted({*dados["Supervisor"].unique(), *([] if consultivos is None else consultivos["Supervisor"].unique())})
 
 with st.sidebar:
@@ -153,13 +177,12 @@ with st.sidebar:
         inicio = fim = None
         periodo_rotulo = "Sem data reconhecida nas fontes"
         st.warning("Sem data reconhecida nas fontes: exibindo toda a carga, sem filtro por período.")
-    bases = st.multiselect("Base", bases_disponiveis, key="unificada_bases")
+    projetos = st.multiselect("Projeto", projetos_disponiveis, key="unificada_projetos")
     supervisores = st.multiselect("Supervisor / Monitor", supervisores_disponiveis, key="unificada_supervisores")
-    projetos = st.multiselect("Projeto (produção)", sorted(dados["Projeto"].unique()), key="unificada_projetos")
     equipes = st.multiselect("Equipe (produção)", sorted(dados["Equipe"].unique()), key="unificada_equipes")
-    st.caption("Base e Supervisor valem para produção e consultivos; Projeto e Equipe filtram apenas a produção.")
+    st.caption("Projeto e Supervisor valem para produção e consultivos (o projeto dos consultivos é derivado do supervisor pela produção); Equipe filtra apenas a produção.")
     if st.button("Limpar filtros", key="unificada_limpar"):
-        for chave in ("unificada_fim", "unificada_inicio", "unificada_bases", "unificada_supervisores", "unificada_projetos", "unificada_equipes"):
+        for chave in ("unificada_fim", "unificada_inicio", "unificada_projetos", "unificada_supervisores", "unificada_equipes"):
             st.session_state.pop(chave, None)
         st.rerun()
 
@@ -170,31 +193,28 @@ def _filtrar_periodo(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.loc[frame["Data"].dt.date.between(inicio, fim)].copy()
 
 
-def _filtrar_dimensoes(frame: pd.DataFrame, *, com_projeto_equipe: bool) -> pd.DataFrame:
+def _filtrar_dimensoes(frame: pd.DataFrame, *, aplica_equipe: bool) -> pd.DataFrame:
     resultado = frame
-    if bases:
-        resultado = resultado.loc[resultado["Base"].isin(bases)]
+    if projetos:
+        resultado = resultado.loc[resultado["Projeto"].isin(projetos)]
     if supervisores:
         resultado = resultado.loc[resultado["Supervisor"].isin(supervisores)]
-    if com_projeto_equipe:
-        if projetos:
-            resultado = resultado.loc[resultado["Projeto"].isin(projetos)]
-        if equipes:
-            resultado = resultado.loc[resultado["Equipe"].isin(equipes)]
+    if aplica_equipe and equipes:
+        resultado = resultado.loc[resultado["Equipe"].isin(equipes)]
     return resultado.copy()
 
 
-recorte = _filtrar_periodo(_filtrar_dimensoes(dados, com_projeto_equipe=True))
+recorte = _filtrar_periodo(_filtrar_dimensoes(dados, aplica_equipe=True))
 resumo = resumir(recorte)
-consulta_recorte = None if consultivos is None else _filtrar_periodo(_filtrar_dimensoes(consultivos, com_projeto_equipe=False))
+consulta_recorte = None if consultivos is None else _filtrar_periodo(_filtrar_dimensoes(consultivos, aplica_equipe=False))
 if consulta_recorte is not None and consulta_recorte.empty:
     consulta_recorte = None  # recorte existe mas ficou vazio: trata como sem fonte
 
 abrir_dashboard(
     PAGINA,
-    subtitulo="Produção, contratos de clientes atendidos e consultivos em uma única leitura, por base e supervisor.",
+    subtitulo="Produção, contratos de clientes atendidos e consultivos em uma única leitura, por projeto e supervisor.",
     icone="📊",
-    secoes=("Indicadores", "Evolução semanal", "Visão por base e supervisor", "Perfil dos contratos", "Consultivos e mix de produtos", "Exportação"),
+    secoes=("Indicadores", "Evolução semanal", "Visão por projeto e supervisor", "Perfil dos contratos", "Consultivos e mix de produtos", "Exportação"),
     resumo=resumir_carga(st.session_state.get("dados_prod")),
     periodo=periodo_rotulo,
     origem="dados_prod (produção) · dados_cons (consultivos)",
@@ -325,16 +345,16 @@ with secao("Evolução semanal", icone="📈", subtitulo="Produção e consultiv
 # ====================================================
 # 🧭 VISÃO POR BASE E SUPERVISOR
 # ====================================================
-with secao("Visão por base e supervisor", icone="🧭", subtitulo="As três lentes casadas pela dimensão operacional comum."):
-    consolidado = agrupar(recorte, ["Base", "Supervisor"]).rename(
+with secao("Visão por projeto e supervisor", icone="🧭", subtitulo="As três lentes casadas pelas dimensões operacionais comuns."):
+    consolidado = agrupar(recorte, ["Projeto", "Supervisor"]).rename(
         columns={"O.S. com contrato": "O.S. c/ contrato"}
     )
     if consulta_recorte is not None:
         por_sup_consulta = (
-            consulta_recorte.groupby(["Base", "Supervisor"], as_index=False)
+            consulta_recorte.groupby(["Projeto", "Supervisor"], as_index=False)
             .agg(Consultivos=("Consultivos", "sum"), Produtos=("Produtos", "sum"))
         )
-        consolidado = consolidado.merge(por_sup_consulta, on=["Base", "Supervisor"], how="outer")
+        consolidado = consolidado.merge(por_sup_consulta, on=["Projeto", "Supervisor"], how="outer")
     if consolidado.empty:
         st.info("Nenhum registro nas fontes para os filtros selecionados.")
     else:
@@ -348,19 +368,19 @@ with secao("Visão por base e supervisor", icone="🧭", subtitulo="As três len
         consolidado = consolidado.sort_values("_total", ascending=False).reset_index(drop=True)
 
         destaque = consolidado.head(20).melt(
-            id_vars=["Base", "Supervisor"],
+            id_vars=["Projeto", "Supervisor"],
             value_vars=[c for c in ("O.S.", "Consultivos") if c in consolidado.columns],
             var_name="Métrica", value_name="Valor",
         )
         if not destaque.empty:
             st.plotly_chart(
-                px.bar(destaque, x="Supervisor", y="Valor", color="Métrica", barmode="group",
-                       hover_data=["Base"], title="Top 20 — O.S. × Consultivos por supervisor"),
+                px.bar(destaque, x="Projeto", y="Valor", color="Métrica", barmode="group",
+                       hover_data=["Supervisor"], title="Top 20 — O.S. × Consultivos por projeto"),
                 width="stretch",
             )
         exibicao = consolidado.drop(columns="_total")
         st.dataframe(exibicao, hide_index=True, width="stretch")
-        st.caption("Casamento por base e supervisor normalizados. Grupos presentes em apenas uma fonte aparecem com zero na outra; Cons./O.S. (%) fica vazio sem O.S. no grupo. Contratos distintos não são somáveis entre grupos.")
+        st.caption("Casamento por projeto e supervisor normalizados; o projeto dos consultivos é derivado do supervisor na produção. Grupos presentes em apenas uma fonte aparecem com zero na outra; Cons./O.S. (%) fica vazio sem O.S. no grupo. Contratos distintos não são somáveis entre grupos.")
 
 # ====================================================
 # 📋 PERFIL DOS CONTRATOS
@@ -413,6 +433,6 @@ with secao("Consultivos e mix de produtos", icone="📞", subtitulo="Volume come
 exportacao = consolidado.drop(columns="_total", errors="ignore").copy()
 if not exportacao.empty:
     exportacao.insert(0, "Período", periodo_rotulo)
-secao_exportacao(exportacao, nome_arquivo="visao_unificada", chave="visao_unificada", titulo="Exportação", subtitulo="Resumo consolidado por base e supervisor.")
+secao_exportacao(exportacao, nome_arquivo="visao_unificada", chave="visao_unificada", titulo="Exportação", subtitulo="Resumo consolidado por projeto e supervisor.")
 
 fechar_dashboard()

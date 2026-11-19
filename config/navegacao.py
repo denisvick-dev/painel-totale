@@ -186,7 +186,7 @@ PAGINAS: tuple[PaginaPortal, ...] = (
         titulo="Produtividade · Contratos & Consultivos",
         icone="🧾",
         grupo=GRUPO_PERFORMANCE,
-        descricao="Visão unificada de O.S., contratos atendidos e consultivos por base e supervisor.",
+        descricao="Visão unificada de O.S., contratos atendidos e consultivos por projeto e supervisor.",
     ),
     # ── Rotas & Campo ────────────────────────────────────────────────────
     PaginaPortal(

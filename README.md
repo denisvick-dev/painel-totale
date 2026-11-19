@@ -57,7 +57,7 @@ São **20 painéis** organizados em seis áreas. A fonte única é
 | 🧮 | **Indicadores** | Painel consolidado de indicadores por período, base e categoria. |
 | 📆 | **Prévia Diária** | Fechamento do dia para a diretoria: O.S., consultivo, quebras e equipe. |
 | 🗓️ | **Lista de Presença** | Controle de faltas, folgas, férias e afastamentos do quadro. |
-| 🧾 | **Produtividade · Contratos & Consultivos** | Visão unificada de O.S., contratos atendidos e consultivos por base e supervisor ([briefing](docs/BRIEFING_VISAO_OPERACIONAL.md)). |
+| 🧾 | **Produtividade · Contratos & Consultivos** | Visão unificada de O.S., contratos atendidos e consultivos por projeto e supervisor ([briefing](docs/BRIEFING_VISAO_OPERACIONAL.md)). |
 
 ### 🗺️ Rotas & Campo
 | | Painel | O que faz |
