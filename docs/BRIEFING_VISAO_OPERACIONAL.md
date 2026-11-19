@@ -63,6 +63,9 @@ externa). Nada é inventado para preencher lacuna.
   de produtos automaticamente).
 - **Equipes com consultivo**: logins distintos com ao menos 1 consultivo.
 - **Conversão de equipes**: equipes com consultivo ÷ equipes com login identificado.
+- **% de Consultivos na Produção**: relação agregada consultivos ÷ O.S. do recorte
+  (também por base/supervisor na coluna `Cons./O.S. (%)`). Não é uma taxa por O.S.
+  individual — não existe chave única ligando cada atendimento à sua venda.
 
 ## Estrutura do painel
 **Filtros (sidebar):** período (início/fim, padrão últimos 30 dias), Base e

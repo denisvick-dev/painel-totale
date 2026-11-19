@@ -205,3 +205,37 @@ def test_pagina_unificada_cruza_consultivos_quando_carregados():
     tabela = _tabela_consolidada(app)
     assert "Consultivos" in tabela.columns
     assert tabela["Consultivos"].sum() == 8
+    # Relação consultivos × produção por base/supervisor (X/S1: 8 consultivos ÷ 3 O.S.).
+    assert "Cons./O.S. (%)" in tabela.columns
+    celula = tabela.loc[(tabela["Base"] == "X") & (tabela["Supervisor"] == "S1"), "Cons./O.S. (%)"]
+    assert len(celula) == 1 and abs(float(celula.iat[0]) - 266.7) < 0.1
+
+
+CAMINHO_BRIEFING = Path(__file__).resolve().parents[1] / "docs" / "BRIEFING_VISAO_OPERACIONAL.md"
+
+
+def _consultivos_minimos():
+    return pd.DataFrame({
+        "DATA": ["01/11/2026"], "QTDE_CONSULTIVO": [4], "QTDE_PRODUTOS": [1],
+        "QTDE_MESH": [1], "QTDE_TV": [0], "QTDE_VIRTUA": [0],
+        "LOGIN NETSALES": ["L1"], "MONITOR": ["S1"], "BASE": ["X"],
+    })
+
+
+def test_pagina_exibe_kpi_percentual_consultivos_producao():
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.session_state["dados_cons"] = _consultivos_minimos()
+    app.run()
+    assert not app.exception
+    assert any("% de consultivos na produção" in c.value for c in app.caption)
+
+
+def test_pagina_oferece_download_do_briefing():
+    assert CAMINHO_BRIEFING.is_file(), "briefing ausente para o botão de download"
+    app = AppTest.from_file(str(CAMINHO_PAGINA), default_timeout=60)
+    app.session_state["dados_prod"] = _dados()
+    app.run()
+    assert not app.exception
+    rotulos = [botao.label for botao in app.download_button]
+    assert any("briefing" in rotulo.lower() for rotulo in rotulos)
