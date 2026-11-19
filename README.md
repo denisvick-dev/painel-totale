@@ -34,6 +34,58 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 
 ---
 
+## 🧭 Painéis do Portal
+
+São **20 painéis** organizados em seis áreas. A fonte única é
+[`config/navegacao.py`](config/navegacao.py) — o menu lateral e a página
+**Visão Geral** consomem exatamente a lista abaixo.
+
+### 🧭 Visão Geral
+| | Painel | O que faz |
+|---|---|---|
+| 🏠 | **Home** | Estado das fontes, última sincronização e atalhos do portal. |
+| 🧭 | **Visão Geral** | Índice de todos os dashboards, agrupados por área. |
+| 🔁 | **Atualização de Dados** | Sincroniza planilhas (Sheets/Drive/upload) e alimenta os painéis. |
+
+### 📈 Central de Performance
+| | Painel | O que faz |
+|---|---|---|
+| 📈 | **Produção Mensal** | Pontos e O.S. por técnico, equipe e supervisor no mês. |
+| ⚡ | **Quantidade de O.S.** | Volumetria, projeção de fechamento e metas por supervisor/projeto. |
+| 📋 | **Consultivos** | Consultivos por base e monitor, com ranking e resumo diário. |
+| 🎯 | **Metas Operacionais** | Atingimento de metas por equipe, com folga e ritmo necessário. |
+| 🧮 | **Indicadores** | Painel consolidado de indicadores por período, base e categoria. |
+| 📆 | **Prévia Diária** | Fechamento do dia para a diretoria: O.S., consultivo, quebras e equipe. |
+| 🗓️ | **Lista de Presença** | Controle de faltas, folgas, férias e afastamentos do quadro. |
+| 🧾 | **Produtividade · Contratos & Consultivos** | Visão unificada de O.S., contratos atendidos e consultivos por base e supervisor ([briefing](docs/BRIEFING_VISAO_OPERACIONAL.md)). |
+
+### 🗺️ Rotas & Campo
+| | Painel | O que faz |
+|---|---|---|
+| 🗺️ | **Rota Inicial** | Mapa e roteirização da carga inicial por município. |
+| 🚏 | **Rota Geral** | Visão geral de rotas, turnos e distribuição da equipe. |
+| 📊 | **Volumetria** | Técnicos escalados × montados e projeção de demanda. |
+| ↩️ | **Retornos** | Retornos por equipe e cruzamento com a base Sinapse. |
+| 🚙 | **1º Atendimento** | Primeiro atendimento: horários, pendências e ranking de monitores. |
+
+### ⏱️ SLA & Quebra
+| | Painel | O que faz |
+|---|---|---|
+| 📉 | **Quebra Geral** | Quebra de SLA consolidada, matriz executiva e auditoria. |
+| 🧩 | **Quebra por Segmento** | Novos Domicílios, PME e Migração lado a lado, com causa raiz. |
+
+### 🗂️ Cadastros & Disparos
+| | Painel | O que faz |
+|---|---|---|
+| 👷 | **Gestão de Ativos** | Cadastro de técnicos, bases e monitores (com trilha de auditoria). |
+
+### 🧰 Utilitários
+| | Painel | O que faz |
+|---|---|---|
+| ✉️ | **Assinatura de E-mail** | Gerador de assinatura corporativa de e-mail. |
+
+---
+
 ## ✨ Funcionalidades
 
 ### 📊 Dashboard Operacional
@@ -41,7 +93,7 @@ O **Painel TOTALE** é uma plataforma corporativa completa desenvolvida em [Stre
 - Filtros dinâmicos por Base, Monitor e Situação
 - Gráficos interativos (pizza, barras, heatmap) via [Plotly](https://plotly.com/)
 - Exportação em Excel e CSV
-- **Produtividade & Disponibilidade** (`pages/produtividade_disponibilidade.py`): cruza O.S. com o controle de presença e a lista de ativos para calcular técnico-dia disponível, produtividade relativa, composição das ausências e impacto estimado — sempre agregado por supervisor/base, sem ranking individual de saúde
+- Destaque: **Produtividade · Contratos & Consultivos** — O.S., contratos atendidos e consultivos na mesma tela, por base/supervisor ([briefing](docs/BRIEFING_VISAO_OPERACIONAL.md))
 
 ### 🗓️ Prévia Diária
 - **Fluxo em três etapas** (`pages/previa_totale.py`): upload e cruzamento (ANIEL × TOA × Consultivo), dados operacionais por base (equipe, Rota Inicial e metas) e apresentação executiva
@@ -316,7 +368,8 @@ painel-totale/
 - `pages/` contém somente telas registradas em `config/navegacao.py`.
 - Regras de dados e integrações ficam em `services/`; componentes visuais, em `components/`.
 - Guias técnicos ficam em `docs/`: [Design System](docs/DESIGN_SYSTEM.md),
-  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md) e
+  [Sidebar e temas](docs/SIDEBAR_DOCUMENTATION.md),
+  [Briefing da Visão Operacional](docs/BRIEFING_VISAO_OPERACIONAL.md) e
   [Proposta de dashboards e melhorias](docs/PROPOSTA_DASHBOARDS_E_MELHORIAS.md) · [Changelog](CHANGELOG.md).
   O README é o ponto de entrada.
 - `pages/login.py` (tela standalone não integrada ao portal) e
@@ -394,6 +447,7 @@ Cores oficiais Totale Tecnologia:
 - [x] ✅ Sistema de Auditoria
 - [x] ✅ Gerador de Assinatura
 - [x] ✅ Integração Google Sheets
+- [x] ✅ Visão Operacional unificada (O.S. × Contratos × Consultivos)
 - [ ] 🚧 Notificações via e-mail
 - [ ] 🚧 API REST para integrações
 - [ ] 🚧 Aplicativo mobile
