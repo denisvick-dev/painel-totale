@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -54,6 +55,9 @@ MAPA_COLUNAS_CONSULTIVO = {
     "QTDE_VIRTUA": "Virtua",
 }
 
+#: Briefing do painel, servido pelo botão de download.
+CAMINHO_BRIEFING = Path(__file__).resolve().parents[1] / "docs" / "BRIEFING_VISAO_OPERACIONAL.md"
+
 
 # ====================================================
 # 🧱 PREPARAÇÃO DAS FONTES
@@ -83,15 +87,31 @@ def preparar_consultivos(bruto: pd.DataFrame | None) -> pd.DataFrame | None:
         dados["LOGIN NETSALES"] = pd.NA
     dados["Login"] = dados["LOGIN NETSALES"].astype("string").str.strip()
 
-    # Hierarquia compartilhada (Monitor/Base) — opcional e tolerante a falha.
+    # Colunas próprias da origem têm prioridade (aceitas em caixa alta ou baixa).
+    for nome_canonico, alternativas in (("Monitor", ("Monitor", "MONITOR")), ("Base", ("Base", "BASE"))):
+        if nome_canonico not in dados.columns:
+            fonte = next((c for c in alternativas if c in dados.columns), None)
+            if fonte is not None:
+                dados[nome_canonico] = dados[fonte]
+
+    # Hierarquia compartilhada (Monitor/Base) — opcional: apenas completa lacunas,
+    # nunca sobrescreve dimensões que a própria base de consultivos já trouxe.
     try:
         from services.hierarquia import hierarquia_da_sessao
 
         hierarquia = hierarquia_da_sessao().rename(
             columns={"LOGIN": "Login", "MONITOR": "Monitor", "BASE": "Base"}
         )
-        dados = dados.drop(columns=["Monitor", "Base"], errors="ignore")
-        dados = pd.merge(dados, hierarquia[["Login", "Monitor", "Base"]], on="Login", how="left")
+        if not hierarquia.empty and {"Login", "Monitor", "Base"}.issubset(hierarquia.columns):
+            enriquecida = dados.merge(
+                hierarquia[["Login", "Monitor", "Base"]], on="Login", how="left", suffixes=("", "_hier")
+            )
+            for nome_canonico in ("Monitor", "Base"):
+                coluna_hier = f"{nome_canonico}_hier"
+                if coluna_hier in enriquecida.columns:
+                    enriquecida[nome_canonico] = enriquecida[nome_canonico].fillna(enriquecida[coluna_hier])
+                    enriquecida = enriquecida.drop(columns=coluna_hier)
+            dados = enriquecida
     except Exception as exc:  # pragma: no cover - depende do Drive em runtime
         logger.warning("Hierarquia indisponível na visão unificada: %s", exc)
 
@@ -180,6 +200,23 @@ abrir_dashboard(
     origem="dados_prod (produção) · dados_cons (consultivos)",
 )
 
+# Botão de download do briefing (documento de referência do painel).
+try:
+    _conteudo_briefing = CAMINHO_BRIEFING.read_bytes()
+except OSError:
+    _conteudo_briefing = None
+if _conteudo_briefing:
+    _col_botao, _ = st.columns([1, 3])
+    with _col_botao:
+        st.download_button(
+            "⬇️ Baixar briefing do painel",
+            data=_conteudo_briefing,
+            file_name="briefing_visao_operacional.md",
+            mime="text/markdown",
+            key="unificada_baixar_briefing",
+            width="stretch",
+        )
+
 if consultivos is None:
     st.info("Consultivos não carregados na sessão. As visões de O.S. e contratos seguem disponíveis; carregue a aba Consultivo (Atualização de Dados) para habilitar as seções comerciais.")
 
@@ -210,6 +247,11 @@ with secao("Indicadores", icone="🎯", subtitulo="Volumes do recorte selecionad
             {"label": "EQUIPES COM CONSULTIVO", "valor": formatar_inteiro(equipes_cons), "sub": "Logins com ao menos 1", "icone": "👥", "tema": "roxo"},
             {"label": "CONVERSÃO DE EQUIPES", "valor": f"{formatar_numero(conversao, 1)}%" if conversao is not None else "—", "sub": "Com consultivo ÷ com login", "icone": "✅", "tema": "laranja"},
         ], colunas=4)
+        pct_consultivos_producao = total_consultivos / resumo["os"] * 100 if resumo["os"] else None
+        render_kpi_row([
+            {"label": "% DE CONSULTIVOS NA PRODUÇÃO", "valor": f"{formatar_numero(pct_consultivos_producao, 1)}%" if pct_consultivos_producao is not None else "—", "sub": "Consultivos ÷ O.S. do recorte", "icone": "🧾", "tema": "laranja"},
+        ], colunas=1)
+        st.caption("% de consultivos na produção é uma relação agregada (consultivos ÷ O.S.). As fontes não têm chave única por atendimento, portanto não é uma taxa por O.S. individual.")
 
     avisos: list[str] = []
     if coluna_contrato is None:
@@ -299,6 +341,8 @@ with secao("Visão por base e supervisor", icone="🧭", subtitulo="As três len
         for coluna in ("O.S.", "Contratos", "O.S. c/ contrato", "Pontos", "Consultivos", "Produtos"):
             if coluna in consolidado.columns:
                 consolidado[coluna] = pd.to_numeric(consolidado[coluna], errors="coerce").fillna(0)
+        if {"O.S.", "Consultivos"}.issubset(consolidado.columns):
+            consolidado["Cons./O.S. (%)"] = (consolidado["Consultivos"] / consolidado["O.S."] * 100).where(consolidado["O.S."] > 0).round(1)
         ordenacao = [c for c in ("O.S.", "Consultivos") if c in consolidado.columns]
         consolidado["_total"] = consolidado[[c for c in ("O.S.", "Consultivos") if c in consolidado.columns]].sum(axis=1)
         consolidado = consolidado.sort_values("_total", ascending=False).reset_index(drop=True)
@@ -316,7 +360,7 @@ with secao("Visão por base e supervisor", icone="🧭", subtitulo="As três len
             )
         exibicao = consolidado.drop(columns="_total")
         st.dataframe(exibicao, hide_index=True, width="stretch")
-        st.caption("Casamento por base e supervisor normalizados. Supervisors presentes em apenas uma fonte aparecem com zero na outra; contratos distintos não são somáveis entre grupos.")
+        st.caption("Casamento por base e supervisor normalizados. Grupos presentes em apenas uma fonte aparecem com zero na outra; Cons./O.S. (%) fica vazio sem O.S. no grupo. Contratos distintos não são somáveis entre grupos.")
 
 # ====================================================
 # 📋 PERFIL DOS CONTRATOS
