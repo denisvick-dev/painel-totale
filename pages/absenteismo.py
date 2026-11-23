@@ -1391,6 +1391,20 @@ def _render_chamada_diaria() -> None:
         _render_lancamento()
 
 
+def _estilo_celula_presenca_externa(valor: object) -> str:
+    """Aplica cor discreta às células de status na planilha externa."""
+    texto = str(valor or "").strip().upper()
+    if texto == "ATIVO":
+        return "background-color: rgba(34, 197, 94, 0.16); color: #166534; font-weight: 600;"
+    if texto == "FALTA":
+        return "background-color: rgba(239, 68, 68, 0.18); color: #991b1b; font-weight: 600;"
+    if texto == "ATESTADO":
+        return "background-color: rgba(245, 158, 11, 0.18); color: #92400e; font-weight: 600;"
+    if texto in ("NÃO PREENCHIDO", ""):
+        return "color: #9ca3af;"
+    return ""
+
+
 def _render_planilha_externa() -> None:
     """Exibe a planilha externa ``lista_de_presenca`` integrada do Google Sheets."""
     from config.settings import URL_PRESENCA_EDIT
@@ -1415,12 +1429,16 @@ def _render_planilha_externa() -> None:
         return
 
     resumo = resumir_planilha_lista_presenca(df_planilha)
-    m1, m2, m3, m4, m5 = st.columns(5)
+    total_marcacoes = resumo["ativo"] + resumo["falta"] + resumo["atestado"] + resumo["outros"]
+    taxa_presenca = (resumo["ativo"] / total_marcacoes * 100.0) if total_marcacoes else 0.0
+
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     m1.metric("Técnicos", resumo["tecnicos"])
     m2.metric("Dias preenchidos", f"{resumo['dias_preenchidos']}/{resumo['dias_total']}")
-    m3.metric("ATIVO", resumo["ativo"])
-    m4.metric("FALTA", resumo["falta"])
-    m5.metric("ATESTADO", resumo["atestado"])
+    m3.metric("Taxa de presença", f"{taxa_presenca:.1f}%")
+    m4.metric("ATIVO", resumo["ativo"])
+    m5.metric("FALTA", resumo["falta"])
+    m6.metric("ATESTADO", resumo["atestado"])
 
     f1, f2, f3, f4 = st.columns(4)
     with f1:
@@ -1455,8 +1473,46 @@ def _render_planilha_externa() -> None:
                 mask = mask | filtrado[col].astype(str).str.upper().str.contains(busca, na=False)
         filtrado = filtrado.loc[mask]
 
-    st.caption(f"Exibindo {len(filtrado)} de {len(df_planilha)} técnicos • {len(identificar_colunas_dias_planilha(filtrado))} colunas diárias")
-    st.dataframe(filtrado, use_container_width=True, hide_index=True)
+    colunas_dias = identificar_colunas_dias_planilha(filtrado)
+    st.caption(f"Exibindo {len(filtrado)} de {len(df_planilha)} técnicos • {len(colunas_dias)} colunas diárias")
+
+    aba_tabela, aba_resumo = st.tabs(["Tabela detalhada", "Resumo por Monitor e Base"])
+    with aba_tabela:
+        if colunas_dias:
+            estilizado = filtrado.style.map(_estilo_celula_presenca_externa, subset=colunas_dias)
+            st.dataframe(estilizado, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(filtrado, use_container_width=True, hide_index=True)
+
+    with aba_resumo:
+        if not colunas_dias or filtrado.empty:
+            st.info("Sem dados suficientes para agrupar por Monitor e Base.")
+        else:
+            linhas_resumo = []
+            chaves = [c for c in ("Monitor", "Base") if c in filtrado.columns]
+            if not chaves:
+                st.info("Colunas Monitor/Base não encontradas na planilha.")
+            else:
+                for grupo, bloco in filtrado.groupby(chaves, dropna=False):
+                    r_grupo = resumir_planilha_lista_presenca(bloco)
+                    tot = r_grupo["ativo"] + r_grupo["falta"] + r_grupo["atestado"] + r_grupo["outros"]
+                    pct = (r_grupo["ativo"] / tot * 100.0) if tot else 0.0
+                    monitor_val, base_val = grupo if isinstance(grupo, tuple) else (grupo, "")
+                    linhas_resumo.append(
+                        {
+                            "Monitor": monitor_val or "—",
+                            "Base": base_val or "—",
+                            "Técnicos": r_grupo["tecnicos"],
+                            "ATIVO": r_grupo["ativo"],
+                            "FALTA": r_grupo["falta"],
+                            "ATESTADO": r_grupo["atestado"],
+                            "% Presença": round(pct, 1),
+                        }
+                    )
+                df_resumo = pd.DataFrame(linhas_resumo).sort_values(
+                    by=["FALTA", "Técnicos"], ascending=[False, False]
+                )
+                st.dataframe(df_resumo, use_container_width=True, hide_index=True)
 
 
 # Executar só a área visível: st.tabs executava também gráficos, mapa e Excel ocultos.
