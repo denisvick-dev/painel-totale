@@ -1,0 +1,13 @@
+# Recursos opcionais do portal: mapas, PDF, exportação otimizada e integrações.
+# Incluído por requirements-dev.txt e recomendado para o deploy com todas as páginas.
+folium>=0.15,<1.0
+geobr>=0.2,<1.0
+geopandas>=0.14,<2.0
+shapely>=2.0,<3.0
+streamlit-folium>=0.20,<1.0
+reportlab>=4.0,<5.0
+XlsxWriter>=3.1,<4.0
+holidays>=0.46,<1.0
+gdown>=5.1,<6.0
+streamlit-autorefresh>=1.0,<2.0
+extract-msg>=0.48,<1.0

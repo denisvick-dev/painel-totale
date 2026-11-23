@@ -226,12 +226,15 @@ source .venv/bin/activate
 
 ### 3. Instale as Dependências
 
-Para executar o app:
+Para executar o portal com todas as páginas — incluindo mapas, relatórios PDF e
+integrações opcionais — instale os dois manifestos:
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-extras.txt
 ```
 
-Para desenvolver e executar a suíte completa de testes, use no lugar:
+`requirements.txt` contém o núcleo; `requirements-extras.txt` reúne dependências de
+páginas e integrações opcionais. Para desenvolver e executar a suíte completa,
+instale o conjunto completo de execução e testes:
 ```bash
 pip install -r requirements-dev.txt
 ```
@@ -316,9 +319,10 @@ pytest -q
 ```
 painel-totale/
 ├── streamlit_app.py              # Entry point, navegação e shell global
-├── requirements.txt              # Dependências de execução
-├── requirements-dev.txt          # Ambiente completo de desenvolvimento
-├── requirements-test.txt         # Dependências mínimas para CI/testes
+├── requirements.txt              # Dependências centrais de execução
+├── requirements-extras.txt       # Mapas, PDF e integrações opcionais
+├── requirements-dev.txt          # Runtime completo + ambiente de testes
+├── requirements-test.txt         # Dependências mínimas para testes isolados
 ├── .ruff.toml                    # Regras de lint
 ├── pytest.ini                   # Testes em tests/ e imports a partir da raiz
 ├── README.md

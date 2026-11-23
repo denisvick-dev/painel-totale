@@ -37,9 +37,10 @@ jobs:
 
       - name: Smoke test runtime imports
         run: >-
-          python -c "import folium, geobr, geopandas, google.oauth2.service_account,
-          gspread, openpyxl, pandas, plotly, requests, streamlit, streamlit_folium,
-          streamlit_gsheets, xlrd, xlsxwriter"
+          python -c "import altair, extract_msg, folium, gdown, geobr, geopandas,
+          google.oauth2.service_account, gspread, holidays, numpy, openpyxl, pandas,
+          PIL, plotly, reportlab, requests, streamlit, streamlit_autorefresh,
+          streamlit_folium, streamlit_gsheets, urllib3, xlrd, xlsxwriter"
 
       - name: Lint
         run: ruff check .
