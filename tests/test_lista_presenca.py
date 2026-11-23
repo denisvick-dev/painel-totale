@@ -1,9 +1,19 @@
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from services.absenteismo import normalizar_registros, resumir_controle
-from services.lista_presenca import montar_lista_presenca, registros_da_presenca, resumo_presenca
+from services.lista_presenca import (
+    OPCOES_STATUS_DIA,
+    montar_lista_presenca,
+    montar_tabela_chamada_diaria,
+    registros_da_chamada_diaria,
+    registros_da_presenca,
+    resumo_presenca,
+    status_tela_para_tipo,
+    tipo_para_status_tela,
+)
 
 DIA = date(2026, 11, 17)
 
@@ -51,6 +61,71 @@ def test_preenchimento_presente_gera_registro_persistivel():
     assert (
         resumo_presenca(montar_lista_presenca(relida, _quadro(), DIA, DIA), DIA)["Presentes"] == 1
     )
+
+
+def test_status_diario_usa_rotulos_da_planilha_e_mapeia_tipos_canonicos():
+    assert OPCOES_STATUS_DIA == (
+        "", "ATIVO", "ATESTADO", "FALTA", "FOLGA", "LICENÇA", "TREINAMENTO",
+        "SUSPENSÃO", "BAIXA DE KIT", "FÉRIAS", "AFASTADO",
+    )
+    assert status_tela_para_tipo("ATIVO") == "Presente"
+    assert status_tela_para_tipo("AFASTADO") == "Afastamento"
+    assert status_tela_para_tipo("BAIXA DE KIT") == "Baixa De Kit"
+    assert tipo_para_status_tela("Baixa De Kit") == "BAIXA DE KIT"
+    assert all(
+        tipo_para_status_tela(status_tela_para_tipo(status)) == status
+        for status in OPCOES_STATUS_DIA[1:]
+    )
+    assert tipo_para_status_tela("Não preenchido") == ""
+
+
+def test_tabela_diaria_tem_layout_exato_e_persiste_situacoes_na_grade():
+    original = pd.DataFrame(
+        {
+            "Cód.Equipe": ["EQ-01", "EQ-02"],
+            "Cód.Aux.Equipe": ["AUX-1", "AUX-2"],
+            "RE": ["8368", "8496"],
+            "Login": ["Z1", "Z2"],
+            "Técnico": ["Ana", "Bia"],
+            "Monitor": ["Supervisor A", "Supervisor B"],
+            "Base": ["ABC", "ABC"],
+            DIA: ["Não preenchido", "Não preenchido"],
+        }
+    )
+    tabela = montar_tabela_chamada_diaria(original, DIA)
+    assert tabela.columns.tolist() == [
+        "Cód.Equipe", "Cód.Aux.Equipe", "Matrícula", "Nome Equipe", "Supervisor", "Status Dia",
+    ]
+    assert tabela["Matrícula"].tolist() == ["8368", "8496"]
+    assert tabela["Status Dia"].tolist() == ["", ""]
+
+    tabela.loc[0, "Status Dia"] = "ATIVO"
+    tabela.loc[1, "Status Dia"] = "BAIXA DE KIT"
+    novos = registros_da_chamada_diaria(original, tabela, DIA)
+    assert [(registro["Login"], registro["Tipo"]) for registro in novos] == [
+        ("Z1", "Presente"), ("Z2", "BAIXA DE KIT"),
+    ]
+    assert all(registro["Data Início"] == DIA.isoformat() for registro in novos)
+
+
+def test_tabela_diaria_protege_cadastro_e_nao_reescreve_status_existente():
+    original = pd.DataFrame(
+        {
+            "RE": ["8368"],
+            "Login": ["Z1"],
+            "Técnico": ["Ana"],
+            "Monitor": ["Supervisor A"],
+            "Base": ["ABC"],
+            DIA: ["Baixa De Kit"],
+        }
+    )
+    tabela = montar_tabela_chamada_diaria(original, DIA)
+    assert tabela.loc[0, "Status Dia"] == "BAIXA DE KIT"
+    assert registros_da_chamada_diaria(original, tabela, DIA) == []
+
+    tabela.loc[0, "Nome Equipe"] = "Outra pessoa"
+    with pytest.raises(ValueError, match="cadastr"):
+        registros_da_chamada_diaria(original, tabela, DIA)
 
 
 def test_cancelamento_remove_presenca_e_ausencia_tem_precedencia():

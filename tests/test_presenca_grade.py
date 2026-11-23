@@ -34,6 +34,20 @@ def test_leitura_presenca_vazio_e_ano_real_do_cabecalho():
     assert len(snapshot["pessoas"]) == 2
 
 
+def test_rotulo_afastado_da_chamada_e_reconhecido_na_leitura_da_grade():
+    snapshot = interpretar_valores(valores("AFASTADO"))
+    assert snapshot["registros"]["Tipo"].tolist() == ["Afastamento", "Falta"]
+
+
+def test_leitura_preserva_codigos_opcionais_do_quadro_para_chamada_diaria():
+    cabecalho = ["Cód.Equipe", "Cód.Aux.Equipe", *CABECALHO]
+    linha = ["EQ-10", "AUX-10", "1", "Z1", "Ana", "Monitor", "UN", "BASE", "", ""]
+    snapshot = interpretar_valores([cabecalho, linha])
+    pessoa = snapshot["pessoas"].iloc[0]
+    assert pessoa["Cód.Equipe"] == "EQ-10"
+    assert pessoa["Cód.Aux.Equipe"] == "AUX-10"
+
+
 def test_somente_celula_alterada_e_presente_gravado_como_ativo():
     snapshot = interpretar_valores(valores())
     plano = planejar_alteracoes(snapshot, snapshot["registros"], preencher(snapshot), snapshot)
@@ -41,6 +55,13 @@ def test_somente_celula_alterada_e_presente_gravado_como_ativo():
     assert plano[0]["posicao"] == (2, 6)
     assert plano[0]["antes"] == ""
     assert plano[0]["depois"] == "ATIVO"
+
+
+def test_afastado_e_salvo_com_o_rotulo_do_layout_diario():
+    snapshot = interpretar_valores(valores(""))
+    plano = planejar_alteracoes(snapshot, snapshot["registros"], preencher(snapshot, "Afastamento"), snapshot)
+    assert len(plano) == 1
+    assert plano[0]["depois"] == "AFASTADO"
 
 
 def test_conflito_bloqueia_celula_tocada_mas_preserva_outras():

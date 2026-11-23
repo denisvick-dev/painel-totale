@@ -172,6 +172,7 @@ CODIGOS_AUSENCIA: dict[str, str] = {
     "AFA": "Afastamento",
     "AFAST": "Afastamento",
     "AFASTAMENTO": "Afastamento",
+    "AFASTADO": "Afastamento",
     "L": "Licença",
     "LIC": "Licença",
     "LICENCA": "Licença",
@@ -262,7 +263,7 @@ def _tipo_canonico(valor: Any) -> str:
     for tipo in TIPOS_AUSENCIA:
         if texto.casefold() == tipo.casefold():
             return tipo
-    return texto.title()
+    return CODIGOS_AUSENCIA.get(normalizar_chave(texto), texto.title())
 
 
 __all__ = [

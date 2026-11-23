@@ -171,10 +171,12 @@ def test_chamada_grava_presenca_na_grade_e_auditoria_simuladas(monkeypatch):
     app.run()
     assert not app.exception
     editor = next(editor for editor in app.data_editor if editor.key.startswith("absenteismo_grade_editor_"))
-    assert "2026-11-01" in editor.value.columns
+    assert editor.value.columns.tolist() == [
+        "Cód.Equipe", "Cód.Aux.Equipe", "Matrícula", "Nome Equipe", "Supervisor", "Status Dia",
+    ]
 
     app.session_state[editor.key] = {
-        "edited_rows": {0: {"2026-11-01": "Presente"}},
+        "edited_rows": {0: {"Status Dia": "ATIVO"}},
         "added_rows": [],
         "deleted_rows": [],
     }

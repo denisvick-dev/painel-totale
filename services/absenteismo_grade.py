@@ -13,6 +13,8 @@ def registros_do_preenchimento(original: pd.DataFrame, editada: pd.DataFrame) ->
     """Converte apenas células vazias preenchidas; nunca sobrescreve ausências."""
     tipos = {codigo: tipo for tipo, codigo in ABREVIACOES_AUSENCIA.items()}
     tipos["P"] = "Presente"
+    # Situação operacional exibida no fluxo diário, sem ser classificada como falta.
+    tipos["BAIXA DE KIT"] = "BAIXA DE KIT"
     if not original.index.equals(editada.index) or list(original.columns) != list(editada.columns):
         raise ValueError("A estrutura da tabela foi alterada. Reabra o preenchimento.")
     novos = []

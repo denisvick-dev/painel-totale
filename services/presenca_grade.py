@@ -46,8 +46,17 @@ def interpretar_valores(valores: list[list], referencia: date | None = None, for
     if not login_col:
         raise ValueError("A grade precisa de uma coluna Login.")
     linhas, pessoas, celulas, registros = {}, [], {}, []
-    aliases = {"RE": ("RE",), "Técnico": ("Técnico", "TECNICO"), "Monitor": ("Monitor",),
-               "Base": ("Base",), "U.N.": ("U.N.", "UN")}
+    aliases = {
+        "RE": ("RE", "MATRÍCULA", "MATRICULA"),
+        "Técnico": ("Técnico", "TECNICO", "Nome Equipe", "Equipe"),
+        "Monitor": ("Monitor", "Supervisor"),
+        "Base": ("Base",),
+        "U.N.": ("U.N.", "UN"),
+        "Cód.Equipe": ("Cód.Equipe", "Cód Equipe", "CodEquipe", "Código Equipe", "Cod Equipe"),
+        "Cód.Aux.Equipe": (
+            "Cód.Aux.Equipe", "Cód Aux Equipe", "CódAuxEquipe", "CodAuxEquipe", "Cod Aux Equipe",
+        ),
+    }
     colunas = {nome: buscar_coluna(bruto, opcoes) for nome, opcoes in aliases.items()}
     tipos = {normalizar_chave(t): t for t in TIPOS_AUSENCIA}
     tipos.update(CODIGOS_AUSENCIA)
@@ -81,7 +90,13 @@ def interpretar_valores(valores: list[list], referencia: date | None = None, for
                               "Tipo": tipo, "Data Início": dia.isoformat(), "Data Fim": dia.isoformat(),
                               "Status": "Ativo", "Motivo": f"Grade absenteismo · linha {indice + 2}", "Registrado em": ""})
     return {"registros": normalizar_registros(pd.DataFrame(registros)), "celulas": celulas,
-            "pessoas": pd.DataFrame(pessoas, columns=["RE", "Login", "Técnico", "Monitor", "Base", "U.N."]),
+            "pessoas": pd.DataFrame(
+                pessoas,
+                columns=[
+                    "RE", "Login", "Técnico", "Monitor", "Base", "U.N.",
+                    "Cód.Equipe", "Cód.Aux.Equipe",
+                ],
+            ),
             "dias": list(dias.values())}
 
 
@@ -138,7 +153,7 @@ def planejar_alteracoes(snapshot, base, local, remoto):
         if esperado["texto"] != atual["texto"]:
             raise ValueError("Conflito: a célula foi alterada no Drive. Atualize a lista antes de tentar novamente.")
         tipo = novas.get(par, "")
-        texto = "ATIVO" if tipo == "Presente" else tipo.upper()
+        texto = {"Presente": "ATIVO", "Afastamento": "AFASTADO"}.get(tipo, tipo.upper())
         alteracoes.append({"par": par, "posicao": atual["posicao"], "antes": atual["texto"], "depois": texto})
     return alteracoes
 

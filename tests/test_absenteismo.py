@@ -117,6 +117,11 @@ def test_normalizar_registros_recalcula_dias_e_preserva_cancelado() -> None:
     assert list(registros_vazios().columns)[:2] == ["ID", "Login"]
 
 
+def test_alias_afastado_normaliza_para_o_tipo_canonico() -> None:
+    bruto = pd.DataFrame([{"Login": "Z1", "Tipo": "AFASTADO", "Data Início": "2026-11-17"}])
+    assert normalizar_registros(bruto).loc[0, "Tipo"] == "Afastamento"
+
+
 def test_resumo_e_agrupamentos_ignoram_cancelados() -> None:
     df = normalizar_registros(_bruto())
     resumo = resumir_controle(df, periodo_inicio=NOVEMBRO[0], periodo_fim=NOVEMBRO[1], hoje=date(2026, 11, 16))
