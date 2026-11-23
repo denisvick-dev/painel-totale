@@ -83,14 +83,7 @@ logger = logging.getLogger(__name__)
 #: Áreas de trabalho em ordem operacional, sem navegação para âncoras ocultas.
 UNIDADES_NEGOCIO = ("ABCDM-TOTALE", "GRS-TOTALE", "SPO-TOTALLESTE")
 
-AREAS_PAGINA = (
-    "Planilha externa",
-    "Chamada diária",
-    "Força de Trabalho",
-    "Mapa mensal",
-    "Análises",
-    "Histórico e dados",
-)
+AREAS_PAGINA = ("Planilha externa",)
 
 CHAVES_FILTRO: tuple[str, ...] = (
     "absenteismo_periodo_inicio",
@@ -1515,36 +1508,6 @@ def _render_planilha_externa() -> None:
                 st.dataframe(df_resumo, use_container_width=True, hide_index=True)
 
 
-# Executar só a área visível: st.tabs executava também gráficos, mapa e Excel ocultos.
-area = st.radio("Área de trabalho", AREAS_PAGINA, horizontal=True, key="presenca_area")
-if area == "Chamada diária":
-    _render_chamada_diaria()
-elif area == "Força de Trabalho":
-    _render_forca()
-elif area == "Mapa mensal":
-    _render_mapa()
-elif area == "Análises":
-    _render_indicadores()
-    tipo_analise = st.radio(
-        "Explorar análises", ["Tipos de ausência", "Calendário", "Bases e monitores", "Hoje e próximas"],
-        horizontal=True, key="presenca_tipo_analise",
-    )
-    if tipo_analise == "Tipos de ausência":
-        _render_por_tipo()
-    elif tipo_analise == "Calendário":
-        _render_calendario()
-    elif tipo_analise == "Bases e monitores":
-        _render_ranking()
-    else:
-        _render_agenda()
-elif area == "Planilha externa":
-    _render_planilha_externa()
-else:
-    _render_qualidade_origem()
-    exibidos = _render_registros()
-    secao_exportacao(
-        _tabela_exibicao(exibidos if not exibidos.empty else registros_recorte),
-        nome_arquivo="presenca_grade_absenteismo", chave="absenteismo",
-    )
+_render_planilha_externa()
 
 fechar_dashboard()
