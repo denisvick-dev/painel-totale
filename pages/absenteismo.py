@@ -15,12 +15,14 @@ import uuid
 from datetime import date, datetime, timedelta
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from components.componentes import aplicar_estilo, render_empty_state, render_insight
-from components.dashboards import abrir_dashboard, fechar_dashboard, secao_exportacao
+from components.dashboards import abrir_dashboard, fechar_dashboard
 from components.forca_trabalho import render_forca_trabalho
 from components.graficos import (
+    aplicar_tema,
     grafico_barras,
     grafico_calendario,
     grafico_donut,
@@ -56,11 +58,14 @@ from services.forca_trabalho import calcular_forca_trabalho
 from services.hierarquia import lista_ativos_da_sessao
 from services.lista_presenca import (
     OPCOES_PRESENCA,
+    agrupar_colunas_dias_por_mes,
+    agrupar_marcacoes_presenca,
     carregar_planilha_lista_presenca,
+    gerar_excel_executivo_presenca,
     identificar_colunas_dias_planilha,
     montar_lista_presenca,
     registros_da_presenca,
-    resumir_planilha_lista_presenca,
+    resumir_marcacoes_presenca,
     resumo_presenca,
 )
 from services.presenca_grade import (
@@ -1398,17 +1403,100 @@ def _estilo_celula_presenca_externa(valor: object) -> str:
     return ""
 
 
+def _valor_dimensao_presenca(df: pd.DataFrame, coluna: str) -> pd.Series:
+    """Rótulo estável para filtros e grupos, incluindo cadastros sem valor."""
+    if coluna not in df.columns:
+        return pd.Series("Não informado", index=df.index, dtype="object")
+    valores = df[coluna].where(df[coluna].notna(), "").astype(str).str.strip()
+    ausentes = valores.eq("") | valores.str.upper().isin({"NAN", "NONE", "NULL", "N/A"})
+    return valores.mask(ausentes, "Não informado")
+
+
+def _opcoes_filtro_presenca(df: pd.DataFrame, coluna: str, todas: str) -> list[str]:
+    valores = _valor_dimensao_presenca(df, coluna) if coluna in df.columns else pd.Series(dtype=str)
+    unicos = sorted(valores.unique().tolist(), key=str.casefold)
+    return [todas, *unicos]
+
+
+def _grafico_percentual_horizontal(
+    resumo: pd.DataFrame,
+    dimensao: str,
+    *,
+    chave: str,
+) -> None:
+    """Ranking horizontal das menores taxas para priorizar supervisão."""
+    if resumo.empty:
+        st.info(f"Sem dados de presença por {dimensao.lower()} no recorte.")
+        return
+    dados_com_preenchimento = resumo.loc[resumo["Dias preenchidos"].gt(0)]
+    if dados_com_preenchimento.empty:
+        st.info(f"Sem marcações preenchidas para calcular presença por {dimensao.lower()}.")
+        return
+    if len(dados_com_preenchimento) < len(resumo):
+        st.caption("Grupos sem marcações preenchidas não entram no ranking de presença.")
+    dados = (
+        dados_com_preenchimento.sort_values(
+            ["% Presença", "FALTA + ATESTADO"], ascending=[True, False]
+        )
+        .head(10)
+        .reset_index(drop=True)
+    )
+    valores = pd.to_numeric(dados["% Presença"], errors="coerce").fillna(0.0)
+    cores = ["#DC2626" if indice == 0 else "#0A48AA" for indice in range(len(dados))]
+    figura = go.Figure(
+        go.Bar(
+            x=valores,
+            y=dados[dimensao].astype(str),
+            orientation="h",
+            marker_color=cores,
+            text=[formatar_percentual(valor, 1) for valor in valores],
+            textposition="outside",
+            cliponaxis=False,
+            customdata=dados[["FALTA + ATESTADO", "Técnicos"]].to_numpy(),
+            hovertemplate=(
+                "<b>%{y}</b><br>% Presença: %{x:.1f}%"
+                "<br>FALTA + ATESTADO: %{customdata[0]}"
+                "<br>Técnicos: %{customdata[1]}<extra></extra>"
+            ),
+        )
+    )
+    aplicar_tema(
+        figura,
+        titulo=f"Menor % de Presença por {dimensao.lower()} · Top 10",
+        altura=max(280, 38 * len(dados) + 100),
+        hover_unificado=False,
+        legenda=False,
+        rotulos={"x": "% Presença", "y": ""},
+    )
+    figura.update_xaxes(
+        range=[0, 115], tickvals=list(range(0, 101, 20)), ticksuffix="%", rangemode="tozero"
+    )
+    figura.update_yaxes(autorange="reversed")
+    render_grafico(figura, chave=chave)
+
+
+def _tabela_percentual_exibicao(df: pd.DataFrame) -> pd.DataFrame:
+    """Formata percentuais para leitura pt-BR sem alterar o DataFrame exportável."""
+    exibicao = df.copy()
+    for coluna in ("% Presença", "% Preenchimento"):
+        if coluna in exibicao.columns:
+            exibicao[coluna] = exibicao[coluna].map(lambda valor: formatar_percentual(valor, 1))
+    return exibicao
+
+
 def _render_planilha_externa() -> None:
-    """Exibe a planilha externa ``lista_de_presenca`` integrada do Google Sheets."""
+    """Painel executivo da planilha mensal ``lista_de_presenca``."""
     from config.settings import URL_PRESENCA_EDIT
 
     col_titulo, col_link, col_reload = st.columns([3, 1.2, 1])
     with col_titulo:
-        st.subheader("Planilha Lista de Presença (Google Sheets)")
+        st.subheader("Lista de Presença · Painel Executivo")
     with col_link:
-        st.link_button("Abrir no Google Sheets", URL_PRESENCA_EDIT, use_container_width=True)
+        st.link_button("Abrir no Google Sheets", URL_PRESENCA_EDIT, width="stretch")
     with col_reload:
-        recarregar = st.button("Recarregar planilha", key="btn_reload_planilha_presenca", use_container_width=True)
+        recarregar = st.button(
+            "Recarregar planilha", key="btn_reload_planilha_presenca", width="stretch"
+        )
 
     ttl = 0 if recarregar else 300
     try:
@@ -1421,91 +1509,271 @@ def _render_planilha_externa() -> None:
         st.info("Nenhum registro encontrado na planilha externa de lista de presença.")
         return
 
-    resumo = resumir_planilha_lista_presenca(df_planilha)
-    total_marcacoes = resumo["ativo"] + resumo["falta"] + resumo["atestado"] + resumo["outros"]
-    taxa_presenca = (resumo["ativo"] / total_marcacoes * 100.0) if total_marcacoes else 0.0
+    todas_colunas_dias = identificar_colunas_dias_planilha(df_planilha)
+    meses_disponiveis = agrupar_colunas_dias_por_mes(todas_colunas_dias)
+    mes_selecionado = next(iter(meses_disponiveis), "Todos os dias")
+    if len(meses_disponiveis) > 1:
+        if st.session_state.get("presenca_ext_mes") not in meses_disponiveis:
+            st.session_state["presenca_ext_mes"] = mes_selecionado
+        mes_selecionado = st.selectbox(
+            "Mês da análise", list(meses_disponiveis), key="presenca_ext_mes"
+        )
+    elif meses_disponiveis:
+        st.caption(f"Mês analisado: **{mes_selecionado}**")
+    colunas_dias = meses_disponiveis.get(mes_selecionado, todas_colunas_dias)
 
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("Técnicos", resumo["tecnicos"])
-    m2.metric("Dias preenchidos", f"{resumo['dias_preenchidos']}/{resumo['dias_total']}")
-    m3.metric("Taxa de presença", f"{taxa_presenca:.1f}%")
-    m4.metric("ATIVO", resumo["ativo"])
-    m5.metric("FALTA", resumo["falta"])
-    m6.metric("ATESTADO", resumo["atestado"])
-
-    f1, f2, f3, f4 = st.columns(4)
-    with f1:
-        monitores = ["Todos"] + sorted(
-            [m for m in df_planilha.get("Monitor", pd.Series(dtype=str)).unique() if m]
-        )
-        sel_monitor = st.selectbox("Monitor", monitores, key="presenca_ext_monitor")
-    with f2:
-        bases = ["Todas"] + sorted(
-            [b for b in df_planilha.get("Base", pd.Series(dtype=str)).unique() if b]
-        )
-        sel_base = st.selectbox("Base", bases, key="presenca_ext_base")
-    with f3:
-        uns = ["Todas"] + sorted(
-            [u for u in df_planilha.get("U.N.", pd.Series(dtype=str)).unique() if u]
-        )
-        sel_un = st.selectbox("U.N.", uns, key="presenca_ext_un")
-    with f4:
-        busca = st.text_input("Buscar técnico / login / RE", key="presenca_ext_busca").strip().upper()
+    filtros = st.columns(4)
+    opcoes_monitor = _opcoes_filtro_presenca(df_planilha, "Monitor", "Todos")
+    opcoes_base = _opcoes_filtro_presenca(df_planilha, "Base", "Todas")
+    opcoes_un = _opcoes_filtro_presenca(df_planilha, "U.N.", "Todas")
+    for chave, opcoes in (
+        ("presenca_ext_monitor", opcoes_monitor),
+        ("presenca_ext_base", opcoes_base),
+        ("presenca_ext_un", opcoes_un),
+    ):
+        if st.session_state.get(chave) not in opcoes:
+            st.session_state[chave] = opcoes[0]
+    with filtros[0]:
+        sel_monitor = st.selectbox("Monitor", opcoes_monitor, key="presenca_ext_monitor")
+    with filtros[1]:
+        sel_base = st.selectbox("Base", opcoes_base, key="presenca_ext_base")
+    with filtros[2]:
+        sel_un = st.selectbox("U.N.", opcoes_un, key="presenca_ext_un")
+    with filtros[3]:
+        busca = st.text_input("Buscar técnico / login / RE", key="presenca_ext_busca").strip()
 
     filtrado = df_planilha.copy()
-    if sel_monitor != "Todos" and "Monitor" in filtrado.columns:
-        filtrado = filtrado.loc[filtrado["Monitor"].eq(sel_monitor)]
-    if sel_base != "Todas" and "Base" in filtrado.columns:
-        filtrado = filtrado.loc[filtrado["Base"].eq(sel_base)]
-    if sel_un != "Todas" and "U.N." in filtrado.columns:
-        filtrado = filtrado.loc[filtrado["U.N."].eq(sel_un)]
+    for coluna, valor, todas in (
+        ("Monitor", sel_monitor, "Todos"),
+        ("Base", sel_base, "Todas"),
+        ("U.N.", sel_un, "Todas"),
+    ):
+        if coluna in filtrado.columns and valor != todas:
+            filtrado = filtrado.loc[_valor_dimensao_presenca(filtrado, coluna).eq(valor)]
     if busca:
-        mask = pd.Series(False, index=filtrado.index)
-        for col in ("RE", "Login", "Técnico"):
-            if col in filtrado.columns:
-                mask = mask | filtrado[col].astype(str).str.upper().str.contains(busca, na=False)
-        filtrado = filtrado.loc[mask]
+        termo = busca.casefold()
+        mascara = pd.Series(False, index=filtrado.index)
+        for coluna in ("RE", "Login", "Técnico"):
+            if coluna in filtrado.columns:
+                mascara |= (
+                    filtrado[coluna]
+                    .fillna("")
+                    .astype(str)
+                    .str.casefold()
+                    .str.contains(termo, regex=False, na=False)
+                )
+        filtrado = filtrado.loc[mascara]
 
-    colunas_dias = identificar_colunas_dias_planilha(filtrado)
-    st.caption(f"Exibindo {len(filtrado)} de {len(df_planilha)} técnicos • {len(colunas_dias)} colunas diárias")
+    resumo_exec = resumir_marcacoes_presenca(filtrado, colunas_dias)
+    resumo_dimensoes = {
+        dimensao: agrupar_marcacoes_presenca(filtrado, colunas_dias, dimensao)
+        for dimensao in ("Monitor", "Base")
+        if dimensao in filtrado.columns
+    }
+    dimensoes_resumo = [coluna for coluna in ("Monitor", "Base") if coluna in filtrado.columns]
+    resumo_monitor_base = (
+        agrupar_marcacoes_presenca(filtrado, colunas_dias, dimensoes_resumo)
+        if dimensoes_resumo and colunas_dias
+        else pd.DataFrame()
+    )
+    if not resumo_monitor_base.empty:
+        resumo_monitor_base = resumo_monitor_base.sort_values(
+            ["FALTA + ATESTADO", "% Presença"], ascending=[False, True]
+        ).reset_index(drop=True)
+
+    colunas_exportacao = [
+        coluna
+        for coluna in df_planilha.columns
+        if coluna not in todas_colunas_dias or coluna in colunas_dias
+    ]
+    recorte_exportacao = filtrado.loc[:, colunas_exportacao]
+    slug_mes = normalizar_texto(mes_selecionado).replace(" ", "_").lower()
+    arquivo_excel = gerar_excel_executivo_presenca(recorte_exportacao, resumo_monitor_base)
+
+    linha_contexto, linha_download = st.columns([3, 1])
+    with linha_contexto:
+        st.caption(
+            f"Exibindo {len(filtrado)} de {len(df_planilha)} técnicos · "
+            f"{len(colunas_dias)} dias no mês · filtros aplicados também aos gráficos e exportações."
+        )
+    with linha_download:
+        st.download_button(
+            "⬇️ Baixar Excel executivo",
+            data=arquivo_excel,
+            file_name=f"absenteismo_executivo_{slug_mes or 'periodo'}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="presenca_exportar_executivo",
+            width="stretch",
+            help="Inclui o recorte filtrado e uma aba de resumo por Monitor/Base.",
+        )
+
+    if not colunas_dias:
+        st.info("Não foram encontradas colunas diárias para montar as análises deste recorte.")
+    else:
+        st.subheader(f"Indicadores do mês · {mes_selecionado}")
+        kpis = st.columns(7)
+        valores_kpi = (
+            ("Técnicos", formatar_inteiro(resumo_exec["tecnicos"])),
+            ("% Presença", formatar_percentual(resumo_exec["percentual_presenca"])),
+            ("FALTA + ATESTADO", formatar_inteiro(resumo_exec["faltas_atestados"])),
+            ("ATIVO", formatar_inteiro(resumo_exec["ativo"])),
+            ("FALTA", formatar_inteiro(resumo_exec["falta"])),
+            ("ATESTADO", formatar_inteiro(resumo_exec["atestado"])),
+            ("Não preenchido", formatar_inteiro(resumo_exec["nao_preenchido"])),
+        )
+        for coluna, (rotulo, valor) in zip(kpis, valores_kpi):
+            coluna.metric(rotulo, valor)
+        st.caption(
+            "% Presença = ATIVO ÷ marcações preenchidas. Pendências não reduzem a taxa; "
+            "outros status operacionais aparecem como ‘Outros’ na distribuição."
+        )
+
+        st.subheader("Distribuição de status")
+        if filtrado.empty:
+            st.info("Sem técnicos no recorte atual para exibir a distribuição.")
+        else:
+            distribuicao = [
+                ("ATIVO", resumo_exec["ativo"]),
+                ("FALTA", resumo_exec["falta"]),
+                ("ATESTADO", resumo_exec["atestado"]),
+                ("Não preenchido", resumo_exec["nao_preenchido"]),
+            ]
+            if resumo_exec["outros"]:
+                distribuicao.append(("Outros", resumo_exec["outros"]))
+            dados_donut = pd.DataFrame(distribuicao, columns=["Status", "Marcações"])
+            render_grafico(
+                grafico_donut(
+                    dados_donut,
+                    "Status",
+                    "Marcações",
+                    titulo="Proporção das marcações no recorte",
+                    altura=370,
+                    top=None,
+                ),
+                chave="presenca_executiva_status_donut",
+            )
+
+        st.subheader("Ranking de absenteísmo por Monitor e Base")
+        st.caption(
+            "Barras horizontais: maiores ocorrências de FALTA + ATESTADO e menores taxas de presença. "
+            "O ranking considera somente os dias do mês e os filtros acima."
+        )
+        dimensoes_ranking = [dim for dim in ("Monitor", "Base") if dim in resumo_dimensoes]
+        if not dimensoes_ranking:
+            st.info("A planilha não contém as colunas Monitor/Base necessárias para o ranking.")
+        else:
+            abas_ranking = st.tabs([f"Por {dim}" for dim in dimensoes_ranking])
+            for aba, dimensao in zip(abas_ranking, dimensoes_ranking):
+                with aba:
+                    agrupado = resumo_dimensoes[dimensao]
+                    if agrupado.empty:
+                        st.info(f"Sem dados por {dimensao.lower()} no recorte atual.")
+                        continue
+                    coluna_absencia, coluna_presenca = st.columns(2)
+                    with coluna_absencia:
+                        if agrupado["FALTA + ATESTADO"].sum() <= 0:
+                            st.info(f"Sem ocorrências de FALTA/ATESTADO por {dimensao.lower()}.")
+                        else:
+                            render_grafico(
+                                grafico_ranking(
+                                    agrupado,
+                                    dimensao,
+                                    "FALTA + ATESTADO",
+                                    titulo=f"FALTA + ATESTADO por {dimensao.lower()} · Top 10",
+                                    altura=max(280, 38 * min(10, len(agrupado)) + 100),
+                                    top=10,
+                                    rotulos={"x": "FALTA + ATESTADO", "y": ""},
+                                ),
+                                chave=f"presenca_ranking_absencia_{dimensao.lower()}",
+                            )
+                    with coluna_presenca:
+                        _grafico_percentual_horizontal(
+                            agrupado,
+                            dimensao,
+                            chave=f"presenca_ranking_pct_{dimensao.lower()}",
+                        )
+
+        st.subheader("Alerta · técnicos com mais faltas e atestados")
+        dimensoes_tecnico = [
+            coluna
+            for coluna in ("Técnico", "Login", "Monitor", "Base")
+            if coluna in filtrado.columns
+        ]
+        if not dimensoes_tecnico or filtrado.empty:
+            st.info("Sem dados suficientes para identificar técnicos no recorte.")
+        else:
+            ranking_tecnicos = agrupar_marcacoes_presenca(filtrado, colunas_dias, dimensoes_tecnico)
+            ranking_tecnicos = (
+                ranking_tecnicos.loc[ranking_tecnicos["FALTA + ATESTADO"].gt(0)]
+                .sort_values(
+                    ["FALTA + ATESTADO", "FALTA", "ATESTADO", "Técnico"],
+                    ascending=[False, False, False, True],
+                )
+                .head(10)
+                .reset_index(drop=True)
+            )
+            if ranking_tecnicos.empty:
+                st.success(
+                    "Nenhuma FALTA ou ATESTADO registrado no mês para os filtros selecionados."
+                )
+            else:
+                ranking_tecnicos.insert(0, "Posição", range(1, len(ranking_tecnicos) + 1))
+                colunas_alerta = [
+                    coluna
+                    for coluna in (
+                        "Posição",
+                        "Técnico",
+                        "Login",
+                        "Monitor",
+                        "Base",
+                        "FALTA",
+                        "ATESTADO",
+                        "FALTA + ATESTADO",
+                        "% Presença",
+                    )
+                    if coluna in ranking_tecnicos.columns
+                ]
+                st.dataframe(
+                    _tabela_percentual_exibicao(ranking_tecnicos[colunas_alerta]),
+                    width="stretch",
+                    hide_index=True,
+                )
 
     aba_tabela, aba_resumo = st.tabs(["Tabela detalhada", "Resumo por Monitor e Base"])
     with aba_tabela:
         if colunas_dias:
-            estilizado = filtrado.style.map(_estilo_celula_presenca_externa, subset=colunas_dias)
-            st.dataframe(estilizado, use_container_width=True, hide_index=True)
+            estilizado = recorte_exportacao.style.map(
+                _estilo_celula_presenca_externa, subset=colunas_dias
+            )
+            st.dataframe(estilizado, width="stretch", hide_index=True)
         else:
-            st.dataframe(filtrado, use_container_width=True, hide_index=True)
+            st.dataframe(recorte_exportacao, width="stretch", hide_index=True)
 
     with aba_resumo:
-        if not colunas_dias or filtrado.empty:
+        if not colunas_dias or not dimensoes_resumo or resumo_monitor_base.empty:
             st.info("Sem dados suficientes para agrupar por Monitor e Base.")
         else:
-            linhas_resumo = []
-            chaves = [c for c in ("Monitor", "Base") if c in filtrado.columns]
-            if not chaves:
-                st.info("Colunas Monitor/Base não encontradas na planilha.")
-            else:
-                for grupo, bloco in filtrado.groupby(chaves, dropna=False):
-                    r_grupo = resumir_planilha_lista_presenca(bloco)
-                    tot = r_grupo["ativo"] + r_grupo["falta"] + r_grupo["atestado"] + r_grupo["outros"]
-                    pct = (r_grupo["ativo"] / tot * 100.0) if tot else 0.0
-                    monitor_val, base_val = grupo if isinstance(grupo, tuple) else (grupo, "")
-                    linhas_resumo.append(
-                        {
-                            "Monitor": monitor_val or "—",
-                            "Base": base_val or "—",
-                            "Técnicos": r_grupo["tecnicos"],
-                            "ATIVO": r_grupo["ativo"],
-                            "FALTA": r_grupo["falta"],
-                            "ATESTADO": r_grupo["atestado"],
-                            "% Presença": round(pct, 1),
-                        }
-                    )
-                df_resumo = pd.DataFrame(linhas_resumo).sort_values(
-                    by=["FALTA", "Técnicos"], ascending=[False, False]
+            colunas_resumo = [
+                coluna
+                for coluna in (
+                    "Monitor",
+                    "Base",
+                    "Técnicos",
+                    "ATIVO",
+                    "FALTA",
+                    "ATESTADO",
+                    "FALTA + ATESTADO",
+                    "Não preenchido",
+                    "Outros",
+                    "% Presença",
                 )
-                st.dataframe(df_resumo, use_container_width=True, hide_index=True)
+                if coluna in resumo_monitor_base.columns
+            ]
+            st.dataframe(
+                _tabela_percentual_exibicao(resumo_monitor_base[colunas_resumo]),
+                width="stretch",
+                hide_index=True,
+            )
 
 
 _render_planilha_externa()
