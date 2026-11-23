@@ -84,12 +84,12 @@ logger = logging.getLogger(__name__)
 UNIDADES_NEGOCIO = ("ABCDM-TOTALE", "GRS-TOTALE", "SPO-TOTALLESTE")
 
 AREAS_PAGINA = (
+    "Planilha externa",
     "Chamada diária",
     "Força de Trabalho",
     "Mapa mensal",
     "Análises",
     "Histórico e dados",
-    "Planilha externa",
 )
 
 CHAVES_FILTRO: tuple[str, ...] = (
