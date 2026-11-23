@@ -20,6 +20,15 @@ mas não são o caminho de persistência desta página.
 - DUPLADO e BAIXA DE KIT são preservados e mostrados como situação operacional,
   sem entrar nas contagens de presentes ou ausentes. Outros valores históricos
   também não são regravados se não forem alterados.
+- A chamada de um dia usa a tabela operacional `Cód.Equipe`, `Cód.Aux.Equipe`,
+  `Matrícula`, `Nome Equipe`, `Supervisor` e `Status Dia`. A matrícula vem de
+  `RE`, o nome de `Técnico` e o supervisor de `Monitor`; os dois códigos são
+  exibidos quando existem na grade de origem e ficam vazios quando não existem.
+  A visualização não expõe nem permite editar o login interno.
+- O seletor diário oferece `ATIVO`, `ATESTADO`, `FALTA`, `FOLGA`, `LICENÇA`,
+  `TREINAMENTO`, `SUSPENSÃO`, `BAIXA DE KIT`, `FÉRIAS` e `AFASTADO` (além de
+  vazio para pendente). Os rótulos são traduzidos ao formato canônico da grade;
+  `AFASTADO` e `BAIXA DE KIT` também são gravados com esses rótulos.
 
 ## Escrita e auditoria
 

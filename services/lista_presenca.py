@@ -27,8 +27,115 @@ OPCOES_PRESENCA = (
     "Licença",
     "Treinamento",
 )
+
+# Rótulos mostrados na chamada diária (compatíveis com a planilha operacional).
+OPCOES_STATUS_DIA = (
+    "",
+    "ATIVO",
+    "ATESTADO",
+    "FALTA",
+    "FOLGA",
+    "LICENÇA",
+    "TREINAMENTO",
+    "SUSPENSÃO",
+    "BAIXA DE KIT",
+    "FÉRIAS",
+    "AFASTADO",
+)
+_STATUS_DIA_PARA_TIPO = {
+    normalizar_chave("ATIVO"): "Presente",
+    normalizar_chave("ATESTADO"): "Atestado",
+    normalizar_chave("FALTA"): "Falta",
+    normalizar_chave("FOLGA"): "Folga",
+    normalizar_chave("LICENÇA"): "Licença",
+    normalizar_chave("TREINAMENTO"): "Treinamento",
+    normalizar_chave("SUSPENSÃO"): "Suspensão",
+    normalizar_chave("BAIXA DE KIT"): "Baixa De Kit",
+    normalizar_chave("FÉRIAS"): "Férias",
+    normalizar_chave("AFASTADO"): "Afastamento",
+}
+_TIPO_PARA_STATUS_DIA = {
+    normalizar_chave(_STATUS_DIA_PARA_TIPO[normalizar_chave(status)]): status
+    for status in OPCOES_STATUS_DIA
+    if status
+}
+
+
+def status_tela_para_tipo(valor: Any) -> str:
+    """Converte o rótulo da chamada para o tipo persistido na grade mensal."""
+    chave = normalizar_chave(valor)
+    if not chave or chave == normalizar_chave("Não preenchido"):
+        return "Não preenchido"
+    return _STATUS_DIA_PARA_TIPO.get(chave, str(valor).strip())
+
+
+def tipo_para_status_tela(valor: Any) -> str:
+    """Apresenta os tipos já registrados no padrão de status da planilha."""
+    chave = normalizar_chave(valor)
+    if not chave or chave == normalizar_chave("Não preenchido"):
+        return ""
+    return _TIPO_PARA_STATUS_DIA.get(chave, str(valor).strip().upper())
+
+
 CODIGOS = {codigo: tipo for tipo, codigo in ABREVIACOES_AUSENCIA.items()}
 CODIGOS["P"] = "Presente"
+CODIGOS["BAIXA DE KIT"] = "Baixa De Kit"
+
+COLUNAS_CHAMADA_DIARIA = (
+    "Cód.Equipe",
+    "Cód.Aux.Equipe",
+    "Matrícula",
+    "Nome Equipe",
+    "Supervisor",
+    "Status Dia",
+)
+
+
+def montar_tabela_chamada_diaria(matriz: pd.DataFrame, dia: date) -> pd.DataFrame:
+    """Monta a tabela diária no leiaute operacional, sem expor o login interno."""
+    if not isinstance(matriz, pd.DataFrame) or dia not in matriz.columns:
+        raise ValueError("A data escolhida não existe na lista de presença.")
+
+    def coluna_texto(origem: str) -> pd.Series:
+        if origem in matriz.columns:
+            return matriz[origem].fillna("").astype(str).str.strip()
+        return pd.Series("", index=matriz.index, dtype="object")
+
+    tabela = pd.DataFrame(index=matriz.index)
+    tabela["Cód.Equipe"] = coluna_texto("Cód.Equipe")
+    tabela["Cód.Aux.Equipe"] = coluna_texto("Cód.Aux.Equipe")
+    tabela["Matrícula"] = coluna_texto("RE") if "RE" in matriz.columns else coluna_texto("Login")
+    tabela["Nome Equipe"] = coluna_texto("Técnico")
+    tabela["Supervisor"] = coluna_texto("Monitor")
+    tabela["Status Dia"] = matriz[dia].map(tipo_para_status_tela)
+    return tabela[list(COLUNAS_CHAMADA_DIARIA)]
+
+
+def registros_da_chamada_diaria(
+    original: pd.DataFrame, editada: pd.DataFrame, dia: date
+) -> list[dict]:
+    """Valida a tabela diária e converte suas seleções ao fluxo da grade mensal."""
+    esperada = montar_tabela_chamada_diaria(original, dia)
+    if not editada.index.equals(esperada.index) or list(editada.columns) != list(esperada.columns):
+        raise ValueError("A estrutura da tabela foi alterada. Reabra o preenchimento.")
+
+    colunas_protegidas = [coluna for coluna in COLUNAS_CHAMADA_DIARIA if coluna != "Status Dia"]
+    for coluna in colunas_protegidas:
+        antes = esperada[coluna].fillna("").astype(str).str.strip()
+        depois = editada[coluna].fillna("").astype(str).str.strip()
+        if not antes.equals(depois):
+            raise ValueError("Os dados cadastrais não podem ser alterados nesta tabela.")
+
+    opcoes_oficiais = {normalizar_chave(valor) for valor in OPCOES_STATUS_DIA if valor}
+    statuses = editada["Status Dia"].fillna("").astype(str).str.strip()
+    atuais = esperada["Status Dia"].fillna("").astype(str).str.strip()
+    for indice, valor in statuses.items():
+        if valor and normalizar_chave(valor) not in opcoes_oficiais and valor != atuais.at[indice]:
+            raise ValueError("Selecione uma das situações disponíveis para o dia.")
+
+    matriz_editada = original.copy()
+    matriz_editada[dia] = statuses.map(status_tela_para_tipo)
+    return registros_da_presenca(original, matriz_editada)
 
 
 def montar_lista_presenca(registros, quadro, inicio: date, fim: date) -> pd.DataFrame:
