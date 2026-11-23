@@ -46,3 +46,40 @@ def test_cancelamento_remove_presenca_e_ausencia_tem_precedencia():
     registros.loc[registros["ID"].eq("1"), "Status"] = "Cancelado"
     matriz = montar_lista_presenca(registros, _quadro(), DIA, DIA)
     assert resumo_presenca(matriz, DIA)["Pendentes"] == 2
+
+
+def test_planilha_externa_normalizacao_e_resumo():
+    from services.lista_presenca import (
+        identificar_colunas_dias_planilha,
+        normalizar_planilha_lista_presenca,
+        resumir_planilha_lista_presenca,
+    )
+
+    bruto = pd.DataFrame(
+        {
+            "RE": ["8368", "8496"],
+            "Login": ["Z641759", "Z663524"],
+            "Técnico": ["ALEX BERNARDES", "ALEX DE JESUS"],
+            "Monitor": ["EDSON", "EDSON"],
+            "U.N.": ["ABCDM-TOTALE", "ABCDM-TOTALE"],
+            "Base": ["NET-ABCDM", "NET-ABCDM"],
+            "1/nov.": ["", ""],
+            "3/nov.": ["ativo", "falta"],
+            "4/nov.": ["ATIVO", "ATESTADO"],
+        }
+    )
+    normalizado = normalizar_planilha_lista_presenca(bruto)
+    assert identificar_colunas_dias_planilha(normalizado) == ["1/nov.", "3/nov.", "4/nov."]
+    assert normalizado.loc[0, "1/nov."] == "Não preenchido"
+    assert normalizado.loc[0, "3/nov."] == "ATIVO"
+
+    resumo = resumir_planilha_lista_presenca(normalizado)
+    assert resumo == {
+        "tecnicos": 2,
+        "dias_total": 3,
+        "dias_preenchidos": 2,
+        "ativo": 2,
+        "falta": 1,
+        "atestado": 1,
+        "outros": 0,
+    }

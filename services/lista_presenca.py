@@ -1,5 +1,7 @@
 """Lista de presença explícita: vazio nunca confirma presença."""
 from datetime import date
+import re
+from typing import Any
 
 import pandas as pd
 
@@ -69,3 +71,97 @@ def resumo_presenca(matriz, dia):
     if operacionais.any():
         resultado["Situação operacional"] = int(operacionais.sum())
     return resultado
+
+
+COLUNAS_FIXAS_PLANILHA_PRESENCA: tuple[str, ...] = (
+    "RE", "Login", "Técnico", "Monitor", "U.N.", "Base",
+)
+_PADRAO_COLUNA_DIA = re.compile(r"^\d{1,2}/[a-zA-ZçÇ]{3,}\.?$")
+
+
+def identificar_colunas_dias_planilha(df: pd.DataFrame) -> list[str]:
+    """Retorna as colunas diárias (ex.: ``1/nov.``) na ordem da planilha."""
+    return [str(col) for col in df.columns if _PADRAO_COLUNA_DIA.match(str(col).strip())]
+
+
+def normalizar_planilha_lista_presenca(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpa cabeçalhos e padroniza células vazias/valores da planilha externa."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    copia = df.copy()
+    copia.columns = [str(c).strip() for c in copia.columns]
+    for col in COLUNAS_FIXAS_PLANILHA_PRESENCA:
+        if col in copia.columns:
+            copia[col] = copia[col].fillna("").astype(str).str.strip()
+    colunas_dias = identificar_colunas_dias_planilha(copia)
+    for col in colunas_dias:
+        copia[col] = (
+            copia[col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .replace({"": "Não preenchido", "NAN": "Não preenchido", "NONE": "Não preenchido"})
+        )
+    if "Login" in copia.columns:
+        copia = copia.loc[copia["Login"].ne("") | copia.get("Técnico", pd.Series("", index=copia.index)).ne("")]
+    return copia.reset_index(drop=True)
+
+
+def carregar_planilha_lista_presenca(
+    sheet_id: str | None = None,
+    ttl: int = 300,
+) -> pd.DataFrame:
+    """Carrega a planilha externa ``lista_de_presenca`` do Google Sheets."""
+    from config.settings import obter_sheet_id_presenca
+    from services.google_drive_client import carregar_planilha_gsheets_csv
+
+    sid = str(sheet_id or obter_sheet_id_presenca() or "").strip()
+    if not sid:
+        return pd.DataFrame()
+    bruto = carregar_planilha_gsheets_csv(sheet_id=sid, ttl=ttl)
+    return normalizar_planilha_lista_presenca(bruto)
+
+
+def resumir_planilha_lista_presenca(df: pd.DataFrame) -> dict[str, Any]:
+    """Calcula indicadores agregados da planilha ``lista_de_presenca``."""
+    if df is None or df.empty:
+        return {
+            "tecnicos": 0,
+            "dias_total": 0,
+            "dias_preenchidos": 0,
+            "ativo": 0,
+            "falta": 0,
+            "atestado": 0,
+            "outros": 0,
+        }
+    colunas_dias = identificar_colunas_dias_planilha(df)
+    if not colunas_dias:
+        return {
+            "tecnicos": int(len(df)),
+            "dias_total": 0,
+            "dias_preenchidos": 0,
+            "ativo": 0,
+            "falta": 0,
+            "atestado": 0,
+            "outros": 0,
+        }
+    valores = df[colunas_dias].stack().astype(str).str.strip().str.upper()
+    preenchidos = valores[valores.ne("NÃO PREENCHIDO") & valores.ne("")]
+    dias_com_dados = sum(
+        bool(df[col].astype(str).str.strip().str.upper().ne("NÃO PREENCHIDO").any())
+        for col in colunas_dias
+    )
+    ativo = int(preenchidos.eq("ATIVO").sum())
+    falta = int(preenchidos.eq("FALTA").sum())
+    atestado = int(preenchidos.eq("ATESTADO").sum())
+    outros = int(len(preenchidos) - ativo - falta - atestado)
+    return {
+        "tecnicos": int(len(df)),
+        "dias_total": int(len(colunas_dias)),
+        "dias_preenchidos": int(dias_com_dados),
+        "ativo": ativo,
+        "falta": falta,
+        "atestado": atestado,
+        "outros": outros,
+    }

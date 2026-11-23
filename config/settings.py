@@ -33,6 +33,8 @@ _DEFAULT_DRIVE_ID_CONS = "1YOWJ0HuGcEP2vJaZwl2kcgrtNgsoMBDs"
 _DEFAULT_DRIVE_ID_INDICADORES = "1k6NrvdZzdSV_sGOQkMKIssEhh7p7wyO0"
 # Planilha operacional da Prévia Diária (histórico, equipe e prévias arquivadas).
 _DEFAULT_SHEET_ID_PREVIA = "1bF7cQaoEkj-UuKCGmJ4PThoy-CdSPlVg8i3XEB6cu58"
+# Planilha externa da Lista de Presença (RE, Login, Técnico, Monitor, U.N., Base, dias).
+_DEFAULT_SHEET_ID_PRESENCA = "1cczU9zFmfylM7NnG-RR07wJXMIReUdxZU-GXqS4CMw8"
 
 
 def obter_secret(chave: str, default: str = "") -> str:
@@ -117,6 +119,11 @@ def obter_sheet_id_previa() -> str:
     return obter_secret("SHEET_ID_PREVIA", _DEFAULT_SHEET_ID_PREVIA)
 
 
+def obter_sheet_id_presenca() -> str:
+    """ID da planilha externa da Lista de Presença (``SHEET_ID_PRESENCA`` em secrets/ambiente)."""
+    return obter_secret("SHEET_ID_PRESENCA", _DEFAULT_SHEET_ID_PRESENCA)
+
+
 def obter_versao_portal() -> str:
     """Versão publicada do portal (``TOTALE_VERSAO`` em secrets/ambiente)."""
     return obter_secret("TOTALE_VERSAO", VERSAO_PORTAL_PADRAO)
@@ -133,6 +140,7 @@ SHEET_ID_PROD: str = obter_sheet_id_prod()
 DRIVE_ID_CONS: str = obter_drive_id_cons()
 DRIVE_ID_INDICADORES: str = obter_drive_id_indicadores()
 SHEET_ID_PREVIA: str = obter_sheet_id_previa()
+SHEET_ID_PRESENCA: str = obter_sheet_id_presenca()
 
 SHEET_ABA_ATIVOS: str = "lista_ativos"
 #: Aba de controle de ausências (faltas, folgas, férias...) na mesma planilha
@@ -146,6 +154,8 @@ URL_ATIVOS_CSV: str = url_gsheets_export(SHEET_ID_ATIVOS, fmt="csv")
 URL_PROD_XLSX: str = url_gsheets_export(SHEET_ID_PROD, fmt="xlsx")
 URL_CONS_DOWNLOAD: str = url_drive_download(DRIVE_ID_CONS)
 URL_PREVIA_DIARIA: str = url_gsheets_edit(SHEET_ID_PREVIA)
+URL_PRESENCA_EDIT: str = url_gsheets_edit(SHEET_ID_PRESENCA)
+URL_PRESENCA_CSV: str = url_gsheets_export(SHEET_ID_PRESENCA, fmt="csv")
 
 VERSAO_PORTAL: str = obter_versao_portal()
 AMBIENTE_PORTAL: str = obter_ambiente_portal()
@@ -180,6 +190,7 @@ __all__ = [
     "SHEET_ID_ATIVOS",
     "SHEET_ID_PROD",
     "SHEET_ID_PREVIA",
+    "SHEET_ID_PRESENCA",
     "TIMEOUT_HTTP_PADRAO",
     "URL_ATIVOS_BASE",
     "URL_ATIVOS_CSV",
@@ -187,6 +198,8 @@ __all__ = [
     "URL_CONS_DOWNLOAD",
     "ICON_PATH_PORTAL",
     "URL_PREVIA_DIARIA",
+    "URL_PRESENCA_CSV",
+    "URL_PRESENCA_EDIT",
     "URL_PROD_XLSX",
     "VERSAO_PORTAL",
     "VERSAO_PORTAL_PADRAO",
@@ -196,6 +209,7 @@ __all__ = [
     "obter_drive_id_indicadores",
     "obter_secret",
     "obter_sheet_id_ativos",
+    "obter_sheet_id_presenca",
     "obter_sheet_id_previa",
     "obter_sheet_id_prod",
     "obter_versao_portal",

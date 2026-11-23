@@ -56,8 +56,11 @@ from services.forca_trabalho import calcular_forca_trabalho
 from services.hierarquia import lista_ativos_da_sessao
 from services.lista_presenca import (
     OPCOES_PRESENCA,
+    carregar_planilha_lista_presenca,
+    identificar_colunas_dias_planilha,
     montar_lista_presenca,
     registros_da_presenca,
+    resumir_planilha_lista_presenca,
     resumo_presenca,
 )
 from services.presenca_grade import (
@@ -80,7 +83,14 @@ logger = logging.getLogger(__name__)
 #: Áreas de trabalho em ordem operacional, sem navegação para âncoras ocultas.
 UNIDADES_NEGOCIO = ("ABCDM-TOTALE", "GRS-TOTALE", "SPO-TOTALLESTE")
 
-AREAS_PAGINA = ("Chamada diária", "Força de Trabalho", "Mapa mensal", "Análises", "Histórico e dados")
+AREAS_PAGINA = (
+    "Chamada diária",
+    "Força de Trabalho",
+    "Mapa mensal",
+    "Análises",
+    "Histórico e dados",
+    "Planilha externa",
+)
 
 CHAVES_FILTRO: tuple[str, ...] = (
     "absenteismo_periodo_inicio",
@@ -1381,6 +1391,74 @@ def _render_chamada_diaria() -> None:
         _render_lancamento()
 
 
+def _render_planilha_externa() -> None:
+    """Exibe a planilha externa ``lista_de_presenca`` integrada do Google Sheets."""
+    from config.settings import URL_PRESENCA_EDIT
+
+    col_titulo, col_link, col_reload = st.columns([3, 1.2, 1])
+    with col_titulo:
+        st.subheader("Planilha Lista de Presença (Google Sheets)")
+    with col_link:
+        st.link_button("Abrir no Google Sheets", URL_PRESENCA_EDIT, use_container_width=True)
+    with col_reload:
+        recarregar = st.button("Recarregar planilha", key="btn_reload_planilha_presenca", use_container_width=True)
+
+    ttl = 0 if recarregar else 300
+    try:
+        df_planilha = carregar_planilha_lista_presenca(ttl=ttl)
+    except Exception as exc:
+        st.error(f"Não foi possível carregar a planilha de presença: {exc}")
+        return
+
+    if df_planilha.empty:
+        st.info("Nenhum registro encontrado na planilha externa de lista de presença.")
+        return
+
+    resumo = resumir_planilha_lista_presenca(df_planilha)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Técnicos", resumo["tecnicos"])
+    m2.metric("Dias preenchidos", f"{resumo['dias_preenchidos']}/{resumo['dias_total']}")
+    m3.metric("ATIVO", resumo["ativo"])
+    m4.metric("FALTA", resumo["falta"])
+    m5.metric("ATESTADO", resumo["atestado"])
+
+    f1, f2, f3, f4 = st.columns(4)
+    with f1:
+        monitores = ["Todos"] + sorted(
+            [m for m in df_planilha.get("Monitor", pd.Series(dtype=str)).unique() if m]
+        )
+        sel_monitor = st.selectbox("Monitor", monitores, key="presenca_ext_monitor")
+    with f2:
+        bases = ["Todas"] + sorted(
+            [b for b in df_planilha.get("Base", pd.Series(dtype=str)).unique() if b]
+        )
+        sel_base = st.selectbox("Base", bases, key="presenca_ext_base")
+    with f3:
+        uns = ["Todas"] + sorted(
+            [u for u in df_planilha.get("U.N.", pd.Series(dtype=str)).unique() if u]
+        )
+        sel_un = st.selectbox("U.N.", uns, key="presenca_ext_un")
+    with f4:
+        busca = st.text_input("Buscar técnico / login / RE", key="presenca_ext_busca").strip().upper()
+
+    filtrado = df_planilha.copy()
+    if sel_monitor != "Todos" and "Monitor" in filtrado.columns:
+        filtrado = filtrado.loc[filtrado["Monitor"].eq(sel_monitor)]
+    if sel_base != "Todas" and "Base" in filtrado.columns:
+        filtrado = filtrado.loc[filtrado["Base"].eq(sel_base)]
+    if sel_un != "Todas" and "U.N." in filtrado.columns:
+        filtrado = filtrado.loc[filtrado["U.N."].eq(sel_un)]
+    if busca:
+        mask = pd.Series(False, index=filtrado.index)
+        for col in ("RE", "Login", "Técnico"):
+            if col in filtrado.columns:
+                mask = mask | filtrado[col].astype(str).str.upper().str.contains(busca, na=False)
+        filtrado = filtrado.loc[mask]
+
+    st.caption(f"Exibindo {len(filtrado)} de {len(df_planilha)} técnicos • {len(identificar_colunas_dias_planilha(filtrado))} colunas diárias")
+    st.dataframe(filtrado, use_container_width=True, hide_index=True)
+
+
 # Executar só a área visível: st.tabs executava também gráficos, mapa e Excel ocultos.
 area = st.radio("Área de trabalho", AREAS_PAGINA, horizontal=True, key="presenca_area")
 if area == "Chamada diária":
@@ -1403,6 +1481,8 @@ elif area == "Análises":
         _render_ranking()
     else:
         _render_agenda()
+elif area == "Planilha externa":
+    _render_planilha_externa()
 else:
     _render_qualidade_origem()
     exibidos = _render_registros()
