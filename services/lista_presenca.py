@@ -1,6 +1,9 @@
 """Lista de presença explícita: vazio nunca confirma presença."""
-from datetime import date
+
+import io
 import re
+from collections.abc import Sequence
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -11,10 +14,18 @@ from services.absenteismo import (
     montar_matriz_ausencias,
 )
 from services.absenteismo_grade import registros_do_preenchimento
+from services.texto import normalizar_chave, normalizar_login
 
 OPCOES_PRESENCA = (
-    "Não preenchido", "Presente", "Falta", "Folga", "Férias", "Atestado",
-    "Afastamento", "Licença", "Treinamento",
+    "Não preenchido",
+    "Presente",
+    "Falta",
+    "Folga",
+    "Férias",
+    "Atestado",
+    "Afastamento",
+    "Licença",
+    "Treinamento",
 )
 CODIGOS = {codigo: tipo for tipo, codigo in ABREVIACOES_AUSENCIA.items()}
 CODIGOS["P"] = "Presente"
@@ -40,7 +51,9 @@ def montar_lista_presenca(registros, quadro, inicio: date, fim: date) -> pd.Data
         & registros["Status"].ne(STATUS_CANCELADO)
     ]
     for dia in dias:
-        no_dia = operacionais.loc[(operacionais["_inicio"].dt.date <= dia) & (operacionais["_fim"].dt.date >= dia)]
+        no_dia = operacionais.loc[
+            (operacionais["_inicio"].dt.date <= dia) & (operacionais["_fim"].dt.date >= dia)
+        ]
         for _, linha in no_dia.iterrows():
             matriz.loc[matriz["Login"].eq(linha["Login"]), dia] = linha["Tipo"]
     matriz["Total"] = matriz[dias].ne("Não preenchido").sum(axis=1)
@@ -57,6 +70,7 @@ def registros_da_presenca(original, editada):
                     lambda v: "" if v == "Não preenchido" else reverso.get(v, v)
                 )
         return copia
+
     return registros_do_preenchimento(codificar(original), codificar(editada))
 
 
@@ -74,7 +88,12 @@ def resumo_presenca(matriz, dia):
 
 
 COLUNAS_FIXAS_PLANILHA_PRESENCA: tuple[str, ...] = (
-    "RE", "Login", "Técnico", "Monitor", "U.N.", "Base",
+    "RE",
+    "Login",
+    "Técnico",
+    "Monitor",
+    "U.N.",
+    "Base",
 )
 _PADRAO_COLUNA_DIA = re.compile(r"^\d{1,2}/[a-zA-ZçÇ]{3,}\.?$")
 
@@ -104,7 +123,9 @@ def normalizar_planilha_lista_presenca(df: pd.DataFrame) -> pd.DataFrame:
             .replace({"": "Não preenchido", "NAN": "Não preenchido", "NONE": "Não preenchido"})
         )
     if "Login" in copia.columns:
-        copia = copia.loc[copia["Login"].ne("") | copia.get("Técnico", pd.Series("", index=copia.index)).ne("")]
+        copia = copia.loc[
+            copia["Login"].ne("") | copia.get("Técnico", pd.Series("", index=copia.index)).ne("")
+        ]
     return copia.reset_index(drop=True)
 
 
@@ -165,3 +186,267 @@ def resumir_planilha_lista_presenca(df: pd.DataFrame) -> dict[str, Any]:
         "atestado": atestado,
         "outros": outros,
     }
+
+
+_MESES_COLUNA_DIA = {
+    "JAN": "Janeiro",
+    "JANEIRO": "Janeiro",
+    "FEV": "Fevereiro",
+    "FEVEREIRO": "Fevereiro",
+    "MAR": "Março",
+    "MARCO": "Março",
+    "ABR": "Abril",
+    "ABRIL": "Abril",
+    "MAI": "Maio",
+    "MAIO": "Maio",
+    "JUN": "Junho",
+    "JUNHO": "Junho",
+    "JUL": "Julho",
+    "JULHO": "Julho",
+    "AGO": "Agosto",
+    "AGOSTO": "Agosto",
+    "SET": "Setembro",
+    "SETEMBRO": "Setembro",
+    "OUT": "Outubro",
+    "OUTUBRO": "Outubro",
+    "NOV": "Novembro",
+    "NOVEMBRO": "Novembro",
+    "DEZ": "Dezembro",
+    "DEZEMBRO": "Dezembro",
+}
+
+_COLUNAS_METRICAS_PRESENCA = (
+    "ATIVO",
+    "FALTA",
+    "ATESTADO",
+    "Não preenchido",
+    "Outros",
+    "Dias preenchidos",
+    "Total de marcações",
+    "FALTA + ATESTADO",
+    "% Presença",
+    "% Preenchimento",
+)
+_COLUNAS_SOMA_PRESENCA = (
+    "ATIVO",
+    "FALTA",
+    "ATESTADO",
+    "Não preenchido",
+    "Outros",
+    "Dias preenchidos",
+    "Total de marcações",
+)
+
+
+def agrupar_colunas_dias_por_mes(colunas_dias: Sequence[str]) -> dict[str, list[str]]:
+    """Agrupa cabeçalhos ``1/nov.`` pelo mês para análises mensais."""
+    grupos: dict[str, list[str]] = {}
+    for coluna in colunas_dias:
+        correspondencia = re.match(r"^\s*\d{1,2}\s*/\s*([A-Za-zÀ-ÿ]{3,})\.?\s*$", str(coluna))
+        mes = normalizar_chave(correspondencia.group(1)) if correspondencia else ""
+        rotulo = _MESES_COLUNA_DIA.get(mes, "Mês não identificado")
+        grupos.setdefault(rotulo, []).append(str(coluna))
+    return grupos
+
+
+def _normalizar_status_analise(valor: Any) -> str:
+    """Converte valores equivalentes do Sheets para os quatro status da análise."""
+    chave = normalizar_chave(valor)
+    if chave in {
+        "",
+        "NA",
+        "NAN",
+        "NAT",
+        "NONE",
+        "NULL",
+        "VAZIO",
+        "NAOPREENCHIDO",
+        "NENHUM",
+        "NENHUMA",
+    }:
+        return "Não preenchido"
+    return {
+        "ATIVO": "ATIVO",
+        "FALTA": "FALTA",
+        "ATESTADO": "ATESTADO",
+    }.get(chave, "Outros")
+
+
+def _matriz_status_presenca(df: pd.DataFrame, colunas_dias: Sequence[str]) -> pd.DataFrame:
+    """Cópia normalizada das células diárias; nunca converte vazio em presença."""
+    if df is None or not isinstance(df, pd.DataFrame):
+        return pd.DataFrame()
+    colunas = [coluna for coluna in colunas_dias if coluna in df.columns]
+    if not colunas:
+        return pd.DataFrame(index=df.index)
+    return pd.DataFrame(
+        {coluna: df[coluna].map(_normalizar_status_analise) for coluna in colunas},
+        index=df.index,
+    )
+
+
+def _metricas_por_linha(df: pd.DataFrame, colunas_dias: Sequence[str]) -> pd.DataFrame:
+    """Contagens de status por técnico, preservando o índice da planilha."""
+    status = _matriz_status_presenca(df, colunas_dias)
+    total = len(status.columns)
+    saida = pd.DataFrame(index=status.index)
+    for rotulo in ("ATIVO", "FALTA", "ATESTADO", "Não preenchido"):
+        saida[rotulo] = status.eq(rotulo).sum(axis=1).astype(int)
+    saida["Outros"] = (
+        (total - saida[["ATIVO", "FALTA", "ATESTADO", "Não preenchido"]].sum(axis=1))
+        .clip(lower=0)
+        .astype(int)
+    )
+    saida["Dias preenchidos"] = total - saida["Não preenchido"]
+    saida["Total de marcações"] = total
+    saida["FALTA + ATESTADO"] = saida["FALTA"] + saida["ATESTADO"]
+    preenchidos = saida["Dias preenchidos"].replace(0, float("nan"))
+    saida["% Presença"] = saida["ATIVO"] / preenchidos * 100.0
+    saida["% Preenchimento"] = saida["Dias preenchidos"] / total * 100.0 if total else 0.0
+    return saida
+
+
+def _identificador_tecnico(df: pd.DataFrame) -> pd.Series:
+    """Login canônico, com nome como fallback para cadastros sem login."""
+    identificadores = []
+    for indice, linha in df.iterrows():
+        login = normalizar_login(linha.get("Login", ""))
+        nome = normalizar_chave(linha.get("Técnico", ""))
+        identificadores.append(login or nome or f"LINHA{indice}")
+    return pd.Series(identificadores, index=df.index, dtype="object")
+
+
+def resumir_marcacoes_presenca(
+    df: pd.DataFrame,
+    colunas_dias: Sequence[str] | None = None,
+) -> dict[str, int | float]:
+    """Resumo executivo das marcações no recorte, incluindo pendências."""
+    dados = df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    dias = list(
+        identificar_colunas_dias_planilha(dados)
+        if colunas_dias is None
+        else colunas_dias
+    )
+    por_linha = _metricas_por_linha(dados, dias)
+    somas = por_linha[list(_COLUNAS_SOMA_PRESENCA)].sum()
+    total = int(somas["Total de marcações"])
+    preenchidos = int(somas["Dias preenchidos"])
+    ativos = int(somas["ATIVO"])
+    nao_preenchidos = int(somas["Não preenchido"])
+    identificadores = _identificador_tecnico(dados) if not dados.empty else pd.Series(dtype=object)
+    return {
+        "tecnicos": int(identificadores.nunique()) if len(identificadores) else 0,
+        "dias_total": len(dias),
+        "total_marcacoes": total,
+        "dias_preenchidos": preenchidos,
+        "ativo": ativos,
+        "falta": int(somas["FALTA"]),
+        "atestado": int(somas["ATESTADO"]),
+        "nao_preenchido": nao_preenchidos,
+        "outros": int(somas["Outros"]),
+        "faltas_atestados": int(somas["FALTA"] + somas["ATESTADO"]),
+        "percentual_presenca": (ativos / preenchidos * 100.0) if preenchidos else float("nan"),
+        "percentual_preenchimento": (preenchidos / total * 100.0) if total else 0.0,
+    }
+
+
+def _rotulo_categoria_presenca(valor: Any) -> str:
+    if pd.isna(valor):
+        return "Não informado"
+    texto = str(valor).strip()
+    if normalizar_chave(texto) in {"", "NA", "NAN", "NONE", "NULL", "NENHUM", "NENHUMA"}:
+        return "Não informado"
+    return texto
+
+
+def agrupar_marcacoes_presenca(
+    df: pd.DataFrame,
+    colunas_dias: Sequence[str],
+    por: str | Sequence[str],
+) -> pd.DataFrame:
+    """Agrega status por dimensão(ões), com percentual e total de faltas/atestados."""
+    dados = df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    dimensoes_pedidas = [por] if isinstance(por, str) else list(por)
+    dimensoes = [coluna for coluna in dimensoes_pedidas if coluna in dados.columns]
+    colunas_saida = [*dimensoes, "Técnicos", *_COLUNAS_METRICAS_PRESENCA]
+    if dados.empty:
+        return pd.DataFrame(columns=colunas_saida)
+
+    metricas = _metricas_por_linha(dados, colunas_dias)
+    trabalho = pd.DataFrame(index=dados.index)
+    for coluna in dimensoes:
+        trabalho[coluna] = dados[coluna].map(_rotulo_categoria_presenca)
+    for coluna in _COLUNAS_SOMA_PRESENCA:
+        trabalho[coluna] = metricas[coluna]
+    trabalho["_id_tecnico"] = _identificador_tecnico(dados)
+
+    if not dimensoes:
+        linha = {coluna: int(trabalho[coluna].sum()) for coluna in _COLUNAS_SOMA_PRESENCA}
+        linha["Técnicos"] = int(trabalho["_id_tecnico"].nunique())
+        linha["FALTA + ATESTADO"] = linha["FALTA"] + linha["ATESTADO"]
+        linha["% Presença"] = (
+            linha["ATIVO"] / linha["Dias preenchidos"] * 100.0
+            if linha["Dias preenchidos"]
+            else float("nan")
+        )
+        linha["% Preenchimento"] = (
+            linha["Dias preenchidos"] / linha["Total de marcações"] * 100.0
+            if linha["Total de marcações"]
+            else 0.0
+        )
+        return pd.DataFrame([linha], columns=colunas_saida)
+
+    agrupado = trabalho.groupby(dimensoes, sort=False, dropna=False)
+    totais = agrupado[list(_COLUNAS_SOMA_PRESENCA)].sum().reset_index()
+    quantidade = agrupado["_id_tecnico"].nunique().reset_index(name="Técnicos")
+    resultado = totais.merge(quantidade, on=dimensoes, how="left")
+    resultado["FALTA + ATESTADO"] = resultado["FALTA"] + resultado["ATESTADO"]
+    resultado["% Presença"] = (
+        resultado["ATIVO"] / resultado["Dias preenchidos"].replace(0, float("nan")) * 100.0
+    )
+    resultado["% Preenchimento"] = (
+        resultado["Dias preenchidos"] / resultado["Total de marcações"].replace(0, pd.NA) * 100.0
+    ).fillna(0.0)
+    return resultado[colunas_saida].reset_index(drop=True)
+
+
+def gerar_excel_executivo_presenca(
+    recorte: pd.DataFrame,
+    resumo_por_monitor_base: pd.DataFrame,
+) -> bytes:
+    """Gera o Excel executivo: detalhe filtrado + resumo por Monitor/Base."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    dados = recorte if isinstance(recorte, pd.DataFrame) else pd.DataFrame()
+    resumo = (
+        resumo_por_monitor_base
+        if isinstance(resumo_por_monitor_base, pd.DataFrame)
+        else pd.DataFrame()
+    )
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        dados.to_excel(writer, index=False, sheet_name="Recorte filtrado")
+        resumo.to_excel(writer, index=False, sheet_name="Resumo Monitor Base")
+        for planilha in writer.book.worksheets:
+            planilha.freeze_panes = "A2"
+            planilha.sheet_view.showGridLines = False
+            if planilha.max_row and planilha.max_column:
+                planilha.auto_filter.ref = planilha.dimensions
+            for celula in planilha[1]:
+                celula.fill = PatternFill("solid", fgColor="012869")
+                celula.font = Font(color="FFFFFF", bold=True)
+                celula.alignment = Alignment(vertical="center", wrap_text=True)
+            planilha.row_dimensions[1].height = 28
+            for indice, coluna in enumerate(planilha.iter_cols(), start=1):
+                cabecalho = str(planilha.cell(1, indice).value or "")
+                tamanho = max(
+                    (len(str(celula.value)) for celula in coluna if celula.value is not None),
+                    default=len(cabecalho),
+                )
+                planilha.column_dimensions[planilha.cell(1, indice).column_letter].width = min(
+                    max(tamanho + 2, 12), 40
+                )
+                if cabecalho == "% Presença":
+                    for linha in range(2, planilha.max_row + 1):
+                        planilha.cell(linha, indice).number_format = '0.0"%"'
+    return buffer.getvalue()
