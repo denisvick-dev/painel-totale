@@ -1776,6 +1776,16 @@ def _render_planilha_externa() -> None:
             )
 
 
-_render_planilha_externa()
+aba_painel, aba_chamada = st.tabs(
+    ["Painel executivo", "Preencher presença do dia"],
+    key="absenteismo_aba_principal",
+    on_change="rerun",
+)
+if aba_painel.open:
+    with aba_painel:
+        _render_planilha_externa()
+if aba_chamada.open:
+    with aba_chamada:
+        _render_chamada_diaria()
 
 fechar_dashboard()
