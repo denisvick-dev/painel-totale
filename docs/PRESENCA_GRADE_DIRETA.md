@@ -1,70 +1,58 @@
-# Lista de Presença diretamente na aba absenteismo
+# Presença: grade de análise e chamada na planilha externa
 
-A fonte principal da página é agora a grade `absenteismo` da planilha de ativos.
-A página não depende de importação nem grava registros em `controle_absenteismo`.
-Os serviços antigos de registros continuam no repositório por compatibilidade,
-mas não são o caminho de persistência desta página.
+O painel mantém duas frentes complementares:
 
-## Fonte e semântica
+- **Análises e histórico** usam a grade `absenteismo` da planilha de ativos.
+- **Preencher presença do dia** usa a planilha externa `lista_de_presenca`, que
+  é também a origem do Painel executivo. Nenhuma linha é criada nas duas
+  planilhas pelo aplicativo.
 
-- A equipe da chamada vem das linhas da própria grade. Técnicos que só existem
-  em `lista_ativos` não ganham linhas automaticamente. O cadastro segue como
-  diagnóstico auxiliar, não como uma segunda lista concorrente.
-- Datas numéricas são lidas como seriais para preservar o ano verdadeiro,
-  mesmo quando o Sheets mostra apenas `1/nov.`. Cabeçalhos de texto sem ano
-  ainda usam a referência padrão do interpretador (ano corrente); recomenda-se
-  manter datas reais na planilha, formatadas como dia/mês.
-- ATIVO é mostrado como Presente. Novas presenças são gravadas como ATIVO.
-- Vazio significa Não preenchido. Tipos reconhecidos mantêm os rótulos do
-  aplicativo. Nenhuma célula é preenchida automaticamente como presença.
-- DUPLADO e BAIXA DE KIT são preservados e mostrados como situação operacional,
-  sem entrar nas contagens de presentes ou ausentes. Outros valores históricos
-  também não são regravados se não forem alterados.
-- A chamada de um dia usa a tabela operacional `Cód.Equipe`, `Cód.Aux.Equipe`,
-  `Matrícula`, `Nome Equipe`, `Supervisor` e `Status Dia`. A matrícula vem de
-  `RE`, o nome de `Técnico` e o supervisor de `Monitor`; os dois códigos são
-  exibidos quando existem na grade de origem e ficam vazios quando não existem.
-  A visualização não expõe nem permite editar o login interno.
-- O seletor diário oferece `ATIVO`, `ATESTADO`, `FALTA`, `FOLGA`, `LICENÇA`,
-  `TREINAMENTO`, `SUSPENSÃO`, `BAIXA DE KIT`, `FÉRIAS` e `AFASTADO` (além de
-  vazio para pendente). Os rótulos são traduzidos ao formato canônico da grade;
-  `AFASTADO` e `BAIXA DE KIT` também são gravados com esses rótulos.
+## Fonte da chamada
+
+- A equipe vem das linhas da planilha `lista_de_presenca` (`RE`, `Login`,
+  `Técnico`, `Monitor`, `U.N.` e `Base`). Técnicos presentes apenas em
+  `lista_ativos` ou na grade `absenteismo` não aparecem nessa chamada.
+- As colunas diárias da planilha (por exemplo, `1/nov.`) definem as datas
+  disponíveis. O seletor usa o ano da data de referência e ajusta planilhas que
+  atravessam a virada do ano.
+- A tabela da chamada segue o leiaute compacto `RE`, `Login`, `Técnico`,
+  `Monitor` e `Status`. Em branco é pendência; nunca é presença presumida.
+- ATIVO é a confirmação de presença. FALTA, ATESTADO, FOLGA, FÉRIAS, LICENÇA,
+  TREINAMENTO, SUSPENSÃO, BAIXA DE KIT e AFASTADO são as demais situações
+  oferecidas. Valores históricos fora dessa lista são preservados enquanto
+  não forem alterados.
+- Os filtros de unidade, monitor e busca da chamada são combinados com os
+  filtros da lateral. A visualização por período mostra uma coluna de situação
+  por dia selecionado.
 
 ## Escrita e auditoria
 
-O painel monta registros virtuais por login/dia apenas para as análises. Para
-gravar, calcula a diferença entre a versão carregada e a edição. Faz leitura
-remota atualizada, localiza novamente o login e a data e confere o valor da
-célula. Grava somente as células alteradas em uma requisição `batchUpdate`.
-Não limpa a grade, não altera cadastro, não cria dias/linhas e não substitui
-formatação. Células com fórmulas são bloqueadas.
+A gravação acontece somente nas células alteradas da planilha
+`lista_de_presenca`:
 
-Cada célula alterada gera antes/depois, login, data, horário e motivo em
-`auditoria_presenca`, anexados na mesma requisição das alterações. A aba de
-auditoria é criada se não existir; um cabeçalho incompatível bloqueia o envio.
-A correção por motivo mantém o histórico nessa auditoria, não em linhas
-canceladas na grade. O cancelamento limpa a célula e também gera auditoria.
+1. o painel relê a planilha remota antes de escrever;
+2. confirma que o login e a coluna do dia ainda existem e que a célula não mudou
+   desde a leitura;
+3. envia um `batchUpdate` com as posições alteradas, sem tocar em cadastros,
+   fórmulas ou formatação;
+4. recarrega a página com o resultado confirmado.
 
-Lotes e correções utilizam esse caminho. O fechamento confere a grade antes
-de registrar o retrato em `fechamentos_presenca`. A auditoria pode ser consultada
-pela tela. Responsáveis digitados são declaratórios, não identidades verificadas.
+Conflito, login duplicado, login ausente, coluna de dia inexistente ou valor
+fora das opções bloqueiam o envio. A conta de serviço precisa ter permissão de
+edição na planilha `lista_de_presenca`. A conexão Drive da conversa não é
+repassada ao Streamlit.
 
-## Configuração e limites
+As operações de lote, correção com histórico, fechamento e auditoria continuam
+associadas à grade `absenteismo` e seguem valendo para as análises. A chamada
+diária não mistura esses fluxos: ela grava direto na planilha externa.
 
-São necessários `[gcp_service_account]` nos secrets e permissão de edição da
-conta de serviço na planilha. A conexão Drive da conversa não é repassada ao
-Streamlit. Se a leitura falhar, a página mostra o erro e interrompe a montagem:
-a falha não vira uma lista vazia nem uma confirmação de presença.
+## Configuração
 
-Login duplicado, marcação sem login, coluna/data ausente, fórmula ou conflito
-bloqueiam a gravação. Linhas vazias sem marcação podem ser ignoradas. Corrigir
-um cadastro é feito na planilha. Use Atualizar registros e quadro para reler.
+`SHEET_ID_PRESENCA` (variável de ambiente ou entrada em `secrets.toml`)
+identifica a planilha externa. `[gcp_service_account]` ou
+`GOOGLE_APPLICATION_CREDENTIALS` fornece a credencial de leitura e escrita. Use
+**Atualizar registros e quadro** para reler as fontes depois de alterações
+manuais.
 
-Há trava dentro de um processo e conferência otimista por célula, não uma
-transação compare-and-swap entre processos. Alterações simultâneas na mesma
-célula depois da última leitura ainda podem competir. A escrita localizada
-evita sobrescrever o restante da aba. Para garantia transacional entre réplicas,
-é necessário backend com controle de concorrência.
-
-Testes utilizam grade e cliente simulados. Nenhuma gravação foi executada na
+Testes utilizam planilha e cliente simulados. Nenhuma gravação foi executada na
 planilha real durante a implementação. Validar em uma cópia antes de implantar.
