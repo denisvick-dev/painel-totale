@@ -1,6 +1,6 @@
 # Runtime principal do portal (Python 3.11+). Os pisos acompanham as APIs usadas;
 # limites de major reduzem quebras involuntárias sem congelar patches de segurança.
-streamlit>=1.52,<2.0
+streamlit>=1.67,<2.0
 pandas>=2.2,<4.0
 numpy>=1.26,<3.0
 plotly>=5.24,<8.0

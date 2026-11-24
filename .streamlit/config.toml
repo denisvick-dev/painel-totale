@@ -1,0 +1,23 @@
+# Tema corporativo TOTALE.
+# As opções ``dataframe*`` dão a mesma leitura dos cabeçalhos das tabelas
+# corporativas (`.corp-table`) a todos os ``st.dataframe``/``st.data_editor``.
+[theme]
+primaryColor = "#012869"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F5F9"
+textColor = "#0F172A"
+borderColor = "#CBD5E1"
+
+dataframeBorderColor = "#CBD5E1"
+dataframeHeaderBackgroundColor = "#0B3A8F"
+dataframeHeaderTextColor = "#FFFFFF"
+
+[theme.dark]
+dataframeBorderColor = "#334155"
+dataframeHeaderBackgroundColor = "#0B3A8F"
+dataframeHeaderTextColor = "#FFFFFF"
+
+[theme.sidebar]
+dataframeBorderColor = "#CBD5E1"
+dataframeHeaderBackgroundColor = "#0B3A8F"
+dataframeHeaderTextColor = "#FFFFFF"
