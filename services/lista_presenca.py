@@ -90,11 +90,22 @@ COLUNAS_CHAMADA_DIARIA = (
     "Status Dia",
 )
 
+#: Leiaute compacto usado no preenchimento diário (RE, Login, Técnico, Monitor e Status).
+COLUNAS_CHAMADA_SIMPLES = ("RE", "Login", "Técnico", "Monitor", "Status")
 
-def montar_tabela_chamada_diaria(matriz: pd.DataFrame, dia: date) -> pd.DataFrame:
-    """Monta a tabela diária no leiaute operacional, sem expor o login interno."""
+
+def montar_tabela_chamada_diaria(
+    matriz: pd.DataFrame, dia: date, *, layout: str = "operacional"
+) -> pd.DataFrame:
+    """Monta a tabela diária no leiaute operacional ou no leiaute compacto.
+
+    O leiaute ``simples`` usa as colunas da grade (``RE``, ``Login``, ``Técnico``,
+    ``Monitor`` e ``Status``), mantendo os códigos internos apenas no legado.
+    """
     if not isinstance(matriz, pd.DataFrame) or dia not in matriz.columns:
         raise ValueError("A data escolhida não existe na lista de presença.")
+    if layout not in {"operacional", "simples"}:
+        raise ValueError("Leiaute da chamada diária desconhecido.")
 
     def coluna_texto(origem: str) -> pd.Series:
         if origem in matriz.columns:
@@ -102,6 +113,16 @@ def montar_tabela_chamada_diaria(matriz: pd.DataFrame, dia: date) -> pd.DataFram
         return pd.Series("", index=matriz.index, dtype="object")
 
     tabela = pd.DataFrame(index=matriz.index)
+    if layout == "simples":
+        # A grade já traz RE/Login; os nomes operacionais são fallback para
+        # matrizes antigas que ainda usam apenas os códigos de equipe.
+        tabela["RE"] = coluna_texto("RE" if "RE" in matriz.columns else "Matrícula")
+        tabela["Login"] = coluna_texto("Login" if "Login" in matriz.columns else "Cód.Aux.Equipe")
+        tabela["Técnico"] = coluna_texto("Técnico" if "Técnico" in matriz.columns else "Nome Equipe")
+        tabela["Monitor"] = coluna_texto("Monitor" if "Monitor" in matriz.columns else "Supervisor")
+        tabela["Status"] = matriz[dia].map(tipo_para_status_tela)
+        return tabela[list(COLUNAS_CHAMADA_SIMPLES)]
+
     tabela["Cód.Equipe"] = coluna_texto("Cód.Equipe")
     tabela["Cód.Aux.Equipe"] = coluna_texto("Cód.Aux.Equipe")
     tabela["Matrícula"] = coluna_texto("RE") if "RE" in matriz.columns else coluna_texto("Login")
@@ -115,20 +136,25 @@ def registros_da_chamada_diaria(
     original: pd.DataFrame, editada: pd.DataFrame, dia: date
 ) -> list[dict]:
     """Valida a tabela diária e converte suas seleções ao fluxo da grade mensal."""
-    esperada = montar_tabela_chamada_diaria(original, dia)
-    if not editada.index.equals(esperada.index) or list(editada.columns) != list(esperada.columns):
+    simples = "Status" in editada.columns and "Status Dia" not in editada.columns
+    layout = "simples" if simples else "operacional"
+    coluna_status = "Status" if simples else "Status Dia"
+    colunas = COLUNAS_CHAMADA_SIMPLES if simples else COLUNAS_CHAMADA_DIARIA
+    esperada = montar_tabela_chamada_diaria(original, dia, layout=layout)
+    if not editada.index.equals(esperada.index) or list(editada.columns) != list(colunas):
         raise ValueError("A estrutura da tabela foi alterada. Reabra o preenchimento.")
 
-    colunas_protegidas = [coluna for coluna in COLUNAS_CHAMADA_DIARIA if coluna != "Status Dia"]
-    for coluna in colunas_protegidas:
+    for coluna in colunas:
+        if coluna == coluna_status:
+            continue
         antes = esperada[coluna].fillna("").astype(str).str.strip()
         depois = editada[coluna].fillna("").astype(str).str.strip()
         if not antes.equals(depois):
             raise ValueError("Os dados cadastrais não podem ser alterados nesta tabela.")
 
     opcoes_oficiais = {normalizar_chave(valor) for valor in OPCOES_STATUS_DIA if valor}
-    statuses = editada["Status Dia"].fillna("").astype(str).str.strip()
-    atuais = esperada["Status Dia"].fillna("").astype(str).str.strip()
+    statuses = editada[coluna_status].fillna("").astype(str).str.strip()
+    atuais = esperada[coluna_status].fillna("").astype(str).str.strip()
     for indice, valor in statuses.items():
         if valor and normalizar_chave(valor) not in opcoes_oficiais and valor != atuais.at[indice]:
             raise ValueError("Selecione uma das situações disponíveis para o dia.")

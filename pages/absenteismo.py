@@ -783,6 +783,31 @@ def _render_acoes_presenca(matriz: pd.DataFrame, dia: date) -> None:
                 st.error(f"Não foi possível consultar os fechamentos: {exc}")
 
 
+def _css_tabela_chamada_compacta() -> None:
+    """Aproxima o editor diário da grade operacional: bordas finas e linhas compactas."""
+    st.markdown(
+        """
+        <style>
+        [data-testid="stMain"] [data-testid="stDataEditor"] {
+            border: 1px solid #9ca3af !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        [data-testid="stMain"] [data-testid="stDataEditor"] [role="columnheader"] {
+            background-color: #f3f4f6 !important;
+            color: #111827 !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+        }
+        [data-testid="stMain"] [data-testid="stDataEditor"] [role="gridcell"] {
+            font-size: 12px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     """Editor com identidade protegida e salvamento automático por seleção."""
     st.markdown("#### Chamada da equipe")
@@ -873,43 +898,44 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
     if diario:
         dias = [dia_resumo]
         matriz = filtrar_grade_preenchimento(matriz, dias)
-        tabela_editor = montar_tabela_chamada_diaria(matriz, dia_resumo)
+        tabela_editor = montar_tabela_chamada_diaria(matriz, dia_resumo, layout="simples")
         opcoes = list(OPCOES_STATUS_DIA)
-        existentes = {str(valor).strip() for valor in tabela_editor["Status Dia"] if str(valor).strip()}
+        existentes = {str(valor).strip() for valor in tabela_editor["Status"] if str(valor).strip()}
         opcoes.extend(sorted(existentes - set(opcoes)))
         configuracao = {
-            "Cód.Equipe": st.column_config.TextColumn("Cód.Equipe", width="small"),
-            "Cód.Aux.Equipe": st.column_config.TextColumn("Cód.Aux.Equipe", width="small"),
-            "Matrícula": st.column_config.TextColumn("Matrícula", width="small"),
-            "Nome Equipe": st.column_config.TextColumn("Nome Equipe", width="large"),
-            "Supervisor": st.column_config.TextColumn("Supervisor", width="medium"),
-            "Status Dia": st.column_config.SelectboxColumn(
-                "Status Dia", options=opcoes, width="medium",
+            "RE": st.column_config.TextColumn("RE", width="small"),
+            "Login": st.column_config.TextColumn("Login", width="small"),
+            "Técnico": st.column_config.TextColumn("Técnico", width="large"),
+            "Monitor": st.column_config.TextColumn("Monitor", width="medium"),
+            "Status": st.column_config.SelectboxColumn(
+                "Status", options=opcoes, width="medium",
                 help="Escolha uma situação. Vazio significa chamada pendente; os demais campos são protegidos.",
             ),
         }
         ordem = list(tabela_editor.columns)
-        nomes_editaveis = {"Status Dia"}
+        nomes_editaveis = {"Status"}
         tabela_estilizada = (
             tabela_editor.style
             .set_properties(**{
-                "background-color": "#EAF2F8",
-                "color": "#17324D",
-                "border": "1px solid #B7CAD8",
+                "background-color": "#FFFFFF",
+                "color": "#111827",
+                "border": "1px solid #9CA3AF",
+                "font-size": "13px",
             })
             .set_table_styles([
                 {"selector": "th", "props": [
-                    ("background-color", "#17365D"),
-                    ("color", "#FFFFFF"),
-                    ("font-weight", "700"),
-                    ("border", "1px solid #102A4C"),
+                    ("background-color", "#F3F4F6"),
+                    ("color", "#111827"),
+                    ("font-weight", "600"),
+                    ("border", "1px solid #9CA3AF"),
                 ]},
                 {"selector": "tbody tr:nth-child(even) td", "props": [
-                    ("background-color", "#DCEBF5"),
+                    ("background-color", "#F9FAFB"),
                 ]},
             ])
         )
         chave_editor = f"absenteismo_grade_editor_diaria_{dia_resumo:%Y%m%d}_{hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:12]}"
+        _css_tabela_chamada_compacta()
     else:
         dias = _colunas_dia_mapa(matriz)
         matriz["Total"] = matriz[dias].ne("Não preenchido").sum(axis=1)
@@ -946,7 +972,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         hide_index=True, num_rows="fixed",
         disabled=[c for c in tabela_editor.columns if c not in nomes_editaveis],
         column_config=configuracao, column_order=ordem,
-        height=min(600, 40 + len(matriz) * 35), width="stretch",
+        height=min(600, 40 + len(matriz) * (30 if diario else 35)), width="stretch",
         key=chave_editor,
     )
     if not diario:
@@ -955,7 +981,7 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         _render_acoes_presenca(matriz_acoes, dia_resumo)
     with st.expander("Como preencher e corrigir marcações"):
         if diario:
-            st.markdown("**Status Dia em branco** é uma pendência. Selecione **ATIVO** para confirmar presença ou escolha uma das situações do menu.")
+            st.markdown("**Status em branco** é uma pendência. Selecione **ATIVO** para confirmar presença ou escolha uma das situações do menu.")
         else:
             st.markdown("**Não preenchido** é uma pendência. Selecione **Presente** para confirmar a presença ou escolha o motivo da ausência.")
         st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. A auditoria preserva o valor anterior. Em falha de envio, os dados ficam apenas nesta sessão.")
