@@ -113,11 +113,9 @@ def test_aba_diaria_exibe_data_equipe_e_grade_editavel(monkeypatch) -> None:
     assert any(widget.label == "Localizar técnico" for widget in app.text_input)
 
     editor = next(iter(app.data_editor))
-    assert editor.value.columns.tolist() == [
-        "Cód.Equipe", "Cód.Aux.Equipe", "Matrícula", "Nome Equipe", "Supervisor", "Status Dia",
-    ]
-    assert editor.value["Matrícula"].tolist() == ["8368", "8496", "8554"]
-    assert editor.value["Nome Equipe"].tolist() == [
+    assert editor.value.columns.tolist() == ["RE", "Login", "Técnico", "Monitor", "Status"]
+    assert editor.value["RE"].tolist() == ["8368", "8496", "8554"]
+    assert editor.value["Técnico"].tolist() == [
         "Alex Bernardes Da Silva", "Alex De Jesus Freire", "Abner Makalas",
     ]
 
@@ -149,7 +147,7 @@ def test_filtro_de_unidade_limita_a_equipe_exibida(monkeypatch) -> None:
     unidade.set_value(["NET-LESTE"]).run()
 
     assert not app.exception
-    assert app.data_editor[0].value["Matrícula"].tolist() == ["8554"]
+    assert app.data_editor[0].value["RE"].tolist() == ["8554"]
 
 
 def test_lote_exige_responsavel_e_confirmacao(monkeypatch) -> None:

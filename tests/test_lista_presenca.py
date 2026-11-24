@@ -108,6 +108,34 @@ def test_tabela_diaria_tem_layout_exato_e_persiste_situacoes_na_grade():
     assert all(registro["Data Início"] == DIA.isoformat() for registro in novos)
 
 
+def test_tabela_diaria_compacta_exibe_re_login_tecnico_monitor_e_status():
+    original = pd.DataFrame(
+        {
+            "RE": ["8368", "8496"],
+            "Login": ["Z641759", "Z663524"],
+            "Técnico": ["Ana", "Bia"],
+            "Monitor": ["Edson Marco Pinheiro", "Edson Marco Pinheiro"],
+            "Base": ["ABC", "ABC"],
+            DIA: ["Não preenchido", "Não preenchido"],
+        }
+    )
+    tabela = montar_tabela_chamada_diaria(original, DIA, layout="simples")
+
+    assert tabela.columns.tolist() == ["RE", "Login", "Técnico", "Monitor", "Status"]
+    assert tabela["Login"].tolist() == ["Z641759", "Z663524"]
+    assert tabela["Status"].tolist() == ["", ""]
+
+    tabela.loc[0, "Status"] = "ATIVO"
+    novos = registros_da_chamada_diaria(original, tabela, DIA)
+    assert [(registro["Login"], registro["Tipo"]) for registro in novos] == [
+        ("Z641759", "Presente")
+    ]
+
+    tabela.loc[1, "Monitor"] = "Outro monitor"
+    with pytest.raises(ValueError, match="cadastr"):
+        registros_da_chamada_diaria(original, tabela, DIA)
+
+
 def test_tabela_diaria_protege_cadastro_e_nao_reescreve_status_existente():
     original = pd.DataFrame(
         {
