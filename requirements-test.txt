@@ -3,7 +3,7 @@
 # importa `pages/quebra_geral.py`, que usa openpyxl para formatar a planilha.
 pytest>=8,<9
 ruff>=0.16,<0.17
-streamlit>=1.52,<2.0
+streamlit>=1.67,<2.0
 pandas>=2.2,<4.0
 numpy>=1.26,<3.0
 plotly>=5.24,<8.0

@@ -3,7 +3,8 @@
 `use_container_width` foi depreciado (remoção prevista após 2025-12-31) em favor
 de `width="stretch"` / `width="content"`. A migração (103 chamadas em 19
 arquivos) foi feita em 2026-10-05 e o piso de versão do projeto subiu para
-`streamlit>=1.52` — primeiro release com `width` em todos os elementos usados
+`streamlit>=1.67` — release com `width` em todos os elementos usados e com
+`dataframeHeaderTextColor` para o cabeçalho escuro dos dataframes
 (st.plotly_chart, st.altair_chart, st.button, st.download_button,
 st.form_submit_button, st.page_link, st.dataframe, st.image).
 
@@ -24,7 +25,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 IGNORADOS = {"old", "__pycache__", ".venv", ".venv-check", ".git", "painel-totale"}
 
 # Piso mínimo exigido do Streamlit (espelhado em requirements.txt).
-PISO_STREAMLIT = (1, 52)
+PISO_STREAMLIT = (1, 67)
 
 
 def _arquivos_do_app() -> list[Path]:

@@ -488,27 +488,44 @@ def css_containers() -> str:
         font-size: 12px !important;
         font-weight: 700 !important;
     }}
-    /* Tabelas e dataframes */
+    /* Tabelas e dataframes: mesma leitura das tabelas corporativas (.corp-table).
+       O cabeçalho dos dataframes vem de .streamlit/config.toml, porque o grid é
+       desenhado em canvas e não aceita CSS. */
     {_MAIN} [data-testid="stDataFrame"],
     {_MAIN} [data-testid="stTable"] {{
-        border: 1px solid var(--totale-borda);
-        border-radius: var(--totale-raio-md);
+        border: 1px solid #CBD5E1;
+        border-radius: 8px;
         overflow: hidden;
-        box-shadow: var(--totale-sombra-sm);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
     }}
     {_MAIN} [data-testid="stTable"] table {{
-        font-size: 12.5px;
+        font-size: 11px;
+        border-collapse: collapse;
     }}
     {_MAIN} [data-testid="stTable"] thead th {{
-        background: var(--totale-azul-suave) !important;
-        color: var(--totale-azul) !important;
-        font-weight: 750;
+        background: linear-gradient(180deg, #012869 0%, #1E40AF 100%) !important;
+        color: #FFFFFF !important;
+        font-weight: 700;
         text-transform: uppercase;
-        font-size: 10.5px;
-        letter-spacing: 0.06em;
+        font-size: 10px;
+        letter-spacing: 0.04em;
+        padding: 5px 8px;
+        border: 1px solid #CBD5E1;
+    }}
+    {_MAIN} [data-testid="stTable"] tbody td {{
+        padding: 5px 8px;
+        line-height: 1.2;
+        border: 1px solid #E2E8F0;
+        font-variant-numeric: tabular-nums;
+    }}
+    {_MAIN} [data-testid="stTable"] tbody tr:nth-child(even) td {{
+        background-color: #F8FAFC;
+    }}
+    {_MAIN} [data-testid="stTable"] tbody td.num {{
+        text-align: right;
     }}
     {_MAIN} [data-testid="stDataFrameResizable"] {{
-        border-radius: var(--totale-raio-md);
+        border-radius: 8px;
     }}
     /* Gráficos Plotly: moldura de cartão */
     {_MAIN} [data-testid="stPlotlyChart"] {{
