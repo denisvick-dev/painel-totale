@@ -32,7 +32,7 @@ from components.graficos import (
 from components.kpi_cards import SpecKPIAvancado, render_kpi_row
 from components.layout_pagina import secao
 from components.sidebar import render_page_sidebar_theme_selector
-from config.settings import SHEET_ABA_ATIVOS, obter_sheet_id_ativos
+from config.settings import SHEET_ABA_ATIVOS, URL_PRESENCA_EDIT
 from services.absenteismo import (
     ABREVIACOES_AUSENCIA,
     CHAVE_SESSAO_REGISTROS,
@@ -65,9 +65,6 @@ from services.lista_presenca import (
     gerar_excel_executivo_presenca,
     identificar_colunas_dias_planilha,
     montar_lista_presenca,
-    montar_tabela_chamada_diaria,
-    registros_da_chamada_diaria,
-    registros_da_presenca,
     resumir_marcacoes_presenca,
     resumo_presenca,
 )
@@ -83,6 +80,16 @@ from services.presenca_operacoes import (
     corrigir_dia,
     fechar_chamada,
     preparar_lote,
+)
+from services.presenca_planilha import (
+    coluna_dia,
+    datas_da_planilha,
+    filtrar_equipe,
+    montar_tabela,
+    opcoes_status,
+    planejar_alteracoes,
+    salvar,
+    status_cellula,
 )
 from services.texto import escapar_html, formatar_inteiro, formatar_percentual, normalizar_texto
 
@@ -808,31 +815,56 @@ def _css_tabela_chamada_compacta() -> None:
     )
 
 
-def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
-    """Editor com identidade protegida e salvamento automático por seleção."""
+def _resumo_status_externo(df: pd.DataFrame, dia: date) -> dict[str, str | int]:
+    """Contagem das situações da planilha externa para uma data."""
+    rotulo = coluna_dia(dia)
+    valores = (
+        df[rotulo].map(status_cellula)
+        if rotulo in df.columns
+        else pd.Series("", index=df.index, dtype="object")
+    )
+    contagem = valores.value_counts()
+    resumo: dict[str, str | int] = {"Pendentes": int(valores.eq("").sum())}
+    for status in OPCOES_STATUS_DIA[1:]:
+        if status in contagem.index:
+            resumo[status] = int(contagem[status])
+    for status in contagem.index:
+        if status and status not in resumo:
+            resumo[status] = int(contagem[status])
+    return resumo
+
+
+def _render_preenchimento_mapa(planilha: pd.DataFrame) -> None:
+    """Editor da chamada gravado diretamente na planilha lista_de_presenca."""
     st.markdown("#### Chamada da equipe")
-    st.caption("Escolha a data, localize sua equipe e registre a situação. Cada seleção é salva automaticamente.")
-    dias_mes = _colunas_dia_mapa(matriz)
+    st.caption("Escolha a data, localize sua equipe e registre a situação. Cada seleção é salva automaticamente na planilha lista_de_presenca.")
+    dias = datas_da_planilha(planilha)
+    if not dias:
+        st.info("A planilha de presença não possui colunas de dia reconhecíveis (ex.: `1/nov.`).")
+        return
     hoje_editor = date.today()
-    dia_padrao = hoje_editor if hoje_editor in dias_mes else dias_mes[0]
+    passados = [dia for dia in dias if dia <= hoje_editor]
+    dia_padrao = passados[-1] if passados else dias[0]
     with st.container(border=True):
         col_data, col_unidade, col_monitor = st.columns([1, 1.4, 1.4])
         with col_data:
             dia_resumo = st.selectbox(
-                "Data da chamada", dias_mes, index=dias_mes.index(dia_padrao),
+                "Data da chamada", dias, index=dias.index(dia_padrao),
                 format_func=lambda d: f"{d:%d/%m/%Y} · {DIAS_SEMANA_ABREVIADOS[d.weekday()]}",
-                key=f"presenca_data_{dias_mes[0]:%Y_%m}",
+                key=f"presenca_data_{dias[0]:%Y_%m}",
             )
         with col_unidade:
             unidades = st.multiselect(
                 "U.N. cadastral",
-                sorted(matriz["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+                sorted(planilha["U.N."].fillna("").astype(str).str.strip().replace("", "Não informado").unique())
+                if "U.N." in planilha.columns else [],
                 placeholder="Todas as unidades", key="absenteismo_grade_unidades",
             )
         with col_monitor:
             monitores = st.multiselect(
                 "Monitor",
-                sorted(matriz["Monitor"].fillna("").astype(str).str.strip().replace("", "Não informado").unique()),
+                sorted(planilha["Monitor"].fillna("").astype(str).str.strip().replace("", "Não informado").unique())
+                if "Monitor" in planilha.columns else [],
                 placeholder="Todos os monitores", key="absenteismo_grade_monitores",
             )
         col_busca, col_visual = st.columns([2, 1])
@@ -847,61 +879,49 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
         dias_visiveis = [dia_resumo]
         if visualizacao == "Preenchimento por período":
             dias_visiveis = st.multiselect(
-                "Dias do período", dias_mes, default=[dia_padrao],
+                "Dias do período", dias, default=[dia_padrao],
                 format_func=lambda d: f"{d:%d/%m} · {DIAS_SEMANA_ABREVIADOS[d.weekday()]}",
-                key=f"presenca_periodo_{dias_mes[0]:%Y_%m}",
+                key=f"presenca_periodo_{dias[0]:%Y_%m}",
                 help="Selecione poucos dias para manter as situações legíveis.",
             )
         st.caption("Estes filtros afetam somente o preenchimento e são combinados com os filtros da lateral.")
     if not dias_visiveis:
         st.info("Selecione ao menos um dia para preencher a lista.")
         return
-    # Resumo sempre corresponde à data da chamada, mesmo no modo por período.
-    dias_calculo = sorted(set([*dias_visiveis, dia_resumo]))
-    matriz = filtrar_grade_preenchimento(matriz, dias_calculo, unidades, monitores)
-    if busca_editor.strip():
-        alvo = matriz["Técnico"].fillna("") + " " + matriz["Login"].fillna("")
-        matriz = matriz.loc[alvo.str.casefold().str.contains(busca_editor.strip().casefold(), regex=False)].copy()
-    if matriz.empty:
+    equipe = filtrar_equipe(planilha, unidades=bases_sel, monitores=monitores_sel, busca=busca)
+    equipe = filtrar_equipe(equipe, unidades=unidades, monitores=monitores, busca=busca_editor)
+    if equipe.empty:
         st.info("Nenhum técnico encontrado. Ajuste a unidade, o monitor ou a busca.")
         return
-    resumo_dia = resumo_presenca(matriz, dia_resumo)
+    resumo_dia = _resumo_status_externo(equipe, dia_resumo)
     colunas_resumo = st.columns(len(resumo_dia))
     for coluna, (rotulo, valor) in zip(colunas_resumo, resumo_dia.items()):
         coluna.metric(rotulo, valor)
-    concluidos = len(matriz) - resumo_dia["Pendentes"]
+    concluidos = len(equipe) - int(resumo_dia["Pendentes"])
     st.progress(
-        concluidos / len(matriz),
-        text=f"Chamada de {dia_resumo:%d/%m} · {concluidos} de {len(matriz)} técnicos preenchidos",
+        concluidos / len(equipe),
+        text=f"Chamada de {dia_resumo:%d/%m} · {concluidos} de {len(equipe)} técnicos preenchidos",
     )
-    matriz_acoes = matriz.copy()
-    col_pendentes, col_detalhes, col_link = st.columns([1.3, 1.3, 1])
+    col_pendentes, col_link = st.columns([1.4, 1])
     with col_pendentes:
         somente_pendentes = st.toggle("Somente pendentes", key="presenca_so_pendentes")
-    with col_detalhes:
-        if visualizacao == "Chamada do dia":
-            mostrar_detalhes = True
-            st.caption("Layout diário completo")
-        else:
-            mostrar_detalhes = st.toggle("Exibir dados cadastrais", key="presenca_dados_cadastrais")
     with col_link:
-        st.link_button("Abrir no Drive ↗", f"https://docs.google.com/spreadsheets/d/{obter_sheet_id_ativos()}/edit")
+        st.link_button("Abrir planilha no Drive ↗", URL_PRESENCA_EDIT)
     if somente_pendentes:
-        matriz = matriz.loc[matriz[dias_visiveis].eq("Não preenchido").any(axis=1)].copy()
-    if matriz.empty:
+        pendentes = pd.Series(False, index=equipe.index)
+        for dia in dias_visiveis:
+            rotulo = coluna_dia(dia)
+            valores = equipe[rotulo].map(status_cellula) if rotulo in equipe.columns else ""
+            pendentes |= valores.eq("")
+        equipe = equipe.loc[pendentes].copy()
+    if equipe.empty:
         st.success("Chamada concluída para os dias exibidos. Nenhum técnico pendente neste recorte.")
-        with st.expander("Exportar, corrigir ou concluir chamada"):
-            _render_acoes_presenca(matriz_acoes, dia_resumo)
         return
-    matriz = filtrar_grade_preenchimento(matriz, dias_visiveis)
-    diario = visualizacao == "Chamada do dia"
+
+    tabela_editor = montar_tabela(equipe, dias_visiveis)
+    diario = len(dias_visiveis) == 1
     if diario:
-        dias = [dia_resumo]
-        matriz = filtrar_grade_preenchimento(matriz, dias)
-        tabela_editor = montar_tabela_chamada_diaria(matriz, dia_resumo, layout="simples")
-        opcoes = list(OPCOES_STATUS_DIA)
-        existentes = {str(valor).strip() for valor in tabela_editor["Status"] if str(valor).strip()}
-        opcoes.extend(sorted(existentes - set(opcoes)))
+        opcoes = opcoes_status(tabela_editor, "Status")
         configuracao = {
             "RE": st.column_config.TextColumn("RE", width="small"),
             "Login": st.column_config.TextColumn("Login", width="small"),
@@ -912,116 +932,90 @@ def _render_preenchimento_mapa(matriz: pd.DataFrame) -> None:
                 help="Escolha uma situação. Vazio significa chamada pendente; os demais campos são protegidos.",
             ),
         }
-        ordem = list(tabela_editor.columns)
         nomes_editaveis = {"Status"}
-        tabela_estilizada = (
-            tabela_editor.style
-            .set_properties(**{
-                "background-color": "#FFFFFF",
-                "color": "#111827",
-                "border": "1px solid #9CA3AF",
-                "font-size": "13px",
-            })
-            .set_table_styles([
-                {"selector": "th", "props": [
-                    ("background-color", "#F3F4F6"),
-                    ("color", "#111827"),
-                    ("font-weight", "600"),
-                    ("border", "1px solid #9CA3AF"),
-                ]},
-                {"selector": "tbody tr:nth-child(even) td", "props": [
-                    ("background-color", "#F9FAFB"),
-                ]},
-            ])
-        )
-        chave_editor = f"absenteismo_grade_editor_diaria_{dia_resumo:%Y%m%d}_{hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:12]}"
-        _css_tabela_chamada_compacta()
     else:
-        dias = _colunas_dia_mapa(matriz)
-        matriz["Total"] = matriz[dias].ne("Não preenchido").sum(axis=1)
-        opcoes = list(OPCOES_PRESENCA)
-        existentes = {str(v) for dia in dias for v in matriz[dia].dropna() if str(v)}
-        opcoes += sorted(existentes - set(opcoes))
-        # O editor recebe chaves de texto explícitas para aplicar corretamente o
-        # SelectboxColumn; a conversão de volta preserva a validação por data.
-        nomes_dias = {dia: dia.isoformat() for dia in dias}
-        tabela_editor = matriz.rename(columns=nomes_dias)
+        opcoes = list(dict.fromkeys(
+            opcao for dia in dias_visiveis for opcao in opcoes_status(tabela_editor, dia.isoformat())
+        ))
         configuracao = {
-            "Técnico": st.column_config.TextColumn("Técnico", width="large"),
-            "Login": st.column_config.TextColumn("Login", width="small"),
-            "Monitor": st.column_config.TextColumn("Monitor", width="medium"),
             "RE": st.column_config.TextColumn("RE", width="small"),
-            "Total": None,
+            "Login": st.column_config.TextColumn("Login", width="small"),
+            "Técnico": st.column_config.TextColumn("Técnico", width="large"),
+            "Monitor": st.column_config.TextColumn("Monitor", width="medium"),
         }
-        configuracao.update({
-            nomes_dias[dia]: st.column_config.SelectboxColumn(
-                "Situação do dia" if len(dias) == 1 else f"{dia:%d/%m} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
+        for dia in dias_visiveis:
+            configuracao[dia.isoformat()] = st.column_config.SelectboxColumn(
+                f"{dia:%d/%m} · {DIAS_SEMANA_ABREVIADOS[dia.weekday()]}",
                 options=opcoes, width="medium",
-                help="Não preenchido é pendência, nunca presença. Marcações existentes são preservadas.",
-            ) for dia in dias
+                help="Vazio significa chamada pendente.",
+            )
+        nomes_editaveis = {dia.isoformat() for dia in dias_visiveis}
+    ordem = list(tabela_editor.columns)
+    tabela_estilizada = (
+        tabela_editor.style
+        .set_properties(**{
+            "background-color": "#FFFFFF",
+            "color": "#111827",
+            "border": "1px solid #9CA3AF",
+            "font-size": "13px",
         })
-        ordem = ["Login", "Técnico", *nomes_dias.values()]
-        if mostrar_detalhes:
-            ordem = ["RE", "Login", "Técnico", "Monitor", "Base", "U.N.", *nomes_dias.values()]
-        nomes_editaveis = set(nomes_dias.values())
-        chave_editor = f"absenteismo_grade_editor_{hashlib.sha256(matriz.to_csv(index=False).encode()).hexdigest()[:16]}"
-
-    st.caption(f"{len(matriz)} técnico(s) na lista · selecione a situação na célula · salvamento automático")
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("background-color", "#F3F4F6"),
+                ("color", "#111827"),
+                ("font-weight", "600"),
+                ("border", "1px solid #9CA3AF"),
+            ]},
+            {"selector": "tbody tr:nth-child(even) td", "props": [
+                ("background-color", "#F9FAFB"),
+            ]},
+        ])
+    )
+    chave_editor = (
+        f"absenteismo_planilha_editor_{dias_visiveis[0]:%Y%m%d}_"
+        + hashlib.sha256(tabela_editor.to_csv(index=False).encode()).hexdigest()[:12]
+    )
+    _css_tabela_chamada_compacta()
+    st.caption(f"{len(equipe)} técnico(s) na lista · selecione a situação na célula · salvamento automático")
     editada = st.data_editor(
-        tabela_estilizada if diario else tabela_editor,
+        tabela_estilizada,
         hide_index=True, num_rows="fixed",
-        disabled=[c for c in tabela_editor.columns if c not in nomes_editaveis],
+        disabled=[coluna for coluna in tabela_editor.columns if coluna not in nomes_editaveis],
         column_config=configuracao, column_order=ordem,
-        height=min(600, 40 + len(matriz) * (30 if diario else 35)), width="stretch",
+        height=min(600, 40 + len(equipe) * 30), width="stretch",
         key=chave_editor,
     )
-    if not diario:
-        editada = editada.rename(columns={nome: dia for dia, nome in nomes_dias.items()})
-    with st.expander("Ações da chamada · lote, correção, fechamento e Excel"):
-        _render_acoes_presenca(matriz_acoes, dia_resumo)
-    with st.expander("Como preencher e corrigir marcações"):
-        if diario:
-            st.markdown("**Status em branco** é uma pendência. Selecione **ATIVO** para confirmar presença ou escolha uma das situações do menu.")
-        else:
-            st.markdown("**Não preenchido** é uma pendência. Selecione **Presente** para confirmar a presença ou escolha o motivo da ausência.")
-        st.caption("O preenchimento atua apenas em dias pendentes. Para corrigir uma marcação, use a aba Corrigir com histórico. A auditoria preserva o valor anterior. Em falha de envio, os dados ficam apenas nesta sessão.")
-    try:
-        novos = (
-            registros_da_chamada_diaria(matriz, editada, dia_resumo)
-            if diario
-            else registros_da_presenca(matriz, editada)
+    with st.expander("Exportar recorte da chamada"):
+        st.download_button(
+            "Baixar chamada em Excel",
+            data=gerar_excel_executivo_presenca(equipe, pd.DataFrame()),
+            file_name=f"chamada_presenca_{dia_resumo:%Y_%m_%d}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="presenca_exportar_chamada_externa",
         )
+    with st.expander("Como preencher as situações"):
+        st.markdown("**Status em branco** é uma pendência. Selecione **ATIVO** para confirmar presença ou escolha uma das situações do menu.")
+        st.caption("Somente as células alteradas são enviadas para a planilha lista_de_presenca. Cadastros, fórmulas e formatação permanecem intactos. Se a célula mudar no Drive antes do salvamento, o painel avisa para evitar sobrescrever a alteração.")
+    try:
+        # Evita abrir a planilha de escrita quando nada foi alterado.
+        if not planejar_alteracoes(equipe, editada, dias_visiveis):
+            return
+        ok, motivo, _, quantidade = salvar(equipe, editada, dias_visiveis)
     except ValueError as erro:
         st.error(str(erro))
         return
-    if not novos:
+    except Exception as erro:
+        st.error(f"Não foi possível salvar na planilha de presença: {erro}")
         return
-    # Confere contra todos os registros, inclusive os ocultos pelo filtro de tipo.
-    for novo in novos:
-        dia = date.fromisoformat(novo["Data Início"])
-        existentes_dia = registros.loc[
-            registros["Status"].ne(STATUS_CANCELADO)
-            & (registros["_inicio"].dt.date <= dia)
-            & (registros["_fim"].dt.date >= dia)
+    if not ok:
+        st.error(motivo)
+        return
+    if quantidade:
+        st.session_state.pop(chave_editor, None)
+        st.session_state["absenteismo_flash"] = [
+            ("sucesso", f"{formatar_inteiro(quantidade)} situação(ões) salva(s) na planilha lista_de_presenca.")
         ]
-        if existentes_dia["Login"].eq(novo["Login"]).any():
-            st.error("Um dos dias já tem ausência. Remova o filtro de tipo e confira o mapa antes de salvar.")
-            return
-    atualizados = normalizar_registros(pd.concat(
-        [registros.drop(columns=["_inicio", "_fim"], errors="ignore"), pd.DataFrame(novos)],
-        ignore_index=True,
-    ))
-    with st.spinner("Salvando preenchimento no Google Sheets…"):
-        sincronizou = _persistir(atualizados)
-    if sincronizou:
-        mensagem = ("sucesso", f"{len(novos)} dia(s) salvo(s) automaticamente no Drive (aba absenteismo).")
-    else:
-        st.session_state[CHAVE_PENDENTES] = [
-            *st.session_state.get(CHAVE_PENDENTES, []), *novos,
-        ]
-        mensagem = ("alerta", "Preenchimento mantido somente nesta sessão; não foi possível gravar na planilha. Exporte os registros para guardar.")
-    st.session_state["absenteismo_flash"] = [mensagem]
-    st.rerun()
+        st.rerun()
 
 
 # Quadro do mapa: mesmo recorte de base/monitor/busca da página.
@@ -1046,6 +1040,7 @@ if busca.strip():
 
 mapa_inicio = periodo_inicio.replace(day=1)
 mapa_fim = (mapa_inicio + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
 
 def _render_forca():
     with secao(
@@ -1466,20 +1461,20 @@ def _lista_presenca_em_cache(registros, quadro, inicio, fim):
 
 def _render_chamada_diaria() -> None:
     st.caption("01 · Selecione a data e a equipe → 02 · Registre as situações → 03 · Confira e conclua a chamada")
-    st.info("A chamada considera todos os tipos de situação. Os filtros de tipo e período da lateral são usados nas análises; a data da chamada é escolhida abaixo.")
-    lista = _lista_presenca_em_cache(registros, quadro_mapa, min(datas_grade), max(datas_grade)).copy()
-    for coluna in ("Cód.Equipe", "Cód.Aux.Equipe"):
-        if coluna in quadro_mapa.columns:
-            codigos = quadro_mapa.set_index("LOGIN")[coluna].fillna("").astype(str).to_dict()
-            lista[coluna] = lista["Login"].map(codigos).fillna("").astype(str)
-        else:
-            lista[coluna] = ""
-    if lista.empty:
-        render_empty_state(tipo="filtro", titulo="Nenhum técnico neste recorte", descricao="Ajuste o filtro Base acima ou os filtros de monitor e busca na lateral.")
+    st.info("A chamada usa a equipe e as situações da planilha **lista_de_presenca**. Os filtros de tipo e período da lateral são usados nas análises; a data da chamada é escolhida abaixo.")
+    try:
+        planilha = carregar_planilha_lista_presenca(ttl=120)
+    except Exception as exc:
+        st.error(f"Não foi possível carregar a planilha de presença: {exc}")
         return
-    _render_preenchimento_mapa(lista)
-    with st.expander("Registrar ausência por período"):
-        _render_lancamento()
+    if planilha.empty:
+        render_empty_state(
+            tipo="filtro",
+            titulo="Nenhum técnico na planilha de presença",
+            descricao="Confira a planilha lista_de_presenca e sua permissão de leitura.",
+        )
+        return
+    _render_preenchimento_mapa(planilha)
 
 
 def _estilo_celula_presenca_externa(valor: object) -> str:

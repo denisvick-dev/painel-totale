@@ -1,7 +1,6 @@
 """Integração do painel executivo de presença com a planilha mensal."""
 from __future__ import annotations
 
-import sys
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +10,7 @@ from streamlit.testing.v1 import AppTest
 
 from services.absenteismo import CHAVE_SESSAO_REGISTROS, normalizar_registros
 from services.lista_presenca import normalizar_planilha_lista_presenca
-from services.presenca_grade import CHAVE_SNAPSHOT, interpretar_valores
+from services.presenca_grade import CHAVE_SNAPSHOT
 
 RAIZ = Path(__file__).resolve().parents[1]
 PAGINA = RAIZ / "pages" / "absenteismo.py"
@@ -70,6 +69,7 @@ def _rodar(monkeypatch, snapshot=None) -> AppTest:
     app = AppTest.from_file(str(PAGINA), default_timeout=60)
     app.session_state[CHAVE_SNAPSHOT] = snapshot
     app.session_state[CHAVE_SESSAO_REGISTROS] = snapshot["registros"].copy()
+    app.session_state["presenca_data_2026_11"] = date(2026, 11, 1)
     return app.run()
 
 
@@ -134,47 +134,36 @@ def test_pagina_separa_painel_executivo_e_chamada_diaria(monkeypatch):
     assert any(item.label == "Data da chamada" for item in app.selectbox)
     assert any(item.label == "U.N. cadastral" for item in app.multiselect)
     assert any(item.label == "Monitor" for item in app.multiselect)
-    assert any(editor.key.startswith("absenteismo_grade_editor_") for editor in app.data_editor)
+    assert any(editor.key.startswith("absenteismo_planilha_editor_") for editor in app.data_editor)
 
 
-def test_chamada_grava_presenca_na_grade_e_auditoria_simuladas(monkeypatch):
-    import services.presenca_grade as presenca_grade
+def test_chamada_grava_status_na_planilha_externa(monkeypatch):
+    import services.presenca_planilha as presenca_planilha
 
-    class WorksheetNotFound(Exception):
-        pass
-
-    monkeypatch.setitem(
-        sys.modules,
-        "gspread.exceptions",
-        SimpleNamespace(WorksheetNotFound=WorksheetNotFound),
-    )
-    valores_grade = [
-        ["RE", "Login", "Técnico", "Monitor", "Base", "U.N.", "2026-11-01", "2026-11-02"],
-        ["1", "Z1", "Ana", "Monitor A", "ABCDM-TOTALE", "NET-ABCDM", "", ""],
-        ["2", "Z2", "Bia", "Monitor A", "ABCDM-TOTALE", "NET-ABCDM", "", ""],
-    ]
+    dados = _dados_planilha()
+    valores = [list(dados.columns), *dados.astype(str).values.tolist()]
     atualizacoes = []
-    grade = SimpleNamespace(
-        id=42,
-        get_all_values=lambda **kwargs: [linha.copy() for linha in valores_grade],
+    aba = SimpleNamespace(id=9, get_all_values=lambda: [linha.copy() for linha in valores])
+    planilha = SimpleNamespace(sheet1=aba, batch_update=atualizacoes.append)
+    cliente = SimpleNamespace(
+        open_by_key=lambda sheet_id: planilha,
+        set_timeout=lambda timeout: None,
     )
-    auditoria = SimpleNamespace(id=43, get_all_values=lambda: [])
-    planilha = SimpleNamespace(
-        worksheet=lambda nome: grade if nome == "absenteismo" else auditoria,
-        batch_update=atualizacoes.append,
-    )
-    monkeypatch.setattr(presenca_grade, "_abrir", lambda: planilha)
+    monkeypatch.setattr(presenca_planilha, "_cliente_gspread", lambda: cliente)
 
-    snapshot = interpretar_valores(valores_grade)
-    app = _rodar(monkeypatch, snapshot)
+    app = _rodar(monkeypatch)
     app.session_state["absenteismo_aba_principal"] = "Preencher presença do dia"
     app.run()
     assert not app.exception
-    editor = next(editor for editor in app.data_editor if editor.key.startswith("absenteismo_grade_editor_"))
+    editor = next(
+        editor for editor in app.data_editor
+        if editor.key.startswith("absenteismo_planilha_editor_")
+    )
     assert editor.value.columns.tolist() == ["RE", "Login", "Técnico", "Monitor", "Status"]
+    assert editor.value["Status"].tolist() == ["ATIVO", "FALTA", ""]
 
     app.session_state[editor.key] = {
-        "edited_rows": {0: {"Status": "ATIVO"}},
+        "edited_rows": {2: {"Status": "ATESTADO"}},
         "added_rows": [],
         "deleted_rows": [],
     }
@@ -182,16 +171,12 @@ def test_chamada_grava_presenca_na_grade_e_auditoria_simuladas(monkeypatch):
 
     assert not app.exception
     assert len(atualizacoes) == 1
-    pedidos = atualizacoes[0]["requests"]
-    assert pedidos[0]["updateCells"]["range"] == {
-        "sheetId": 42,
-        "startRowIndex": 1,
-        "endRowIndex": 2,
+    pedido = atualizacoes[0]["requests"][0]["updateCells"]
+    assert pedido["range"] == {
+        "sheetId": 9,
+        "startRowIndex": 3,
+        "endRowIndex": 4,
         "startColumnIndex": 6,
         "endColumnIndex": 7,
     }
-    assert pedidos[0]["updateCells"]["rows"][0]["values"][0]["userEnteredValue"] == {
-        "stringValue": "ATIVO"
-    }
-    assert "appendCells" in pedidos[1]
-    assert app.session_state[CHAVE_SNAPSHOT]["celulas"][("Z1", date(2026, 11, 1))]["texto"] == "ATIVO"
+    assert pedido["rows"][0]["values"][0]["userEnteredValue"] == {"stringValue": "ATESTADO"}

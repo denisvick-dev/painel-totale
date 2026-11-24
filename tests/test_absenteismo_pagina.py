@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 from streamlit.testing.v1 import AppTest
@@ -12,6 +13,7 @@ from services.absenteismo import (
     normalizar_quadro_identidade,
     normalizar_registros,
 )
+from services.lista_presenca import normalizar_planilha_lista_presenca
 from services.presenca_grade import CHAVE_SNAPSHOT, interpretar_valores
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -75,16 +77,39 @@ def _snapshot() -> dict:
     return snapshot
 
 
+def _planilha_presenca() -> pd.DataFrame:
+    colunas_dias = {f"{dia.day}/nov.": ["", "", ""] for dia in pd.date_range("2026-11-01", "2026-11-30")}
+    return normalizar_planilha_lista_presenca(
+        pd.DataFrame(
+            {
+                "RE": ["8368", "8496", "8554"],
+                "Login": ["Z641759", "Z663524", "Z657046"],
+                "Técnico": [
+                    "Alex Bernardes Da Silva",
+                    "Alex De Jesus Freire",
+                    "Abner Makalas",
+                ],
+                "Monitor": [
+                    "Edson Marco Pinheiro",
+                    "Edson Marco Pinheiro",
+                    "Alan De Andrade Dias",
+                ],
+                "U.N.": ["ABCDM-TOTALE", "ABCDM-TOTALE", "SPO-TOTALLESTE"],
+                "Base": ["NET-ABCDM", "NET-ABCDM", "NET-LESTE"],
+                **colunas_dias,
+            }
+        )
+    )
+
+
 def _rodar(monkeypatch) -> AppTest:
     import services.lista_presenca as lista_presenca
 
-    def acesso_externo_nao_esperado(**kwargs):
-        raise AssertionError("O painel executivo oculto não deve acessar o Sheets na aba diária")
-
+    dados = _planilha_presenca()
     monkeypatch.setattr(
         lista_presenca,
         "carregar_planilha_lista_presenca",
-        acesso_externo_nao_esperado,
+        lambda **kwargs: dados.copy(),
     )
     snapshot = _snapshot()
     app = AppTest.from_file(str(PAGINA), default_timeout=60)
@@ -108,7 +133,7 @@ def test_aba_diaria_exibe_data_equipe_e_grade_editavel(monkeypatch) -> None:
     assert len(data.options) == 30
     unidade = next(widget for widget in app.multiselect if widget.label == "U.N. cadastral")
     monitor = next(widget for widget in app.multiselect if widget.label == "Monitor")
-    assert unidade.options == ["NET-ABCDM", "NET-LESTE"]
+    assert unidade.options == ["ABCDM-TOTALE", "SPO-TOTALLESTE"]
     assert "Edson Marco Pinheiro" in monitor.options
     assert any(widget.label == "Localizar técnico" for widget in app.text_input)
 
@@ -144,17 +169,37 @@ def test_busca_sem_resultado_mostra_orientacao(monkeypatch) -> None:
 def test_filtro_de_unidade_limita_a_equipe_exibida(monkeypatch) -> None:
     app = _rodar(monkeypatch)
     unidade = next(widget for widget in app.multiselect if widget.label == "U.N. cadastral")
-    unidade.set_value(["NET-LESTE"]).run()
+    unidade.set_value(["SPO-TOTALLESTE"]).run()
 
     assert not app.exception
     assert app.data_editor[0].value["RE"].tolist() == ["8554"]
 
 
-def test_lote_exige_responsavel_e_confirmacao(monkeypatch) -> None:
+def test_chamada_grava_status_na_planilha_externa(monkeypatch) -> None:
+    import services.presenca_planilha as presenca_planilha
+
+    dados = _planilha_presenca()
+    valores = [list(dados.columns), *dados.astype(str).values.tolist()]
+    atualizacoes = []
+    aba = SimpleNamespace(id=7, get_all_values=lambda: [linha.copy() for linha in valores])
+    planilha = SimpleNamespace(sheet1=aba, batch_update=atualizacoes.append)
+    cliente = SimpleNamespace(
+        open_by_key=lambda sheet_id: planilha,
+        set_timeout=lambda timeout: None,
+    )
+    monkeypatch.setattr(presenca_planilha, "_cliente_gspread", lambda: cliente)
+
     app = _rodar(monkeypatch)
-    botao = next(widget for widget in app.button if widget.label == "Confirmar lote")
-    botao.click().run()
+    editor = next(iter(app.data_editor))
+    app.session_state[editor.key] = {
+        "edited_rows": {0: {"Status": "ATIVO"}},
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+    app.run()
 
     assert not app.exception
-    assert any("Informe o responsável e confirme" in erro.value for erro in app.error)
-    assert any(aba.label == "Preencher em lote" for aba in app.tabs)
+    assert len(atualizacoes) == 1
+    pedido = atualizacoes[0]["requests"][0]["updateCells"]
+    assert pedido["range"]["sheetId"] == 7
+    assert pedido["rows"][0]["values"][0]["userEnteredValue"] == {"stringValue": "ATIVO"}
